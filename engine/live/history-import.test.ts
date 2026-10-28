@@ -37,7 +37,7 @@ import { importHistory, IMPORT_REVIEW_SCHEMA, removedMarker } from "../src/workf
 import { historyToolPath, historyToolPin, resolveHistoryTool, type HistoryToolName } from "../src/workflow/forge/history-tools.ts";
 import { armTestKeyHome } from "../test/support/test-key-home.ts";
 import { createTempDir } from "../test/support/temp-dir.ts";
-import { CORAL_KEY, entryOf, GIT, git, GITHUB_TOKEN, MAKORA_KEY, pemLine, plantedRepository, SHORT_PASSWORD, write } from "../test/forge/history-fixture.ts";
+import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, pemLine, plantedRepository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "../test/forge/history-fixture.ts";
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
 const OPERATOR_HOME = process.env[POLICY.environmentVariable];
@@ -100,7 +100,7 @@ test("a planted history (UTF-16LE included) is found, purged, re-scanned to zero
   git(source, "add", ".");
   git(source, "commit", "-q", "-m", "UTF-16LE settings, with and without a BOM");
   const target = bareTarget();
-  const receipt = await importHistory({ source, target }, { home, git: GIT });
+  const receipt = await importHistory({ source, target }, importOptions(home));
 
   assert.deepEqual(receipt.findings.catalogue, Object.fromEntries([[entryOf(CORAL_KEY), 2], [entryOf(`Pwd=${SHORT_PASSWORD};`), 2], [entryOf(MAKORA_KEY), 2], [entryOf(GITHUB_TOKEN), 3]].sort(([a], [b]) => (String(a) < String(b) ? -1 : 1))));
   assert.ok((receipt.findings.oracle.covered["github-pat"] ?? 0) >= 1, "the oracle saw the token and the catalogue covers it");
@@ -124,7 +124,7 @@ test("a planted history (UTF-16LE included) is found, purged, re-scanned to zero
   assert.deepEqual(JSON.parse(recorded) as unknown, JSON.parse(JSON.stringify(receipt)));
   assert.ok(!recorded.includes(source) && !recorded.includes(target), "no absolute path in the pushed receipt");
 
-  await assert.rejects(importHistory({ source, target }, { home, git: GIT }), refusedWith("history_import_target_not_empty"));
+  await assert.rejects(importHistory({ source, target }, importOptions(home)), refusedWith("history_import_target_not_empty"));
 });
 
 test("an undecodable object is refused until the review exempts it by id; its credential is still found and stripped", async () => {
@@ -135,11 +135,11 @@ test("an undecodable object is refused until the review exempts it by id; its cr
   write(source, "README.md", "a logo\n");
   git(source, "add", ".");
   git(source, "commit", "-q", "-m", "a logo");
-  const folder = await refusalFolder(importHistory({ source, target: bareTarget() }, { home, git: GIT }), "history_import_undecodable");
+  const folder = await refusalFolder(importHistory({ source, target: bareTarget() }, importOptions(home)), "history_import_undecodable");
   const listed = JSON.parse(readFileSync(join(folder, "undecodable.json"), "utf8")) as { undecodable: { oid: string; paths: string[] }[] };
   assert.deepEqual(listed.undecodable.map((entry) => entry.paths), [["logo.png"]]);
   const target = bareTarget();
-  const receipt = await importHistory({ source, target, review: review({ binaries: [{ oid: listed.undecodable[0]!.oid, reason: "the project logo, reviewed" }] }) }, { home, git: GIT });
+  const receipt = await importHistory({ source, target, review: review({ binaries: [{ oid: listed.undecodable[0]!.oid, reason: "the project logo, reviewed" }] }) }, importOptions(home));
   assert.deepEqual(receipt.purge.strippedBlobs, [listed.undecodable[0]!.oid], "its credential was found byte for byte, so it is stripped");
   assert.equal(receipt.findings.review.binaries, 1);
   assert.ok(!holds(everything(target), CORAL_KEY));
@@ -147,22 +147,24 @@ test("an undecodable object is refused until the review exempts it by id; its cr
 
 test("an oracle-only secret and a key wider than its catalogue row are refused until a reviewed disposition names the oracle-only value", async () => {
   const home = testImportHome();
-  const webhook = `https://hooks.slack.com/services/${["T0", "1ABCDEFGH"].join("")}/${["B0", "1ABCDEFGH"].join("")}/${"Zq3Wx8Rt6Yv1Nm5Kp9Lb4Hd2".slice(0, 24)}`;
+  // A Linear API key: a format gitleaks' own rules know and the catalogue does not (the catalogue grows: a
+  // format it gains is no longer oracle-only, and this test then needs another one).
+  const oracleOnly = ["lin", "_api_"].join("") + "Zq3Wx8Rt6Yv1Nm5Kp9Lb4Hd2Fg7Jk0Ps3Uv6Xa8Bc".slice(0, 40);
   const source = createTempDir("history-import-gap-");
   git(source, "init", "-q", "-b", "main");
-  write(source, "notify.txt", `hook: ${webhook}\n`);
+  write(source, "notify.txt", `linear: ${oracleOnly}\n`);
   git(source, "add", ".");
-  git(source, "commit", "-q", "-m", "a webhook only the oracle knows");
-  const gapFolder = await refusalFolder(importHistory({ source, target: bareTarget() }, { home, git: GIT }), "history_import_catalogue_gap");
+  git(source, "commit", "-q", "-m", "a key only the oracle knows");
+  const gapFolder = await refusalFolder(importHistory({ source, target: bareTarget() }, importOptions(home)), "history_import_catalogue_gap");
   // The reviewer's file: each gap's rule, object and value digest — the value itself never.
   const gaps = readFileSync(join(gapFolder, "oracle-gaps.json"), "utf8");
-  assert.ok(gaps.includes(sha256(webhook)) && gaps.includes("slack-webhook-url") && !gaps.includes(webhook));
+  assert.ok(gaps.includes(sha256(oracleOnly)) && gaps.includes("linear-api-key") && !gaps.includes(oracleOnly));
 
   const target = bareTarget();
-  const receipt = await importHistory({ source, target, review: review({ dispositions: [{ rule: "slack-webhook-url", secretSha256: sha256(webhook), reason: "a revoked test webhook, kept for the record" }] }) }, { home, git: GIT });
-  assert.deepEqual(receipt.findings.oracle.disposed, { "slack-webhook-url": 1 });
-  assert.deepEqual(receipt.after.oracleDisposed, { "slack-webhook-url": 1 });
-  assert.ok(holds(everything(target), webhook), "a disposed value is not purged");
+  const receipt = await importHistory({ source, target, review: review({ dispositions: [{ rule: "linear-api-key", secretSha256: sha256(oracleOnly), reason: "a revoked test key, kept for the record" }] }) }, importOptions(home));
+  assert.deepEqual(receipt.findings.oracle.disposed, { "linear-api-key": 1 });
+  assert.deepEqual(receipt.after.oracleDisposed, { "linear-api-key": 1 });
+  assert.ok(holds(everything(target), oracleOnly), "a disposed value is not purged");
 
   // A PEM key: never pushed with its body. While the catalogue's private-key
   // row spans only the header, the oracle's wider span is a gap (refused);
@@ -176,7 +178,7 @@ test("an oracle-only secret and a key wider than its catalogue row are refused u
   const keyTarget = bareTarget();
   let refusal: string | undefined;
   try {
-    await importHistory({ source: keyed, target: keyTarget }, { home, git: GIT });
+    await importHistory({ source: keyed, target: keyTarget }, importOptions(home));
   } catch (error) {
     refusal = (error as { code?: string }).code;
   }
@@ -193,7 +195,7 @@ test("end to end, nothing is pushed when the purge leaves residue (a token in an
   git(authored, "add", ".");
   execFileSync(GIT, ["-c", `user.name=ci ${GITHUB_TOKEN}`, "-c", "user.email=ci@example.invalid", "commit", "-q", "-m", "authored by a token"], { cwd: authored });
   const residueTarget = bareTarget();
-  await assert.rejects(importHistory({ source: authored, target: residueTarget }, { home, git: GIT }), refusedWith("history_import_residue"));
+  await assert.rejects(importHistory({ source: authored, target: residueTarget }, importOptions(home, ["ci@example.invalid"])), refusedWith("history_import_residue"));
   assert.equal(git(residueTarget, "for-each-ref").trim(), "", "nothing was pushed");
   // The receipt: a ref git accepts whose name carries a home path would put it in the pushed receipt.
   const named = createTempDir("history-import-receipt-");
@@ -203,7 +205,7 @@ test("end to end, nothing is pushed when the purge leaves residue (a token in an
   git(named, "commit", "-q", "-m", "plain");
   git(named, "branch", "notes=/home/user/drafts"); // a documented placeholder home: the tree holds no real one
   const receiptTarget = bareTarget();
-  await assert.rejects(importHistory({ source: named, target: receiptTarget }, { home, git: GIT }), (error: Error & { code?: string }) => error.code === "history_import_receipt_unsafe" && error.message.includes("is an absolute or home path"));
+  await assert.rejects(importHistory({ source: named, target: receiptTarget }, importOptions(home)), (error: Error & { code?: string }) => error.code === "history_import_receipt_unsafe" && error.message.includes("is an absolute or home path"));
   assert.equal(git(receiptTarget, "for-each-ref").trim(), "", "nothing was pushed");
 });
 
@@ -220,12 +222,12 @@ test("end to end, an undecodable object the review exempted is refused AFTER the
   execFileSync(GIT, ["-c", "user.name=Import Test", "-c", "user.email=import@example.invalid", "tag", "-a", "v1", "-F", message], { cwd: source });
   const before = git(source, "rev-parse", "refs/tags/v1").trim();
   // Without a review it is refused BEFORE the rewrite, listed with its stage.
-  const beforeFolder = await refusalFolder(importHistory({ source, target: bareTarget() }, { home, git: GIT }), "history_import_undecodable");
+  const beforeFolder = await refusalFolder(importHistory({ source, target: bareTarget() }, importOptions(home)), "history_import_undecodable");
   const first = JSON.parse(readFileSync(join(beforeFolder, "undecodable.json"), "utf8")) as { stage: string; undecodable: { oid: string; type: string }[] };
   assert.deepEqual([first.stage, first.undecodable.map((entry) => [entry.oid, entry.type])], ["before the rewrite", [[before, "tag"]]]);
   // A review exempting the tag by its id passes that check; the rewrite gives the tag a new id, which is refused after it.
   let afterFolder = "";
-  await assert.rejects(importHistory({ source, target: bareTarget(), review: review({ binaries: [{ oid: before, reason: "a latin1 tag message, reviewed" }] }) }, { home, git: GIT }), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
+  await assert.rejects(importHistory({ source, target: bareTarget(), review: review({ binaries: [{ oid: before, reason: "a latin1 tag message, reviewed" }] }) }, importOptions(home)), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
     afterFolder = String(error.facts?.["runFolder"] ?? "");
     return error.code === "history_import_undecodable" && error.message.includes("after the rewrite");
   });
@@ -235,7 +237,99 @@ test("end to end, an undecodable object the review exempted is refused AFTER the
   assert.notEqual(listed.undecodable[0]!.oid, before, "the rewritten tag has a new id");
   // The rewrite is deterministic: a review naming both ids lets the same import through, and the new id is what was pushed.
   const target = bareTarget();
-  const receipt = await importHistory({ source, target, review: review({ binaries: [{ oid: before, reason: "a latin1 tag message, reviewed" }, { oid: listed.undecodable[0]!.oid, reason: "the same tag after the rewrite" }] }) }, { home, git: GIT });
+  const receipt = await importHistory({ source, target, review: review({ binaries: [{ oid: before, reason: "a latin1 tag message, reviewed" }, { oid: listed.undecodable[0]!.oid, reason: "the same tag after the rewrite" }] }) }, importOptions(home));
   assert.equal(receipt.findings.review.binaries, 2);
   assert.equal(git(target, "rev-parse", "refs/tags/v1").trim(), listed.undecodable[0]!.oid);
+});
+
+/** A one-commit source whose author is `address` (the committer and the trailers as given). */
+function identitySource(author: string, message: string): string {
+  const source = createTempDir("history-import-identity-src-");
+  git(source, "init", "-q", "-b", "main");
+  write(source, "README.md", "a history with identities\n");
+  git(source, "add", ".");
+  execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${author}>`, "-m", message], { cwd: source, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
+  return source;
+}
+
+/** A mapping file kept OUTSIDE the public tree (as the coordination repository keeps it). */
+function identityMapFile(lines: readonly string[]): string {
+  const path = join(createTempDir("history-import-identity-map-"), "identities.mailmap");
+  writeFileSync(path, `${lines.join("\n")}\n`);
+  return path;
+}
+
+test("THE IDENTITY GATE: an unallowed author, or an unallowed trailer alone, is refused before anything is pushed, by commit id, never echoing the address; the dry run counts what needs a mapping", async () => {
+  const home = testImportHome();
+  const cases = [
+    ["author", identitySource(UNALLOWED_ADDRESS, "an ordinary change")],
+    ["trailer", identitySource(FIXTURE_ADDRESS, `an ordinary change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\nCo-authored-by: Another <${UNALLOWED_ADDRESS}>`)],
+  ] as const;
+  for (const [field, source] of cases) {
+    const target = bareTarget();
+    let message = "";
+    let folder = "";
+    await assert.rejects(importHistory({ source, target }, importOptions(home)), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
+      message = error.message;
+      folder = String(error.facts?.["runFolder"] ?? "");
+      return error.code === "history_import_identity_unallowed";
+    });
+    const head = git(source, "rev-parse", "HEAD").trim();
+    assert.ok(message.includes(head), `${field}: the refusal names the commit`);
+    assert.ok(!message.includes(UNALLOWED_ADDRESS), `${field}: the refusal never echoes the address`);
+    const listed = readFileSync(join(folder, "identities.json"), "utf8");
+    assert.ok(!listed.includes(UNALLOWED_ADDRESS), `${field}: the reviewer's file names objects and fields, never the address`);
+    assert.deepEqual((JSON.parse(listed) as { objects: { oid: string; fields: string[] }[] }).objects, [{ oid: head, fields: [field] }]);
+    assert.equal(git(target, "for-each-ref").trim(), "", `${field}: nothing was pushed`);
+  }
+  // The dry run: counts only, nothing rewritten or pushed, no target needed.
+  const both = identitySource(UNALLOWED_ADDRESS, `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>`);
+  git(both, "commit", "-q", "--allow-empty", "-m", "an allowed change");
+  const dry = await importHistory({ source: both, dryRun: true }, importOptions(home));
+  assert.equal(dry.identities.needingMapping, 1);
+  assert.equal(dry.identities.unmapped, 1);
+  assert.ok(!JSON.stringify(dry).includes(UNALLOWED_ADDRESS), "the dry run's report holds no address");
+  const mapped = await importHistory({ source: both, dryRun: true, identityMap: identityMapFile([`Mapped <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>`]) }, importOptions(home));
+  assert.deepEqual([mapped.identities.needingMapping, mapped.identities.unmapped], [1, 0], "with the mapping, the one commit needing it is covered");
+});
+
+test("THE IDENTITY MAPPING is applied by the importer itself, deterministically: the headers and every trailer are rewritten, no mapped-from address is left anywhere, and the old and new ids are recorded", async () => {
+  const home = testImportHome();
+  const source = identitySource(UNALLOWED_ADDRESS, `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\nThe author can be reached at ${UNALLOWED_ADDRESS.toUpperCase()}.`);
+  write(source, "AUTHORS", `Somebody <${UNALLOWED_ADDRESS}>\n`);
+  git(source, "add", ".");
+  execFileSync(GIT, ["commit", "-q", "-m", "the authors file"], { cwd: source, env: { ...process.env, GIT_AUTHOR_NAME: "Somebody", GIT_AUTHOR_EMAIL: UNALLOWED_ADDRESS, GIT_COMMITTER_NAME: "Somebody", GIT_COMMITTER_EMAIL: UNALLOWED_ADDRESS } });
+  const map = identityMapFile(["# the one identity mapping", `Mapped Person <${MAPPED_ADDRESS}> Somebody <${UNALLOWED_ADDRESS}>`]);
+  const runs = [];
+  for (let index = 0; index < 2; index += 1) {
+    const target = bareTarget();
+    const receipt = await importHistory({ source, target, identityMap: map }, importOptions(home));
+    assert.equal(receipt.identities.rewritten, 2, "both commits needed the mapping");
+    assert.ok(receipt.identities.commitMap.changed >= 2, "the commit map records the rewritten commits");
+    assert.ok(!holds(everything(target), UNALLOWED_ADDRESS) && !holds(everything(target), UNALLOWED_ADDRESS.toUpperCase()), "no mapped-from address reached the target, in any case or place");
+    const published = git(target, "log", "--all", "--format=%an <%ae>|%cn <%ce>|%B");
+    assert.ok(published.includes(`Mapped Person <${MAPPED_ADDRESS}>`), "the headers carry the mapped identity");
+    assert.ok(published.includes(`Signed-off-by: Somebody <${MAPPED_ADDRESS}>`), "the trailer carries the mapped address");
+    runs.push(receipt.refMap.map((ref) => `${ref.target} ${ref.oid}`).join("\n"));
+  }
+  assert.equal(runs[0], runs[1], "the rewrite is deterministic: the same source and mapping give the same ids");
+});
+
+test("THE IDENTITY RESIDUE CHECK: a mapped-from address the rewrite cannot reach (a binary blob filter-repo leaves alone) is refused after the rewrite, by object id, and nothing is pushed", async () => {
+  const home = testImportHome();
+  const source = identitySource(UNALLOWED_ADDRESS, "a change");
+  write(source, "assets/avatar.bin", Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(` contact ${UNALLOWED_ADDRESS}\n`)]));
+  git(source, "add", ".");
+  git(source, "commit", "-q", "-m", "a binary asset");
+  const target = bareTarget();
+  let message = "";
+  let folder = "";
+  await assert.rejects(importHistory({ source, target, identityMap: identityMapFile([`Mapped <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>`]) }, importOptions(home)), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
+    message = error.message;
+    folder = String(error.facts?.["runFolder"] ?? "");
+    return error.code === "history_import_identity_residue";
+  });
+  assert.ok(!message.includes(UNALLOWED_ADDRESS), "the refusal never echoes the address");
+  assert.ok(!readFileSync(join(folder, "identities.json"), "utf8").includes(UNALLOWED_ADDRESS));
+  assert.equal(git(target, "for-each-ref").trim(), "", "nothing was pushed");
 });

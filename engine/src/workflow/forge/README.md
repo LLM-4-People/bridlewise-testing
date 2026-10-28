@@ -35,6 +35,7 @@ conversion.
 - `app-keys.ts` — THE APP KEY CUSTODY, the one credential module every App key passes through (the runbook's "broker" is the key home): `<key home>/forge-apps/<role>.json` (0600, atomic, durable). `storeAppKey` is the first step after a conversion, for every custody. A host App's custody (`keyHomeCustody`) answers the identity and signs, and never hands the key out. An environment App's key is HELD only until `pushHeldKey` puts it in its GitHub environment; then the record keeps the identity and the push time, and a failed push leaves the key held for the next run. `appKeyState` answers absent, held or done.
 - `credentials.ts` — THE FIVE CREDENTIALS: `appInstallationCredential` (the installation looked up once, the token minted narrowed to one repository and the action's permissions, checked to be exactly what was asked — else `forge_token_scope_mismatch` —, cached in memory and renewed `renewBeforeMs` before it expires), `appJwtCredential` / `appJwt` (RS256, 9 minutes, `iss` = the client id), `environmentCredential`, `memoryCredential` and `anonymousCredential` (the manifest conversion only).
 - `history-import.ts` — THE HISTORY IMPORTER (above): `importHistory`, and its steps for the tests — `enumerateHistory`, `scanHistory` (one read of every blob, commit and tag, and of every path and ref name, for the catalogue's spans and the oracle's chunked findings), `judgeOracle` (covered, disposed or a gap), `planPurge` (the expressions, deterministic), `planRefs` (kept namespaces, everything else under `refs/heads/imported/`), `purgeResidue` (what the re-scan left), `decodedTexts`, `receiptRefusal` and `recordedLocation`, `readImportReview`, `admitImportHome`.
+- `history-identities.ts` — THE IDENTITY GATE's pure parts: every identity a commit or tag carries (`identityUses`), the one mapping file read and validated (`readIdentityMap`, refused inside the public tree), the judgement against the allowed list (`judgeIdentities`), and the rewrite's expressions (`identityExpressions`).
 - `history-tools.ts` — THE PINNED TOOLS: gitleaks 8.30.1 and git-filter-repo 2.47.0, each pinned by the sha256 of its release archive and of the file run (an AUTHORED PINS region), `resolveHistoryTool` (absent → the provisioning command; other bytes → refused), `runBounded` / `runHistoryTool` (a process group bounded by CPU time and a stall check, never wall time; stopped only through the owned-process `terminate`).
 - `gitleaks-config.ts` — THE ORACLE'S CONFIGURATION, projected from the catalogue: gitleaks' default rules plus one `bridlewise-<row>` rule per catalogue row RE2 can express; a row with a lookaround or a JavaScript-only escape is named in the header, never approximated.
 
@@ -77,7 +78,7 @@ node src/cli.ts harness forge audit --token-env GH_TOKEN   # the plan judged: an
 
 ## The history importer, in one paragraph
 
-`harness forge import-history <source> --to <target> [--review <file>]` is the
+`harness forge import-history <source> (--to <target> | --dry-run) [--review <file>] [--identity-map <file>]` is the
 ONE path a history enters the forge (github-only §8.3, runbook P6.1). It
 mirrors the source into a run folder of the private import home
 (`HARNESS_IMPORT_HOME`, default `~/.local/state/bridlewise/history-import`,
@@ -102,7 +103,19 @@ but UTF-8 — stripped whole), re-scans to zero (`purgeResidue`), scans the
 receipt itself (no absolute or home path: a local repository is recorded as
 `local:<name>`; no catalogue hit), commits it on `refs/heads/ledger`, and
 pushes every ref with an explicit refspec, atomically and never forced, into
-an EMPTY target, then reads the target back. A secret in a path or a ref name,
+an EMPTY target, then reads the target back. Before anything is rewritten or
+pushed, THE IDENTITY GATE (`history-identities.ts`) judges every address a
+commit or tag carries (author, committer, tagger, every trailer) against the
+ONE allowed list (`forge.historyImport.allowedIdentities`). An address not on
+it must be mapped by the ONE identity mapping (`--identity-map`: a
+mailmap-style file kept outside the public tree, since it holds the address it
+replaces), applied by the importer in the same rewrite (`--mailmap` for the
+headers, the same expressions everywhere else). An unmapped one is refused
+(`history_import_identity_unallowed`), naming the commits by id, never the
+address. After the rewrite, every address must be allowed and no mapped-from
+address may be left in any object, and filter-repo's commit map (old id → new
+id) is kept beside the receipt. `--dry-run` stops after the scans and answers
+the counts: the hits, the gaps, and the commits that need a mapping. A secret in a path or a ref name,
 or a credential in a URL, is refused. The two tools are pinned by sha256 and
 checked before every run, and every tool process runs as a PROCESS GROUP
 under the one supervisor's work-bounded mode: the group's CPU time (members

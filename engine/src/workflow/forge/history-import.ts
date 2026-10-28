@@ -10,6 +10,13 @@
  * 2. ENUMERATE every object reachable from every ref (`rev-list --objects
  *    --all`: branches, tags, notes, `refs/pull/*`, a stash) and every name
  *    (each path and each ref name).
+ * 2b. JUDGE EVERY IDENTITY to be published (`history-identities.ts`): the
+ *    author, committer, tagger and every trailer address of every commit and
+ *    tag, against the ONE allowed list (`forge.historyImport.allowedIdentities`).
+ *    An address not on it must be mapped by the ONE declared mapping (a
+ *    mailmap-style file outside the public tree, `--identity-map`), applied in
+ *    the same rewrite; one with no such mapping is refused, by object id,
+ *    never echoing the address.
  * 3. SCAN every blob, commit and tag object, read ONCE and decoded into
  *    every text it holds before any matching (`decodedTexts`: a BOM's
  *    encoding, else strict UTF-8, plus UTF-16 by the NULs' shape; an object
@@ -28,8 +35,10 @@
  *    inside its line (a lone `1` would shred the history); a blob holding a
  *    hit filter-repo cannot rewrite in place (a NUL in its first bytes, any
  *    encoding but UTF-8) is stripped whole and named in the receipt.
- * 5. RE-SCAN to zero with both scanners (`purgeResidue`); anything left is a
- *    refusal.
+ * 5. RE-SCAN to zero with both scanners (`purgeResidue`), and the identities:
+ *    every address now allowed, no mapped-from address anywhere in any object,
+ *    and the rewrite's commit map (old id → new id) kept beside the receipt;
+ *    anything left is a refusal.
  * 6. RECEIPT: the refs before and after, the object counts, the hits per entry
  *    and per oracle rule (never a value), the expressions' digest, the
  *    stripped blobs and the tools' pins; a local repository is recorded by
@@ -37,6 +46,11 @@
  *    (`receiptRefusal`: no absolute or home path, no catalogue hit), then
  *    committed to the imported history on `receipt.ref`
  *    (`<folder>/<run id>.json`).
+ * A DRY RUN (`--dry-run`) stops after the scans and answers the counts: the
+ * catalogue hits, the oracle gaps, the undecodable objects, the names holding a
+ * secret, and the commits and tags that need an identity mapping (and those
+ * the mapping does not cover). It rewrites and pushes nothing.
+ *
  * 7. PUSH every ref with an explicit refspec, atomically and never forced,
  *    into a target that must be EMPTY (the importer never rewrites a
  *    published history), then read the target's refs back.
@@ -70,11 +84,13 @@ import { COMMAND_ENVIRONMENT, GIT_NETWORK_ENVIRONMENT, projectEnvironment } from
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { FORGE_LOG_CATEGORY, ForgeError, type ForgeCode, type ForgeFacts } from "./codes.ts";
 import { GITLEAKS_CATALOGUE_RULE_PREFIX, gitleaksConfigText } from "./gitleaks-config.ts";
+import { allowedAddresses, comparableAddress, identityExpressions, identityUses, judgeIdentities, mappedFromAddresses, readIdentityMap, type IdentityField, type IdentityUse } from "./history-identities.ts";
 import { hostProgramVersion, resolveHistoryTool, runHistoryTool, type ResolvedHistoryTool } from "./history-tools.ts";
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
 
-const HISTORY_IMPORT_RECEIPT_SCHEMA = schemaId("history-import-receipt", 1);
+const HISTORY_IMPORT_RECEIPT_SCHEMA = schemaId("history-import-receipt", 2);
+const HISTORY_IMPORT_DRY_RUN_SCHEMA = schemaId("history-import-dry-run", 1);
 export const IMPORT_REVIEW_SCHEMA = schemaId("history-import-review", 1);
 
 // ── Where ────────────────────────────────────────────────────────────────
@@ -185,6 +201,42 @@ function* objectBatches(repository: GitRepository, objects: readonly HistoryObje
     bytes += object.size;
   }
   if (batch.length > 0) yield read(batch);
+}
+
+// ── Identities ───────────────────────────────────────────────────────────
+
+/** Every identity the commits and tags of `inventory` carry (`identityUses`), read once in batches. */
+export function historyIdentities(repository: GitRepository, inventory: HistoryInventory): readonly IdentityUse[] {
+  const uses: IdentityUse[] = [];
+  const objects = inventory.objects.filter((object) => object.type === "commit" || object.type === "tag");
+  for (const batch of objectBatches(repository, objects)) {
+    for (const { object, bytes } of batch) uses.push(...identityUses(object.oid, object.type as "commit" | "tag", bytes));
+  }
+  return deepFreeze(uses);
+}
+
+/** The objects of `inventory` that still hold one of `addresses` (comparable) anywhere in their bytes: none may after the rewrite. */
+export function addressResidue(repository: GitRepository, inventory: HistoryInventory, addresses: readonly string[]): readonly string[] {
+  if (addresses.length === 0) return [];
+  const left: string[] = [];
+  for (const batch of objectBatches(repository, inventory.objects.filter((object) => object.type !== "tree"))) {
+    for (const { object, bytes } of batch) {
+      const text = bytes.toString("latin1").toLowerCase();
+      if (addresses.some((address) => text.includes(address))) left.push(object.oid);
+    }
+  }
+  return deepFreeze(left.sort());
+}
+
+/** Writes `identities.json` (each object's id and the fields that carry an unallowed address: never the address) and refuses with `code`. */
+function refuseIdentities(runFolder: string, uses: readonly IdentityUse[], allowed: ReadonlySet<string>, objects: readonly string[], code: ForgeCode, message: string): never {
+  const fields = new Map<string, Set<IdentityField>>();
+  const named = new Set(objects);
+  for (const use of uses) {
+    if (named.has(use.oid) && !allowed.has(comparableAddress(use.address))) fields.set(use.oid, (fields.get(use.oid) ?? new Set()).add(use.field));
+  }
+  writePrivate(join(runFolder, "identities.json"), `${JSON.stringify({ objects: objects.map((oid) => ({ oid, fields: [...(fields.get(oid) ?? [])].sort() })) }, null, 2)}\n`);
+  refuse(runFolder, `${message} (first: ${objects.slice(0, 8).join(", ")}; every one, with the fields that carry it, is in identities.json)`, code, { objects: objects.length });
 }
 
 // ── Scan (the catalogue) ─────────────────────────────────────────────────
@@ -668,6 +720,12 @@ function writePrivate(path: string, content: string): void {
   if (!written.success) throw new ForgeError("history_import_write_failed", `${path} could not be written: ${written.reason ?? "unknown"}`);
 }
 
+/** filter-repo's commit map (`<git dir>/filter-repo/commit-map`: a header, then `<old id> <new id>` per commit), as written. */
+function readCommitMap(repository: GitRepository): string {
+  const path = join(repository.root, "filter-repo", "commit-map");
+  return existsSync(path) ? readFileSync(path, "utf8") : "old new\n";
+}
+
 /** filter-repo's own record of the rewrite (`<git dir>/filter-repo/first-changed-commits`), for the receipt. */
 function firstChangedCommits(repository: GitRepository): readonly string[] {
   const path = join(repository.root, "filter-repo", "first-changed-commits");
@@ -714,6 +772,8 @@ export type HistoryImportReceipt = Readonly<{
   /** After the purge: no catalogue hit and no oracle finding left, except the reviewed dispositions (counted per rule); the exempted undecodable objects. */
   after: Readonly<{ objects: Readonly<Record<HistoryObjectType, number>>; catalogueHits: 0; oracleGaps: 0; oracleDisposed: Readonly<Record<string, number>>; undecodableExempted: number }>;
   refMap: readonly RefMapping[];
+  /** The identity gate: the allowed list's and the mapping's digests (never an address), how many commits and tags the mapping rewrote, and the rewrite's commit map (kept as `commit-map` beside the receipt). */
+  identities: Readonly<{ allowedSha256: string; mapSha256: string | null; rewritten: number; commitMap: Readonly<{ sha256: string; changed: number }> }>;
   tools: Readonly<{
     git: string;
     python: string;
@@ -831,7 +891,12 @@ export function receiptRefusal(receipt: unknown): string | undefined {
 
 export type HistoryImportRequest = Readonly<{
   source: string;
-  target: string;
+  /** Where the history goes: required unless this is a dry run. */
+  target?: string | undefined;
+  /** The ONE declared identity mapping (a mailmap-style file outside the public tree), or none. */
+  identityMap?: string | undefined;
+  /** Scan and count only: nothing is rewritten or pushed. */
+  dryRun?: boolean | undefined;
   /** A reviewed decisions file (`IMPORT_REVIEW_SCHEMA`: oracle dispositions, exempted undecodable objects), or none. */
   review?: string | undefined;
 }>;
@@ -841,7 +906,25 @@ export type HistoryImportOptions = Readonly<{
   home: string;
   /** The git executable. */
   git: string;
+  /** The ONE allowed-identity list (`forge.historyImport.allowedIdentities`). */
+  allowedIdentities: readonly string[];
+  /** The public tree (the harness checkout): the identity mapping is refused inside it. */
+  publicTree: string;
   onProgress?: (line: string) => void;
+}>;
+
+/** What a dry run answers: counts and ids only (never a value, never an address). */
+export type HistoryImportDryRun = Readonly<{
+  schema: typeof HISTORY_IMPORT_DRY_RUN_SCHEMA;
+  id: string;
+  source: string;
+  refs: number;
+  objects: Readonly<Record<HistoryObjectType, number>>;
+  catalogue: Readonly<Record<string, number>>;
+  namesHoldingSecrets: number;
+  oracleGaps: number;
+  undecodableUnreviewed: number;
+  identities: Readonly<{ needingMapping: number; unmapped: number; unmappedObjects: readonly string[]; mapSha256: string | null }>;
 }>;
 
 /**
@@ -870,9 +953,14 @@ function refuse(runFolder: string, message: string, code: ForgeCode, details: Fo
  * to zero, record the receipt, push. Answers the receipt; on success the run
  * folder keeps only `receipt.json` (the mirror and the values are removed).
  */
-export async function importHistory(request: HistoryImportRequest, options: HistoryImportOptions): Promise<HistoryImportReceipt> {
+export async function importHistory(request: HistoryImportRequest & Readonly<{ dryRun: true }>, options: HistoryImportOptions): Promise<HistoryImportDryRun>;
+export async function importHistory(request: HistoryImportRequest, options: HistoryImportOptions): Promise<HistoryImportReceipt>;
+export async function importHistory(request: HistoryImportRequest, options: HistoryImportOptions): Promise<HistoryImportReceipt | HistoryImportDryRun> {
   refuseCredentialedLocation(request.source, "source");
-  refuseCredentialedLocation(request.target, "target");
+  if (request.target !== undefined) refuseCredentialedLocation(request.target, "target");
+  else if (request.dryRun !== true) throw new ForgeError("history_import_usage", "a target is required unless this is a dry run");
+  const allowed = allowedAddresses(options.allowedIdentities);
+  const identityMap = request.identityMap === undefined ? undefined : readIdentityMap(request.identityMap, options.publicTree);
   const gitleaks = resolveHistoryTool(options.home, "gitleaks");
   const filterRepo = resolveHistoryTool(options.home, "git-filter-repo");
   const review = request.review === undefined ? NO_REVIEW : readImportReview(request.review);
@@ -886,9 +974,12 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   const at = (root: string): GitRepository => deepFreeze({ root, executable: options.git, timeoutMs: POLICY.gitCallCeilingMs });
   const run = at(runFolder);
 
-  const occupied = remoteRefs(run, request.target);
-  if (Object.keys(occupied).length > 0) {
-    refuse(runFolder, `${request.target} already holds ${String(Object.keys(occupied).length)} ref(s); the importer writes only into an empty repository (a published history is never rewritten)`, "history_import_target_not_empty");
+  const target = request.target;
+  if (target !== undefined) {
+    const occupied = remoteRefs(run, target);
+    if (Object.keys(occupied).length > 0) {
+      refuse(runFolder, `${target} already holds ${String(Object.keys(occupied).length)} ref(s); the importer writes only into an empty repository (a published history is never rewritten)`, "history_import_target_not_empty");
+    }
   }
 
   progress("mirroring the source");
@@ -900,9 +991,35 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   const before = enumerateHistory(mirror);
   if (Object.keys(before.refs).length === 0) refuse(runFolder, `${request.source} holds no ref; there is nothing to import`, "history_import_source_empty");
   const mappings = planRefs(before.refs);
+  progress("judging every identity (author, committer, tagger, trailers)");
+  const identities = historyIdentities(mirror, before);
+  const identityJudgement = judgeIdentities(identities, allowed, identityMap);
   const oracle = gitleaksOracle(gitleaks, runFolder);
   const both = await scanHistory(mirror, before, oracle);
   const scan = both.catalogue;
+  if (request.dryRun === true) {
+    const values = [...new Set(scan.hits.map((hit) => hit.value))];
+    const report: HistoryImportDryRun = deepFreeze({
+      schema: HISTORY_IMPORT_DRY_RUN_SCHEMA,
+      id,
+      source: recordedLocation(request.source),
+      refs: Object.keys(before.refs).length,
+      objects: objectCounts(before),
+      catalogue: countByEntry(scan.hits),
+      namesHoldingSecrets: scan.nameHits.length,
+      oracleGaps: judgeOracle(both.oracle, values, review.dispositions).gaps.length,
+      undecodableUnreviewed: scan.undecodable.filter((oid) => !review.binaries.has(oid)).length,
+      identities: { needingMapping: identityJudgement.needingMapping.length, unmapped: identityJudgement.unmapped.length, unmappedObjects: identityJudgement.unmapped, mapSha256: identityMap?.sha256 ?? null },
+    });
+    writePrivate(join(runFolder, "dry-run.json"), `${canonicalJson(report)}\n`);
+    for (const entry of ["mirror.git", "gitleaks.toml"]) rmSync(join(runFolder, entry), { recursive: true, force: true });
+    progress(`dry run done: ${String(identityJudgement.needingMapping.length)} commit(s)/tag(s) need an identity mapping (${String(identityJudgement.unmapped.length)} without one), ${String(scan.hits.length)} catalogue hit(s)`);
+    return report;
+  }
+  if (identityJudgement.unmapped.length > 0) {
+    refuseIdentities(runFolder, identities, allowed, identityJudgement.unmapped, "history_import_identity_unallowed",
+      `${String(identityJudgement.unmapped.length)} commit(s)/tag(s) carry an address that is not on the allowed identities (forge.historyImport.allowedIdentities) and that the identity mapping does not bring to one${identityMap === undefined ? " (no --identity-map was given)" : ""}`);
+  }
   if (scan.nameHits.length > 0) {
     refuse(runFolder, `${String(scan.nameHits.length)} name(s) hold a secret (${Object.entries(countByEntry(scan.nameHits)).map(([entry, count]) => `${entry}: ${String(count)}`).join(", ")}; objects ${[...new Set(scan.nameHits.map((hit) => hit.oid))].slice(0, 8).join(", ")}); rename them in the source first`, "history_import_secret_in_name");
   }
@@ -920,12 +1037,17 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   progress(`purging ${String(scan.hits.length)} hit(s)`);
   const plan = planPurge(scan.hits);
   const expressionsPath = join(runFolder, "purge-expressions");
-  writePrivate(expressionsPath, plan.expressions);
+  // The identity rewrite rides the same one rewrite: --mailmap for the headers, the same expressions for every other occurrence.
+  const identityRewrite = identityMap === undefined || identityJudgement.needingMapping.length === 0 ? "" : identityExpressions(identities, allowed, identityMap);
+  writePrivate(expressionsPath, `${plan.expressions}${identityRewrite}`);
+  const mailmapPath = join(runFolder, "identity-mailmap");
+  if (identityRewrite.length > 0) writePrivate(mailmapPath, identityMap!.text);
   const stripPath = join(runFolder, "strip-blob-ids");
   writePrivate(stripPath, plan.strippedBlobs.map((oid) => `${oid}\n`).join(""));
   await runHistoryTool(filterRepo, [
     "--sensitive-data-removal", "--replace-text", expressionsPath, "--replace-message", expressionsPath,
     ...(plan.strippedBlobs.length > 0 ? ["--strip-blobs-with-ids", stripPath] : []),
+    ...(identityRewrite.length > 0 ? ["--mailmap", mailmapPath] : []),
   ], { cwd: mirrorPath, env: projectEnvironment(process.env, GIT_NETWORK_ENVIRONMENT) });
 
   progress("re-scanning to zero");
@@ -938,6 +1060,19 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   // The rewrite gives a commit or tag a new id whenever anything it reaches changed: an undecodable one the
   // review exempted by its old id is a NEW object to review (listed, with the stage, in undecodable.json).
   refuseUnreviewedUndecodable(runFolder, after, rescanned.catalogue, review, "after the rewrite");
+  // Every address now allowed, and no mapped-from address left anywhere (a message's free text, a file).
+  const identitiesAfter = historyIdentities(mirror, after);
+  const unallowedAfter = judgeIdentities(identitiesAfter, allowed, undefined).needingMapping;
+  if (unallowedAfter.length > 0) {
+    refuseIdentities(runFolder, identitiesAfter, allowed, unallowedAfter, "history_import_identity_residue", `${String(unallowedAfter.length)} rewritten commit(s)/tag(s) still carry an address not on the allowed identities`);
+  }
+  const leftAddresses = addressResidue(mirror, after, mappedFromAddresses(identities, allowed));
+  if (leftAddresses.length > 0) {
+    refuseIdentities(runFolder, identitiesAfter, allowed, leftAddresses, "history_import_identity_residue", `${String(leftAddresses.length)} rewritten object(s) still hold a mapped-from address`);
+  }
+  // The rewrite's own record of every commit's old and new id, kept beside the receipt (ids only).
+  const commitMapText = readCommitMap(mirror);
+  writePrivate(join(runFolder, "commit-map"), commitMapText);
 
   const afterMappings = planRefs(after.refs);
   const receipt: HistoryImportReceipt = deepFreeze({
@@ -945,7 +1080,7 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
     id,
     importedAt: new Date().toISOString(),
     source: recordedLocation(request.source),
-    target: recordedLocation(request.target),
+    target: recordedLocation(target!),
     before: { refs: before.refs, objects: objectCounts(before), scannedBytes: scan.scanned.bytes },
     findings: {
       catalogue: countByEntry(scan.hits),
@@ -955,6 +1090,12 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
     purge: { expressionsSha256: sha256(plan.expressions), expressions: plan.expressionCount, strippedBlobs: plan.strippedBlobs, firstChangedCommits: firstChangedCommits(mirror) },
     after: { objects: objectCounts(after), catalogueHits: 0, oracleGaps: 0, oracleDisposed: residue.disposed, undecodableExempted: rescanned.catalogue.undecodable.length },
     refMap: afterMappings,
+    identities: {
+      allowedSha256: sha256([...allowed].sort().join("\n")),
+      mapSha256: identityMap?.sha256 ?? null,
+      rewritten: identityRewrite.length > 0 ? identityJudgement.needingMapping.length : 0,
+      commitMap: { sha256: sha256(commitMapText), changed: commitMapText.split("\n").slice(1).filter((line) => { const [old, now] = line.split(" "); return old !== undefined && now !== undefined && old !== now; }).length },
+    },
     tools: {
       git: gitOutput(run, ["--version"]).stdout.toString("utf8").trim(),
       python: await hostProgramVersion("python3", projectEnvironment(process.env, COMMAND_ENVIRONMENT)),
@@ -973,10 +1114,16 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   if (unsafe !== undefined) refuse(runFolder, `the receipt cannot be pushed: ${unsafe}`, "history_import_receipt_unsafe");
   progress(`recording the receipt and pushing ${String(afterMappings.length + 1)} ref(s)`);
   const receiptCommit = recordReceipt(mirror, receipt, runFolder);
-  pushHistory(mirror, request.target, [...afterMappings, { source: POLICY.receipt.ref, target: POLICY.receipt.ref, oid: receiptCommit }]);
+  // The receipt commit is published too: its own identity passes the same gate.
+  const receiptIdentities = identityUses(receiptCommit, "commit", gitOutput(mirror, ["cat-file", "commit", receiptCommit]).stdout);
+  const unallowedReceipt = judgeIdentities(receiptIdentities, allowed, undefined).needingMapping;
+  if (unallowedReceipt.length > 0) {
+    refuseIdentities(runFolder, receiptIdentities, allowed, unallowedReceipt, "history_import_identity_residue", "the receipt commit's identity (historyImport.identity in the root policy) is not on the allowed identities");
+  }
+  pushHistory(mirror, target!, [...afterMappings, { source: POLICY.receipt.ref, target: POLICY.receipt.ref, oid: receiptCommit }]);
 
   writePrivate(join(runFolder, "receipt.json"), `${canonicalJson(receipt)}\n`);
-  for (const entry of ["mirror.git", "purge-expressions", "strip-blob-ids", "gitleaks.toml"]) {
+  for (const entry of ["mirror.git", "purge-expressions", "strip-blob-ids", "gitleaks.toml", "identity-mailmap"]) {
     rmSync(join(runFolder, entry), { recursive: true, force: true });
   }
   progress(`done (${String(scan.hits.length)} hit(s) purged, receipt on ${POLICY.receipt.ref})`);

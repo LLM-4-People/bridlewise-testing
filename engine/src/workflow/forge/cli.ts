@@ -8,7 +8,7 @@
  *   harness forge apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]…
  *                                                             send the whole plan, tighten first, then verify it
  *   harness forge audit (--token-env <VAR> | --token-stdin)   the plan judged: any drift fails
- *   harness forge import-history <source> --to <target> [--review <file>]
+ *   harness forge import-history <source> (--to <target> | --dry-run) [--review <file>] [--identity-map <file>]
  *                                                             the one path a history enters the forge
  *                                                             (history-import.ts): scanned, purged, re-scanned
  *                                                             to zero, receipted, pushed into an empty target
@@ -76,8 +76,8 @@ const CONFIGURED: ForgeCliWiring = Object.freeze({
   appsPage: serveAppsPage,
 });
 
-const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]... | import-history <source> --to <target> [--review <file>]";
-const IMPORT_USAGE = "harness forge import-history <source> --to <target> [--review <file>]";
+const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]... | import-history <source> (--to <target> | --dry-run) [--review <file>] [--identity-map <file>]";
+const IMPORT_USAGE = "harness forge import-history <source> (--to <target> | --dry-run) [--review <file>] [--identity-map <file>]";
 
 function usage(): never {
   throw new ForgeError("forge_usage", USAGE, {});
@@ -118,14 +118,19 @@ export function parseImportHistoryArguments(argv: readonly string[]): HistoryImp
   let source: string | undefined;
   let target: string | undefined;
   let review: string | undefined;
+  let identityMap: string | undefined;
+  let dryRun = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
-    if (argument === "--to" || argument === "--review") {
+    if (argument === "--to" || argument === "--review" || argument === "--identity-map") {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("--")) throw new ForgeError("history_import_usage", `${argument} needs a value: ${IMPORT_USAGE}`);
       if (argument === "--to") target = value;
-      else review = resolve(value);
+      else if (argument === "--review") review = resolve(value);
+      else identityMap = resolve(value);
       index += 1;
+    } else if (argument === "--dry-run") {
+      dryRun = true;
     } else if (argument.startsWith("--")) {
       throw new ForgeError("history_import_usage", `unknown option ${argument}: ${IMPORT_USAGE}`);
     } else if (source === undefined) {
@@ -134,17 +139,18 @@ export function parseImportHistoryArguments(argv: readonly string[]): HistoryImp
       throw new ForgeError("history_import_usage", `one source only: ${IMPORT_USAGE}`);
     }
   }
-  if (source === undefined || target === undefined) throw new ForgeError("history_import_usage", `a source and --to are required: ${IMPORT_USAGE}`);
-  return Object.freeze({ source, target, ...(review === undefined ? {} : { review }) });
+  if (source === undefined || (target === undefined && !dryRun)) throw new ForgeError("history_import_usage", `a source and --to are required (--to is optional only with --dry-run): ${IMPORT_USAGE}`);
+  return Object.freeze({ source, ...(target === undefined ? {} : { target }), ...(review === undefined ? {} : { review }), ...(identityMap === undefined ? {} : { identityMap }), ...(dryRun ? { dryRun: true } : {}) });
 }
 
-/** `harness forge import-history`: the importer (history-import.ts) with the admitted import home and the configured git. */
-async function importHistoryVerb(root: string, rest: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
+/** `harness forge import-history`: the importer (history-import.ts) with the admitted import home, the configured git and the ONE allowed-identity list. */
+async function importHistoryVerb(root: string, rest: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring): Promise<CommandAnswer> {
   const request = parseImportHistoryArguments(rest);
-  const home = admitImportHome(trackedTop(root));
+  const top = trackedTop(root);
+  const home = admitImportHome(top);
   const git = resolveGitExecutable(loadPinnedConfigSnapshot().document.workspaceGit?.gitExecutablePath);
-  const receipt = await importHistory(request, { home, git, onProgress });
-  return { result: wrapResult("forge", receipt, { status: "pass" }) };
+  const answer = await importHistory(request, { home, git, allowedIdentities: wiring.settings().historyImport.allowedIdentities, publicTree: top, onProgress });
+  return { result: wrapResult("forge", answer, { status: "pass" }) };
 }
 
 /** Read a token from standard input: a pipe's whole text, or the terminal's line with no echo. */
@@ -213,7 +219,7 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
 /** The `harness forge` dispatch. */
 export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring = CONFIGURED): Promise<CommandAnswer> {
   const [group, verb, ...rest] = argv;
-  if (group === "import-history") return importHistoryVerb(root, argv.slice(1), onProgress);
+  if (group === "import-history") return importHistoryVerb(root, argv.slice(1), onProgress, wiring);
   if (group === "apps" && verb === "manifests") return appsManifests(root, rest, wiring);
   if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress, wiring);
   if (group === "plan" || group === "apply" || group === "audit") return settingsVerb(root, group, argv.slice(1), onProgress, wiring);

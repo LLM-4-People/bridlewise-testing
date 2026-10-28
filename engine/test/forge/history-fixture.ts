@@ -46,6 +46,18 @@ export function entryOf(value: string): string {
   return spans[0]!.signalId;
 }
 
+/** The identity the fixtures commit as: on the tests' allowed list. */
+export const FIXTURE_ADDRESS = "import@example.invalid";
+/** An address the tests do NOT allow (a stand-in for a person's own address; never a real one). */
+export const UNALLOWED_ADDRESS = "someone.private@example.invalid";
+/** The address the tests' identity mapping brings the unallowed one to. */
+export const MAPPED_ADDRESS = "mapped@example.invalid";
+
+/** The importer's options for a test: the admitted `home`, the git, and the tests' allowed identities (the fixture's, the mapped one, the receipt commit's); the harness checkout is the public tree. */
+export function importOptions(home: string, alsoAllowed: readonly string[] = []): Readonly<{ home: string; git: string; allowedIdentities: readonly string[]; publicTree: string }> {
+  return { home, git: GIT, allowedIdentities: [FIXTURE_ADDRESS, MAPPED_ADDRESS, "history-import@example.invalid", ...alsoAllowed], publicTree: join(import.meta.dirname, "..", "..", "..") };
+}
+
 export function git(root: string, ...args: readonly string[]): string {
   return execFileSync(GIT, ["-c", "user.name=Import Test", "-c", "user.email=import@example.invalid", ...args], { cwd: root, encoding: "utf8" });
 }

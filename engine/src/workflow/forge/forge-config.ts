@@ -82,6 +82,14 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
    */
   historyImport: z.strictObject({
     toolHangBackstopMs: z.number().int().min(60_000).max(604_800_000),
+    /**
+     * THE ONE ALLOWED-IDENTITY LIST: the only addresses a history this
+     * importer publishes may carry (author, committer, tagger, any trailer).
+     * Every entry is public by definition (it is what gets published);
+     * anything else must be mapped by the identity mapping, kept outside the
+     * public tree (history-identities.ts).
+     */
+    allowedIdentities: z.array(z.string().regex(/^[^\s<>@]+@[^\s<>@]+$/u)).min(1),
   }),
   /** The local page `harness forge apps create` serves (on 127.0.0.1 only). */
   appsPage: z.strictObject({

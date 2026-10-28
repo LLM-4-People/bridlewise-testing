@@ -1128,7 +1128,13 @@
       "killGraceMs": 2000
     },
     "historyImport": {
-      "toolHangBackstopMs": 43200000
+      "toolHangBackstopMs": 43200000,
+      "allowedIdentities": [
+        "hello@bridlewise.llm4people.dev",
+        "noreply@github.com",
+        "92832354+amberflag48@users.noreply.github.com",
+        "history-import@example.invalid"
+      ]
     },
     "appsPage": {
       "port": 47811,

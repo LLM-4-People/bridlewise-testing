@@ -26,7 +26,7 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
     { name: "forge-proving-ground", kind: "none", visibility: "public", provingGround: true },
   ],
   maintainerCli: { stallMs: 120_000, cpuLimitMs: 30_000, killGraceMs: 500 },
-  historyImport: { toolHangBackstopMs: 43_200_000 },
+  historyImport: { toolHangBackstopMs: 43_200_000, allowedIdentities: ["hello@bridlewise.llm4people.dev", "history-import@example.invalid"] },
   appsPage: { port: 47811, legacyApps: [{ slug: "claude", repositories: ["bridlewise-testing"] }] },
   stage: "p0",
   plan: { name: "team", secretProtection: false },

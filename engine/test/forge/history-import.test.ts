@@ -37,8 +37,11 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { SECRET_TEXT_SIGNAL_CATALOG } from "../../src/privacy/secret-signals.ts";
 import { parseImportHistoryArguments } from "../../src/workflow/forge/cli.ts";
 import { gitleaksConfigText, gitleaksProjection } from "../../src/workflow/forge/gitleaks-config.ts";
+import { allowedAddresses, identityExpressions, identityUses, judgeIdentities, mappedFromAddresses, readIdentityMap } from "../../src/workflow/forge/history-identities.ts";
 import {
+  addressResidue,
   enumerateHistory,
+  historyIdentities,
   importHistory,
   judgeOracle,
   decodedTexts,
@@ -62,7 +65,7 @@ import { runCpuBounded } from "../../src/process/supervised-run.ts";
 import { boundedEnding, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
 import { armTestKeyHome } from "../support/test-key-home.ts";
 import { createTempDir } from "../support/temp-dir.ts";
-import { CORAL_KEY, entryOf, GIT, git, GITHUB_TOKEN, MAKORA_KEY, pemLine, plantedRepository, repository, SHORT_PASSWORD, write } from "./history-fixture.ts";
+import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, pemLine, plantedRepository, repository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "./history-fixture.ts";
 
 /** The catalogue's own row for each planted value (never a spelling the catalogue may rename). */
 const GITHUB = entryOf(GITHUB_TOKEN);
@@ -360,10 +363,12 @@ test("pinned tools: absent names the provisioning command, other bytes are refus
 test("the door: credentials in a URL are refused before anything runs; usage is enforced", async () => {
   const home = createOwnedTemporaryDirectory(armTestKeyHome(), "import-home-");
   for (const [source, target] of [["https://user:pw@example.invalid/a.git", "/x"], ["/x", "https://token@example.invalid/b.git"]] as const) {
-    await assert.rejects(importHistory({ source, target }, { home, git: GIT }), (error: Error & { code?: string }) => error.code === "history_import_credentials_in_url" && !error.message.includes("pw@"));
+    await assert.rejects(importHistory({ source, target }, importOptions(home)), (error: Error & { code?: string }) => error.code === "history_import_credentials_in_url" && !error.message.includes("pw@"));
   }
   assert.deepEqual(parseImportHistoryArguments(["/src", "--to", "/dst"]), { source: "/src", target: "/dst" });
-  for (const argv of [[], ["/src"], ["/src", "--to"], ["/src", "/other", "--to", "/dst"], ["/src", "--to", "/dst", "--force"]]) {
+  assert.deepEqual(parseImportHistoryArguments(["/src", "--dry-run"]), { source: "/src", dryRun: true }, "a dry run needs no target");
+  assert.deepEqual(parseImportHistoryArguments(["/src", "--to", "/dst", "--identity-map", "/maps/identities.mailmap"]), { source: "/src", target: "/dst", identityMap: "/maps/identities.mailmap" });
+  for (const argv of [[], ["/src"], ["/src", "--to"], ["/src", "/other", "--to", "/dst"], ["/src", "--to", "/dst", "--force"], ["/src", "--to", "/dst", "--identity-map"]]) {
     assert.throws(() => parseImportHistoryArguments(argv), (error: Error & { code?: string }) => error.code === "history_import_usage", JSON.stringify(argv));
   }
 });
@@ -468,6 +473,17 @@ test("the work-bounded run bounds the whole GROUP: a grandchild holding the pipe
   assert.equal(isProcessAlive(Number(readFileSync(spent, "utf8"))), false);
 });
 
+test("a stopped run answers only once its GROUP is gone: a member that closes its pipes on SIGTERM and keeps running is killed before the run answers", async () => {
+  const dir = createTempDir("bounded-linger-");
+  const member = join(dir, "member");
+  // The grandchild works in slices (so its SIGTERM handler runs), closes its stdout and stderr on SIGTERM (the run's
+  // pipes close at once) and keeps working, up to its own CPU cap. Only the terminator's SIGKILL ends it.
+  const lingering = `const fs = require("node:fs"); process.on("SIGTERM", () => { fs.closeSync(1); fs.closeSync(2); }); const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; const t = setInterval(() => { const until = used() + 20; while (used() < until) {} if (used() > ${String(SPIN_CAP_MS)}) clearInterval(t); }, 0);`;
+  const run = await runCpuBounded(NODE, ["-e", leaderWithGrandchild(member, lingering)], { cwd: dir, env: ENV, bounds: TIGHT });
+  assert.equal(run.ending, "cpu-exhausted");
+  assert.equal(isProcessAlive(Number(readFileSync(member, "utf8"))), false, "the member that let go of the pipes was still running when the run answered");
+});
+
 test("the kernel backstop: a process that LEFT the group (setsid, NB-1) is still ended at its own CPU-time limit (RLIMIT_CPU, SIGXCPU); the command itself is exec'd", async () => {
   const dir = createTempDir("bounded-rlimit-");
   // The leader starts, in a session of its own (out of the group: no budget, no stop reaches it), a shell that runs a
@@ -553,4 +569,65 @@ test("the work-bounded run's bounds, each pinned by a test a mutation turns red 
   ].join(" ")], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 1_500, stallMs: 5_000 } });
   assert.equal(vanished.ending, "cpu-exhausted", "the exited leader's 900 ms and its grandchild's later 900 ms passed the 1,500 ms budget together");
   assert.equal(isProcessAlive(Number(readFileSync(later, "utf8"))), false, "the grandchild was stopped with the group");
+});
+
+test("THE IDENTITY GATE, its parts: every author, committer, tagger and trailer address is read; an unallowed one needs a mapping; the mapping is one validated mailmap file kept out of the public tree; no message echoes an address", () => {
+  const commit = Buffer.from([
+    "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+    `author Somebody <${UNALLOWED_ADDRESS}> 1753660800 +0200`,
+    `committer Import Test <${FIXTURE_ADDRESS}> 1753660800 +0200`,
+    "",
+    "a change",
+    "",
+    `Signed-off-by: Somebody <${UNALLOWED_ADDRESS}>`,
+    `Co-authored-by: Import Test <${FIXTURE_ADDRESS}>`,
+    "",
+  ].join("\n"));
+  const uses = identityUses("c".repeat(40), "commit", commit);
+  assert.deepEqual(uses.map((use) => [use.field, use.address]), [["author", UNALLOWED_ADDRESS], ["committer", FIXTURE_ADDRESS], ["trailer", UNALLOWED_ADDRESS], ["trailer", FIXTURE_ADDRESS]]);
+  const tag = identityUses("d".repeat(40), "tag", Buffer.from(`object ${"c".repeat(40)}\ntype commit\ntag v1\ntagger Somebody <${UNALLOWED_ADDRESS}> 1753660800 +0200\n\nv1\n`));
+  assert.deepEqual(tag.map((use) => use.field), ["tagger"]);
+
+  const allowed = allowedAddresses([FIXTURE_ADDRESS, MAPPED_ADDRESS.toUpperCase()]);
+  // Trailer-only: an allowed author with an unallowed trailer still needs a mapping.
+  const trailerOnly = identityUses("e".repeat(40), "commit", Buffer.from(`tree x\nauthor A <${FIXTURE_ADDRESS}> 1 +0000\ncommitter A <${FIXTURE_ADDRESS}> 1 +0000\n\nm\n\nCo-authored-by: B <${UNALLOWED_ADDRESS}>\n`));
+  assert.deepEqual(judgeIdentities(trailerOnly, allowed, undefined), { needingMapping: ["e".repeat(40)], unmapped: ["e".repeat(40)] });
+  assert.deepEqual(judgeIdentities([...uses, ...tag], allowed, undefined), { needingMapping: ["c".repeat(40), "d".repeat(40)], unmapped: ["c".repeat(40), "d".repeat(40)] });
+
+  // The mapping: a validated mailmap file outside the public tree.
+  const publicTree = join(import.meta.dirname, "..", "..", "..");
+  const folder = createTempDir("identity-map-");
+  const good = join(folder, "identities.mailmap");
+  writeFileSync(good, `# the one mapping\nMapped Person <${MAPPED_ADDRESS}> Somebody <${UNALLOWED_ADDRESS}>\n`);
+  const map = readIdentityMap(good, publicTree);
+  assert.deepEqual(judgeIdentities([...uses, ...tag], allowed, map), { needingMapping: ["c".repeat(40), "d".repeat(40)], unmapped: [] }, "the named entry maps the author, the trailer and the tagger");
+  // A mapping to an address that is itself not allowed covers nothing.
+  const elsewhere = join(folder, "elsewhere.mailmap");
+  writeFileSync(elsewhere, `<also.private@example.invalid> <${UNALLOWED_ADDRESS}>\n`);
+  assert.deepEqual(judgeIdentities(trailerOnly, allowed, readIdentityMap(elsewhere, publicTree)).unmapped, ["e".repeat(40)]);
+  // The rewrite: one case-insensitive expression per mapped-from address the history carries.
+  assert.equal(identityExpressions([...uses, ...tag], allowed, map), `regex:(?i)someone\\.private\\@example\\.invalid==>${MAPPED_ADDRESS}\n`);
+  assert.deepEqual(mappedFromAddresses([...uses, ...tag], allowed), [UNALLOWED_ADDRESS]);
+
+  // A malformed line is refused by its number, never its text; a mapping inside the public tree is refused.
+  const bad = join(folder, "bad.mailmap");
+  writeFileSync(bad, `Mapped <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>\nnot a mailmap line ${UNALLOWED_ADDRESS}\n`);
+  assert.throws(() => readIdentityMap(bad, publicTree), (error: Error & { code?: string }) => error.code === "history_import_identity_map_invalid" && error.message.includes("line 2") && !error.message.includes(UNALLOWED_ADDRESS));
+  assert.throws(() => readIdentityMap(join(publicTree, "engine", "bridlewise.config.json"), publicTree), (error: Error & { code?: string }) => error.code === "history_import_identity_map_public");
+  assert.throws(() => allowedAddresses([]), (error: Error & { code?: string }) => error.code === "history_import_identity_map_invalid");
+});
+
+test("THE IDENTITY GATE on a real repository: the commits' identities are read from the objects, and an address left anywhere after a rewrite is found by object", () => {
+  const root = createTempDir("identity-history-");
+  git(root, "init", "-q", "-b", "main");
+  write(root, "AUTHORS", `Somebody <${UNALLOWED_ADDRESS}>\n`);
+  git(root, "add", ".");
+  git(root, "commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>`);
+  const inventory = enumerateHistory(repository(root));
+  const uses = historyIdentities(repository(root), inventory);
+  const head = git(root, "rev-parse", "HEAD").trim();
+  assert.deepEqual(uses.map((use) => [use.oid, use.field]), [[head, "author"], [head, "committer"], [head, "trailer"]]);
+  const blob = git(root, "rev-parse", "HEAD:AUTHORS").trim();
+  assert.deepEqual(addressResidue(repository(root), inventory, [UNALLOWED_ADDRESS]), [blob, head].sort(), "the blob and the commit still hold the address");
+  assert.deepEqual(addressResidue(repository(root), inventory, []), []);
 });
