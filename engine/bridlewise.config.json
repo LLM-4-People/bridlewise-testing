@@ -757,7 +757,10 @@
     "instrumentLock": {
       "cacheRelativeLockPath": "bridlewise/instrument.lock",
       "minimumTestFiles": 2,
-      "pollIntervalMs": 1000,
+      "perRun": {
+        "memoryMaxPercent": 50,
+        "cpuWeight": 100
+      },
       "wholeInstruments": [
         "playwright",
         "coverage",

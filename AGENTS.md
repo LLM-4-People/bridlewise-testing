@@ -21,6 +21,18 @@ tree into the separate product repository.
   generated from this README.
 - Do not commit generated site output; the Pages workflow assembles the site.
 
+## Heavy runs never wait for each other
+
+A whole suite, a coverage, browser or profile run, `ws validate`/`ws merge` and
+`harness slot run -- <command>` are admitted at once and run concurrently, each
+under its own caps: the admitting process and everything it starts run in the
+run's own cgroup v2 scope (a memory ceiling and CPU weight) and under a CPU-time
+limit. Nothing waits for, or fails because of, how busy the host is
+([NO-LOAD-BLOCK](docs/decisions/NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)).
+A host that cannot make the scope refuses the run: give it a running systemd
+user manager (`loginctl enable-linger`), `busctl` and `prlimit`. Budgets judge
+CPU work, never wall time.
+
 ## Rules
 
 Every change is bound by the mandatory engineering rules, the measurement
