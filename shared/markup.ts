@@ -122,6 +122,16 @@ export function decodeSiteText(text: string): string {
   return text.replace(/\\([!-/:-@[-`{-~])|&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/gu, (whole, escaped, decimal, hex, name) => escaped ?? referenceValue(whole, decimal, hex, name));
 }
 
+/**
+ * Plain text placed in a GitHub issue or comment: {@link escapeMarkdownText},
+ * and an `@` followed by a word joiner (U+2060), so no `@name` or
+ * `@org/team` in the text mentions anyone. ONE pass; a line break becomes a
+ * space.
+ */
+export function escapeGithubText(text: string): string {
+  return text.replace(/[&<>"']|[\\`*_{}[\]()#+\-.!|~:]|@|\r\n|[\r\n]/gu, (match) => HTML_ESCAPES[match] ?? (match === "@" ? "@\u2060" : match.endsWith("\n") || match === "\r" ? " " : `\\${match}`));
+}
+
 /** One Markdown table cell: a backslash and a pipe are escaped, in one pass. */
 export function escapeMarkdownTableCell(text: string): string {
   return text.replace(/[\\|]/gu, (character) => `\\${character}`);
