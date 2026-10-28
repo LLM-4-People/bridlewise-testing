@@ -173,6 +173,17 @@ function commit(root: string, message: string, env: Readonly<Record<string, stri
   return { status: result.status ?? -1, stderr: result.stderr };
 }
 
+/**
+ * A commit the scenario NEEDS (a setup step, not the verdict under test):
+ * refused, it fails here with the guard's own words, so a refusal for an
+ * unrelated reason (#293: a concurrent change to the live config refused the
+ * guard's bootstrap) is read from the failure, never guessed.
+ */
+function commitSetup(root: string, message: string): void {
+  const done = commit(root, message);
+  assert.equal(done.status, 0, `the setup commit "${message}" was refused:\n${done.stderr}`);
+}
+
 /** A repository holding one tracked file and an ignored destination. */
 function repositoryWithATrackedFile(): string {
   const root = guardedRepository();
@@ -442,7 +453,7 @@ test("DRIVEN: untracking a file IN PLACE with `git rm --cached` is not refused",
   // stopped judging rather than about the arm just added.
   writeFile(root, "docs/other.md", "# the only copy of this one\n");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "a second tracked file").status, 0);
+  commitSetup(root, "a second tracked file");
   mkdirSync(join(root, "archive"), { recursive: true });
   renameSync(join(root, "docs", "other.md"), join(root, "archive", "other.md"));
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
@@ -471,7 +482,7 @@ test("DRIVEN: a generated directory that becomes ignored reaches `from === to` w
   writeFile(root, "generated/out.txt", "deterministic bytes\n");
   writeFile(root, "src/keep.txt", "source\n");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "the generated output was tracked").status, 0);
+  commitSetup(root, "the generated output was tracked");
 
   // 1. The sanctioned change: the generated tree gets an ignore rule.
   writeFile(root, ".gitignore", "/generated/\n");
@@ -958,7 +969,7 @@ test("DRIVEN: a MISMATCHED declaration (the file changed since) is REFUSED", () 
   // the declaration names is no longer the one a deletion would remove.
   writeFile(root, "docs/paper.md", "# the paper, revised after it was declared\n");
   execFileSync("git", ["add", "docs/paper.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "revise the paper").status, 0);
+  commitSetup(root, "revise the paper");
   renameSync(join(root, "docs", "paper.md"), join(root, "archive", "paper.md"));
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
   const refused = commit(root, "the revised paper, on the old declaration");
@@ -1083,7 +1094,7 @@ test("DRIVEN (V4): a declaration made before HEAD moved stays stale even after r
   declareDeletions(root, ["docs/paper.md"]);
   writeFile(root, "unrelated.md", "# something else\n");
   execFileSync("git", ["add", "unrelated.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "HEAD moves").status, 0);
+  commitSetup(root, "HEAD moves");
   execFileSync("git", ["reset", "-q", "--soft", "HEAD~1"], { cwd: root, stdio: "pipe" });
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
   const refused = commit(root, "the deletion, on a declaration HEAD moved away from and back to");
@@ -1165,7 +1176,7 @@ test("DRIVEN (P1): a move into an ignored folder beside a SIMILAR new tracked fi
   const lines = Array.from({ length: 20 }, (_, index) => `line ${String(index)} of the long paper`);
   writeFile(root, "docs/long.md", `${lines.join("\n")}\n`);
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "a long paper").status, 0);
+  commitSetup(root, "a long paper");
   mkdirSync(join(root, "archive"), { recursive: true });
   renameSync(join(root, "docs", "long.md"), join(root, "archive", "long.md"));
   writeFile(root, "docs/long-new.md", `${[...lines.slice(0, 19), "a changed last line"].join("\n")}\n`);
@@ -1184,15 +1195,15 @@ test("DRIVEN (N6): a merge bringing a deliberate deletion is refused with the ro
   writeFile(root, join(HOOKS_DIRECTORY, "pre-merge-commit"), guardHookText("pre-merge-commit", JSON.stringify(COMMIT_GUARD)));
   chmodSync(join(root, HOOKS_DIRECTORY, "pre-merge-commit"), 0o755);
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "wire the pre-merge-commit hook").status, 0);
+  commitSetup(root, "wire the pre-merge-commit hook");
   const base = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   execFileSync("git", ["checkout", "-q", "-b", "retire"], { cwd: root, stdio: "pipe" });
   execFileSync("git", ["rm", "-q", "docs/paper.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "retire the paper").status, 0);
+  commitSetup(root, "retire the paper");
   execFileSync("git", ["checkout", "-q", base], { cwd: root, stdio: "pipe" });
   writeFile(root, "local.md", "# a local change, so the merge is not a fast-forward\n");
   execFileSync("git", ["add", "local.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "local work").status, 0);
+  commitSetup(root, "local work");
   writeFile(root, "archive/paper.md", "# the only copy\n");
   const merged = spawnSync("git", ["merge", "-q", "--no-edit", "retire"], { cwd: root, encoding: "utf8" });
   assert.notEqual(merged.status, 0, "the merge bringing a deletion with an ignored copy was accepted");

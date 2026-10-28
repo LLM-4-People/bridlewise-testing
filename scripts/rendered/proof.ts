@@ -183,6 +183,8 @@ const PLANTS: readonly Plant[] = [
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
   { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
+  // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.
+  { name: "a page that keeps replacing its nodes while the states are forced", body: '<ul id="churn"></ul><script>const ul = document.getElementById("churn"); const ch = new MessageChannel(); ch.port1.onmessage = () => { ul.replaceChildren(...Array.from({ length: 40 }, () => document.createElement("li"))); ch.port2.postMessage(0); }; ch.port2.postMessage(0);</script>', rule: "font-families" },
   // Longer than any default wall limit (Playwright's is 30 s), arriving a little at a time: a slow page is still a page.
   { name: "a page whose stylesheet loads slowly but steadily, for longer than 30 s", head: `<link rel="stylesheet" href="${STEADY_PATH.slice("/proof/".length)}">`, rule: "font-families" },
   { name: "a scheduler.postTask with no delay", body: '<script>scheduler.postTask(() => { document.getElementById("prose").textContent = "posted"; })</script>', rule: "judgeable" },

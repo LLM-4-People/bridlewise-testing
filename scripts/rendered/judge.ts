@@ -335,7 +335,7 @@ async function judgedFrames(page: Page, surface: Surface): Promise<readonly Fram
   return frames;
 }
 
-type DomNode = { nodeId: number; nodeType: number; nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
+export type DomNode = { nodeId: number; backendNodeId: number; nodeType: number; nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
 
 /** The browser's own tree of `page`, piercing every shadow root and frame (CDP). */
 async function domTree(page: Page): Promise<DomNode> {
@@ -448,31 +448,122 @@ const FOCUSABLE = new Set(["a", "area", "button", "details", "iframe", "input", 
  */
 async function judgeForcedStates(page: Page, surface: Surface, rules?: readonly PageRule[]): Promise<readonly string[]> {
   const cdp = sessions.get(page)!;
-  await cdp.send("DOM.enable");
-  await cdp.send("CSS.enable");
+  const send: CdpSend = (method, params) => cdp.send(method as never, params as never);
+  await send("DOM.enable");
+  await send("CSS.enable");
   try {
-    const root = await domTree(page);
-    const forced: { nodeId: number; classes: string[] }[] = [];
-    const walk = (node: DomNode): void => {
-      if (declaredFrame(node, surface)) return;
-      if (node.nodeType === 1) {
-        const attributes = node.attributes ?? [];
-        const focusable = FOCUSABLE.has(node.localName ?? "") || attributes.some((name, i) => i % 2 === 0 && (name === "tabindex" || name === "contenteditable"));
-        forced.push({ nodeId: node.nodeId, classes: focusable ? ["hover", "active", "focus", "focus-visible", "focus-within"] : ["hover", "active", "focus-within"] });
-      }
-      for (const shadow of node.shadowRoots ?? []) if (shadow.shadowRootType === "open") walk(shadow);
-      for (const child of node.children ?? []) walk(child);
-      if (node.contentDocument !== undefined) walk(node.contentDocument);
-    };
-    walk(root);
-    await Promise.all(forced.map(({ nodeId, classes }) => cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: classes })));
+    const forced = await forceEveryElement(send, surface);
     await ready(page);
-    const findings = await judgePage(page, surface, rules, closedRootsIn(root, surface));
-    await Promise.all(forced.map(({ nodeId }) => cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] }).catch(() => undefined)));
+    const findings = await judgePage(page, surface, rules, closedRootsIn(forced.root, surface));
+    await releaseForcedStates(send, forced);
     return findings;
   } finally {
-    await cdp.send("CSS.disable");
-    await cdp.send("DOM.disable");
+    await send("CSS.disable");
+    await send("DOM.disable");
+  }
+}
+
+/** One CDP call on a page's session (the forcing below takes it as a port, so it is driven without a browser too). */
+export type CdpSend = (method: string, params?: object) => Promise<unknown>;
+
+/**
+ * What a forcing pass forced: the tree it read, and each element it forced
+ * by node id. The ids hold for the whole pass because the tree is read ONCE:
+ * reading it again (DOM.getDocument) discards the session's node bindings,
+ * and the states forced through them with it.
+ */
+export type ForcedStates = Readonly<{ root: DomNode; forced: ReadonlySet<number> }>;
+
+/**
+ * How many times a forcing pass looks for elements the page added since it
+ * read the tree (DOM.querySelectorAll in each document and open shadow root
+ * it read, which keeps the bindings): an element added after the last look is
+ * judged unforced (rules.ts JUDGE_LIMITS, forced-states-churn).
+ */
+const FORCING_LOOKS = 2;
+
+/** The CDP answer for a node id whose node is no longer in the page. */
+const NODE_GONE = /Could not find node with given id/u;
+
+/** The elements that can take focus, as a selector (FOCUSABLE's tags, and any element with a tab index or that is editable). */
+const FOCUSABLE_SELECTOR = [...FOCUSABLE, "[tabindex]", "[contenteditable]"].join(", ");
+const ALL_STATES = ["hover", "active", "focus", "focus-visible", "focus-within"];
+const POINTER_STATES = ["hover", "active", "focus-within"];
+
+/** Every element of a snapshot `root` the forcing reaches (not inside a declared frame), with its classes, and the scopes it was found in. */
+function forcingTargets(root: DomNode, surface: Surface): { targets: { nodeId: number; classes: string[] }[]; scopes: number[] } {
+  const targets: { nodeId: number; classes: string[] }[] = [];
+  const scopes: number[] = [];
+  const walk = (node: DomNode): void => {
+    if (declaredFrame(node, surface)) return;
+    if (node.nodeType === 9 || node.nodeType === 11) scopes.push(node.nodeId);
+    if (node.nodeType === 1) {
+      const attributes = node.attributes ?? [];
+      const focusable = FOCUSABLE.has(node.localName ?? "") || attributes.some((name, i) => i % 2 === 0 && (name === "tabindex" || name === "contenteditable"));
+      targets.push({ nodeId: node.nodeId, classes: focusable ? ALL_STATES : POINTER_STATES });
+    }
+    for (const shadow of node.shadowRoots ?? []) if (shadow.shadowRootType === "open") walk(shadow);
+    for (const child of node.children ?? []) walk(child);
+    if (node.contentDocument !== undefined) walk(node.contentDocument);
+  };
+  walk(root);
+  return { targets, scopes };
+}
+
+/**
+ * Forces every element of the page's tree into its states. The page is live:
+ * a node it removes between the read and the call is GONE (CDP answers that
+ * the node id is unknown) and is skipped; an element it adds meanwhile is
+ * found by looking again in every scope the read reached, under the same
+ * bindings, and forced too. Any other CDP answer is refused.
+ */
+export async function forceEveryElement(send: CdpSend, surface: Surface): Promise<ForcedStates> {
+  const { root } = (await send("DOM.getDocument", { depth: -1, pierce: true })) as { root: DomNode };
+  const { targets, scopes } = forcingTargets(root, surface);
+  const forced = new Set<number>();
+  const seen = new Set<number>();
+  const force = (batch: readonly { nodeId: number; classes: readonly string[] }[]): Promise<unknown> => Promise.all(batch.map(async ({ nodeId, classes }) => {
+    seen.add(nodeId);
+    if (await forceOne(send, nodeId, classes)) forced.add(nodeId);
+  }));
+  await force(targets);
+  for (let look = 0; look < FORCING_LOOKS; look += 1) {
+    const fresh: { nodeId: number; classes: readonly string[] }[] = [];
+    for (const scope of scopes) {
+      const all = await queryIn(send, scope, "*");
+      if (all === null) continue;
+      const focusable = new Set((await queryIn(send, scope, FOCUSABLE_SELECTOR)) ?? []);
+      for (const nodeId of all) if (!seen.has(nodeId)) fresh.push({ nodeId, classes: focusable.has(nodeId) ? ALL_STATES : POINTER_STATES });
+    }
+    if (fresh.length === 0) break;
+    await force(fresh);
+  }
+  return { root, forced };
+}
+
+/** The elements matching `selector` in the scope `nodeId` (a document or a shadow root), or null when the scope is gone. */
+async function queryIn(send: CdpSend, nodeId: number, selector: string): Promise<readonly number[] | null> {
+  try {
+    return ((await send("DOM.querySelectorAll", { nodeId, selector })) as { nodeIds: number[] }).nodeIds;
+  } catch (error) {
+    if (NODE_GONE.test(error instanceof Error ? error.message : String(error))) return null;
+    throw error;
+  }
+}
+
+/** Releases every element `forced` forced that is still in the page (one the page removed took its state with it). */
+export async function releaseForcedStates(send: CdpSend, forced: ForcedStates): Promise<void> {
+  await Promise.all([...forced.forced].map((nodeId) => forceOne(send, nodeId, [])));
+}
+
+/** Forces one node's states; false when the node is gone, and any other CDP answer is refused. */
+async function forceOne(send: CdpSend, nodeId: number, classes: readonly string[]): Promise<boolean> {
+  try {
+    await send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: classes });
+    return true;
+  } catch (error) {
+    if (NODE_GONE.test(error instanceof Error ? error.message : String(error))) return false;
+    throw error;
   }
 }
 

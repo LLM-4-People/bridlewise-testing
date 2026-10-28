@@ -707,6 +707,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/filesystem/file-mode.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/filesystem/journaled-commit.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -950,6 +958,14 @@
     },
     {
       "path": "test/forge/github-client.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/github-store.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -2478,6 +2494,14 @@
     },
     {
       "path": "test/process/network-under-test.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/process/spawn-bounded-sync.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4365,5 +4389,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "1f115e8d12384c1ced4b20c0217d199293da9f64817f0e74596f0946d4c7bef6"
+  "integrityHash": "bf748512002776bff7d3084c0dd8b27b41a51d61bbf584d4d6e327b41fb61f19"
 }

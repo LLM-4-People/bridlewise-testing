@@ -27,7 +27,7 @@ import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy
 import { STATE_DIRECTORY_NAME } from "../../src/kernel/product-identity.ts";
 import { checkoutCommandRunner, commandFailureClass, commandsRun, gateLogDirectory, owedSetup, prepareCheckout, rerunChangedSetup, runCheckoutCommand, runCheckoutPhase, unconsumedCommands, type CheckoutCommandRunner, type CommandRetryPolicy } from "../../src/workflow/checkout-setup.ts";
 import { convergenceReport, convergeUntilStable } from "../../src/workflow/checkout-setup.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory, TEST_REPOSITORY_ROOT } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { ownedTemporaryName } from "../../src/filesystem/private-state.ts";
@@ -155,7 +155,7 @@ function gateRoot(prefix: string): string {
 }
 
 function supervisedRunner(retries: CommandRetryPolicy = { retries: 0, backoffMs: 0 }): CheckoutCommandRunner {
-  return { supervisor: testProcessSupervisorBinary(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
+  return { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
 }
 
 test("checkout setup: links, the config mode, then the declared commands in order; after the first failure the rest are skipped", async () => {
