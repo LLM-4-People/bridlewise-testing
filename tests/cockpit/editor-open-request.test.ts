@@ -40,6 +40,7 @@ import {
 import { SHELL_CONTEXT_KEY, type ShellApi } from "../../src/cockpit/shell/contract.ts";
 import { resetProjects, selectProject, setProjects } from "../../src/state/projects.ts";
 import type { Beat } from "../../src/cockpit/flow/types.ts";
+import { until } from "../helpers/until.ts";
 
 const ROOT = "/proj";
 
@@ -121,11 +122,7 @@ describe("B. the shell forwards the payload, and refuses it for a room that cann
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    const t0 = Date.now();
-    while (host.querySelector(".shell")?.getAttribute("data-revealed") !== "true") {
-      if (Date.now() - t0 > 4000) throw new Error("shell never revealed");
-      await settle(10);
-    }
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
   });
 
   afterEach(() => {
@@ -136,11 +133,7 @@ describe("B. the shell forwards the payload, and refuses it for a room that cann
 
   test("a room request carrying a path opens the editor AND lands the path on the open seam", async () => {
     requestShellView({ kind: "room", id: "editor", path: "src/app.ts" });
-    const t0 = Date.now();
-    while (host.querySelector('[data-room-active="true"]') === null) {
-      if (Date.now() - t0 > 4000) throw new Error("room never opened");
-      await settle(10);
-    }
+    await until(() => host.querySelector('[data-room-active="true"]') !== null);
     expect(host.querySelector('[data-room-active="true"]')!.getAttribute("aria-label")).toBe(
       "editor room",
     );
@@ -151,11 +144,7 @@ describe("B. the shell forwards the payload, and refuses it for a room that cann
 
   test("a path on a room that cannot consume it refuses the WHOLE request, out loud", async () => {
     requestShellView({ kind: "room", id: "settings", path: "src/app.ts" });
-    const t0 = Date.now();
-    while (host.querySelector(".hint") === null) {
-      if (Date.now() - t0 > 4000) throw new Error("no hint");
-      await settle(10);
-    }
+    await until(() => host.querySelector(".hint") !== null);
     expect(host.querySelector(".hint")!.textContent).toContain("cannot open a file");
     expect(host.querySelector('[data-room-active="true"]')).toBeNull();
     expect(pendingEditorOpen.get()).toBeNull();

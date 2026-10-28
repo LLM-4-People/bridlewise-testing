@@ -225,11 +225,11 @@ test("a door killed outright never drops its record under its command: the super
   door.process.kill("SIGKILL");
   await exited(door.process);
   assert.equal(admittedRuns(lockPath).length, 1, "the record is live while the adopted supervisor lives");
+  // Waited for by the record itself, with NO wall deadline (NO-LOAD-BLOCK):
+  // a record that is never cleared is a hang, ended and named by the backstop.
   const cleared = await new Promise<string>((resolveCleared) => {
-    const deadline = Date.now() + 20_000;
     const poll = (): void => {
       if (admittedRuns(lockPath).length === 0) resolveCleared(isProcessAlive(sleeper) ? "cleared while the command still ran" : "cleared after the command was gone");
-      else if (Date.now() > deadline) resolveCleared("never cleared");
       else setTimeout(poll, 50);
     };
     poll();

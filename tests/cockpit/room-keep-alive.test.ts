@@ -33,6 +33,7 @@ import { setEditorReaders } from "../../src/cockpit/editor/feed.ts";
 import { fileBuffer, forgetEditorBufferForTests } from "../../src/cockpit/editor/buffer.ts";
 import { authState, initialAuth } from "../../src/state/auth.ts";
 import { resetProjects, selectProject, setProjects } from "../../src/state/projects.ts";
+import { until } from "../helpers/until.ts";
 
 type Probe = { mounts: number; destroys: number };
 
@@ -298,11 +299,7 @@ describe("the kept-alive editor room's draft binding survives every excursion", 
   /** Wait until the pane has actually read the file (the open is probe-first
    * and async; the textarea does not exist until the edit verb is offered). */
   async function untilEditOffered(): Promise<void> {
-    const t0 = Date.now();
-    while (host.querySelector('button[data-verb-id="editor.view-edit"]') === null) {
-      if (Date.now() - t0 > 4000) throw new Error("the file never finished opening");
-      await settle(10);
-    }
+    await until(() => host.querySelector('button[data-verb-id="editor.view-edit"]') !== null);
     verb("editor.view-edit").click();
     flushSync();
   }

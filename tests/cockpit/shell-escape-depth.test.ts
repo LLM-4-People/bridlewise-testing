@@ -40,6 +40,7 @@ import Cockpit from "../../src/cockpit/Cockpit.svelte";
 import SettingsRoom from "../../src/cockpit/rooms/SettingsRoom.svelte";
 import { plantHead, returnToLive } from "../../src/data/asof.ts";
 import { openRightMenu, rightMenu } from "../../src/cockpit/shell/right-menu.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -79,13 +80,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 let host: HTMLElement;
 let app: object | null = null;
@@ -122,17 +116,17 @@ const hintText = (): string => host.querySelector(".hint")?.textContent ?? "";
 /** Open the room, then the surface inside it. */
 async function openRoomAndNested(): Promise<void> {
   openCustodyChord();
-  await waitFor(roomOnScreen);
+  await until(roomOnScreen);
   host.querySelector<HTMLButtonElement>('[data-testid="open-nested"]')!.click();
-  await waitFor(nestedOnScreen);
+  await until(nestedOnScreen);
 }
 
 /** Open Settings (the real room), then one row's inline sheet. */
 async function openSettingsAndSheet(): Promise<void> {
   openSettingsChord();
-  await waitFor(() => host.querySelector('[data-room-active="true"] .setting-row') !== null);
+  await until(() => host.querySelector('[data-room-active="true"] .setting-row') !== null);
   host.querySelector<HTMLButtonElement>('[data-verb-id="settings.index/adjust"]')!.click();
-  await waitFor(sheetOnScreen);
+  await until(sheetOnScreen);
 }
 
 beforeEach(async () => {
@@ -159,7 +153,7 @@ beforeEach(async () => {
   host = document.createElement("div");
   document.body.appendChild(host);
   app = mount(Cockpit, { target: host });
-  await waitFor(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
+  await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
 });
 
 afterEach(() => {
@@ -203,7 +197,7 @@ describe("Esc unwinds by depth — the innermost surface first", () => {
     await openRoomAndNested();
 
     esc();
-    await waitFor(() => !nestedOnScreen());
+    await until(() => !nestedOnScreen());
     // THE WHOLE DEFECT, in one assertion: the room the difference lives in is
     // still on screen, with its list and its scroll position intact.
     expect(roomOnScreen()).toBe(true);
@@ -212,10 +206,10 @@ describe("Esc unwinds by depth — the innermost surface first", () => {
   test("…and the second press closes the room", async () => {
     await openRoomAndNested();
     esc();
-    await waitFor(() => !nestedOnScreen());
+    await until(() => !nestedOnScreen());
 
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     expect(nestedOnScreen()).toBe(false);
   });
 
@@ -223,9 +217,9 @@ describe("Esc unwinds by depth — the innermost surface first", () => {
   // swallowed. With nothing open inside it, one press closes the room.
   test("mutation — with no difference open, ONE press closes the room", async () => {
     openCustodyChord();
-    await waitFor(roomOnScreen);
+    await until(roomOnScreen);
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
   });
 
   test("a surface left open in a HIDDEN room does not take the key", async () => {
@@ -233,25 +227,25 @@ describe("Esc unwinds by depth — the innermost surface first", () => {
     // Close the room from its own control, with the difference still open —
     // rooms are kept alive, so the difference is still open, just not visible.
     host.querySelector<HTMLButtonElement>('[data-verb-id="room.close"]')!.click();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     // Esc must NOT be spent dismissing something nobody can see.
     esc();
-    await waitFor(() => hintText().length > 0);
+    await until(() => hintText().length > 0);
     expect(hintText()).toBe("Esc — nothing open, already at now");
   });
 
   test("reopening the room hands the key back to the surface inside it", async () => {
     await openRoomAndNested();
     host.querySelector<HTMLButtonElement>('[data-verb-id="room.close"]')!.click();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
 
     openCustodyChord();
-    await waitFor(roomOnScreen);
+    await until(roomOnScreen);
     // The difference survived the round trip (keep-alive) — and so did its
     // claim on Esc, with nothing re-registered by the surface.
     expect(nestedOnScreen()).toBe(true);
     esc();
-    await waitFor(() => !nestedOnScreen());
+    await until(() => !nestedOnScreen());
     expect(roomOnScreen()).toBe(true);
   });
 
@@ -269,7 +263,7 @@ describe("Esc unwinds by depth — the innermost surface first", () => {
     await openSettingsAndSheet();
 
     esc();
-    await waitFor(() => !sheetOnScreen());
+    await until(() => !sheetOnScreen());
     // THE WHOLE DEFECT, in one assertion: the room the sheet lives in is
     // still on screen, with its search and its scroll position intact.
     expect(roomOnScreen()).toBe(true);
@@ -278,10 +272,10 @@ describe("Esc unwinds by depth — the innermost surface first", () => {
   test("…and the second press closes the room", async () => {
     await openSettingsAndSheet();
     esc();
-    await waitFor(() => !sheetOnScreen());
+    await until(() => !sheetOnScreen());
 
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     expect(sheetOnScreen()).toBe(false);
   });
 
@@ -289,9 +283,9 @@ describe("Esc unwinds by depth — the innermost surface first", () => {
   // open, one press closes the room.
   test("mutation — with no setting sheet open, ONE press closes Settings", async () => {
     openSettingsChord();
-    await waitFor(() => host.querySelector('[data-room-active="true"] .setting-row') !== null);
+    await until(() => host.querySelector('[data-room-active="true"] .setting-row') !== null);
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
   });
 });
 
@@ -314,7 +308,7 @@ describe("closing a room returns focus to the grip that opened it (UIE-047)", ()
     const grip = railGrip("custody");
     grip.focus();
     grip.click();
-    await waitFor(roomOnScreen);
+    await until(roomOnScreen);
     host.querySelector<HTMLButtonElement>('[data-verb-id="room.close"]')!.focus();
     expect(document.activeElement).not.toBe(grip);
     return grip;
@@ -324,7 +318,7 @@ describe("closing a room returns focus to the grip that opened it (UIE-047)", ()
     const grip = await openWithFocusInside();
 
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     // THE DEFECT, in one assertion: focus used to fall to BODY (a focused
     // element inside the now-inert room is dropped by the engine), so the
     // reader's next Tab started at the document top.
@@ -335,7 +329,7 @@ describe("closing a room returns focus to the grip that opened it (UIE-047)", ()
     const grip = await openWithFocusInside();
 
     host.querySelector<HTMLButtonElement>('[data-verb-id="room.close"]')!.click();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     expect(document.activeElement).toBe(grip);
   });
 
@@ -344,11 +338,11 @@ describe("closing a room returns focus to the grip that opened it (UIE-047)", ()
     const composer = host.querySelector<HTMLInputElement>('input[name="composer"]')!;
     composer.focus();
     openCustodyChord();
-    await waitFor(roomOnScreen);
+    await until(roomOnScreen);
     host.querySelector<HTMLButtonElement>('[data-verb-id="room.close"]')!.focus();
 
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     expect(document.activeElement).toBe(composer);
   });
 
@@ -359,7 +353,7 @@ describe("closing a room returns focus to the grip that opened it (UIE-047)", ()
     grip.remove();
 
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     // Focus falls to the document — the honest fallback, never a dead node.
     expect(document.activeElement).not.toBe(grip);
   });
@@ -369,10 +363,10 @@ describe("the ladder's floor — the past view is reached LAST", () => {
   test("with a room open, Esc closes the room before it returns to now", async () => {
     plantHead(1_700_000_000_000);
     openCustodyChord();
-    await waitFor(roomOnScreen);
+    await until(roomOnScreen);
 
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
     // Still a past view: closing what is on screen never silently un-plants
     // the head as a side effect.
     expect(host.querySelector(".past-band")).not.toBeNull();
@@ -381,12 +375,12 @@ describe("the ladder's floor — the past view is reached LAST", () => {
     // this exercises the shell's own fallback; with a sweep the fallback is
     // its floor layer, which additionally unpins the band's view.)
     esc();
-    await waitFor(() => host.querySelector(".past-band") === null);
+    await until(() => host.querySelector(".past-band") === null);
   });
 
   test("with nothing open and nothing planted, Esc says so rather than nothing", async () => {
     esc();
-    await waitFor(() => hintText().length > 0);
+    await until(() => hintText().length > 0);
     expect(hintText()).toBe("Esc — nothing open, already at now");
   });
 });
@@ -411,11 +405,11 @@ describe("the identity glyph menu is a dismissal layer", () => {
 
   test("Esc closes the open menu, and no lying hint fires", async () => {
     openIdentityMenu();
-    await waitFor(menuOnScreen);
+    await until(menuOnScreen);
     expect(glyph().getAttribute("aria-expanded")).toBe("true");
 
     esc();
-    await waitFor(() => !menuOnScreen());
+    await until(() => !menuOnScreen());
     expect(glyph().getAttribute("aria-expanded")).toBe("false");
     // The menu WAS the open surface — the layer-blind "nothing open" hint
     // must not have fired while it was visibly up.
@@ -424,21 +418,21 @@ describe("the identity glyph menu is a dismissal layer", () => {
 
   test("a press outside closes the menu (the web-native menu contract)", async () => {
     openIdentityMenu();
-    await waitFor(menuOnScreen);
+    await until(menuOnScreen);
     document.body.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
-    await waitFor(() => !menuOnScreen());
+    await until(() => !menuOnScreen());
   });
 
   test("a press on the menu itself does not close it", async () => {
     openIdentityMenu();
-    await waitFor(menuOnScreen);
+    await until(menuOnScreen);
     host.querySelector(".identity-menu")!.dispatchEvent(
       new window.Event("pointerdown", { bubbles: true }),
     );
     await new Promise((r) => setTimeout(r, 20));
     expect(menuOnScreen()).toBe(true);
     esc();
-    await waitFor(() => !menuOnScreen());
+    await until(() => !menuOnScreen());
   });
 });
 
@@ -458,51 +452,51 @@ describe("the right menu and the desk are dismissal layers (the LENS precedent)"
 
   test("Esc closes the open run pane, and no lying hint fires", async () => {
     chord("r");
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
 
     esc();
-    await waitFor(() => !paneOnScreen());
+    await until(() => !paneOnScreen());
     expect(hintText()).toBe("");
   });
 
   test("Esc closes the open desk, and no lying hint fires", async () => {
     chord(".");
-    await waitFor(deskOpen);
+    await until(deskOpen);
 
     esc();
-    await waitFor(() => !deskOpen());
+    await until(() => !deskOpen());
     expect(hintText()).toBe("");
   });
 
   test("the inspector above a room closes before the room", async () => {
     chord("r");
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
     openCustodyChord();
-    await waitFor(roomOnScreen);
+    await until(roomOnScreen);
 
     esc();
-    await waitFor(() => !paneOnScreen());
+    await until(() => !paneOnScreen());
     expect(roomOnScreen()).toBe(true);
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
   });
 
   test("switching from Activity to Setup keeps one dismissal layer", async () => {
     chord("r");
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
     chord(".");
-    await waitFor(deskOpen);
+    await until(deskOpen);
 
     esc();
-    await waitFor(() => !deskOpen());
+    await until(() => !deskOpen());
     expect(paneOnScreen(), "Setup and Activity share one inspector").toBe(false);
   });
 
   test("their own grips still toggle them (the layer only adds Esc)", async () => {
     chord("r");
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
     chord("r");
-    await waitFor(() => !paneOnScreen());
+    await until(() => !paneOnScreen());
   });
 
   // ── THE ARM GROUP JOINS THE LADDER THROUGH THE ONE MENU ────────────────
@@ -523,37 +517,37 @@ describe("the right menu and the desk are dismissal layers (the LENS precedent)"
     // the menu and the OTHER toggled surfaces (the desk arm above), never
     // inside the menu — re-landing at a group is not a raise.
     chord("r");
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
     landAtArmGroup();
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
     expect(rightMenu.get()).toBe("arm");
 
     esc();
-    await waitFor(() => !paneOnScreen());
+    await until(() => !paneOnScreen());
     expect(rightMenu.get()).toBeNull();
     expect(hintText()).toBe("");
   });
 
   test("Esc closes the menu landed at the ARM group, and no lying hint fires", async () => {
     landAtArmGroup();
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
 
     esc();
-    await waitFor(() => !paneOnScreen());
+    await until(() => !paneOnScreen());
     expect(hintText()).toBe("");
   });
 
   test("the Watches inspector closes before the room beneath it", async () => {
     landAtArmGroup();
-    await waitFor(paneOnScreen);
+    await until(paneOnScreen);
     openCustodyChord();
-    await waitFor(roomOnScreen);
+    await until(roomOnScreen);
 
     esc();
-    await waitFor(() => !paneOnScreen());
+    await until(() => !paneOnScreen());
     expect(roomOnScreen()).toBe(true);
     esc();
-    await waitFor(() => !roomOnScreen());
+    await until(() => !roomOnScreen());
   });
 });
 

@@ -71,15 +71,21 @@ export type RunningStack = Readonly<{
 
 const REPO_ROOT = process.cwd();
 
-function waitForHttp(url: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+/**
+ * Waits until `url` answers, or REFUSES the moment the process meant to serve
+ * it has exited: the readiness of a server is bounded by the server's own
+ * life, never by a wall clock (NO-LOAD-BLOCK) — a busy host makes a booting
+ * server slow, not dead.
+ */
+function waitForHttp(url: string, server: ChildProcess, name: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tick = (): void => {
       fetch(url).then(
         () => resolve(),
         () => {
-          if (Date.now() > deadline) reject(new Error(`timed out waiting for ${url}`));
-          else setTimeout(tick, 200);
+          if (server.exitCode !== null || server.signalCode !== null) {
+            reject(new Error(`${name} exited (${String(server.exitCode ?? server.signalCode)}) before ${url} answered`));
+          } else setTimeout(tick, 200);
         },
       );
     };
@@ -319,8 +325,8 @@ export async function startStack(profile: string): Promise<RunningStack> {
   process.once("SIGHUP", () => void stop().then(() => process.exit(129)));
 
   try {
-    await waitForHttp(`http://127.0.0.1:${apiPort}/api/health`, 60_000);
-    await waitForHttp(`${webOrigin}/`, 60_000);
+    await waitForHttp(`http://127.0.0.1:${apiPort}/api/health`, api, "api");
+    await waitForHttp(`${webOrigin}/`, web, "vite");
   } catch (err) {
     await stop();
     throw err;

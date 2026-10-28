@@ -45,6 +45,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { responseEvents, type ResponsesFixture } from "../../engine/test/support/mock-provider.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { until } from "../helpers/until.ts";
 
 // ── The bound is made REACHABLE, and the fixture is derived from it ────────
 //
@@ -549,53 +550,21 @@ async function steerRun(runId: string, prompt: string): Promise<{ status: number
  *  is a failure rather than a fallback: continuing past an unmet precondition
  *  makes every assertion after it a statement about something that did not
  *  happen. */
-async function waitUntil(ok: () => boolean, what: string, timeoutMs = 5_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (ok()) return;
-    if (Date.now() > deadline) throw new Error(`${what} (waited ${String(timeoutMs)}ms)`);
-    await new Promise((r) => setTimeout(r, 10));
-  }
+/** Wait until the run has published at least `count` frames. A run that
+ *  publishes nothing is a run there is nothing to interrupt: the wait never
+ *  ends, and the hang backstop fails the test by name, never a fallback. */
+async function waitForFrames(runId: string, count: number): Promise<void> {
+  const { runFeedState } = await import("../../server/run/run-feed.ts");
+  await until(() => (runFeedState(runId)?.frames ?? 0) >= count);
 }
 
-/** Wait until the run has published at least `count` frames. The timeout is a
- *  failure, not a fallback: a run that publishes nothing is a run there is
- *  nothing to interrupt, and every assertion about interrupting it would be
- *  measuring a run that never started. */
-async function waitForFrames(runId: string, count: number, timeoutMs = 5_000): Promise<void> {
+/** Poll the feed's own terminal flag rather than sleeping a constant. A run
+ *  that never ends never satisfies it: the hang backstop fails the test, so
+ *  no assertion after this point measures a run that never finished. */
+async function runToCompletion(runId: string): Promise<void> {
   const { runFeedState } = await import("../../server/run/run-feed.ts");
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if ((runFeedState(runId)?.frames ?? 0) >= count) return;
-    if (Date.now() > deadline) {
-      throw new Error(
-        `run ${runId} published fewer than ${String(count)} frames within ${String(timeoutMs)}ms — ` +
-          `there is nothing in flight to cancel, so the case under test cannot happen`,
-      );
-    }
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
-
-/** Poll the feed's own terminal flag rather than sleeping a constant. A fixed
- *  sleep is a budget, not a wait; the timeout is a failure because a run that
- *  never ends makes every assertion after it a measurement of nothing. */
-async function runToCompletion(runId: string, timeoutMs = 10_000): Promise<void> {
-  const { runFeedState } = await import("../../server/run/run-feed.ts");
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (runFeedState(runId)?.ended === true) {
-      await new Promise((r) => setTimeout(r, 60));
-      return;
-    }
-    if (Date.now() > deadline) {
-      throw new Error(
-        `run ${runId} did not reach a terminal state within ${String(timeoutMs)}ms — ` +
-          `every assertion after this point would be measuring a run that never finished`,
-      );
-    }
-    await new Promise((r) => setTimeout(r, 25));
-  }
+  await until(() => runFeedState(runId)?.ended === true);
+  await new Promise((r) => setTimeout(r, 60));
 }
 
 // ── 1. A cancelled run announces itself, and the reconnect loop is over ────
@@ -622,10 +591,8 @@ describe("a run that stops publishes a terminal frame, on every path", () => {
       // which branch it took — not a frame count, because the run publishes
       // its context frame before it calls anyone, so "two frames" is true
       // while nothing is yet in flight.
-      await waitUntil(
-        () => providerBranches.length > before,
-        "the provider was never reached, so there was no turn in flight to cancel",
-      );
+      // the provider was never reached, so there was no turn in flight to cancel otherwise (no wall deadline: a hang is ended by the backstop).
+      await until(() => providerBranches.length > before);
       await waitForFrames(runId, 2);
 
       // LIVENESS OF THE FIXTURE: the provider took the SLOW branch, so there
@@ -1159,10 +1126,8 @@ describe("a run whose last call failed ends by saying so", () => {
       // the live subscriber captures the drain's own `steered` frame —
       // the bounded buffer will have evicted it by the reconnect.
       const live = drain(`/api/run/${runId}/stream`, {}, 4_000);
-      await waitUntil(
-        () => providerBranches.slice(before).includes("fail"),
-        "the failing call never reached the provider, so there was no in-flight call to steer",
-      );
+      // the failing call never reached the provider, so there was no in-flight call to steer otherwise (no wall deadline: a hang is ended by the backstop).
+      await until(() => providerBranches.slice(before).includes("fail"));
       const steered = await steerRun(runId, "answer plainly after the refusal");
       expect(steered.status, "a steer on a live mid-call run is accepted").toBe(200);
       expect(steered.queued, "the steer is queued for the drain turn").toBe(1);
