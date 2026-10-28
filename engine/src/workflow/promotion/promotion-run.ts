@@ -21,12 +21,12 @@ import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import { assertSameFilesystem, type CheckoutCommandRunner } from "../checkout-setup.ts";
 import { LockAcquisitionTimeout, acquireLock, configuredLockOptions } from "../resource-lock.ts";
-import { repositoryId, repositoryRegistryArea, workspaceRootOf } from "../repository-registry.ts";
+import { repositoryId, repositoryRegistryArea, workspaceRootOf, type RepositoryRegistry } from "../repository-registry.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { LandingError, landingGitFailure, sweepCandidates } from "../tree-landing.ts";
 import { PromotionError } from "./codes.ts";
 import type { PromotionPlan } from "./projection.ts";
-import { branchOf, type PromotionProfile } from "./profile.ts";
+import { branchOf, PROFILE_NAME_PATTERN, type PromotionProfile } from "./profile.ts";
 import type { PromotionContext } from "./context.ts";
 
 /** What `apply` was asked (see the header): the reasoned overrides and how far to go. */
@@ -90,6 +90,17 @@ export function shortId(id: string): string {
  */
 export function promotionFolder(context: PromotionContext): string {
   return join(workspaceRootOf(context.registry, context.isolation.workspaceRoot), `promote-${repositoryId(context.registry, ROOT_POLICY.workflow.promotion.shortIdLength)}`);
+}
+
+/**
+ * The private directory of the profile `name` (the registry's promotion
+ * area): named here, created only by a plan or an unattended launch. A name
+ * the profile rule refuses (`PROFILE_NAME_PATTERN`) is refused here too,
+ * before it is ever a path: it is one segment below the area, or nothing.
+ */
+export function profileWorkDirectory(registry: RepositoryRegistry, name: string): string {
+  if (!PROFILE_NAME_PATTERN.test(name)) throw new PromotionError("promotion_profile_invalid", `${JSON.stringify(name)} is no profile name (${String(PROFILE_NAME_PATTERN)}): it is never used as a path`, { name });
+  return join(repositoryRegistryArea(registry, "promotion"), name);
 }
 
 /** The candidate folder of `profile` for the plan `planId` (in {@link promotionFolder}). */
@@ -202,6 +213,6 @@ export function removeCandidate(context: PromotionContext, git: WorktreeGitPort,
 }
 
 /** The target tip T of `profile`: the local target branch, else its remote-tracking ref; `null` before the target exists. */
-export function targetTip(repository: GitRepository, profile: PromotionProfile): string | null {
+export function targetTip(repository: GitRepository, profile: Readonly<Pick<PromotionProfile, "remote"> & { target: Readonly<{ ref: string }> }>): string | null {
   return resolveRevision(repository, profile.target.ref) ?? (profile.remote === null ? null : resolveRevision(repository, remoteTrackingRef(profile.remote, branchOf(profile.target.ref))));
 }
