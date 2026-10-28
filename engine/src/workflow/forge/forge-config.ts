@@ -4,8 +4,10 @@
  * idiom; `src/kernel/config-contracts.ts` splices it in). Every value the
  * forge uses that is not GitHub's own protocol comes from here: the
  * organisation, the API and web origins, the request bounds, the repository
- * topology (each repository's `kind`, github-only §2.1) and the local Apps
- * page. There is no default in code: a checkout whose document declares no
+ * topology (each repository's `kind`, github-only §2.1), the local Apps page,
+ * and what the declarations are made of (the stage, the plan, the merge
+ * queue, the areas, labels, autolinks, Dependabot, the Project, the retired
+ * objects). There is no default in code: a checkout whose document declares no
  * `forge` section is the typed `forge_not_configured` (its one reader,
  * `configured-forge.ts`). This module imports no configuration reader (the
  * kernel imports it).
@@ -17,7 +19,7 @@ import type { ForgeRepositoryKind } from "./app-registry.ts";
 import type { ForgeEndpoint } from "./port.ts";
 
 /** The `kind` custom property's allowed values (runbook P1.8); `none` is a repository the topology does not govern. */
-const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
+export const FORGE_REPOSITORY_KINDS = deepFreeze(["trunk", "meta", "evidence", "notes", "archive", "none"] as const);
 
 const NAME = /^[A-Za-z0-9._-]{1,100}$/u;
 const ORGANIZATION = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u;
@@ -54,6 +56,8 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     kind: z.enum(FORGE_REPOSITORY_KINDS),
     visibility: z.enum(["public", "private"]),
     provingGround: z.boolean().optional(),
+    /** A branch the repository protects from deletion and force-pushes by its own ruleset (`protect-<branch>`; the notes repository's working branch). */
+    protectedBranch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/u).optional(),
   })).min(1).superRefine((repositories, context) => {
     const names = repositories.map((repository) => repository.name.toLowerCase());
     if (new Set(names).size !== names.length) context.addIssue({ code: "custom", message: "repository names must be unique" });
@@ -78,6 +82,98 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
      */
     legacyApps: z.array(z.strictObject({ slug: z.string().regex(/^[a-z0-9-]{1,64}$/u), repositories: z.array(z.string().regex(NAME)) })),
   }),
+  /**
+   * Where the migration is (github-only §3.2, runbook P3.7): `p0` keeps the
+   * P0 required contexts, no approval and no signature requirement; `door`
+   * is the flip — the one required check `bridlewise/door` from the door App,
+   * one verifier approval, signed commits. `harness forge apply` sends it.
+   */
+  stage: z.enum(["p0", "door"]),
+  /** What the organisation's plan allows: a field it does not is recorded `unavailable_on_plan`, never written. */
+  plan: z.strictObject({
+    name: z.enum(["free", "team", "enterprise"]),
+    /** The Secret Protection add-on (custom patterns, validity checks, generic secrets, delegated bypass). */
+    secretProtection: z.boolean(),
+  }),
+  /** The maintainer's login (the `rotation` environment's reviewer). */
+  maintainer: z.string().regex(ORGANIZATION),
+  /** The P0 required contexts (runbook P0.2), kept on the trunk until the flip. */
+  p0RequiredChecks: z.array(z.strictObject({ context: z.string().min(1).max(255), integrationId: z.number().int().positive() })).min(1),
+  /** The merge queue's parameters (runbook P0.10; the build concurrency is measured, github-only §3.2). */
+  mergeQueue: z.strictObject({
+    maxEntriesToBuild: z.number().int().min(1).max(20),
+    minEntriesToMerge: z.number().int().min(1).max(100),
+    maxEntriesToMerge: z.number().int().min(1).max(100),
+    minEntriesToMergeWaitMinutes: z.number().int().min(0).max(360),
+    checkResponseTimeoutMinutes: z.number().int().min(1).max(360),
+  }),
+  /**
+   * The areas of the repository, each with the paths it owns: the ONE table
+   * the `area:` labels, the Area issue field and CODEOWNERS are generated from.
+   */
+  areas: z.array(z.strictObject({
+    id: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/u),
+    description: z.string().min(1).max(100),
+    /** The `area:<id>` label's colour (six hex digits). */
+    color: z.string().regex(/^[0-9a-f]{6}$/u),
+    paths: z.array(z.string().regex(/^\/(?:[A-Za-z0-9._-]+\/)*(?:[A-Za-z0-9._-]+)?$/u)).min(1),
+  })).min(1),
+  /** Labels beyond the `area:` ones (lanes, workflow markers): name, colour (six hex digits) and description. */
+  labels: z.array(z.strictObject({
+    name: z.string().min(1).max(50),
+    color: z.string().regex(/^[0-9a-f]{6}$/u),
+    description: z.string().max(100),
+  })),
+  /** Autolinks on the trunk: `<keyPrefix><num>` in any GitHub text links to `urlTemplate` (which holds `<num>`). */
+  autolinks: z.array(z.strictObject({
+    keyPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}-$/u),
+    urlTemplate: z.string().regex(/^https:\/\/[^\s<>]+<num>[^\s<>]*$/u),
+    isAlphanumeric: z.boolean(),
+  })),
+  /** The Dependabot file (github-only §6.4): one entry per package root, grouped, with cooldowns. */
+  dependabot: z.strictObject({
+    schedule: z.strictObject({ interval: z.enum(["daily", "weekly", "monthly"]), day: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]), time: z.string().regex(/^[0-2][0-9]:[0-5][0-9]$/u), timezone: z.string().min(1) }),
+    openPullRequestsLimit: z.number().int().min(0).max(20),
+    cooldownDays: z.number().int().min(0).max(90),
+    majorCooldownDays: z.number().int().min(0).max(90),
+    packages: z.array(z.strictObject({ ecosystem: z.enum(["npm", "github-actions", "cargo"]), directory: z.string().regex(/^\/(?:[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)?$/u), group: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/u) })).min(1),
+    /** Lockfiles under these prefixes are frozen records (benchmarks), never updated. */
+    frozenPrefixes: z.array(z.string().regex(/^(?:[A-Za-z0-9._-]+\/)+$/u)),
+  }),
+  /** The org Project the projection writes (github-only §9.2). */
+  project: z.strictObject({ title: z.string().min(1).max(100), statusOptions: z.array(z.string().min(1).max(50)).min(1) }),
+  /**
+   * THE CONTENT POLICY (github-only §3.2, §5.4): what no commit may carry.
+   * A private governed repository's push ruleset (`content-policy`) is
+   * generated from it; the door's tree judge must read this same section
+   * (#125), never a second list.
+   */
+  contentPolicy: z.strictObject({
+    /** The largest file a push may carry, in megabytes (GitHub's push rule takes 1 to 100). */
+    maxFileMegabytes: z.number().int().min(1).max(100),
+    /** Extensions no file may have, each a dot and a name (`.pem`). */
+    forbiddenExtensions: z.array(z.string().regex(/^\.[A-Za-z0-9]{1,32}$/u)).min(1).max(200),
+    /** Paths no file may sit under, in GitHub's fnmatch syntax (`**\/secrets/**`). */
+    forbiddenPaths: z.array(z.string().regex(/^[A-Za-z0-9._*\/-]{1,200}$/u)).min(1).max(200),
+  }),
+  /** Objects a generated one replaced: `harness forge apply` deletes them (by kind and name). */
+  retired: z.array(z.strictObject({ kind: z.enum(["ruleset"]), repository: z.string().regex(NAME), name: z.string().min(1) })),
+});
+
+/**
+ * THE BOUNDS OF A FORGE REFUSAL'S TEXT: how much of GitHub's or `gh`'s
+ * answer a typed refusal keeps. They are owned here, one value each, never
+ * a literal at a call site.
+ */
+export const FORGE_REFUSAL_TEXT = deepFreeze({
+  /** The excerpt of an error body that is not JSON, in characters. */
+  bodyExcerptChars: 300,
+  /** The validation or GraphQL error entries a refusal names. */
+  errorEntries: 20,
+  /** The last lines of `gh`'s standard error a refusal quotes. */
+  cliStderrLines: 3,
+  /** The characters of that quote. */
+  cliStderrChars: 400,
 });
 
 export type ForgeSettings = DeepReadonly<z.infer<typeof FORGE_CONFIG_SCHEMA>>;

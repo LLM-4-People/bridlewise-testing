@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-FRONT-DOOR
 type: Task
 title: Give the testing repository its own front door

@@ -3,7 +3,12 @@
  * one complete, valid `forge` section, independent of the repository's own
  * configuration, so a rename there never moves a test's expectations.
  */
+import { join } from "node:path";
+
+import { readIntake, readRoles } from "../../src/workflow/community/sources.ts";
+import { trackedTop } from "../../src/workflow/evidence-store.ts";
 import { FORGE_CONFIG_SCHEMA, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
+import type { ForgeFileSources } from "../../src/workflow/forge/generated-files.ts";
 
 export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   organization: "LLM-4-People",
@@ -22,4 +27,38 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   ],
   maintainerCli: { stallMs: 120_000, cpuLimitMs: 30_000, killGraceMs: 500 },
   appsPage: { port: 47811, legacyApps: [{ slug: "claude", repositories: ["bridlewise-testing"] }] },
+  stage: "p0",
+  plan: { name: "team", secretProtection: false },
+  maintainer: "amberflag48",
+  p0RequiredChecks: [{ context: "Typecheck, public tests, build", integrationId: 15368 }, { context: "Secret and privacy scan", integrationId: 15368 }],
+  mergeQueue: { maxEntriesToBuild: 1, minEntriesToMerge: 1, maxEntriesToMerge: 4, minEntriesToMergeWaitMinutes: 0, checkResponseTimeoutMinutes: 60 },
+  areas: [
+    { id: "engine", description: "The engine", color: "1d76db", paths: ["/engine/"] },
+    { id: "docs", description: "Documentation", color: "0075ca", paths: ["/docs/"] },
+  ],
+  labels: [{ name: "lane:gh-1", color: "5319e7", description: "Work of the GH-1 writer lane" }],
+  autolinks: [{ keyPrefix: "UR-", urlTemplate: "https://example.github.io/decisions/UR-<num>", isAlphanumeric: true }],
+  dependabot: {
+    schedule: { interval: "weekly", day: "monday", time: "06:00", timezone: "Etc/UTC" },
+    openPullRequestsLimit: 5, cooldownDays: 3, majorCooldownDays: 7,
+    packages: [{ ecosystem: "npm", directory: "/", group: "web" }, { ecosystem: "npm", directory: "/engine", group: "engine" }, { ecosystem: "github-actions", directory: "/", group: "actions" }],
+    frozenPrefixes: ["engine/verification/benchmarks/"],
+  },
+  project: { title: "Bridlewise", statusOptions: ["Intake", "Ready", "In progress", "In review", "Done"] },
+  contentPolicy: { maxFileMegabytes: 10, forbiddenExtensions: [".pem", ".key", ".env"], forbiddenPaths: ["**/secrets/**", "**/tokens/**"] },
+  retired: [{ kind: "ruleset", repository: "bridlewise-testing", name: "protect-release-tags" }],
+});
+
+/** The repository's own community sources (the one table of categories, types and teams). */
+const TOP = trackedTop(join(import.meta.dirname, "..", ".."));
+
+const WORKFLOW_ACTIONS = ["actions/checkout@0123456789abcdef0123456789abcdef01234567", "github/codeql-action/init@0123456789abcdef0123456789abcdef01234567", "ossf/scorecard-action@0123456789abcdef0123456789abcdef01234567", "./.github/actions/local"];
+
+/** The sources of the generated files, for {@link SETTINGS}. */
+export const SOURCES: ForgeFileSources = Object.freeze({
+  settings: SETTINGS,
+  intake: readIntake(TOP),
+  roles: readRoles(TOP),
+  workflowActions: WORKFLOW_ACTIONS,
+  facts: Object.freeze({ workflowActions: WORKFLOW_ACTIONS, lockfileDirectories: Object.freeze({ npm: ["/", "/engine"], cargo: [] }), hasWorkflows: true }),
 });

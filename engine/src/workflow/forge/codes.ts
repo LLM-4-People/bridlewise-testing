@@ -30,7 +30,12 @@ type CodeEntry = Readonly<{ class: ForgeClass; remedy: string }>;
 /** Every code the forge answers with (see the header). */
 const FORGE_CODES = deepFreeze({
   forge_not_configured: { class: "input", remedy: "Declare the `forge` section in engine/bridlewise.config.json (its schema is `forge-config.ts`)." },
-  forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]`, `harness forge apps create`, or `harness forge apps audit [--role <role>]…`." },
+  forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]`, `harness forge apps create`, `harness forge apps audit [--role <role>]…`, or `harness forge plan|apply|audit`." },
+  forge_declaration_invalid: { class: "input", remedy: "Fix the declaration's owner (the forge section, the App registry, the community sources or the tree) so the generated configuration is whole: the message names what is missing or doubled." },
+  forge_reference_unresolved: { class: "refused", remedy: "The object names an App, installation, team or user GitHub does not have yet: create it first (Session 1 for the Apps; `forge apply` creates the teams), then plan again." },
+  forge_loosening_unacknowledged: { class: "refused", remedy: "Review each weakening the plan lists, then pass `--accept-loosening <kind:scope:key>` for each one you accept; the acknowledgement is recorded in the apply's receipt." },
+  forge_tighten_unverified: { class: "integrity", remedy: "The org baseline did not read back as declared after it was applied, so nothing was loosened: run `harness forge plan` to see what differs, and investigate before applying again." },
+  forge_plan_incomplete: { class: "refused", remedy: "`forge apply` sends a whole plan only: resolve every refused object (the plan lists each with its code), then apply again." },
   forge_request_invalid: { class: "input", remedy: "Fix the request: the path must be an API path starting with `/`, with no scheme, host, `..` or fragment, and a query of plain values." },
   forge_endpoint_invalid: { class: "input", remedy: "Name the API as an absolute https URL (http only for a loopback test server) with no credentials, query or fragment." },
   forge_app_unknown: { class: "input", remedy: "Name one of the App registry's roles (`app-registry.ts`)." },

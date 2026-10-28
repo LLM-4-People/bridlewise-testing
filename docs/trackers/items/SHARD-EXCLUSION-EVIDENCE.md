@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: SHARD-EXCLUSION-EVIDENCE
 type: Task
 title: Give each shard exclusion evidence that resolves

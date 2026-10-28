@@ -109,7 +109,10 @@ test("the CLI's verdict is every audit's: the host Apps exact passes, one App of
     const app = fake.installApp({ slug: FORGE_APPS[role].name, permissions, repositories: HOST_REPOSITORIES });
     storeAppKey(keyHome, role, { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
   };
-  const wiring = { settings: () => SETTINGS, endpoint: () => fake.endpoint(), hostCustody: () => keyHomeCustody(keyHome) };
+  const wiring = {
+    settings: () => SETTINGS, endpoint: () => fake.endpoint(), keyHome: () => keyHome,
+    maintainerCli: () => assert.fail("the audit never runs gh"), appsPage: () => assert.fail("the audit serves no page"),
+  };
   install("agent", FORGE_APPS.agent.permissions);
   install("verifier", { ...FORGE_APPS.verifier.permissions, issues: "write" });
   const answer = await runForgeCli(".", ["apps", "audit"], () => {}, wiring);

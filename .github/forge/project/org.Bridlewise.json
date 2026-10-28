@@ -1,0 +1,52 @@
+{
+  "kind": "project",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Bridlewise",
+  "unavailableOnPlan": [],
+  "desired": {
+    "title": "Bridlewise",
+    "public": true,
+    "status": [
+      "Intake",
+      "Ready",
+      "In progress",
+      "In review",
+      "Done"
+    ],
+    "fields": [
+      {
+        "name": "Lane",
+        "dataType": "TEXT"
+      },
+      {
+        "name": "Severity",
+        "dataType": "SINGLE_SELECT",
+        "options": [
+          "P0",
+          "P1",
+          "P2",
+          "P3"
+        ]
+      },
+      {
+        "name": "Area",
+        "dataType": "SINGLE_SELECT",
+        "options": [
+          "engine",
+          "forge",
+          "server",
+          "web",
+          "docs",
+          "ci",
+          "tests"
+        ]
+      },
+      {
+        "name": "CPU headroom",
+        "dataType": "NUMBER"
+      }
+    ]
+  }
+}

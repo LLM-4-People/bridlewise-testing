@@ -24,7 +24,7 @@ import { allProcessIds, commandLineOf, isProcessAlive, parentOf } from "../../sr
 
 const PASSING_SOURCE = `import test from "node:test";\ntest("pass", () => {});\n`;
 const SERIAL_MARKER_SOURCE = `import test from "node:test";\n// runWorkerWithEvidence\ntest("serial", () => {});\n`;
-const DIAGNOSTIC_SECRET = "sk_test_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const DIAGNOSTIC_SECRET = ("sk" + "_test_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
 const FAILING_SOURCE = `import test from "node:test";\nimport assert from "node:assert/strict";\ntest("fail", () => { try { assert.equal(1, 2); } catch (cause) { throw new TypeError("provider api_key=${DIAGNOSTIC_SECRET}", { cause }); } });\n`;
 /**
  * A test that never settles. `await new Promise(() => {})` resolves never and

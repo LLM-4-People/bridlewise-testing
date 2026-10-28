@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: PUBLIC-SNAPSHOT-CANDIDATE-FORMAT
 type: Task
 state: closed
