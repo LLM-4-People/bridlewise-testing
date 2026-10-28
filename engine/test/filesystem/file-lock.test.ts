@@ -205,6 +205,7 @@ test("THE LOCK FILE IS READ WITHOUT FOLLOWING A LINK, WITHOUT BLOCKING, AND BOUN
 const DECLARED: Readonly<Record<string, string>> = {
   "engine/src/git/worktree-port.ts": "validates a branch name against git's refname rules (a name ending in .lock), no lock file",
   "engine/src/git/working-copy.ts": "validates a ref segment against git's refname rules (a name ending in .lock), no lock file",
+  "engine/src/workflow/forge/repository-files.ts": "names Cargo's dependency manifest (Cargo.lock) to find the roots Dependabot covers, no lock file",
 };
 
 test("THE ONE LOCK: no module spells a lock file without taking it through file-lock.ts, and none renames or unlinks one by hand", () => {
