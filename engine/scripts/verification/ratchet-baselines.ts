@@ -29,9 +29,11 @@ import { parseArgs } from "node:util";
 
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { InputError } from "../../src/kernel/errors.ts";
+import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+import { declaredTreeKind } from "../../src/workflow/promotion/tree-kind.ts";
 import { deadMarkdownLinks } from "../../src/workflow/record-links.ts";
 import { findCatchBlocks } from "./catch-blocks.ts";
 import { judgeRatchet, parseRatchetBaseline, RATCHET_SCHEMA, ratchetGrowthSince, type RatchetEntry } from "./ratchet.ts";
@@ -48,11 +50,12 @@ export type RatchetBaselineSpec = Readonly<{
   /** The guard's scan over the repository: the keys the baseline is judged against. */
   findings: (repositoryRoot: string) => readonly RatchetFinding[];
   /**
-   * The guard's instrument (repository-relative), when the gate is the testing floor's: wherever the
-   * instrument is, the baseline MUST be (a missing one is refused, never converged); a tree without the
-   * instrument (the product projection strips the testing floor) does not run the gate, and says so.
+   * The gate belongs to the source tree's testing floor: wherever the tree is not the DECLARED product
+   * projection (`declaredTreeKind`, the promotion's one owner of that classification), the baseline MUST
+   * be there — a missing one is refused, and a missing instrument refuses by name; the declared product
+   * does not run the gate, and says so. Never inferred from what a tree lacks.
    */
-  instrument?: string;
+  testingFloor?: true;
 }>;
 
 // ── The engine's inline-literal defaults (engine/test/prevention/no-generic-errors.test.ts) ──
@@ -173,6 +176,13 @@ const SCANS: Readonly<Record<string, RatchetBaselineSpec["findings"]>> = Object.
   "dead-markdown-links": deadMarkdownLinks,
 });
 
+/** Where a source tree holds its promotion profiles (`promotion.profileDirectory` of the pinned config): a typed refusal when unconfigured. */
+function configuredProfileDirectory(): string {
+  const directory = loadPinnedConfigSnapshot().document.promotion?.profileDirectory;
+  if (directory === undefined) throw new InputError("promotion.profileDirectory is not configured: the tree's kind cannot be read", "tree_kind_unconfigured");
+  return directory;
+}
+
 /**
  * THE REGISTERED BASELINES: each path the root policy declares
  * (`verification.ratchetBaselines`, which also makes it a generated output)
@@ -189,7 +199,7 @@ export const RATCHET_BASELINES: readonly RatchetBaselineSpec[] = (() => {
   }
   return Object.freeze([
     ...declared.map(([id, path]): RatchetBaselineSpec => Object.freeze({ id, path, findings: SCANS[id]! })),
-    Object.freeze({ id: "architecture-judge", path: ARCHITECTURE_JUDGE_BASELINE, findings: architectureJudgeFindings, instrument: ARCHITECTURE_JUDGE_INSTRUMENT }),
+    Object.freeze({ id: "architecture-judge", path: ARCHITECTURE_JUDGE_BASELINE, findings: architectureJudgeFindings, testingFloor: true as const }),
   ]);
 })();
 
@@ -232,9 +242,9 @@ export type RatchetBaselineResult = Readonly<{
   /**
    * current: nothing stale; pruned: stale entries removed (write); stale: a sync would remove them (check);
    * grown: it holds entries the base it lands on does not (the one growth judgement, by id);
-   * missing: the gate's instrument is in this tree and its baseline is not — refused;
-   * not-in-this-tree: the gate's instrument is not here (the product projection), so the gate does not run;
-   * absent: a baseline with no declared instrument that this tree does not carry.
+   * missing: a testing-floor gate's baseline is not in a tree that is not the declared product — refused;
+   * not-in-this-tree: the tree is the DECLARED product projection, which does not run testing-floor gates;
+   * absent: a baseline of a gate that is not the testing floor's, which this tree does not carry.
    */
   status: "current" | "pruned" | "stale" | "grown" | "missing" | "not-in-this-tree" | "absent";
   stale: readonly string[];
@@ -261,11 +271,11 @@ export function syncRatchetBaselines(
   const results = baselines.map((spec): RatchetBaselineResult => {
     const grown = growth.get(spec.id) ?? [];
     const empty = { stale: [], unbaselined: [], grown, shown: {} } as const;
-    if (spec.instrument !== undefined && !existsSync(resolve(repositoryRoot, spec.instrument))) {
+    if (spec.testingFloor === true && declaredTreeKind(repositoryRoot, configuredProfileDirectory()) === "product") {
       return Object.freeze({ id: spec.id, path: spec.path, status: "not-in-this-tree", ...empty });
     }
     const absolute = resolve(repositoryRoot, spec.path);
-    if (!existsSync(absolute)) return Object.freeze({ id: spec.id, path: spec.path, status: spec.instrument === undefined ? "absent" : "missing", ...empty });
+    if (!existsSync(absolute)) return Object.freeze({ id: spec.id, path: spec.path, status: spec.testingFloor === true ? "missing" : "absent", ...empty });
     const baseline = parseRatchetBaseline(readFileSync(absolute, "utf8"), spec.path);
     const verdict = judgeRatchet(spec.findings(repositoryRoot).map((finding) => finding.key), baseline, undefined);
     // A baseline that does not carry its registry id (or another one) drifts like a stale entry: the id is how HEAD finds it.

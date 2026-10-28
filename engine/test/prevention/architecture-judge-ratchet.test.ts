@@ -7,9 +7,10 @@
  *
  * - a module that takes a folder default which does not fit it is NEW debt,
  *   refused (the real judge, on a whole-repository working copy);
- * - wherever the gate's instrument is, a deleted baseline is refused
- *   (`missing`), with no scope exception; a tree without the instrument (the
- *   product projection) does not run the gate and says so;
+ * - in every tree but the DECLARED product projection (the promotion's one
+ *   owner of that classification), a deleted baseline is refused (`missing`),
+ *   with no scope exception, and a deleted judge (S1) is refused too — never
+ *   skipped; the declared product does not run the gate and says so;
  * - growth against the base is the commit guard's judgement, keyed by id: a
  *   grown baseline is refused, a moved and renamed one hides nothing, and a
  *   base the clone does not hold is refused.
@@ -24,30 +25,29 @@ import { RATCHET_SCHEMA, ratchetGrowthSince } from "../../scripts/verification/r
 import { ratchetBaseline, syncRatchetBaselines, type RatchetBaselineSpec } from "../../scripts/verification/ratchet-baselines.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { declaredTreeKind, PRODUCT_TREE_DECLARATION } from "../../src/workflow/promotion/tree-kind.ts";
 
 const PATH = "tests/prevention/planted-baseline.json";
-const INSTRUMENT = "engine/scripts/tooling/planted-instrument.ts";
 
-/** A scratch repository holding one tracked baseline and its gate's instrument, committed. */
+/** A scratch repository holding one tracked testing-floor baseline, committed. */
 function scratch(entries: readonly string[]): Readonly<{ root: string; git: (...args: readonly string[]) => string; spec: RatchetBaselineSpec; findings: string[] }> {
   const root = createTempDir("ratchet-gate-");
   const git = (...args: readonly string[]): string => execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: root, encoding: "utf8" });
   git("init", "-q", "-b", "main");
   mkdirSync(join(root, "tests", "prevention"), { recursive: true });
-  mkdirSync(join(root, "engine", "scripts", "tooling"), { recursive: true });
-  writeFileSync(join(root, INSTRUMENT), "export {};\n");
   writeFileSync(join(root, PATH), document(entries));
-  git("add", "--", "tests", "engine");
+  git("add", "--", "tests");
   git("commit", "-q", "-m", "base");
   const findings = [...entries];
-  return { root, git, findings, spec: { id: "planted", path: PATH, instrument: INSTRUMENT, findings: () => findings.map((key) => ({ key, where: key })) } };
+  return { root, git, findings, spec: { id: "planted", path: PATH, testingFloor: true, findings: () => findings.map((key) => ({ key, where: key })) } };
 }
 
 function document(entries: readonly string[]): string {
   return `${JSON.stringify({ schema: RATCHET_SCHEMA, id: "planted", entries: entries.map((key) => ({ key, reason: "#0" })) }, null, 2)}\n`;
 }
 
-test("wherever the gate's instrument is, a missing baseline is refused — no scope exception; a tree without the instrument does not run the gate", () => {
+test("in every tree but the DECLARED product, a missing baseline is refused — no scope exception; the declared product does not run the gate", () => {
   const { root, git, spec } = scratch(["debt:a"]);
   assert.equal(syncRatchetBaselines(root, false, [spec]).results[0]!.status, "current", "liveness");
   rmSync(join(root, PATH));
@@ -60,9 +60,21 @@ test("wherever the gate's instrument is, a missing baseline is refused — no sc
   git("update-index", "--no-skip-worktree", "--", PATH);
   git("rm", "-q", "-r", "--cached", "--", "tests");
   assert.equal(syncRatchetBaselines(root, false, [spec]).results[0]!.status, "missing");
-  // The product projection strips the testing floor: no instrument, no gate, and it says so.
-  rmSync(join(root, INSTRUMENT));
+  // The product projection DECLARES itself (the overlay ships TREE-KIND.txt at its root): no gate, and it says so.
+  writeFileSync(join(root, PRODUCT_TREE_DECLARATION), "product\n");
   assert.equal(syncRatchetBaselines(root, false, [spec]).results[0]!.status, "not-in-this-tree");
+  // A tree that holds promotion profiles is a source tree: declaring itself the product is refused by name.
+  mkdirSync(join(root, "promotion"), { recursive: true });
+  assert.throws(() => syncRatchetBaselines(root, false, [spec]), (error: unknown) => (error as { code?: unknown }).code === "tree_kind_contradicted");
+});
+
+test("a testing tree whose architecture judge (S1) is deleted is refused, not skipped", () => {
+  const root = createTempDir("ratchet-no-instrument-");
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
+  mkdirSync(join(root, "tests", "prevention"), { recursive: true });
+  writeFileSync(join(root, VERIFICATION_PATHS.architectureJudgeBaseline), `${JSON.stringify({ schema: RATCHET_SCHEMA, id: "architecture-judge", entries: [] }, null, 2)}\n`);
+  assert.equal(declaredTreeKind(root, "promotion"), "source", "an undeclared tree is a source tree");
+  assert.throws(() => syncRatchetBaselines(root, false, [ratchetBaseline("architecture-judge")]), (error: unknown) => (error as { code?: unknown }).code === "ratchet_instrument_absent");
 });
 
 test("growth against the base is the commit guard's judgement, by id: a grown baseline is refused, a moved one hides nothing, an unknown base is refused", () => {
