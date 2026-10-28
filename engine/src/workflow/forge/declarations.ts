@@ -153,7 +153,8 @@ function provingGrounds(settings: ForgeSettings): readonly ForgeObject[] {
   return settings.repositories.filter((repository) => repository.provingGround === true).flatMap((repository) => {
     const scope: ForgeScope = { kind: "repo", repository: repository.name };
     return [
-      object("repository-settings", scope, repository.name, { delete_branch_on_merge: true }),
+      // Merge commits only, as on the trunk (MERGE_ONLY): its queue lands merge commits, and its buttons may not offer another method.
+      object("repository-settings", scope, repository.name, { ...MERGE_ONLY.settings, delete_branch_on_merge: true }),
       object("ruleset", scope, "proving-main", {
         name: "proving-main", target: "branch", enforcement: "active", bypass_actors: [],
         conditions: rulesetConditions(["~DEFAULT_BRANCH"]),

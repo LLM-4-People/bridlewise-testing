@@ -204,7 +204,7 @@
     },
     {
       "path": ".github/forge/repository-settings/forge-proving-ground.forge-proving-ground.json",
-      "sha256": "3873d48099eacd772d6f3f6a5ed64dce5b1d8a206fb07892da193944dd88b305"
+      "sha256": "aa03098a7d9f6002b2990480003357dfc263ea7b14ccaf729bcdf96b641f2b2a"
     },
     {
       "path": ".github/forge/ruleset/forge-proving-ground.proving-main.json",

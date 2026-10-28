@@ -39,8 +39,8 @@ test("the declarations: every object once, in apply order, with the plan's unava
   // Every governed repository gets its settings; the archive never does; only public ones get fork approval and immutable releases.
   const settingsScopes = objects.filter((entry) => entry.kind === "repository-settings").map((entry) => entry.key);
   assert.deepEqual(settingsScopes, ["bridlewise-testing", ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
-  // The proving ground (P1.11): only its main's queue and signatures, and merged branches deleted; nothing a governed repository gets.
-  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { delete_branch_on_merge: true });
+  // The proving ground (P1.11): its main's queue and signatures, merge commits only, and merged branches deleted; nothing else a governed repository gets.
+  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true });
   const proving = find(objects, "ruleset", "proving-main");
   assert.deepEqual(proving.scope, { kind: "repo", repository: "forge-proving-ground" });
   assert.deepEqual((proving.desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "required_signatures"]);
