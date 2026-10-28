@@ -41,7 +41,7 @@ async function until(condition: () => boolean, timeoutMs: number): Promise<boole
   return condition();
 }
 
-test("watchLauncher fires once the launcher exits, with the launcher's pid, and never while it lives", { timeout: 60_000 }, async (t) => {
+test("watchLauncher fires once the launcher exits, with the launcher's pid, and never while it lives", async (t) => {
   const dir = createTempDir("launcher-watch-");
   const started = join(dir, "started");
   const fired = join(dir, "fired");
@@ -72,7 +72,7 @@ test("watchLauncher fires once the launcher exits, with the launcher's pid, and 
 /** The engine worker's launch runs only supervised (`recorded-command.ts`): the same bounds here. */
 const SUPERVISION = { supervisor: testProcessSupervisorBinary(), hardCeilingMs: 60_000, killGraceMs: 5_000 } as const;
 
-test("a recorded command is stopped with SIGTERM when its stop signal aborts — also when it aborted before the start — and the observation completes", { timeout: 90_000 }, async () => {
+test("a recorded command is stopped with SIGTERM when its stop signal aborts — also when it aborted before the start — and the observation completes", async () => {
   const dir = createTempDir("recorded-command-stop-");
   // A command that runs until it is stopped — and ends ITSELF (exit 9) well
   // inside the test's timeout, so a stop that is never delivered fails the

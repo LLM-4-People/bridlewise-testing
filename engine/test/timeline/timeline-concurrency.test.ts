@@ -80,7 +80,7 @@ async function runWorkers(dbPath: string, ledgerId: string, count: number, worke
   }
 }
 
-test("timeline-store: failed worker opens drain every started worker before returning", { timeout: 120_000 }, async (t) => {
+test("timeline-store: failed worker opens drain every started worker before returning", async (t) => {
   const dir = mkTempDir("timeline-worker-open-failure-");
   const terminated: Worker[] = [];
   const terminate = Worker.prototype.terminate;
@@ -165,7 +165,7 @@ test("timeline-store: configured busy timeout is active before WAL setup under a
   }
 });
 
-test("timeline-store: concurrent appenders produce an unbroken chain (P0-1)", { timeout: 120_000 }, async (t) => {
+test("timeline-store: concurrent appenders produce an unbroken chain (P0-1)", async (t) => {
   const dir = mkTempDir("timeline-concurrency-");
   const dbPath = join(dir, "timeline-concurrent.db");
   const ledgerId = "ledger-concurrency";
@@ -231,7 +231,7 @@ test("timeline-store: concurrent appenders produce an unbroken chain (P0-1)", { 
  * a `getLastRow` read moved outside BEGIN IMMEDIATE through duplicate sequences
  * or broken links; scheduling does not guarantee that interleaving.
  */
-test("timeline-store: 8 workers × 50 appends produce a contiguous unbroken chain (P0-1 stronger)", { timeout: 180_000 }, async (t) => {
+test("timeline-store: 8 workers × 50 appends produce a contiguous unbroken chain (P0-1 stronger)", async (t) => {
   const dir = mkTempDir("timeline-concurrency-");
   const dbPath = join(dir, "timeline-concurrent-8x50.db");
   const ledgerId = "ledger-concurrency-8x50";
@@ -301,7 +301,7 @@ test("timeline-store: 8 workers × 50 appends produce a contiguous unbroken chai
 });
 
 for (const operation of ["intent", "terminal"] as const) {
-  test(`timeline-store: competing connections admit only one ${operation} for an effect`, { timeout: 120_000 }, async (t) => {
+  test(`timeline-store: competing connections admit only one ${operation} for an effect`, async (t) => {
     const dir = mkTempDir("timeline-lineage-contention-");
     const dbPath = join(dir, "timeline.db");
     const ledgerId = "lineage-contention";
@@ -359,7 +359,7 @@ async function settleWorkers(workers: ReturnType<typeof startGatedWorkers>): Pro
   await Promise.allSettled(workers.flatMap((w) => [w.ready, w.result]));
 }
 
-test("timeline-store: contending first migrations recheck the registry under the acquired writer", { timeout: 30_000 }, async () => {
+test("timeline-store: contending first migrations recheck the registry under the acquired writer", async () => {
   // A FRESH file: the WAL switch and the registry both race here, as they do
   // for two processes starting on a new state folder.
   const dir = mkTempDir("timeline-startup-registry-"); const dbPath = join(dir, "timeline.db");
@@ -381,7 +381,7 @@ test("timeline-store: contending first migrations recheck the registry under the
   }
 });
 
-test("timeline-store: every concurrent FIRST opener of a fresh file starts (the WAL switch waits for the other opener)", { timeout: 120_000 }, async () => {
+test("timeline-store: every concurrent FIRST opener of a fresh file starts (the WAL switch waits for the other opener)", async () => {
   // SQLite refuses one of two connections promoting their locks to switch a
   // new file to WAL WITHOUT consulting the busy handler (deadlock avoidance);
   // measured before the WAL owner: 2 of 10 rounds of 3 openers failed

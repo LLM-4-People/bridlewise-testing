@@ -36,7 +36,7 @@ The folder lives at `engine/src/runtime/`.
 - `agent-tools.ts` is consumed by `server/kernel/canonical.ts`.
 - `capability-negotiation.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
 - `cli-debug.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/exp409/sweep.mjs`, `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/post-commit.ts` and 30 more.
-- `entry-point.ts` is consumed by `engine/src/runtime/cli-debug.ts`.
+- `entry-point.ts` is consumed by `engine/scripts/tooling/engine-test-bounds.ts`, `engine/src/runtime/cli-debug.ts`.
 - `event-state.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
 - `extension-tools.ts` is consumed by nothing yet.
 - `git-tools.ts` is consumed by nothing yet.
