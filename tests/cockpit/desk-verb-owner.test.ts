@@ -555,15 +555,32 @@ describe("latency budget — the desk's two bounds", () => {
   const DESK_OPEN_BUDGET_MS = 200;
   const ACT_ACK_BUDGET_MS = 100;
 
+  /**
+   * The two latency bounds, judged without a wall clock (NO-LOAD-BLOCK), in
+   * two halves that a busy host cannot fail:
+   *  - NO SCHEDULED DELAY ON THE PATH: under fake timers, the paint (or the
+   *    acknowledgement) happens with NO timer advanced, only microtasks run.
+   *    A debounce, a timer or a polling interval in the path would leave it
+   *    unpainted, whatever the host's speed.
+   *  - THE COMPUTE FITS THE BUDGET: this thread's CPU work over the same span.
+   */
+  async function flushMicrotasks(): Promise<void> {
+    for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+  }
+
   test("the open desk paints within 200ms over instant IO", async () => {
     setDeskIo({ compose: async () => COMPOSE, breaker: async () => ROWS, act: async () => ({}) });
-    // CPU work, never wall time (NO-LOAD-BLOCK): waiting for a core is not the
-    // desk's cost. One render (a second would double the text it waits for);
-    // one reading is enough against a budget of many scheduler ticks.
-    const t0 = threadCpuWorkMs();
-    const { findByText } = render(DeskPanel, { shell: shellStub() });
-    await findByText("edit file");
-    expect(threadCpuWorkMs() - t0).toBeLessThan(DESK_OPEN_BUDGET_MS);
+    vi.useFakeTimers();
+    try {
+      const t0 = threadCpuWorkMs();
+      const { queryByText } = render(DeskPanel, { shell: shellStub() });
+      await flushMicrotasks();
+      const work = threadCpuWorkMs() - t0;
+      expect(queryByText("edit file"), "the desk painted with no timer advanced").not.toBeNull();
+      expect(work).toBeLessThan(DESK_OPEN_BUDGET_MS);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("an act acknowledges within 100ms — even when the network never answers", async () => {
@@ -577,11 +594,19 @@ describe("latency budget — the desk's two bounds", () => {
     await findByText("edit file");
     const row = container.querySelector<HTMLElement>('[data-tool="edit_file"]')!;
     // The post never settles, so an acknowledgement that waited on it would
-    // never come; its cost is CPU work, never wall time (NO-LOAD-BLOCK).
-    const t0 = threadCpuWorkMs();
-    await fireEvent.click(row.querySelector<HTMLButtonElement>('[data-verb-id="tools.breaker/set"]')!);
-    const work = threadCpuWorkMs() - t0;
-    expect(pendingActs.get()["breaker:edit_file"]).toBeDefined();
+    // never come. No timer is advanced (no scheduled delay on the path), and
+    // its compute is CPU work, never wall time (NO-LOAD-BLOCK).
+    vi.useFakeTimers();
+    let work: number;
+    try {
+      const t0 = threadCpuWorkMs();
+      await fireEvent.click(row.querySelector<HTMLButtonElement>('[data-verb-id="tools.breaker/set"]')!);
+      await flushMicrotasks();
+      work = threadCpuWorkMs() - t0;
+      expect(pendingActs.get()["breaker:edit_file"], "acknowledged with no timer advanced").toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
     expect(work).toBeLessThan(ACT_ACK_BUDGET_MS);
     // …and the acknowledgement is visible on the row, with the consequence.
     await waitFor(() => expect(row.querySelector('[data-note="live"]')?.textContent).toContain(pendingActs.get()["breaker:edit_file"]));

@@ -218,7 +218,7 @@ test("the overlay ships only its declared kinds: a collision, a link, an exclude
 });
 
 
-test("T-P13: up to date — the target's last promotion carries this source: no work", async () => {
+test("T-P13: up to date — the target's last promotion carries this source: the plan says so, names that promotion, and changes no worktree", async () => {
   const fixture = promotionFixture("promotion-p13");
   const source = fixture.tip(SOURCE);
   const blob = fixture.loaded().blob!;
@@ -228,9 +228,13 @@ test("T-P13: up to date — the target's last promotion carries this source: no 
   const plan = await fixture.plan();
   assert.equal(plan.code, "promotion_up_to_date");
   assert.deepEqual(plan.lastPromoted, { commit: promoted, source, bootstrap: false });
-  // The short-circuit is cheap BY ITS PATH, not by a wall clock (NO-LOAD-BLOCK):
-  // the expensive path projects in a worktree, and none was created.
-  assert.equal(fixture.git(["worktree", "list", "--porcelain"]).split("\n").filter((line) => line.startsWith("worktree ")).length, 1, "no worktree was created: the short-circuit did no projection");
+  // What this test does NOT check: cost. `planPromotion` has no up-to-date
+  // short-circuit (it projects in full and labels the result at the end), and
+  // no plan creates a worktree, so the line below says only that planning left
+  // the repository's worktrees as they were. The wall-clock bound that stood
+  // here ("the short-circuit is cheap") judged the host, not a property
+  // (NO-LOAD-BLOCK), and is gone.
+  assert.equal(fixture.git(["worktree", "list", "--porcelain"]).split("\n").filter((line) => line.startsWith("worktree ")).length, 1, "no worktree was created");
 });
 
 test("T-P14: a gitlink in the projection is refused", async () => {

@@ -45,8 +45,12 @@ describe("cockpit latency budget — client-side boot overhead", () => {
     );
 
     const lines: ProbeLine[] = [];
-    // CPU work on this thread, never wall time (NO-LOAD-BLOCK): the probes'
-    // stubbed answers make the boot pure client orchestration.
+    // Judged without a wall clock (NO-LOAD-BLOCK), in two halves a busy host
+    // cannot fail: the registration COMPLETES WITH NO TIMER ADVANCED (only
+    // microtasks run, so no debounce, retry timer or poll sits on the warm
+    // path), and its compute, this thread's CPU work, fits the budget. The
+    // clock (Date) stays real: each line's `ms` is a real measurement.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "clearImmediate"] });
     const t0 = threadCpuWorkMs();
     let doneMs = -1;
     const reg = createRegistration({
@@ -58,7 +62,11 @@ describe("cockpit latency budget — client-side boot overhead", () => {
         doneMs = threadCpuWorkMs() - t0;
       },
     });
-    await reg.start();
+    const started = reg.start();
+    for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+    expect(doneMs, "the registration completed with no timer advanced").toBeGreaterThanOrEqual(0);
+    vi.useRealTimers();
+    await started;
 
     expect(doneMs).toBeGreaterThanOrEqual(0);
     expect(doneMs).toBeLessThan(WARM_BOOT_CLIENT_OVERHEAD_MS);
