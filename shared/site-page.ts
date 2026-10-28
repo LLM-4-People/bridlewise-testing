@@ -80,3 +80,15 @@ export const PALETTE_BURN_DOWN: ReadonlyMap<string, string> = new Map([
 
 /** The file extensions Pages serves as HTML (any case): every one is a page that must carry the policies. */
 export const SERVED_HTML = /\.(?:x?html?)$/iu;
+
+/**
+ * The site's themes as its document root wears them: Logbook leads on a bare
+ * root, Carbon is the reader's stored choice, set as `data-theme="carbon"`
+ * (`scripts/floor/site-design.mjs` writes the token sheet so, and
+ * `docs/assets/js/theme.js` sets it). The last selector a root matches is
+ * the theme it wears.
+ */
+export const SITE_THEME_SELECTORS = Object.freeze({ logbook: ":root", carbon: ':root[data-theme="carbon"]' } as const);
+
+/** Where the site serves the vendored font files, under its base path. */
+export const SITE_FONT_PATH = "assets/fonts";

@@ -30,13 +30,13 @@ import { dirname, join } from "node:path";
 
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { escapeHtml } from "../../shared/markup.ts";
-import { sitePolicies } from "../../shared/site-page.ts";
+import { SITE_FONT_PATH, sitePolicies } from "../../shared/site-page.ts";
 import { readNames, readTokenOwner, themeColor, tokenSheet } from "../../shared/token-reader.ts";
 import { SHARED_CSS } from "./design-coverage.mjs";
 
 export const TOKEN_OWNER = "src/cockpit/tokens.css";
 export const SITE_TOKEN_SHEET = "assets/css/tokens.css";
-export const SITE_FONTS = "assets/fonts";
+export const SITE_FONTS = SITE_FONT_PATH;
 export const MARK_INCLUDE = "_includes/brand-mark.svg";
 export const HEAD_INCLUDE = "_includes/design-head.html";
 export const CSP_INCLUDE = "_includes/csp.html";
