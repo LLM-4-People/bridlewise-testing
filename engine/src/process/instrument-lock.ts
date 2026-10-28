@@ -40,9 +40,17 @@
  * process of the scope the moment one is OOM-killed — the runner that
  * admitted the run and every sibling worker mid-test — so nothing is left
  * to say what happened. The policy is READ BACK from the unit like the
- * memory files (a scope under another policy is refused), and the door
- * turns the kill into a typed refusal (`run_memory_cap_exceeded`,
- * {@link runScopeOomKills}).
+ * memory files (a scope under another policy is refused).
+ *
+ * A RUN THE KERNEL CUT IS A TYPED REFUSAL, from this owner. When the run that
+ * ADMITTED a scope releases its record, it reads the scope's `memory.events`
+ * `oom_kill`: a kill there fails the release with `run_memory_cap_exceeded`
+ * ("a process in this run was killed for passing the run's memory cap"),
+ * whoever the run is (a suite runner, `ws validate`/`merge`, `flake
+ * reproduce`, a checkout's setup, `slot run`), so a cut run is never mistaken
+ * for a crash or a flake. It names the run, never one command: the kernel
+ * says THAT a process of the scope was killed, not which. A borrower (a
+ * nested door inside the run) blames nothing; the run's owner reports it.
  *
  * NESTING, read from the records' structured fields AND the kernel's: a
  * process BORROWS a live run (a validate's suites, a slot run's command,
@@ -247,7 +255,19 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
     if (Date.now() - since > cpu.hangBackstopMs) throw capsUnavailable(caps, `HUNG: the start job of ${unit} was still pending at the ${String(cpu.hangBackstopMs / 1000)} s hang backstop (wall)`);
     Atomics.wait(PAUSE, 0, 0, 5);
   }
-  // READ BACK what the kernel holds: a cap the host did not apply is no cap.
+  verifyRunScopeCaps(unit, caps);
+  const limited = limitOwnCpu(cpu);
+  if (limited !== null) throw capsUnavailable(caps, limited);
+}
+
+/**
+ * READ BACK what the kernel and the user manager hold for the scope THIS
+ * process is in (`unit`): a cap the host did not apply is no cap. Refused
+ * typed (`per_run_caps_unavailable`) unless `memory.swap.max` is 0, it exists
+ * at all (swap accounting on), `memory.max` is a byte count, and the unit's
+ * OOMPolicy is `continue`.
+ */
+export function verifyRunScopeCaps(unit: string, caps: PerRunCaps): void {
   const swapMax = ownCgroupFile("memory.swap.max");
   if (swapMax === undefined) throw capsUnavailable(caps, `this host's cgroup v2 has no memory.swap.max for ${unit} (swap accounting is off), so its memory cap would be cap-plus-swap`);
   if (swapMax !== "0") throw capsUnavailable(caps, `${unit} holds memory.swap.max ${swapMax}, not 0: the run could swap past its memory cap`);
@@ -255,8 +275,6 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
   if (memoryMax === undefined || !/^\d+$/u.test(memoryMax)) throw capsUnavailable(caps, `${unit} holds memory.max ${memoryMax ?? "(absent)"}, not a byte count`);
   const oomPolicy = runScopeOomPolicy(unit);
   if (oomPolicy !== "continue") throw capsUnavailable(caps, `${unit} runs under OOMPolicy ${oomPolicy ?? "(unreadable)"}, not continue: one process past the cap would stop the whole run before it could say so`);
-  const limited = limitOwnCpu(cpu);
-  if (limited !== null) throw capsUnavailable(caps, limited);
 }
 
 /** The OOM policy systemd holds for the run's scope `unit` (`Manager.GetUnit`, then the Scope's `OOMPolicy`), or `undefined` when unreadable. */
@@ -272,10 +290,9 @@ function runScopeOomPolicy(unit: string): string | undefined {
  * How many processes the kernel has killed in the admitted run's scope THIS
  * process is inside for passing the run's memory cap (`memory.events`
  * `oom_kill`); `undefined` outside a run's scope (a light run has no cap of
- * its own). Read before and after a run's command: a rise means the command
- * ended because it passed the run's memory cap.
+ * its own).
  */
-export function runScopeOomKills(): number | undefined {
+function runScopeOomKills(): number | undefined {
   if (!/\/bridlewise-run-[^/]+\.scope$/u.test(ownCgroupPath() ?? "")) return undefined;
   const events = ownCgroupFile("memory.events");
   const kills = events === undefined ? undefined : /^oom_kill (\d+)$/mu.exec(events)?.[1];
@@ -314,6 +331,17 @@ export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRu
     release: () => {
       if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined);
       answer.handle.release();
+      // The scope is the run's own (made at admission, so it started at 0):
+      // a kill in it means the run was cut at its memory cap.
+      const kills = runScopeOomKills();
+      if (kills !== undefined && kills > 0) {
+        throw new HarnessError(
+          `a process in the run ${label} was killed for passing the run's memory cap (${String(kills)} kill(s) in its scope's memory.events; ` +
+            `MemoryMax ${String(caps.memoryMaxPercent)}% with no swap): the run ended there and its result is not a test result. ` +
+            "Use less memory, or raise testExecution.instrumentLock.perRun.memoryMaxPercent in bridlewise.config.json.",
+          "run_memory_cap_exceeded",
+        );
+      }
     },
   });
 }

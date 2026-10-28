@@ -5472,7 +5472,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-process-instrument-lock", path: "src/process/instrument-lock.ts", realm: "shared", layer: "infrastructure",
-      owner: "process-infrastructure", publicApi: { exportCount: 11, namesSha256: "ccd41777a808bbb39655e1dd7de8759d23692527cd056f6f3418cc6d8672d7f3" },
+      owner: "process-infrastructure", publicApi: { exportCount: 11, namesSha256: "1eccdb9f12676f642f484464aace2992ecf90c074ff99f36c057a5d538ba4c06" },
       dependencies: ["node:child_process","node:fs","node:path","src/filesystem/file-lock.ts","src/filesystem/path-identity.ts","src/filesystem/self-protection/keep-out.ts","src/filesystem/user-folders.ts","src/git/repository-ownership.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/process/instrument-lock-adoption.ts","src/process/process-facts.ts","src/process/subprocess-bounds.ts"],
     }),
     moduleContract({

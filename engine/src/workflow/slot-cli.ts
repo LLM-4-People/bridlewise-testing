@@ -7,18 +7,20 @@
  * CPU-time limit; adopted into the run's record, so a door killed outright
  * leaves the record live until the command and everything it started are
  * gone), and the record is released when the command ends; its exit code is
- * the command's. A command the kernel killed for passing the run's memory
- * cap is a typed refusal (`run_memory_cap_exceeded`), never an ordinary
- * signal ending: the cap allows no swap, so passing it ends the run.
+ * the command's. A run in which the kernel killed a process for passing its
+ * memory cap ends in the admission owner's typed refusal
+ * (`run_memory_cap_exceeded`, raised when the run's record is released),
+ * never an ordinary signal ending; a door that BORROWS an outer run keeps
+ * its command's own exit code, and the outer run's owner reports the kill.
  */
 import { constants } from "node:os";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import { HarnessError, INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
+import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
-import { admitInstrumentRun, holdInstrumentLock, runScopeOomKills, wholeInstrumentTestFileCount, type PerRunCaps } from "../process/instrument-lock.ts";
+import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, type PerRunCaps } from "../process/instrument-lock.ts";
 import { SUBPROCESS_BOUNDS } from "./workflow-config.ts";
 import { superviseCommand } from "../process/supervised-run.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
@@ -71,7 +73,6 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
     ? admitInstrumentRun(options.lockPath, runner, options.caps ?? declaredInstrumentLock(config.instrumentLock).perRun, SUBPROCESS_BOUNDS)
     : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: SUBPROCESS_BOUNDS });
   try {
-    const oomKillsBefore = runScopeOomKills();
     const run = await superviseCommand({
       supervisor: testProcessSupervisorBinary(),
       command: command[0]!,
@@ -83,15 +84,6 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
       env: { ...process.env, [INSIDE_INSTRUMENT_LOCK_VARIABLE]: "1" },
       killOnInterrupt: true,
     });
-    const oomKillsAfter = runScopeOomKills();
-    if (oomKillsBefore !== undefined && oomKillsAfter !== undefined && oomKillsAfter > oomKillsBefore) {
-      throw new HarnessError(
-        `${runner} passed its run's memory cap and the kernel killed ${String(oomKillsAfter - oomKillsBefore)} of its process(es) ` +
-          "(memory.events oom_kill): the cap allows no swap, so the run ended here. Use less memory, or raise " +
-          "testExecution.instrumentLock.perRun.memoryMaxPercent in bridlewise.config.json.",
-        "run_memory_cap_exceeded",
-      );
-    }
     const exitCode = run.signal !== null ? 128 + constants.signals[run.signal] : run.ending === "exited" ? run.exitCode : 1;
     return deepFreeze({ exitCode, ending: run.ending });
   } finally {
