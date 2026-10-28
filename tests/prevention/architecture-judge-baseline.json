@@ -1311,10 +1311,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-unmodeled:src/workflow/harness-commands.ts:node:child_process:dynamic-executable-spawnSync",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-unmodeled:src/workflow/promotion/context.ts:node:child_process:dynamic-executable-spawnSync",
       "reason": "#563"
     },
@@ -3468,10 +3464,6 @@
     },
     {
       "key": "standalone-runtime-sink-unmodeled:src/workflow/forge/maintainer-cli.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "standalone-runtime-sink-unmodeled:src/workflow/harness-commands.ts",
       "reason": "#563"
     },
     {
