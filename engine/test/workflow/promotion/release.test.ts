@@ -318,6 +318,7 @@ test("the SBOM: SPDX 2.3 of exactly the product commit's own lockfiles — every
   const byName = (name: string, version: string) => sbom.packages.find((entry) => entry.name === name && entry.versionInfo === version)!;
   assert.deepEqual(sbom.packages.map((entry) => `${entry.name}@${entry.versionInfo}`).sort(), ["@babel/helper-string-parser@8.0.0", "@scope/kit@2.1.0", "engine@1.0.0", "fixture@1.0.0", "fsevents@2.3.3", "vite@1.0.0", "zod@0.9.0", "zod@1.0.0"], "every installed package once, the roots, and no workspace link");
   assert.deepEqual(byName("@scope/kit", "2.1.0").externalRefs!.map((ref) => ref.referenceLocator), ["pkg:npm/%40scope/kit@2.1.0"]);
+  assert.match(byName("zod", "1.0.0").SPDXID, /^SPDXRef-npm-zod-1\.0\.0-[0-9a-f]{12}$/u, "an element id: its kind, its sanitised label, and twelve hex digits of its key's digest");
   assert.deepEqual(byName("zod", "1.0.0").checksums, [{ algorithm: "SHA512", checksumValue: createHash("sha512").update("zod").digest("hex") }]);
   assert.equal(byName("zod", "1.0.0").downloadLocation, "https://registry.npmjs.org/zod/-/zod-1.0.0.tgz");
   assert.equal(byName("vite", "1.0.0").downloadLocation, "NOASSERTION");
@@ -455,7 +456,8 @@ test("the door: its grammar refuses typed, and a due plan writes the notes while
   assert.deepEqual([sbom.result.result.code, sbom.exitCode], ["promotion_release_sbom_written", 0]);
   const written = JSON.parse(readFileSync(sbomOut, "utf8")) as { spdxVersion: string; documentNamespace: string };
   assert.equal(written.spdxVersion, "SPDX-2.3");
-  assert.equal(written.documentNamespace, releaseAssetUrl("https://forge.example/owner/name", "v1.0.0", releaseAssetNames("1.0.0", `${process.platform}-${process.arch}`).sbom), "the namespace is where the release publishes this very file");
+  assert.equal(written.documentNamespace, SBOM_LOCATION, "the namespace is where the release publishes this very file: the repository, releases/download, the tag, the asset's name");
+  assert.equal(releaseAssetUrl("https://forge.example/o/r", "v1.0.0+build/1", "a b#c.json"), "https://forge.example/o/r/releases/download/v1.0.0%2Bbuild%2F1/a%20b%23c.json", "the tag and the name are each one encoded path segment");
   releaseTag(fixture, "v1.0.0", released);
   const waitingSbom = join(createTempDir("release-door-sbom-waiting-"), "sbom.spdx.json");
   assert.equal((await runReleaseCli(fixture.root, ["sbom", "--releases", none, "--repository", "https://forge.example/owner/name", "--out", waitingSbom], withRelease)).result.result.code, "promotion_release_not_due");
