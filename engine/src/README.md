@@ -16,14 +16,17 @@ from the import graph.
   option/result types, so the harness can be embedded as a library.
 - `bundle-entry.ts` — the bundle entry point for the Landlock
   self-protection production payload (`dist/bundle.js`).
-- `architecture-manifest.ts` — the architecture manifest: its policies,
-  layers, external commands and findings, with the modules built from
-  `architecture-modules.ts`. Nothing in it is generated.
-- `architecture-modules.ts` — the authored module entries, one per line,
-  sorted by path (realm, layer, owner, roles, effects, ports): two branches
-  touching different modules merge. A module's exports and imports are
-  derived by the architecture check, never committed (#221); `harness sync`
-  adds, removes and marks entries (`workflow/module-registrar.ts`).
+- `architecture-manifest.ts` — the architecture's policy (layers, external
+  commands, findings) and `architectureManifestOf`, the manifest of a tree:
+  one module per source path, classified by the decisions below. Nothing in
+  it is generated.
+- `architecture-modules.ts` — the architecture's decisions, one line each,
+  sorted: folder classifications (realm, layer, owner every module under a
+  folder takes) and module decisions (only what differs from what the path
+  and folder derive). A plain new module needs no line, so two branches
+  adding modules merge. A module's exports and imports are derived by the
+  check, never committed (#221); `harness sync` removes a deleted module's
+  decision and marks a detected entry point (`workflow/module-registrar.ts`).
 
 ## The domains
 

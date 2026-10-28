@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Task",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Task",
+    "color": "yellow",
+    "description": "A unit of work",
+    "is_enabled": true
+  }
+}

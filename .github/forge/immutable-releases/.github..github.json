@@ -1,0 +1,12 @@
+{
+  "kind": "immutable-releases",
+  "scope": {
+    "kind": "repo",
+    "repository": ".github"
+  },
+  "key": ".github",
+  "unavailableOnPlan": [],
+  "desired": {
+    "enabled": true
+  }
+}

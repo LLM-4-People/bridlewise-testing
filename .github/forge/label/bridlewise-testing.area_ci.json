@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "area:ci",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "area:ci",
+    "color": "bfd4f2",
+    "description": "CI, workflows and repository tooling"
+  }
+}

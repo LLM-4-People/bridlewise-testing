@@ -38,6 +38,15 @@ folder owns what they are told and who may do what.
   `syncCommunityFiles` is the `community-files` arm of `harness sync` and
   `harness check` (a refusal is the step's failure, never a crash).
 
+- `categories.ts` — THE DISCUSSION CATEGORIES, AUDITED: `liveCategories` (one
+  GraphQL read on the forge port) and `categoryDrift` (a live category missing
+  or different in name, answerability or description; a planned one that now
+  exists, to flip live; an undeclared one). GitHub has no API that creates a
+  category, so the audit is the receipt of the registry's live statuses and
+  the maintainer's checklist.
+- `community-cli.ts` — THE `harness community` DOOR (`categories`), on the
+  `forge` configuration's trunk with the token in `GH_TOKEN`; drift exits 1.
+
 ## Where it lives
 
 The folder lives at `engine/src/workflow/community/`.

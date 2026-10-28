@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { ownedFiles } from "../../src/git/repository-ownership.ts";
 import { reachabilityClosure, type Reachability } from "../../src/workflow/reachability.ts";
 
 /**
@@ -53,8 +53,9 @@ test("witness: a test importing the proving folder, directly or through a helper
 });
 
 test("no test of the tree reaches engine/test/forge/proving/, and none lives in it", () => {
-  const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: REPOSITORY, encoding: "utf8", maxBuffer: 1 << 28 })
-    .split("\n").filter((path) => path.length > 0);
+  // The repository's population from the one ownership reader (what the repository owns, on every checkout alike).
+  const files = ownedFiles(REPOSITORY);
+  assert.ok(files !== undefined, "the repository is a work tree");
   const entries = testEntries(files);
   assert.ok(entries.length > 100, `the walk starts from the tree's test files (${String(entries.length)})`);
   assert.ok(files.some((path) => path.startsWith(PROVING)), "the proving folder is in the universe");
