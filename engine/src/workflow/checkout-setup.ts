@@ -114,7 +114,7 @@ export type CommandRetryPolicy = Readonly<{
 
 /** How commands are run: the native supervisor binary, its kill grace, the output tail kept, and the errored-class retry policy. */
 export type CheckoutCommandRunner = Readonly<{
-  /** The native supervisor (`testProcessSupervisorBinary()`, built by the caller). */
+  /** The native supervisor (`ensureTestProcessSupervisor()`, built by the caller). */
   supervisor: string;
   killGraceMs: number;
   /** How many characters of a command's output (stdout and stderr, interleaved) are kept. */

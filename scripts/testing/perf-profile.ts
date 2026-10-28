@@ -41,7 +41,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { enforceTestRunLock, wholeInstrumentRun } from "../../engine/scripts/tooling/test-run-lock.ts";
-import { buildTestProcessSupervisor } from "../../engine/guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../engine/guardian/build.ts";
 import { superviseCommand } from "../../engine/src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../engine/src/workflow/test-result-collector.ts";
 import { INSIDE_INSTRUMENT_LOCK_VARIABLE, runInsideInstrumentLock } from "../../engine/src/workflow/slot-cli.ts";
@@ -100,7 +100,7 @@ async function serveClient(apiPort: number): Promise<Readonly<{ port: number; cl
 async function runToExit(command: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<number> {
   const { engineSuiteWatchdog } = readTestExecutionConfig(join(REPOSITORY_ROOT, "engine"));
   const run = await superviseCommand({
-    supervisor: buildTestProcessSupervisor(), command, args, cwd: REPOSITORY_ROOT, env,
+    supervisor: ensureTestProcessSupervisor(), command, args, cwd: REPOSITORY_ROOT, env,
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs, killGraceMs: engineSuiteWatchdog.killGraceMs,
     onStdout: (chunk) => process.stdout.write(chunk), onStderr: (chunk) => process.stderr.write(chunk), killOnInterrupt: true,
   });

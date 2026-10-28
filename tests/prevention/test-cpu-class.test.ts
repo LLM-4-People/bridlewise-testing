@@ -17,7 +17,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
 
-import { testProcessSupervisorBinary } from "../../engine/guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../engine/guardian/build.ts";
 import { runBoundedTestProcess } from "../../engine/src/process/supervised-run.ts";
 
 import {
@@ -163,7 +163,7 @@ function plantedRun(files: Readonly<Record<string, string>>): Readonly<{
 const files={dom:${JSON.stringify(dom)},node:${JSON.stringify(tests.filter((file) => !dom.includes(file)))}};
 export default {...base,test:{...base.test,include:[],globalSetup:[],reporters:[['json',{outputFile:${JSON.stringify(report)}}]],
  projects:base.test.projects.map(project=>({...project,test:{...project.test,include:files[project.test.name],exclude:[],globalSetup:[]}}))}};`);
-  const run = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [resolve("node_modules/vitest/vitest.mjs"), "run", "--config", configuration],
+  const run = runBoundedTestProcess(ensureTestProcessSupervisor(), process.execPath, [resolve("node_modules/vitest/vitest.mjs"), "run", "--config", configuration],
     { timeoutMs: NESTED_RUNNER_LAUNCH_MS, killGraceMs: webSuiteKillGraceMs() });
   expect(run.error, run.stderr).toBeUndefined();
   const parsed = JSON.parse(readFileSync(report, "utf8")) as { testResults: { name: string; status: string; message: string; assertionResults: { title: string; status: string; failureMessages: string[] }[] }[] };

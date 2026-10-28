@@ -39,7 +39,7 @@
 
 import { fileURLToPath } from "node:url";
 
-import { buildTestProcessSupervisor } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
@@ -77,7 +77,7 @@ export async function main(): Promise<void> {
   // beside the next holder.
   const { engineSuiteWatchdog } = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url)));
   // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
-  const supervisor = buildTestProcessSupervisor();
+  const supervisor = ensureTestProcessSupervisor();
   const run = await superviseCommand({
     supervisor,
     command: process.execPath,

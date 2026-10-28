@@ -35,19 +35,30 @@ const guardianDir = here; // this script lives in guardian/
 const binPath = join(guardianDir, 'build', 'harness-landlock-guardian');
 
 /**
- * The native test-process supervisor (`engine/src/process/supervised-run.ts`
- * runs every test run under it), BUILT BEFORE A RUN by the one native build
- * owner — make performs its normal incremental dependency check — and its
- * path returned: `make all`, the checkout setup's `test-supervisor` command,
- * and every ENTRY POINT that starts supervised work — both suites' runners
- * (the engine's before it snapshots the harness folder), the guards runner,
- * the workspace, candidate, flake, slot and promotion commands, the perf
- * profile — before it starts. Up to date, it writes nothing. A
- * build that fails THROWS, typed (`code: test_process_supervisor_build_failed`,
- * with the compiler's own words): a run that cannot be supervised does not
- * start.
+ * THE ONE WAY TO THE NATIVE TEST-PROCESS SUPERVISOR
+ * (`engine/src/process/supervised-run.ts` runs every supervised command under
+ * it): its path, BUILT FIRST by the one native build owner — make's
+ * incremental dependency check, once per process (memoized), writing nothing
+ * when the binary is up to date. There is no other way to name the binary
+ * (`engine/test/process/supervised-run.test.ts` refuses another spelling of
+ * its path), so no entry point can start supervised work without it.
+ *
+ * #293, #132: a resolve that BUILT on demand compiled
+ * `guardian/build/test-process-supervisor` into the live harness folder in
+ * the middle of a test run, on a runner where `make all` had not built it.
+ * The order is what prevents that, not the function. `make all` builds it,
+ * as does the checkout setup's `test-supervisor` command, and both suites'
+ * runners call this BEFORE they snapshot the harness folder. Inside a run,
+ * every call is a make that finds the binary current.
+ *
+ * A build that fails THROWS, typed (`code:
+ * test_process_supervisor_build_failed`, with the compiler's own words): a
+ * run that cannot be supervised does not start.
  */
-export function buildTestProcessSupervisor(): string {
+let ensuredSupervisor: string | undefined;
+
+export function ensureTestProcessSupervisor(): string {
+  if (ensuredSupervisor !== undefined) return ensuredSupervisor;
   const result = spawnSync('make', ['--no-print-directory', '-C', guardianDir, 'test_process_supervisor'], {
     encoding: 'utf8',
   });
@@ -56,33 +67,13 @@ export function buildTestProcessSupervisor(): string {
       code: 'test_process_supervisor_build_failed',
     });
   }
-  return testProcessSupervisorBinary();
-}
-
-/**
- * The built supervisor's path — RESOLVED, never built: what code INSIDE a run
- * (a test, a nested runner's library) calls. Building it here wrote
- * into the live harness folder in the middle of a test run (on a runner where
- * `make all` had not built it, the first caller compiled
- * `guardian/build/test-process-supervisor`), and every configuration
- * bootstrap that overlapped it was refused (`config_parent_changed`): the
- * real commit guard a test drives refused unrelated commits (#293, #132).
- * Absent, it is a typed refusal naming the build, never a build.
- */
-export function testProcessSupervisorBinary(): string {
-  const binary = join(guardianDir, 'build', 'test-process-supervisor');
-  if (!existsSync(binary) || !statSync(binary).isFile()) {
-    throw Object.assign(new Error(
-      `The native test supervisor is not built at ${binary}: build it before the run ` +
-        '(`make -C engine/guardian all`, the checkout setup, or `node engine/guardian/build.ts --test-process-supervisor`)',
-    ), { code: 'test_process_supervisor_absent' });
-  }
-  return binary;
+  ensuredSupervisor = join(guardianDir, 'build', 'test-process-supervisor');
+  return ensuredSupervisor;
 }
 
 function main(): void {
   if (process.argv[2] === '--test-process-supervisor') {
-    console.log(buildTestProcessSupervisor());
+    console.log(ensureTestProcessSupervisor());
     return;
   }
 

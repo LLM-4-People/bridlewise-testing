@@ -244,8 +244,8 @@ function promotionStatus(context: PromotionContext): PromotionAnswer {
  * module).
  */
 async function commandRunner(context: PromotionContext): Promise<CheckoutCommandRunner> {
-  const { buildTestProcessSupervisor } = await import("../../../guardian/build.ts");
-  return configuredCheckoutCommandRunner(context.document, context.isolation, buildTestProcessSupervisor());
+  const { ensureTestProcessSupervisor } = await import("../../../guardian/build.ts");
+  return configuredCheckoutCommandRunner(context.document, context.isolation, ensureTestProcessSupervisor());
 }
 
 /** The lockfile runner of a context: the ONE command runner and the toolchain its lockfile commands run. */

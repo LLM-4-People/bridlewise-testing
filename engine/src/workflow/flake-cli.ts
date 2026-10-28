@@ -50,7 +50,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { buildTestProcessSupervisor } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, PRIVATE_STATE_DIRECTORY_MODE, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
 import { flakeCauseContentKeys, judgeCauseChange, parseFlakeCause } from "../git/flake-cause-fixes.ts";
@@ -566,7 +566,7 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
       config: moveLock, harnessRoot: ENGINE_ROOT, runner: "flake move (two inventories)",
       testFileCount: wholeInstrumentTestFileCount(moveLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
     });
-    const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake move", buildTestProcessSupervisor());
+    const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake move", ensureTestProcessSupervisor());
     try {
       const inventoryAt: InventoryAt = async (commit) => {
         await checkout.moveTo(commit);
@@ -600,7 +600,7 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
     config: declaredLock, harnessRoot: ENGINE_ROOT, runner: `flake reproduce (${String(request.tests.length)} test(s))`,
     testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
   });
-  const supervisor = buildTestProcessSupervisor();
+  const supervisor = ensureTestProcessSupervisor();
   const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake reproduce", supervisor);
   try {
     const answers = await reproduceFlake(request, topRepository, testPathOf, async (revision, files) => {

@@ -7,13 +7,13 @@
  * checked, never cast.
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { chmodSync, closeSync, copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { runRecordedCommand } from "../../scripts/tooling/recorded-command.ts";
 import { isProcessAlive } from "../../src/process/process-facts.ts";
 import { readSupervisorReceipt, runBoundedTestProcess, startDetached, superviseCommand } from "../../src/process/supervised-run.ts";
@@ -34,7 +34,7 @@ test("a supervised command's detached grandchild does not survive it, and its fd
   const pidFile = join(createTempDir("supervised-run-"), "grandchild.pid");
   const result: Buffer[] = [];
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(), command: process.execPath, args: ["-e", leavesAGrandchild(pidFile, 4)],
+    supervisor: ensureTestProcessSupervisor(), command: process.execPath, args: ["-e", leavesAGrandchild(pidFile, 4)],
     hardCeilingMs: 60_000, killGraceMs: 500, onStdout: () => undefined, onStderr: () => undefined, onResult: (chunk) => result.push(chunk),
   });
   const grandchild = Number(readFileSync(pidFile, "utf8"));
@@ -52,7 +52,7 @@ test("a STOP reaches the command first (SIGTERM, within the grace), then the run
     process.on("SIGTERM", () => { writeSync(3, "terminated-gracefully"); process.exit(0); });
     writeSync(1, "ready\\n"); setInterval(() => {}, 1000);`;
   const running = superviseCommand({
-    supervisor: testProcessSupervisorBinary(), command: process.execPath, args: ["-e", script], hardCeilingMs: 60_000, killGraceMs: 5_000,
+    supervisor: ensureTestProcessSupervisor(), command: process.execPath, args: ["-e", script], hardCeilingMs: 60_000, killGraceMs: 5_000,
     onStdout: (chunk) => { if (chunk.toString("utf8").includes("ready")) stop.abort(); }, onStderr: () => undefined,
     onResult: (chunk) => result.push(chunk), stop: stop.signal,
   });
@@ -67,7 +67,7 @@ test("the recorded command (the engine worker's launch) runs supervised: the obs
   const observation = await runRecordedCommand({
     arguments: ["-e", leavesAGrandchild(pidFile, 0)],
     cwd: process.cwd(),
-    supervision: { supervisor: testProcessSupervisorBinary(), hardCeilingMs: 60_000, killGraceMs: 500 },
+    supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: 60_000, killGraceMs: 500 },
   });
   assert.equal(observation.exitCode, 0);
   assert.equal(observation.spawnErrorCode, null);
@@ -158,7 +158,7 @@ test("a stop requested BEFORE the supervisor announced its command still reaches
     const stop = new AbortController();
     stop.abort();
     const run = await superviseCommand({
-      supervisor: testProcessSupervisorBinary(), command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"], hardCeilingMs: 60_000, killGraceMs: 5_000,
+      supervisor: ensureTestProcessSupervisor(), command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"], hardCeilingMs: 60_000, killGraceMs: 5_000,
       onStdout: () => undefined, onStderr: () => undefined, stop: stop.signal,
     });
     assert.equal(run.ending, "stopped", `attempt ${String(attempt)}: ${run.ending}`);
@@ -176,7 +176,7 @@ test("DRIVEN: a terminal Ctrl-C (SIGINT to the runner's whole process group) is 
     process.on("SIGTERM", () => { writeFileSync(${JSON.stringify(graceful)}, "yes"); process.exit(0); });
     writeFileSync(${JSON.stringify(ready)}, "1"); setInterval(() => {}, 1000);`;
   const runner = `const { superviseCommand } = await import(${JSON.stringify(owner)});
-    const run = await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: process.execPath,
+    const run = await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: process.execPath,
       args: ["-e", ${JSON.stringify(command)}], hardCeilingMs: 60_000, killGraceMs: 10_000,
       onStdout: () => undefined, onStderr: () => undefined, killOnInterrupt: true });
     process.stdout.write(JSON.stringify({ ending: run.ending, status: run.status, commandKilled: run.supervision?.commandKilled }));`;
@@ -199,7 +199,7 @@ test("the grace is the CALLER's (the suite watchdog's killGraceMs): a command th
   const stop = new AbortController();
   const started = Date.now();
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(), command: process.execPath,
+    supervisor: ensureTestProcessSupervisor(), command: process.execPath,
     args: ["-e", `process.on("SIGTERM", () => {}); process.stdout.write("ready\\n"); setInterval(() => {}, 1000);`],
     hardCeilingMs: 60_000, killGraceMs: 300,
     onStdout: (chunk) => { if (chunk.toString("utf8").includes("ready")) stop.abort(); }, onStderr: () => undefined, stop: stop.signal,
@@ -219,7 +219,7 @@ test("DRIVEN: a runner that DIES (SIGKILL) stops its supervisor (the parent-deat
     process.on("SIGTERM", () => { writeFileSync(${JSON.stringify(graceful)}, "yes"); process.exit(0); });
     writeFileSync(${JSON.stringify(ready)}, String(process.pid)); setInterval(() => {}, 1000);`;
   const runner = `const { superviseCommand } = await import(${JSON.stringify(owner)});
-    await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: process.execPath,
+    await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: process.execPath,
       args: ["-e", ${JSON.stringify(command)}], hardCeilingMs: 60_000, killGraceMs: 10_000,
       onStdout: () => undefined, onStderr: () => undefined });`;
   const child = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", runner], { stdio: "ignore" });
@@ -246,7 +246,7 @@ async function stoppedBare(stops: readonly NodeJS.Signals[], delayMs: number): P
   const command = `const { writeFileSync } = require("node:fs");
     process.on("SIGTERM", () => setTimeout(() => { writeFileSync(${JSON.stringify(graceful)}, "yes"); process.exit(0); }, ${String(delayMs)}));
     writeFileSync(${JSON.stringify(ready)}, "1"); setInterval(() => {}, 1000);`;
-  const supervisor = spawn(testProcessSupervisorBinary(), ["60000", "10000", process.execPath, "-e", command], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
+  const supervisor = spawn(ensureTestProcessSupervisor(), ["60000", "10000", process.execPath, "-e", command], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
   let receipt = "";
   (supervisor.stdio[3] as NodeJS.ReadableStream).on("data", (chunk: Buffer) => { receipt += chunk.toString("utf8"); });
   // Listened for before any stop: a kill at once closes it within the 20 ms below.
@@ -299,15 +299,19 @@ test("startDetached: a background run's stderr lands in the open log its caller 
   for (const { path } of [first, second]) assert.equal(statSync(path).mode & 0o777, 0o600);
 });
 
-test("the supervisor is RESOLVED, never built, by a run's callers: absent is a typed refusal naming the build, and nothing is written (#293)", async () => {
-  // A copy of the build owner in a folder with no build/: resolving there
-  // must refuse by name and must not run make (which would write build/).
-  const folder = createTempDir("supervisor-resolve-");
-  copyFileSync(new URL("../../guardian/build.ts", import.meta.url), join(folder, "build.ts"));
-  const copied = await import(pathToFileURL(join(folder, "build.ts")).href) as { testProcessSupervisorBinary: () => string };
-  assert.throws(() => copied.testProcessSupervisorBinary(), (error: unknown) =>
-    (error as { code?: string }).code === "test_process_supervisor_absent" && /make -C engine\/guardian all/u.test((error as Error).message));
-  assert.equal(existsSync(join(folder, "build")), false, "resolving the supervisor built something");
-  // Control: the live checkout's supervisor was built before this run.
-  assert.ok(statSync(testProcessSupervisorBinary()).isFile());
+test("ONE way to the supervisor: ensureTestProcessSupervisor builds once per process, and nothing else names the binary (#293)", () => {
+  // Once per process: a second call runs no make (counted in a child whose spawnSync is wrapped).
+  const owner = pathToFileURL(new URL("../../guardian/build.ts", import.meta.url).pathname).href;
+  const script = `import cp from "node:child_process";import {syncBuiltinESMExports} from "node:module";
+    let makes=0;const real=cp.spawnSync;cp.spawnSync=(command,...rest)=>{if(command==="make")makes++;return real(command,...rest);};syncBuiltinESMExports();
+    const {ensureTestProcessSupervisor}=await import(${JSON.stringify(owner)});
+    const first=ensureTestProcessSupervisor(),second=ensureTestProcessSupervisor();console.log(JSON.stringify({makes,same:first===second}));`;
+  const child = spawnSync(process.execPath, ["--no-warnings", "--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
+  assert.deepEqual(JSON.parse(child.stdout.trim().split("\n").at(-1)!), { makes: 1, same: true });
+  assert.ok(statSync(ensureTestProcessSupervisor()).isFile());
+  // Nothing else spells the binary's path: the only way to it is the function that builds it first.
+  const repository = new URL("../../../", import.meta.url).pathname;
+  const spelled = spawnSync("git", ["grep", "-l", "-e", ["build", "test-process-supervisor"].join("/"), "--", "*.ts", "*.mjs", "*.js"], { cwd: repository, encoding: "utf8" });
+  assert.deepEqual(spelled.stdout.split("\n").filter(Boolean), ["engine/guardian/build.ts"]);
 });
