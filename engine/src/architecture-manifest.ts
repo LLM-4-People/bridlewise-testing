@@ -1012,7 +1012,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "inventory-test-run", path: "scripts/tooling/inventory-test-run.ts", realm: "builder",
       layer: "verification", owner: "verification",
       publicApi: { exportCount: 7, namesSha256: "87e3a5e5eaee9bbd1a2bbb1d99cd69735b0dca9beb3e892ca49491cd5422e9ed" },
-      dependencies: ["node:events","node:path","node:stream/promises","node:test","scripts/test-inventory.ts","scripts/tooling/network-under-test.ts","scripts/tooling/test-receipt.ts","src/kernel/integrity.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:events","node:path","node:stream/promises","node:test","scripts/test-inventory.ts","scripts/tooling/engine-test-bounds.ts","scripts/tooling/network-under-test.ts","scripts/tooling/test-receipt.ts","src/kernel/integrity.ts","src/workflow/test-result-collector.ts","src/workflow/workflow-config.ts"],
       executionBoundary: "verification",
       ports: {
         requires: ["canonical-test-inventory-generation-and-validation"],
@@ -4252,7 +4252,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 49, namesSha256: "c52c931e777a8cd8b6d5bf8183419f7539ee90b9692d80ea6352f79bd6a7eda5" },
+      owner: "verification-workflow", publicApi: { exportCount: 51, namesSha256: "18d5254c2fdcbb48f40b945a314370d522f1c8a2e5e27e2e9e9a3e33617ff28f" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5635,7 +5635,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-runtime-entry-point", path: "src/runtime/entry-point.ts", realm: "shared", layer: "infrastructure",
-      owner: "runtime-infrastructure", publicApi: { exportCount: 1, namesSha256: "01d7cf3d8bfb10347411a4baaf5e1738e22562aa79476ad2e221acc56eb48bca" },
+      owner: "runtime-infrastructure", publicApi: { exportCount: 2, namesSha256: "c839ae1a0c44d75139b7cabfdfc24db511edd06465bfe95ba4fb95a2a9caaf4f" },
       dependencies: ["node:fs","node:path","node:url"],
     }),
     moduleContract({
@@ -5701,7 +5701,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-tooling-test-cpu-class", path: "scripts/tooling/test-cpu-class.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 7, namesSha256: "7a3b9fec2768fec7581f8ca4a890b9f67c7cf947787ee68b74ee9b3640368714" },
-      dependencies: ["node:fs","node:path","src/shared/run-cpu.ts"],
+      dependencies: ["node:fs","node:path","src/shared/run-cpu.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "scripts-verification-corpus-root", path: "scripts/verification/corpus-root.ts", realm: "builder", layer: "verification",
@@ -5823,6 +5823,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "scripts-verification-text-lines", path: "scripts/verification/text-lines.ts", realm: "builder", layer: "verification",
       owner: "verification-foundation", publicApi: { exportCount: 3, namesSha256: "fe9001d021e41d19744c8150dd721cd84864206e918229216db8403d0fa07920" },
       dependencies: [],
+    }),
+    moduleContract({
+      id: "scripts-tooling-engine-test-bounds", path: "scripts/tooling/engine-test-bounds.ts", realm: "builder", layer: "verification",
+      owner: "verification", publicApi: { exportCount: 3, namesSha256: "cdd70df0caa9cde44b18e35cf158aa3c110b48467ce18b5a6d85af333469f483" },
+      dependencies: ["node:path","node:test","node:timers","node:worker_threads","scripts/tooling/test-cpu-class.ts","src/runtime/entry-point.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-apps-audit", path: "src/workflow/forge/apps-audit.ts", realm: "runtime", layer: "infrastructure",
