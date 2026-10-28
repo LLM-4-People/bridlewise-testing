@@ -832,3 +832,22 @@ test("the line splitter holds a CR that ends a chunk: every cut of a mixed text 
   // The capped prefix: the complete lines only; the line the cap cut is the unread tail's.
   assert.deepEqual(createLineSplitter().push("whole\r\nalso whole\rcut her"), ["whole", "also whole"]);
 });
+
+test("the capped read (over 64 MiB) splits CR-only lines by the one definition, and a streamed file's unterminated last line is read", () => {
+  // Capped: a CR-only file past the 64 MiB cap. Split on \n alone, its whole prefix is one unfinished line and nothing is read.
+  const marker = `/* ${GPL_SPDX} */`;
+  const capped = `${marker}\r${LGPL_TITLE}\r${"a".repeat(1023)}\r`.padEnd(64 * 1024 * 1024 + 4096, `${"b".repeat(1023)}\r`);
+  // Streamed: above the whole-read threshold, the marker on the LAST line, with no break after it.
+  const streamed = `${"a".repeat(2 * 1024 * 1024 + 64)}\n${marker}`;
+  const dir = repoWith({ "huge/cr-only.c": capped, "large/unterminated.c": streamed });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /huge\/cr-only\.c:1: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "the capped CR-only SPDX line");
+    assert.match(result.stderr, /huge\/cr-only\.c:2: gpl-licence-text: GPL-licensed text \(title: /u, "the capped CR-only title line");
+    assert.match(result.stderr, /huge\/cr-only\.c: unread-tail: /u, "the capped tail is still reported unread");
+    assert.match(result.stderr, /large\/unterminated\.c:2: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "the streamed unterminated last line");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
