@@ -589,6 +589,7 @@ main dd {
 }
 
 .task-list-item-checkbox {
+  font: inherit;
   flex: none;
   margin-top: 0.4em;
   accent-color: var(--ok);
