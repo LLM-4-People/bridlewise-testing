@@ -636,7 +636,8 @@ test("the shipped hook of every reachable repository resolves and runs", () => {
       const message = join(scratch, "COMMIT_EDITMSG");
       // Signed off by the committer the hook sees (the DCO is one of the message's duties).
       writeFile(scratch, "COMMIT_EDITMSG", "a message\n\nSigned-off-by: hook <hook@example.invalid>\n");
-      const committer = { GIT_COMMITTER_NAME: "hook", GIT_COMMITTER_EMAIL: "hook@example.invalid" };
+      // The identities git hands a commit's hooks: it resolves author and committer before it runs them.
+      const committer = { GIT_COMMITTER_NAME: "hook", GIT_COMMITTER_EMAIL: "hook@example.invalid", GIT_AUTHOR_NAME: "hook", GIT_AUTHOR_EMAIL: "hook@example.invalid" };
       const result = spawnSync("sh", [hook, ...(name === "commit-msg" ? [message] : [])], { cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24, env: { ...process.env, ...committer } });
       assert.equal(result.status, 0, `${root}: the shipped ${name} failed to run on a repository with nothing staged:\n${result.stderr}`);
     }

@@ -45,7 +45,7 @@ test("commit-msg: a message signed off by the committer passes; none, another's 
   assert.equal(judge(root, `feat: a change\n\nSigned-off-by: ${committer.name} <${committer.email.toUpperCase()}>\n`, committer), null, "an address compares without case");
   assert.match(judge(root, "feat: a change\n", committer) ?? "", /carries none/u);
   const other = judge(root, "feat: a change\n\nSigned-off-by: Someone Else <else@example.invalid>\n", committer) ?? "";
-  assert.match(other, /it carries <redacted, domain example\.invalid>/u);
+  assert.match(other, /it carries <redacted [0-9a-f]{12}>/u);
   assert.doesNotMatch(other, /Someone Else|else@/u, "a refusal never echoes a person");
   // A `Signed-off-by:` paragraph in the body, followed by more prose, is no trailer (git's own parse).
   assert.notEqual(judge(root, `feat: a change\n\n${SIGNED}\n\nAnd a closing paragraph of prose.\n`, committer), null);
@@ -113,7 +113,7 @@ test("CI: a merge group is VERIFIED (its ref in GitHub's queue namespace, held a
   git(["push", "-q", remote, "HEAD:refs/heads/elsewhere"]);
   assert.match(unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: "refs/heads/elsewhere", remote } }).join("\n"), /not in GitHub's queue namespace/u);
   git(["push", "-q", "--force", remote, `${base}:${queueRef}`]);
-  assert.match(unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: queueRef, remote } }).join("\n"), new RegExp(`does not hold the merge group's ref .* at ${head.slice(0, 12)}`, "u"));
+  assert.match(unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: queueRef, remote } }).join("\n"), new RegExp(`does not hold the merge group's ref ${queueRef} at ${head.slice(0, 12)}`, "u"));
   // A plain commit on the chain is not the queue's.
   git(["push", "-q", "--force", remote, `HEAD:${queueRef}`]);
   const plain = commit(git, root, "plain.txt", "pushed onto the chain");
@@ -144,20 +144,27 @@ test("agent commit: every -by key in any case, and any address anywhere in the N
   const agent = `Signed-off-by: ${AGENT.name} <${AGENT.email}>`;
   const person = `${PERSONAL.name} <${PERSONAL.email}>`;
   const plants: ReadonlyArray<readonly [string, string, RegExp]> = [
-    ["a lower-case sign-off", `feat: a change\n\n${agent}\nsigned-off-by: ${person}\n`, /signed-off-by trailer is <redacted, domain example\.invalid>/u],
-    ["Signed-Off-By", `feat: a change\n\n${agent}\nSigned-Off-By: ${person}\n`, /Signed-Off-By trailer is <redacted, domain example\.invalid>/u],
-    ["Reviewed-BY", `feat: a change\n\n${agent}\nReviewed-BY: ${person}\n`, /Reviewed-BY trailer is <redacted, domain example\.invalid>/u],
-    ["Co-authored-by", `feat: a change\n\n${agent}\nCo-authored-by: ${person}\n`, /Co-authored-by trailer is <redacted, domain example\.invalid>/u],
-    ["a Cc with an address", `feat: a change\n\n${agent}\nCc: ${person}\n`, /message names <redacted, domain example\.invalid>/u],
-    ["a fullwidth ＠", `feat: a change\n\nreach me at person＠example.invalid\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
-    ["a body-paragraph sign-off", `feat: a change\n\nSigned-off-by: ${person}\n\nmore prose\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
-    ["\"Signed off by:\" with spaces", `feat: a change\n\nSigned off by: ${person}\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
-    ["a bare address in the subject", `feat: thanks ${PERSONAL.email}\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
+    ["a lower-case sign-off", `feat: a change\n\n${agent}\nsigned-off-by: ${person}\n`, /signed-off-by trailer is <redacted [0-9a-f]{12}>/u],
+    ["Signed-Off-By", `feat: a change\n\n${agent}\nSigned-Off-By: ${person}\n`, /Signed-Off-By trailer is <redacted [0-9a-f]{12}>/u],
+    ["Reviewed-BY", `feat: a change\n\n${agent}\nReviewed-BY: ${person}\n`, /Reviewed-BY trailer is <redacted [0-9a-f]{12}>/u],
+    ["Co-authored-by", `feat: a change\n\n${agent}\nCo-authored-by: ${person}\n`, /Co-authored-by trailer is <redacted [0-9a-f]{12}>/u],
+    ["a Cc with an address", `feat: a change\n\n${agent}\nCc: ${person}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["a fullwidth ＠", `feat: a change\n\nreach me at person＠example.invalid\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["a body-paragraph sign-off", `feat: a change\n\nSigned-off-by: ${person}\n\nmore prose\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["\"Signed off by:\" with spaces", `feat: a change\n\nSigned off by: ${person}\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["a bare address in the subject", `feat: thanks ${PERSONAL.email}\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["a zero-width space beside the @", `feat: a change\n\nreach person\u200b@\u200bexample.invalid\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["a soft hyphen beside the @", `feat: a change\n\nreach person\u00ad@example.invalid\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["an ideographic full stop", `feat: a change\n\nreach person@example\u3002invalid\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["an IDN domain", `feat: a change\n\nreach person@bücher.example\n\n${agent}\n`, /message names <redacted [0-9a-f]{12}>/u],
+    ["a name-only Signed-off-by", `feat: a change\n\n${agent}\nSigned-off-by: Mia Keller\n`, /"Signed-off-by" trailer names someone other than the project's agent identity/u],
+    ["a name-only Co-authored-by", `feat: a change\n\n${agent}\nCo-authored-by: Mia Keller\n`, /"Co-authored-by" trailer names someone other than the project's agent identity/u],
+    ["an address in a comment line, kept by --cleanup=verbatim", `feat: a change\n\n${agent}\n# ------------------------ >8 ------------------------\n# person@example.invalid\n`, /message names <redacted [0-9a-f]{12}>/u],
   ];
   for (const [name, message, expected] of plants) {
     const refusal = judge(root, message, AGENT) ?? "";
     assert.match(refusal, expected, `${name} was accepted`);
-    assert.doesNotMatch(refusal, /A Person|person@|person＠/u, `${name}: a refusal never echoes the person`);
+    assert.doesNotMatch(refusal, /A Person|person|example\.invalid|mia|keller|bücher/iu, `${name}: a refusal never echoes the person, their mailbox or their domain`);
   }
   assert.equal(judge(root, `feat: a change\n\n${agent}\n`, AGENT), null, "the agent identity alone passes (liveness)");
 });
@@ -165,10 +172,37 @@ test("agent commit: every -by key in any case, and any address anywhere in the N
 test("agent identity: a lower-case sign-off or a Co-authored-by trailer carrying a person's address is refused on an agent commit", () => {
   const { root } = repository();
   const agent = `Signed-off-by: ${AGENT.name} <${AGENT.email}>`;
-  assert.match(judge(root, `feat: a change\n\n${agent}\nsigned-off-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /signed-off-by trailer is <redacted, domain example\.invalid>/u);
-  assert.match(judge(root, `feat: a change\n\n${agent}\nCo-authored-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /Co-authored-by trailer is <redacted, domain example\.invalid>/u);
+  assert.match(judge(root, `feat: a change\n\n${agent}\nsigned-off-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /signed-off-by trailer is <redacted [0-9a-f]{12}>/u);
+  assert.match(judge(root, `feat: a change\n\n${agent}\nCo-authored-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /Co-authored-by trailer is <redacted [0-9a-f]{12}>/u);
   // On a human's commit, a co-author is theirs to name.
   assert.equal(judge(root, `feat: a change\n\n${SIGNED}\nCo-authored-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, TEST_GIT_IDENTITY), null);
+});
+
+test("redaction: a refusal prints only this run's keyed token of an address — the same address the same token, another address another, never its domain", () => {
+  const { root } = repository();
+  const agent = `Signed-off-by: ${AGENT.name} <${AGENT.email}>`;
+  const tokens = (text: string): readonly string[] => [...text.matchAll(/<redacted ([0-9a-f]{12})>/gu)].map((match) => match[1]!);
+  const twice = judge(root, `feat: a\n\nperson@vanity-name.example and person@vanity-name.example\n\n${agent}\n`, AGENT) ?? "";
+  const other = judge(root, `feat: a\n\nsomeone@vanity-name.example\n\n${agent}\n`, AGENT) ?? "";
+  const first = judge(root, `feat: a\n\nperson@vanity-name.example\n\n${agent}\n`, AGENT) ?? "";
+  assert.equal(tokens(twice).length, 1, "one address, one refusal");
+  assert.deepEqual(tokens(first), tokens(twice), "the same address, the same token within a run");
+  assert.notDeepEqual(tokens(other), tokens(first), "another address, another token");
+  assert.doesNotMatch(`${twice}${other}`, /vanity|person|someone/u, "nothing of the address, its mailbox or its domain");
+});
+
+test("the range reader reads each message whole: a unit or record separator inside a message neither hides the rest nor leaks into the log", () => {
+  const { root, git } = repository();
+  const agentEnvironment = { GIT_AUTHOR_NAME: AGENT.name, GIT_AUTHOR_EMAIL: AGENT.email, GIT_COMMITTER_NAME: AGENT.name, GIT_COMMITTER_EMAIL: AGENT.email };
+  const base = commit(git, root, "base.txt", `base\n\n${SIGNED}`);
+  writeFileSync(join(root, "agent.txt"), "agent\n");
+  git(["add", "--", "agent.txt"]);
+  // A \x1f before the address (it used to end the field and hide the rest), a \x1e inside it (it used to start a "record").
+  git(["commit", "-q", "--cleanup=verbatim", "-m", `feat: a change\n\nhidden\x1f person@example.invalid then perso\x1en@example.invalid\n\nSigned-off-by: ${AGENT.name} <${AGENT.email}>\n`], agentEnvironment);
+  const refused = unsignedCommits(root, `${base}..HEAD`, { agentPullRequest: true });
+  assert.ok(refused.some((line) => /message names <redacted [0-9a-f]{12}>/u.test(line)), refused.join("\n"));
+  assert.doesNotMatch(refused.join("\n"), /person|example\.invalid/u, "nothing of the address reaches the log");
+  assert.ok(refused.every((line) => /^[0-9a-f]{12}: /u.test(line)), "every line names a real commit");
 });
 
 test("agent checkout: a commit made in a checkout the harness made for an agent must be the agent identity, whatever its marks", () => {
@@ -177,7 +211,9 @@ test("agent checkout: a commit made in a checkout the harness made for an agent 
   git(["config", AGENT_CHECKOUT_KEY, "true"]);
   assert.equal(isAgentCheckout(root), true);
   // The review's plant: committer, author and sign-off all a person's own — no agent mark at all.
-  assert.match(judge(root, signedBy(PERSONAL), PERSONAL, PERSONAL, true) ?? "", /agent commit and its author is <redacted, domain example\.invalid>[\s\S]*this checkout is an agent's/u);
+  const refusal = judge(root, signedBy(PERSONAL), PERSONAL, PERSONAL, true) ?? "";
+  assert.match(refusal, /agent commit and its author is <redacted [0-9a-f]{12}>/u);
+  assert.ok(refusal.endsWith(`(this checkout is an agent's: its ${AGENT_CHECKOUT_KEY} is set, so user.name and user.email are ${AGENT.name} <${AGENT.email}>)`), refusal);
   assert.equal(judge(root, signedBy(AGENT), AGENT, AGENT, true), null);
 });
 
@@ -204,10 +240,10 @@ test("commit-msg: an agent commit whose sign-off, author or committer is a perso
   const { root } = repository();
   assert.equal(judge(root, signedBy(AGENT), AGENT, AGENT), null, "the project identity throughout passes (liveness)");
   // The incident: an extra sign-off with the person's own address beside the agent's.
-  assert.match(judge(root, signedBy(AGENT, PERSONAL), AGENT, AGENT) ?? "", /Signed-off-by trailer is <redacted, domain example\.invalid>, not the project's agent identity/u);
-  assert.match(judge(root, signedBy(AGENT), AGENT, PERSONAL) ?? "", /author is <redacted, domain example\.invalid>/u);
+  assert.match(judge(root, signedBy(AGENT, PERSONAL), AGENT, AGENT) ?? "", /Signed-off-by trailer is <redacted [0-9a-f]{12}>, not the project's agent identity/u);
+  assert.match(judge(root, signedBy(AGENT), AGENT, PERSONAL) ?? "", /author is <redacted [0-9a-f]{12}>/u);
   // A person's committer signing off as themselves, on a commit authored by the agent identity.
-  assert.match(judge(root, signedBy(PERSONAL), PERSONAL, AGENT) ?? "", /committer is <redacted, domain example\.invalid>/u);
+  assert.match(judge(root, signedBy(PERSONAL), PERSONAL, AGENT) ?? "", /committer is <redacted [0-9a-f]{12}>/u);
   // The agent's domain is an agent mark too: a different name or mailbox in it is not the identity.
   const sameDomain = { name: "someone", email: `someone@${AGENT.email.split("@")[1]!}` };
   assert.match(judge(root, signedBy(sameDomain), sameDomain, sameDomain) ?? "", /not the project's agent identity/u);
@@ -237,8 +273,8 @@ test("CI: a pull request a declared agent account opened brings agent commits on
   git(["commit", "-q", "-m", signedBy(AGENT, PERSONAL)], agentEnvironment);
   const agentLines = unsignedCommits(root, "HEAD~1..HEAD");
   assert.equal(agentLines.length, 2, "the trailer, and the address its message names");
-  assert.match(agentLines[0]!, /Signed-off-by trailer is <redacted, domain example\.invalid>/u);
-  assert.match(agentLines[1]!, /its message names <redacted, domain example\.invalid>/u);
+  assert.match(agentLines[0]!, /Signed-off-by trailer is <redacted [0-9a-f]{12}>/u);
+  assert.match(agentLines[1]!, /its message names <redacted [0-9a-f]{12}>/u);
   assert.doesNotMatch(agentLines.join("\n"), /A Person|person@/u, "the range refusals never echo the person");
 });
 

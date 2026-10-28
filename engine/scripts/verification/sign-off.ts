@@ -19,11 +19,14 @@
  * `-by`, in any case (`Signed-off-by`, `signed-off-by`, `Co-authored-by`,
  * `Reviewed-BY`, …). One that carries an address must be exactly
  * `Name <address>`: a bare address, a missing name, or text after the `>` is
- * refused, never dropped. One without an address (`Reported-by: Bob Smith`,
- * `Reported-by: @octocat`) names nobody's mailbox and passes. Other keys keep
- * their own grammar (`Flake-cause: … @ <commit>`, a `Link:` URL). An ADDRESS
- * is recognised by its shape (`local@domain.tld`, after NFKC normalisation,
- * so a fullwidth `＠` is one), never by "any `@`". A sign-off is an identity
+ * refused, never dropped. On a human's commit one without an address
+ * (`Reported-by: Bob Smith`, `Reported-by: @octocat`) passes; on an agent's
+ * it still names a person and is refused. Other keys keep their own grammar
+ * (`Flake-cause: … @ <commit>`, a `Link:` URL). An ADDRESS is recognised by
+ * its shape (`local@label.label`, Unicode labels included) after the one
+ * normalisation: NFKC (a fullwidth `＠` is one), default-ignorable code points
+ * removed (a zero-width space or soft hyphen hides nothing), and the
+ * ideographic full stops read as `.`; never by "any `@`". A sign-off is an identity
  * trailer whose key is `signed-off-by` in any case; one of them must be the
  * committer's.
  *
@@ -37,15 +40,18 @@
  * was opened by a declared agent account (`agentAccounts`; the workflow passes
  * the pull request's author). A human outside contributor's commit carries none of
  * those marks and keeps the ordinary DCO. On an agent commit the WHOLE
- * recorded message (subject, body, every trailer, a comment kept by
- * `--cleanup=verbatim`), NFKC-normalised, names no address but the agent's:
+ * message (subject, body, every trailer, every comment line — the hook judges
+ * the message file as written, since `--cleanup=verbatim` records all of it),
+ * normalised, names no address but the agent's:
  * a body-paragraph `Signed-off-by`, a `Signed off by:` spelled with spaces, a
  * `Cc:` or a bare address in the subject are refused like a trailer.
  *
  * NO REFUSAL ECHOES A PERSON. A refusal is printed into a public log (an
  * Actions run, a terminal recorded by a tool), so it names the role and the
- * trailer key, and an address only as `<redacted, domain d>`; never a
- * person's name or mailbox. The agent identity is the project's and is named.
+ * trailer key, and an address only as `<redacted t>`, a token keyed by this
+ * run's random, never-printed key: two addresses are told apart, and nothing
+ * else is said (not even the domain, which can be a name). The agent identity
+ * is the project's and is named.
  *
  * NO NAME IS AN EXEMPTION. A committer name and address are anyone's to set,
  * so no commit passes because of who it says committed it. The one commit a
@@ -58,10 +64,12 @@
  * of which must BE a merge and is not judged, while every commit they bring
  * in is.
  */
+import { createHmac, randomBytes } from "node:crypto";
+
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
-import { gitText as git, messageTrailers, trailersOf } from "./commit-trailers.ts";
+import { gitText as git, messageTrailers } from "./commit-trailers.ts";
 
 /** The trailer key of a sign-off (compared without regard to case). */
 export const SIGN_OFF_TRAILER = "Signed-off-by";
@@ -82,9 +90,19 @@ export function isAgentAccount(login: string): boolean {
   return AGENT_ACCOUNTS.includes(login);
 }
 
-/** `Name <address>` and nothing else, as a sign-off or an ident spells it; `null` when the text is not exactly one. */
+/**
+ * THE ONE NORMALISATION every judged text goes through: NFKC (a fullwidth `＠`
+ * is an `@`), every default-ignorable code point removed (a zero-width space or
+ * a soft hyphen beside the `@` hides nothing), and the ideographic full stops
+ * (U+3002, U+FF61) read as `.`.
+ */
+function normalised(text: string): string {
+  return text.normalize("NFKC").replace(/\p{Default_Ignorable_Code_Point}/gu, "").replace(/[\u3002\uFF61]/gu, ".");
+}
+
+/** `Name <address>` and nothing else, as a sign-off or an ident spells it (normalised); `null` when the text is not exactly one. */
 function parseIdentity(text: string): Identity | null {
-  const match = /^([^<>@]*[^<>@\s])\s*<([^<>\s@]+@[^<>\s@]+)>$/u.exec(text.trim());
+  const match = /^([^<>@]*[^<>@\s])\s*<([^<>\s@]+@[^<>\s@]+)>$/u.exec(normalised(text).trim());
   return match === null ? null : { name: match[1]!.trim(), email: match[2]! };
 }
 
@@ -97,20 +115,29 @@ function sameIdentity(left: Identity, right: Identity): boolean {
   return left.name === right.name && left.email.toLowerCase() === right.email.toLowerCase();
 }
 
-/** An address by its shape: `local@domain.tld` (the text NFKC-normalised first). */
-const ADDRESS = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/gu;
+/** An address by its shape, Unicode labels included (an IDN): `local@label.label`. */
+const ADDRESS = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
 
-/** The addresses `text` names, NFKC-normalised (a fullwidth `＠` is an `@`), lower-cased. */
+/** The addresses `text` names, after the one normalisation, lower-cased. */
 export function addressesIn(text: string): readonly string[] {
-  return [...text.normalize("NFKC").matchAll(ADDRESS)].map((match) => match[0].toLowerCase());
+  return [...normalised(text).matchAll(ADDRESS)].map((match) => match[0].toLowerCase());
 }
 
-/** An address as a refusal may print it: the agent's in full; anyone else's only by its domain. */
+/**
+ * The key of this process's redaction tokens: random, never stored, never
+ * printed. A token tells two addresses apart within one run's log and says
+ * nothing else: not the address, not its domain (a vanity domain is a name),
+ * and no dictionary can test a guess against it.
+ */
+const REDACTION_KEY = randomBytes(32);
+
+/** An address as a refusal may print it: the agent's in full; anyone else's only as this run's keyed token. */
 function redacted(address: string): string {
-  return address.toLowerCase() === AGENT_IDENTITY.email.toLowerCase() ? address : `<redacted, domain ${domainOf(address)}>`;
+  if (address.toLowerCase() === AGENT_IDENTITY.email.toLowerCase()) return address;
+  return `<redacted ${createHmac("sha256", REDACTION_KEY).update(address.toLowerCase()).digest("hex").slice(0, 12)}>`;
 }
 
-/** An identity as a refusal may print it: the agent's in full; anyone else's never — only their address's domain. */
+/** An identity as a refusal may print it: the agent's in full; anyone else's never — only a token of their address. */
 function shown(identity: Identity): string {
   return sameIdentity(identity, AGENT_IDENTITY) ? `${identity.name} <${identity.email}>` : redacted(identity.email);
 }
@@ -131,7 +158,7 @@ export type JudgedCommit = Readonly<{ author: Identity; committer: Identity; tra
  * account's pull request; a harness-made agent checkout).
  */
 export function commitRecordProblems(commit: JudgedCommit, agentMarked = false): readonly string[] {
-  const named = commit.trailers.filter(isIdentityTrailer).map((trailer) => ({ trailer, identity: parseIdentity(trailer.value.normalize("NFKC")) }));
+  const named = commit.trailers.filter(isIdentityTrailer).map((trailer) => ({ trailer, identity: parseIdentity(trailer.value) }));
   const unreadable = named.filter((entry) => entry.identity === null && addressesIn(entry.trailer.value).length > 0)
     .map(({ trailer }) => `its "${trailer.key}" trailer carries an address but is not exactly one "Name <address>"`);
   const people = named.flatMap((entry) => entry.identity === null ? [] : [{ role: `${entry.trailer.key} trailer`, identity: entry.identity }]);
@@ -143,10 +170,13 @@ export function commitRecordProblems(commit: JudgedCommit, agentMarked = false):
   if (!agent) return [...unreadable, ...dco];
   const agentProblems = identities.filter(({ identity }) => !sameIdentity(identity, AGENT_IDENTITY))
     .map(({ role, identity }) => `it is an agent commit and its ${role} is ${shown(identity)}, not the project's agent identity ${AGENT_SPELLED}`);
+  // A -by trailer with no address still names a person (`Co-authored-by: A Name`): on an agent commit, refused.
+  const nameOnly = named.filter((entry) => entry.identity === null && addressesIn(entry.trailer.value).length === 0)
+    .map(({ trailer }) => `it is an agent commit and its "${trailer.key}" trailer names someone other than the project's agent identity ${AGENT_SPELLED}`);
   // The whole recorded message, normalised: an address anywhere in it that is not the agent's.
   const foreign = [...new Set(addressesIn(commit.message).filter((address) => address !== AGENT_IDENTITY.email.toLowerCase()))]
     .map((address) => `it is an agent commit and its message names ${redacted(address)}, an address that is not the project's agent identity's`);
-  return [...unreadable, ...dco, ...agentProblems, ...foreign];
+  return [...unreadable, ...dco, ...agentProblems, ...nameOnly, ...foreign];
 }
 
 /** Is `root` a checkout the harness made for an agent (its {@link AGENT_CHECKOUT_KEY} is true, read as the hook's git reads it)? */
@@ -157,7 +187,15 @@ export function isAgentCheckout(root: string): boolean {
 
 /** The ident git will record for a commit made at `root` now (`GIT_AUTHOR_IDENT` or `GIT_COMMITTER_IDENT`). */
 function pendingIdent(root: string, variable: "GIT_AUTHOR_IDENT" | "GIT_COMMITTER_IDENT"): Identity {
-  const identity = parseIdent(git(root, ["var", variable]));
+  // git resolves a commit's identities before it runs its hooks; a hook run without one (invoked by hand) is
+  // refused by name and type, never with git's raw failure.
+  let ident: string;
+  try {
+    ident = git(root, ["var", variable]);
+  } catch {
+    throw new InputError(`git names no ${variable === "GIT_AUTHOR_IDENT" ? "author" : "committer"} here (git var ${variable}): set user.name and user.email, or run this as git's own hook`, "commit_identity_unreadable");
+  }
+  const identity = parseIdent(ident);
   if (identity === null) throw new InputError(`git names no usable identity here (git var ${variable}): set user.name and user.email`, "commit_identity_unreadable");
   return identity;
 }
@@ -181,10 +219,8 @@ export function messageSignOffProblem(
   idents: Readonly<{ author: Identity; committer: Identity }> = pendingIdents(root),
   agentCheckout: boolean = isAgentCheckout(root),
 ): string | null {
-  // Everything below git's `-v` scissors line is never recorded (git always cuts it); the rest is judged as written.
-  const scissors = message.search(/^# -{24} >8 -{24}$/mu);
-  const recorded = scissors < 0 ? message : message.slice(0, scissors);
-  const problems = commitRecordProblems({ ...idents, trailers: messageTrailers(root, message), message: recorded }, agentCheckout);
+  // The whole message file, as written: under --cleanup=verbatim every line of it is recorded, so nothing is exempt.
+  const problems = commitRecordProblems({ ...idents, trailers: messageTrailers(root, message), message }, agentCheckout);
   if (problems.length === 0) return null;
   const repair = agentCheckout ? ` (this checkout is an agent's: its ${AGENT_CHECKOUT_KEY} is set, so user.name and user.email are ${AGENT_SPELLED})` : "";
   return `${problems.join("; ")}${repair}`;
@@ -224,11 +260,13 @@ export function unsignedCommits(root: string, range: string, context: RangeConte
       else queue.add(sha);
     }
   }
-  const records = git(root, ["log", "--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%(trailers:only,unfold)%x1f%B%x1e", range, "--"]);
-  for (const record of records.split("\x1e").map((entry) => entry.replace(/^\n/u, "")).filter((entry) => entry.length > 0)) {
-    const [sha = "", authorName = "", authorEmail = "", name = "", email = "", trailers = "", message = ""] = record.split("\x1f");
+  // One commit at a time, its fields separated by NUL — the one byte no commit message or ident can hold —
+  // and its message last, read whole: no byte a message carries can end a field or a record early.
+  for (const sha of git(root, ["rev-list", range, "--"]).split("\n").filter((line) => line.length > 0)) {
     if (queue.has(sha)) continue;
-    const judged = commitRecordProblems({ author: { name: authorName, email: authorEmail }, committer: { name, email }, trailers: trailersOf(trailers), message }, context.agentPullRequest === true);
+    const [authorName = "", authorEmail = "", name = "", email = "", ...rest] = git(root, ["log", "-1", "--format=%an%x00%ae%x00%cn%x00%ce%x00%B", sha, "--"]).split("\0");
+    const message = rest.join("\0");
+    const judged = commitRecordProblems({ author: { name: authorName, email: authorEmail }, committer: { name, email }, trailers: messageTrailers(root, message), message }, context.agentPullRequest === true);
     problems.push(...judged.map((problem) => `${sha.slice(0, 12)}: ${problem}`));
   }
   return problems;

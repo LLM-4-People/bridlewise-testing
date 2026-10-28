@@ -116,7 +116,7 @@ function checkCommitMessage(): void {
     }
   } catch (error) {
     process.stderr.write(
-      `\nCOMMIT REFUSED — the lesson trailer check could not run, so it cannot say this message names the lessons it acts on:\n` +
+      `\nCOMMIT REFUSED — the message checks could not run, so they cannot say this message's records are right (its lessons, its sign-off and identities, its flake causes):\n` +
         `${error instanceof Error ? error.message : String(error)}\n\n`,
     );
     process.exitCode = 1;

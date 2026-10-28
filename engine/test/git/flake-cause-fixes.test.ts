@@ -446,7 +446,8 @@ test("THE SHIPPED commit-msg HOOK refuses a malformed Flake-cause trailer and pa
     writeFileSync(join(scratch, "COMMIT_EDITMSG"), message);
     // Signed off by the committer the hook sees (the DCO is one of the message's duties).
     return spawnSync("sh", [hook, join(scratch, "COMMIT_EDITMSG")], {
-      cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24, env: { ...process.env, GIT_COMMITTER_NAME: "hook", GIT_COMMITTER_EMAIL: "hook@example.invalid" },
+      // The identities git hands a commit's hooks: it resolves author and committer before it runs them.
+      cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24, env: { ...process.env, GIT_COMMITTER_NAME: "hook", GIT_COMMITTER_EMAIL: "hook@example.invalid", GIT_AUTHOR_NAME: "hook", GIT_AUTHOR_EMAIL: "hook@example.invalid" },
     });
   };
   const signedOff = "Signed-off-by: hook <hook@example.invalid>";
