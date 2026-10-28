@@ -56,12 +56,17 @@ import {
   statSync,
 } from "node:fs";
 import { relative, resolve } from "node:path";
-import { createInterface } from "node:readline";
 
 // The canonical owner of the secret-file vocabulary. See the module comment:
 // the import is the point, not a convenience.
 import { isSecretFile } from "../engine/src/privacy/secret-files.ts";
 import { publicationPrivacyFindings, treeScannedSignals } from "../engine/src/privacy/secret-signals.ts";
+// The licence boundary over the tree (no GPL-licensed bytes committed): the
+// same walk asks it about every line, and its reviewed allowlist is the only
+// admission.
+import { createGplReader, REVIEWED_GPL_TEXT, staleReviewedEntries } from "../engine/scripts/verification/licence-boundary.ts";
+// The one line definition (\r\n, a lone \r, \n) for every read: whole, streamed and capped.
+import { createLineSplitter, textLines } from "../engine/scripts/verification/text-lines.ts";
 
 const ROOT = resolve(process.cwd());
 // At or below this size a file is read in one pass. Above it, it is streamed
@@ -177,8 +182,20 @@ function scanJsonDocument(path, text) {
   }
 }
 
+/** Paths whose text carried a GPL-licence marker (for the allowlist's staleness check). */
+const gplCarriers = new Set();
+// One GPL reader per file, in line order (a notice can span lines): a new
+// path starts a new reader.
+let gplReading = { path: undefined, reader: undefined };
+
 /** Run the path rules and the content rules over one line of text. */
 function scanText(path, lineNumber, line) {
+  if (gplReading.path !== path) gplReading = { path, reader: createGplReader() };
+  for (const marker of gplReading.reader.push(line)) {
+    gplCarriers.add(path);
+    // No tree is exempt: a test tree may not carry GPL text either.
+    if (!REVIEWED_GPL_TEXT.has(path)) report(path, lineNumber, "gpl-licence-text", `GPL-licensed text (${marker.marker}: ${marker.text}); this AGPL tree carries no GPL bytes — fetch it for testing (the corpus) or add a reviewed entry to engine/scripts/verification/licence-boundary.ts`);
+  }
   const normalizedLine = normalizePathText(line);
   for (const signal of publicationPrivacyFindings(normalizedLine, "text")) {
     report(path, lineNumber, signal.id, signal.description);
@@ -251,9 +268,8 @@ function scanCappedPrefix(path) {
   } finally {
     if (fd !== undefined) closeSync(fd);
   }
-  const lastNewline = text.lastIndexOf("\n");
-  const complete = lastNewline === -1 ? "" : text.slice(0, lastNewline);
-  complete.split("\n").forEach((line, index) => scanText(path, index + 1, line));
+  // The one line definition; the line the cap cut is incomplete, so it is not read (the tail is reported unread).
+  createLineSplitter().push(text).forEach((line, index) => scanText(path, index + 1, line));
   report(
     path,
     0,
@@ -265,18 +281,19 @@ function scanCappedPrefix(path) {
 
 async function scanStreamed(path) {
   const input = createReadStream(path, { encoding: "utf8" });
-  const lines = createInterface({ input, crlfDelay: Infinity });
+  // The one line definition, fed chunk by chunk (a CR that ends a chunk waits for the next).
+  const splitter = createLineSplitter();
   let lineNumber = 0;
   try {
-    for await (const line of lines) {
-      lineNumber += 1;
-      scanText(path, lineNumber, line);
+    for await (const chunk of input) {
+      for (const line of splitter.push(chunk)) scanText(path, (lineNumber += 1), line);
     }
+    const last = splitter.rest();
+    if (last.length > 0) scanText(path, (lineNumber += 1), last);
   } catch (err) {
     readFailure(path, err);
   } finally {
     input.destroy();
-    lines.close();
   }
 }
 
@@ -303,7 +320,7 @@ async function scanRegularFile(path) {
     readFailure(path, err);
     return;
   }
-  text.split(/\r?\n/u).forEach((line, index) => scanText(path, index + 1, line));
+  textLines(text).forEach((line, index) => scanText(path, index + 1, line));
   scanJsonDocument(path, text);
 }
 
@@ -325,6 +342,10 @@ for (const path of trackedFiles()) {
   } else {
     report(normalized, 0, "unreadable-file", "not a regular file; it is not certified clean", false);
   }
+}
+
+for (const path of staleReviewedEntries(gplCarriers)) {
+  report(path, 0, "gpl-allowlist-stale", "a reviewed GPL-text entry whose file carries no GPL-licence text: remove the entry");
 }
 
 // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
