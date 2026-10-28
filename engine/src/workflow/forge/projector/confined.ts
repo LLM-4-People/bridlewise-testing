@@ -63,8 +63,9 @@ export const PROJECTION_PROGRAM: ConfinedModule = Object.freeze({
     "workflow/tracker-status.ts",
     "kernel/product-identity.ts",
     "kernel/ordered.ts",
-    // The one Markdown parser, at the repository's root (pure, no import).
+    // The one Markdown parser and the one markup owner, at the repository's root (pure, no import).
     "../../shared/markdown.ts",
+    "../../shared/markup.ts",
   ].map((path) => join(SOURCE_ROOT, path))),
   exportName: "projectText",
 });

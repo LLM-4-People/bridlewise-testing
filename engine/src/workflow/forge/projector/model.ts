@@ -65,6 +65,8 @@ export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<stri
     blockedBy: "link",
     state: "state",
     stateReason: "state",
+    /** Pinned to the repository's issue list (only MAIN-RED while red carries it). */
+    pinned: "state",
   }),
 });
 
@@ -85,7 +87,7 @@ export const PROJECTOR_OWNED_FIELDS: Readonly<Record<ProjectionClass, readonly s
 export const BORN_FIELDS: Readonly<Record<ProjectionClass, Fields>> = Object.freeze({
   label: Object.freeze({}),
   milestone: Object.freeze({ state: "open" }),
-  issue: Object.freeze({ parent: null, blockedBy: Object.freeze([]), state: "open", stateReason: null }),
+  issue: Object.freeze({ parent: null, blockedBy: Object.freeze([]), state: "open", stateReason: null, pinned: false }),
 });
 
 /** A tracker item as the projection reads it (the parser's `TrackerItem`, src/workflow/failure-owners.ts, plus its path); a Milestone has no state or lane. */
@@ -127,12 +129,23 @@ export type ProjectionInput = Readonly<{
   decisions: readonly Readonly<{ id: string; status: string; implementation: string }>[];
   /** The evidence paths recorded in tracked manifests at S (a close's proof, src/workflow/tracker-status.ts). */
   recordedEvidence: readonly string[];
+  /** Main's health per workflow, from the ledger at L (`main-runs.ts`): each failing test with the open records that own it (empty: UNOWNED). */
+  mainRuns: readonly Readonly<{
+    workflow: string;
+    commit: string;
+    conclusion: "success" | "failure";
+    runUrl: string;
+    failedTests: readonly Readonly<{ path: string; message: string; owners: readonly string[] }>[];
+  }>[];
 }>;
 
 /** The projector's marker opening an item's generated block; `digest` is filled in by the host (the confined program imports no hash). */
 export function itemMarker(id: string, digest: string): string {
   return `<!-- bridlewise:item=${id} digest=${digest} -->`;
 }
+/** GitHub's limit on an issue body, in characters: a projected body is kept under it. */
+export const ISSUE_BODY_LIMIT = 65_536;
+
 /** The digest placeholder `project` writes and the host replaces (`finalizeProjection`). */
 export const DIGEST_PLACEHOLDER = "{digest}";
 
