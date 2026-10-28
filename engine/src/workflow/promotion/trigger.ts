@@ -41,19 +41,22 @@
  * Any scheduler may call `apply --auto` itself (idempotent; exit 0 when not
  * due); none is built in.
  */
-import { closeSync } from "node:fs";
+import { closeSync, realpathSync } from "node:fs";
+import { basename, dirname } from "node:path";
 
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { resolveRevision } from "../../git/tree-reader.ts";
 import { startDetached } from "../../process/supervised-run.ts";
+import { ensurePrivateStateDirectory } from "../../filesystem/private-state.ts";
+import { openContainedFolder, resolveLocation } from "../../filesystem/path-identity.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
 import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { PromotionError, answer, answerWith, type PromotionAnswer, type PromotionCode } from "./codes.ts";
 import { openUnattendedLog, promotionState, readLastRun } from "./last-run.ts";
-import { branchOf } from "./profile.ts";
+import { branchOf, type PromotionProfile } from "./profile.ts";
 import { isPromoterHomeChild, runningEngine } from "./promoter-home.ts";
 import { formatPromoteArguments } from "./promote-arguments.ts";
 import { profileWorkDirectory, promotionErrorOf, targetTip } from "./promotion-run.ts";
@@ -83,6 +86,11 @@ export function unattendedEnvironment(environment: NodeJS.ProcessEnv, log: strin
 /** The production launch: this engine's CLI entry, `apply --profile <p> --source <S> --auto`, detached; it reports through its last-run record, and its log lines land in a log of its own (see the header). */
 export function launchUnattendedApply(pair: UnattendedPair, source: string): number {
   const engine = runningEngine();
+  // Defence in depth (the name is already one rule-checked segment): the profile's folder is reached from the
+  // promotion area without following a link and confirmed under it BEFORE any log is made, swept or written.
+  const area = dirname(pair.workDirectory);
+  ensurePrivateStateDirectory(area);
+  openContainedFolder(resolveLocation(realpathSync(area), "the promotion area"), [basename(pair.workDirectory)], true)?.close();
   const log = openUnattendedLog(pair.workDirectory);
   try {
     return startDetached(process.execPath, [
@@ -93,6 +101,18 @@ export function launchUnattendedApply(pair: UnattendedPair, source: string): num
     ], { cwd: pair.top, env: unattendedEnvironment(process.env, log.path), stderr: log.fd });
   } finally {
     closeSync(log.fd);
+  }
+}
+
+/** The profiles THIS checkout hosts: the ones its HEAD declares (judged by its own code) with an `on-source-publish` trigger; none when HEAD declares none it can read. */
+function hostedProfiles(repository: RepositoryContext): readonly PromotionProfile[] {
+  const head = resolveRevision(repository.repository, "HEAD");
+  if (head === null) return [];
+  try {
+    return repository.profilesAt(head).map((loaded) => loaded.profile).filter((profile) => profile.trigger === "on-source-publish");
+  } catch (error) {
+    if (!(error instanceof PromotionError)) throw error;
+    return [];
   }
 }
 
@@ -121,10 +141,19 @@ export function autoPromotion(
   const started: { profile: string; source: string; pid: number }[] = [];
   const skipped: { profile: string; source: string; reason: string }[] = [];
   const notices: string[] = [];
+  const hosted = hostedProfiles(repository);
   for (const moved of movedRefs(refs)) {
     const commit = resolveRevision(repository.repository, moved.ref);
     if (commit === null) continue;
-    for (const header of repository.triggerHeadersAt(commit)) {
+    const headers = repository.triggerHeadersAt(commit);
+    // THIS checkout hosts these profiles (its own HEAD declares them, judged by its own code): a moved source of one
+    // whose profile cannot be read there would stop its promotions in silence, so it is said, loudly. A foreign ref stays silent.
+    for (const host of hosted.filter((profile) => profile.remote === moved.remote && branchOf(profile.source.ref) === moved.branch)) {
+      if (!headers.some((header) => header.name === host.name)) {
+        notices.push(`promotion ${host.name}: ${moved.remote}/${moved.branch} moved to ${commit}, whose ${host.name} profile cannot be read (or is gone): nothing was started; run: ${ROOT_POLICY.protocol.harnessCommand} promote status --profile ${host.name}`);
+      }
+    }
+    for (const header of headers) {
       if (header.trigger !== "on-source-publish" || header.remote !== moved.remote || branchOf(header.sourceRef) !== moved.branch) continue;
       const pair: UnattendedPair = deepFreeze({ top: repository.top, workDirectory: profileWorkDirectory(repository.registry, header.name), profile: header.name });
       const last = readLastRun(pair.workDirectory);
@@ -138,7 +167,16 @@ export function autoPromotion(
         auditEvent("promotion.trigger", { profile: header.name, kind: "skipped", source: commit, reason });
         continue;
       }
-      const pid = launch(pair, commit);
+      let pid: number;
+      try {
+        pid = launch(pair, commit);
+      } catch (error) {
+        // A launch refused (a link where the profile's folder belongs) is that profile's notice, never the run's end.
+        const refused = promotionErrorOf(error, { profile: header.name, phase: "launch" });
+        notices.push(`promotion ${header.name}: its unattended run could not be started — ${refused.promotionCode} (${refused.message.split("\n")[0]!})`);
+        auditEvent("promotion.trigger", { profile: header.name, kind: "refused", source: commit, code: refused.promotionCode });
+        continue;
+      }
       started.push({ profile: header.name, source: commit, pid });
       auditEvent("promotion.trigger", { profile: header.name, kind: "spawned", source: commit, pid });
     }

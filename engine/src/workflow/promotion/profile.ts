@@ -36,9 +36,17 @@ const pathOrPrefix = z.string().refine((value) => {
 /** A folder prefix: a repository-relative folder path with its trailing `/`. */
 const folderPrefix = z.string().refine((value) => value.endsWith("/") && pathOrPrefix.safeParse(value).success, "must be a repository folder prefix ending in /");
 
+/**
+ * THE PROFILE NAME RULE, the one owner (the schema's `name`): a lower-case
+ * letter, then up to 62 lower-case letters, digits and hyphens. A name is
+ * also a folder (the profile's private directory) and a file name, so the
+ * rule is what keeps it ONE path segment: no `/`, no `..`, never absolute.
+ */
+export const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/u;
+
 const promotionProfileShape = z.strictObject({
   schema: z.literal(PROMOTION_PROFILE_SCHEMA_VERSION),
-  name: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+  name: z.string().regex(PROFILE_NAME_PATTERN),
   source: z.strictObject({ ref: refName }),
   target: z.strictObject({ ref: refName }),
   /** The remote both refs are published to; `null`: a local-only pair. */
@@ -271,7 +279,10 @@ export type ProfileTriggerHeader = Readonly<{ name: string; trigger: string; rem
  * concerns. The profile itself is judged only by the promotion it starts,
  * run by the source's own committed promoter, never by this checkout's code
  * (#259). A file that does not even spell these fields concerns no ref and
- * is passed over, never a refusal of the run (#121).
+ * is passed over, never a refusal of the run (#121). The NAME is held to the
+ * schema's rule (`PROFILE_NAME_PATTERN`) and to its file's name here, before
+ * anything uses it as a path: a name the rule refuses (`..`, an absolute
+ * path, an over-long one) never reaches the filesystem.
  */
 export function profileTriggerHeaders(reader: TreeReader, profileDirectory: string): readonly ProfileTriggerHeader[] {
   return deepFreeze(profileFiles(reader, profileDirectory).flatMap((path) => {
@@ -284,7 +295,7 @@ export function profileTriggerHeaders(reader: TreeReader, profileDirectory: stri
     const fields = (value ?? {}) as { name?: unknown; trigger?: unknown; remote?: unknown; source?: { ref?: unknown }; target?: { ref?: unknown } };
     const sourceRef = fields.source?.ref;
     const targetRef = fields.target?.ref;
-    if (typeof fields.name !== "string" || typeof fields.trigger !== "string" || !(fields.remote === null || typeof fields.remote === "string")
+    if (typeof fields.name !== "string" || !PROFILE_NAME_PATTERN.test(fields.name) || `${fields.name}.json` !== path.slice(path.lastIndexOf("/") + 1) || typeof fields.trigger !== "string" || !(fields.remote === null || typeof fields.remote === "string")
       || typeof sourceRef !== "string" || !sourceRef.startsWith("refs/heads/") || typeof targetRef !== "string" || !targetRef.startsWith("refs/heads/")) {
       return [];
     }

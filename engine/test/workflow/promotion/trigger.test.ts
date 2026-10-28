@@ -20,16 +20,18 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { chmodSync, closeSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import test from "node:test";
 
 import { configuredWorktreeGitPort } from "../../../src/git/worktree-port.ts";
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
 import { answer } from "../../../src/workflow/promotion/codes.ts";
-import { promotionAuto, resolvePromotionContext } from "../../../src/workflow/promotion/context.ts";
+import { promotionAuto, resolvePromotionContext, resolveRepositoryContext } from "../../../src/workflow/promotion/context.ts";
 import { lastRunRecorder, openUnattendedLog, readLastRun } from "../../../src/workflow/promotion/last-run.ts";
-import { promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
+import { profileWorkDirectory, promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
+import { launchUnattendedApply } from "../../../src/workflow/promotion/trigger.ts";
+import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { runPromoteCli } from "../../../src/workflow/promotion/promote-cli.ts";
 import { renderCommandAnswer } from "../../../src/workflow/command-result.ts";
 import { PROMOTION_TRIGGER_HOOK, promotionTriggerHookText } from "../../../src/workflow/promotion/trigger-hook.ts";
@@ -233,6 +235,60 @@ test("#259/#121: a fetched ref's profiles are FILTERED by their trigger fields b
   const both = promotionAuto(host.root, ` refs/remotes/pr/7\n refs/remotes/origin/${SOURCE}`, host.document, (pair, source) => { launched.push(`${pair.profile}@${source}`); return 1; }, {});
   assert.equal(both.code, "promotion_triggered", both.message);
   assert.deepEqual(launched, [`${PROFILE_NAME}@${host.tip(SOURCE)}`], "the unreadable profile ends nothing; the real source move triggers");
+  assert.deepEqual((both.data as { notices: readonly string[] }).notices, [], "a foreign ref's unreadable profile stays silent");
+});
+
+test("SECURITY (planted): a profile name is never a path until the schema's rule holds — `..`, an absolute path and an over-long name start nothing and touch nothing", () => {
+  const host = triggered("promotion-auto-name-escape");
+  const repository = resolveRepositoryContext(host.root, host.document);
+  const area = dirname(profileWorkDirectory(repository.registry, PROFILE_NAME));
+  const longName = `a${"b".repeat(63)}`;
+  const current = JSON.parse(host.git(["show", `${SOURCE}:${PROFILE_PATH}`])) as Record<string, unknown>;
+  const planted = {
+    [`${dirname(PROFILE_PATH)}/escape.json`]: json({ ...current, name: "../../../../escaped-dir" }),
+    [`${dirname(PROFILE_PATH)}/absolute.json`]: json({ ...current, name: join(createTempDir("promotion-auto-absolute-"), "escaped") }),
+    [`${dirname(PROFILE_PATH)}/${longName}.json`]: json({ ...current, name: longName }),
+  };
+  host.commit(SOURCE, planted, "profiles whose names are paths");
+  host.publish(SOURCE);
+  host.git(["fetch", "-q", "origin"]);
+  const launched: string[] = [];
+  const result = promotionAuto(host.root, ` refs/remotes/origin/${SOURCE}`, host.document, (pair) => { launched.push(pair.profile); return 1; }, {});
+  assert.deepEqual(launched, [PROFILE_NAME], `only the real profile starts: ${result.message}`);
+  assert.equal(existsSync(resolve(area, "../../../../escaped-dir")), false, "nothing is made where `..` points");
+  assert.equal(existsSync(join(area, longName)), false);
+  for (const name of ["../../../../escaped-dir", "/an/absolute/path", longName, "Upper", "a/b"]) {
+    assert.throws(() => profileWorkDirectory(repository.registry, name), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_profile_invalid", name);
+  }
+});
+
+test("SECURITY (planted): a link where the profile's folder belongs is refused before any log is made — the launch is that profile's notice, and nothing lands outside", () => {
+  const host = triggered("promotion-auto-folder-link");
+  const repository = resolveRepositoryContext(host.root, host.document);
+  const folder = profileWorkDirectory(repository.registry, PROFILE_NAME);
+  const outside = createTempDir("promotion-auto-outside-");
+  mkdirSync(dirname(folder), { recursive: true });
+  if (existsSync(folder)) renameSync(folder, `${folder}.set-aside`);
+  symlinkSync(outside, folder);
+  const result = promotionAuto(host.root, ` refs/remotes/origin/${SOURCE}`, host.document, launchUnattendedApply, {});
+  const notices = (result.data as { notices: readonly string[] }).notices;
+  assert.equal(notices.length, 1, result.message);
+  assert.match(notices[0]!, /could not be started/u);
+  assert.deepEqual(readdirSync(outside), [], "no log, no sweep, nothing written through the link");
+});
+
+test("an unreadable profile on the HOST'S OWN source is said loudly: one notice, nothing started (a foreign ref's stays silent)", async () => {
+  const host = triggered("promotion-auto-host-unreadable");
+  host.commit(SOURCE, { [PROFILE_PATH]: "{ not json" }, "the host's profile breaks");
+  host.publish(SOURCE);
+  host.git(["fetch", "-q", "origin"]);
+  // HEAD is still the checkout's own (readable) commit: it names what this checkout hosts.
+  host.git(["checkout", "-q", "--detach", `${SOURCE}~1`]);
+  const never = () => assert.fail("nothing may be launched");
+  const answered = await runPromoteCli(host.root, ["auto", "--refs", ` refs/remotes/origin/${SOURCE}`], host.document, never);
+  const text = renderCommandAnswer(answered, "text");
+  assert.match(text, new RegExp(`^promotion ${PROFILE_NAME}: origin/${SOURCE} moved to [0-9a-f]{40}, whose ${PROFILE_NAME} profile cannot be read`, "u"));
+  assert.equal(text.trim().split("\n").length, 1, "one line");
 });
 
 test("#259: the host's own source move with a profile this engine cannot judge still starts its promotion — the run, the source's own code, judges it", () => {

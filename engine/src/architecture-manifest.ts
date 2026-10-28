@@ -5296,7 +5296,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-profile", path: "src/workflow/promotion/profile.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 15, namesSha256: "2375dbd26fbe29eaeb04ced97ebd57437384f965023b6cc4ae058db868321f1a" },
+      owner: "verification-workflow", publicApi: { exportCount: 16, namesSha256: "1a67cf546f7daed7839b4b285e9e2e20c909b2ed7c976fc3c65763b90990ce6e" },
       dependencies: ["src/git/repository-ownership.ts","src/kernel/config-contracts.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/kernel/product-identity.ts","src/workflow/promotion/codes.ts","zod"],
     }),
     moduleContract({
@@ -5397,7 +5397,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-promotion-trigger", path: "src/workflow/promotion/trigger.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "4039cdcde3b2d7f1b1aed09f7fef46c8f108eda44a8de6a0e8f1a09fbbc24394" },
-      dependencies: ["node:fs","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/supervised-run.ts","src/shared/debug/debug-system.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/last-run.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promote-arguments.ts","src/workflow/promotion/promoter-home.ts","src/workflow/promotion/promotion-run.ts","src/workflow/promotion/trailers.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:fs","node:path","src/filesystem/path-identity.ts","src/filesystem/private-state.ts","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/supervised-run.ts","src/shared/debug/debug-system.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/last-run.ts","src/workflow/promotion/profile.ts","src/workflow/promotion/promote-arguments.ts","src/workflow/promotion/promoter-home.ts","src/workflow/promotion/promotion-run.ts","src/workflow/promotion/trailers.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "scripts-verification-shipped-hooks", path: "scripts/verification/shipped-hooks.ts", realm: "builder", layer: "verification",
