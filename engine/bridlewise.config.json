@@ -1160,6 +1160,14 @@
       {
         "context": "Generated values and harness check",
         "integrationId": 15368
+      },
+      {
+        "context": "Rendered pages",
+        "integrationId": 15368
+      },
+      {
+        "context": "DCO sign-off",
+        "integrationId": 15368
       }
     ],
     "mergeQueue": {
