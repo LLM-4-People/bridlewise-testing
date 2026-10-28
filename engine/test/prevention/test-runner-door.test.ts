@@ -42,11 +42,14 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { testFilesNamed } from "../../scripts/tooling/test-guards.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
+import { createTempDir } from "../support/temp-dir.ts";
+import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
 import { createRepositoryLocalTemporaryDirectory, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
 const ROOT = process.cwd();
@@ -197,4 +200,32 @@ test("the subset door REFUSES a no-argument run (it would discover non-test .mjs
     run.stderr.includes("requires an explicit test file or pattern"),
     `the refusal must name the remedy, got: ${run.stderr.slice(-400)}`,
   );
+});
+
+test("the subset door runs its test files under the SUITE'S OWN bounds: a per-test wall timeout is refused and the CPU judgement reads every test, exactly as in the suite", () => {
+  // Before, a targeted run (`test:unit`, and `harness flake reproduce`, which
+  // runs here) ran plain `node --test`: no CPU judgement and no backstop, so
+  // a CPU-class failure could never be seen or reproduced (#615).
+  const dir = createTempDir("subset-door-bounds-");
+  const file = join(dir, "bounded.test.mjs");
+  writeFileSync(file, [
+    'import test from "node:test";',
+    'test("declares its own wall timeout", { timeout: 1234 }, () => {});',
+    'test("clean", () => {});',
+  ].join("\n"));
+  // The door is a runner of its own, never a test file of this run.
+  const { NODE_TEST_CONTEXT: _ownContext, ...env } = process.env;
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/tooling/test-guards.ts", file], { cwd: ROOT, encoding: "utf8", env, timeout: DEFAULT_TEST_HANG_BACKSTOP_MS });
+  assert.equal(run.status, 1, `the refused timeout fails the run: ${run.stdout.slice(-600)}`);
+  assert.match(run.stdout, /bounded by a 1234 ms wall timeout: a per-test wall timeout is not allowed/u, "the suite's wall-bound refusal ran in the targeted file's process");
+  assert.match(run.stdout, /cpu-work \d+ ms; wall \d+ ms \(recorded, not judged\)/u, "the suite's CPU judgement read the test");
+});
+
+test("the subset door's files: a file as given, a folder's test files by node --test's own names, a glob's matches; flags are skipped", () => {
+  const dir = createTempDir("subset-door-files-");
+  mkdirSync(join(dir, "nested"));
+  for (const name of ["a.test.ts", "nested/b.test.mjs", "nested/helper.ts", "c-test.js"]) writeFileSync(join(dir, name), "");
+  assert.deepEqual(testFilesNamed([join(dir, "a.test.ts")], dir), [join(dir, "a.test.ts")]);
+  assert.deepEqual(testFilesNamed([dir, "--test-name-pattern=x"], ROOT), [join(dir, "a.test.ts"), join(dir, "c-test.js"), join(dir, "nested", "b.test.mjs")]);
+  assert.deepEqual(testFilesNamed(["nested/*.mjs"], dir), [join(dir, "nested", "b.test.mjs")]);
 });

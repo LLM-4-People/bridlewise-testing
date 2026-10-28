@@ -37,15 +37,43 @@
  * refused the same way (L-2026-09-29-targeted-runs-need-a-private-key-home).
  */
 
+import { globSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
+import { engineTestBoundsFrom, engineTestBoundsImport } from "./engine-test-bounds.ts";
 import { enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
 import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+
+/** What `node --test` runs when it is given a folder: its own default test-file names. */
+const NODE_TEST_FILE = /(?:^|\/)(?:test|.+[.\-_]test)\.(?:cjs|mjs|js|cts|mts|ts)$/u;
+
+/**
+ * The test files the arguments name, absolute: a file, every test file
+ * under a folder (node --test's own default names), or what a glob
+ * matches; flags are skipped. The bounds install only in these files'
+ * processes, never in a process they start.
+ */
+export function testFilesNamed(args: readonly string[], cwd: string): readonly string[] {
+  const files = new Set<string>();
+  for (const arg of args) {
+    if (arg.startsWith("-")) continue;
+    const path = resolve(cwd, arg);
+    const facts = statSync(path, { throwIfNoEntry: false });
+    if (facts?.isFile() === true) files.add(path);
+    else if (facts?.isDirectory() === true) {
+      for (const found of globSync("**/*", { cwd: path })) if (NODE_TEST_FILE.test(found)) files.add(resolve(path, found));
+    } else {
+      for (const found of globSync(arg, { cwd })) files.add(resolve(cwd, found));
+    }
+  }
+  return [...files].toSorted();
+}
 
 export async function main(): Promise<void> {
   const runner = `engine ${process.env.npm_lifecycle_event ?? "node --test"}`;
@@ -77,13 +105,23 @@ export async function main(): Promise<void> {
   // door killed outright leaves its `node --test` stopped with every process
   // it started, and the lock held until that is done — never a run orphaned
   // beside the next holder.
-  const { engineSuiteWatchdog } = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url)));
+  const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const testExecution = readTestExecutionConfig(engineRoot);
+  const { engineSuiteWatchdog } = testExecution;
+  // THE SUITE'S OWN BOUNDS (engine-test-bounds.ts, the one construction): every
+  // test file this door runs is judged by its CPU work against its class and
+  // ended only by the hang backstop, exactly as in the suite. A targeted run
+  // used to run with neither, so a CPU-class failure could never be seen —
+  // nor reproduced through `harness flake reproduce`, which runs here.
+  const bounds = { ...engineTestBoundsFrom(testExecution, engineRoot), files: testFilesNamed(process.argv.slice(2), process.cwd()) };
   // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
   const supervisor = ensureTestProcessSupervisor();
   const run = await superviseCommand({
     supervisor,
     command: process.execPath,
-    args: ["--experimental-strip-types", "--test", ...process.argv.slice(2)],
+    // `--test-timeout` IS the backstop, as the suite's `run({ timeout })` is:
+    // node:test arms it per test, and the bounds both require it and refuse any other.
+    args: ["--experimental-strip-types", engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...process.argv.slice(2)],
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
     killGraceMs: engineSuiteWatchdog.killGraceMs,
     onStdout: (chunk) => process.stdout.write(chunk),

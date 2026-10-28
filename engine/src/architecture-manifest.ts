@@ -4505,8 +4505,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-test-guards", path: "scripts/tooling/test-guards.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 1, namesSha256: "747354f83eb6b671d2a813f986f7e78cdc1d01e63cc1bd52b6e20284c52a43cc" },
-      dependencies: ["guardian/build.ts","node:url","scripts/tooling/test-run-lock.ts","src/process/supervised-run.ts","src/runtime/cli-debug.ts","src/workflow/test-result-collector.ts","test/support/test-key-home.ts"],
+      owner: "verification", publicApi: { exportCount: 2, namesSha256: "654617d089c9a7c4c21bc11eac68ce34df203c8e46913592eecc7d2e04a118db" },
+      dependencies: ["guardian/build.ts","node:fs","node:path","node:url","scripts/tooling/engine-test-bounds.ts","scripts/tooling/test-run-lock.ts","src/process/supervised-run.ts","src/runtime/cli-debug.ts","src/workflow/test-result-collector.ts","test/support/test-key-home.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
       effects: ["child-process"],
     }),
@@ -5843,8 +5843,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-tooling-engine-test-bounds", path: "scripts/tooling/engine-test-bounds.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 3, namesSha256: "cdd70df0caa9cde44b18e35cf158aa3c110b48467ce18b5a6d85af333469f483" },
-      dependencies: ["node:path","node:test","node:timers","node:worker_threads","scripts/tooling/test-cpu-class.ts","src/runtime/entry-point.ts"],
+      owner: "verification", publicApi: { exportCount: 4, namesSha256: "66c23359da4c48d269cfbcaaad7470356d0f1a91ab994a0ee60beb92af2dfee0" },
+      dependencies: ["node:path","node:test","node:timers","node:worker_threads","scripts/tooling/test-cpu-class.ts","src/runtime/entry-point.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-projector-github-store", path: "src/workflow/forge/projector/github-store.ts", realm: "runtime", layer: "infrastructure",
