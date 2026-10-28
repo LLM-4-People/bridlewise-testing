@@ -38,11 +38,15 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
+
+import { architectureManifestOf } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_MODULES_PATH, readArchitectureModuleDecisions } from "../../src/workflow/architecture-module-entries.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
 import { walk } from "../../scripts/verification/source-walk.ts";
 
 const ROOT = process.cwd();
 const AWARENESS_DIR = join(ROOT, "src", "awareness");
-const MANIFEST_PATH = join(ROOT, "src", "architecture-manifest.ts");
+
 
 // ── Dynamic file discovery ──────────
 
@@ -278,64 +282,34 @@ test("R48-F: GENERIC_TEXT_EXTENSIONS is owned in languages/generic.ts + imported
 
 // ── Class H: architecture-manifest consistency (deny-by-default, dynamic) ─
 
-test("R48-H: every src/.ts file is registered in architecture-manifest modules[] (deny-by-default)", () => {
-  assert.ok(existsSync(MANIFEST_PATH), "src/architecture-manifest.ts must exist");
-  const manifest = read(MANIFEST_PATH);
-  // Discover every registered module path dynamically (no hardcoded list).
-  const pathRegex = /path:\s*"([^"]+)"/g;
-  const registeredPaths = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = pathRegex.exec(manifest)) !== null) registeredPaths.add(m[1]!);
-
-  // Discover every src/.ts file on disk (non-test, non-.d.ts).
-  const srcFiles: string[] = listTsFiles(join(ROOT, "src"));
-  const unregistered: string[] = [];
-  for (const f of srcFiles) {
-    const r = rel(f);
-    if (!registeredPaths.has(r)) unregistered.push(r);
-  }
-  if (unregistered.length > 0) {
-    assert.fail(
-      `R48-H: ${unregistered.length} src/ .ts file(s) NOT registered in architecture-manifest modules[] (deny-by-default — a new module MUST be registered):\n${unregistered.map(u => `  ${u}`).join("\n")}\n` +
-        `Fix: add a moduleContract({...}) entry for each (the manifest is the single owner of module registration).`,
-    );
-  }
+test("R48-H: every src/.ts file is a classified module of the architecture (deny-by-default)", () => {
+  // The census IS the registration: every source is a module, classified by its folder or its decision. A file no
+  // folder classifies is refused by the derivation itself, so deriving the manifest of every src/ file is the check.
+  const srcFiles = listTsFiles(join(ROOT, "src")).map(rel);
+  const manifest = architectureManifestOf(srcFiles);
+  assert.equal(manifest.modules.length, srcFiles.length, "every src/ file is a module");
+  assert.ok(manifest.modules.every((module) => module.owner.length > 0), "every module has an owner");
 });
 
-test("R48-H: no duplicate module ids in architecture-manifest (one id per module)", () => {
-  const manifest = read(MANIFEST_PATH);
-  const idRegex = /id:\s*"([^"]+)"/g;
-  const ids: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = idRegex.exec(manifest)) !== null) ids.push(m[1]!);
-  // Exclude finding ids (ARCH-/SEC-/COORD-/CAP-/FOUNDATION- prefixes).
-  const moduleIds = ids.filter((id) => !/^(ARCH-|SEC-|COORD-|CAP-|FOUNDATION-)/.test(id));
+test("R48-H: no duplicate module ids in the architecture (one id per module)", () => {
   const counts = new Map<string, number>();
-  for (const id of moduleIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+  for (const { id } of repositoryArchitectureManifest(ROOT).modules) counts.set(id, (counts.get(id) ?? 0) + 1);
   const dups = [...counts.entries()].filter(([, c]) => c > 1);
   if (dups.length > 0) {
     assert.fail(
-      `R48-H: ${dups.length} duplicate module id(s) in architecture-manifest:\n${dups.map(([id, c]) => `  ${id} (x${c})`).join("\n")}\n` +
-        `Fix: each module id must be unique (one-registered-cohesive-owner-per-responsibility).`,
+      `R48-H: ${dups.length} duplicate module id(s) in the architecture:\n${dups.map(([id, c]) => `  ${id} (x${c})`).join("\n")}\n` +
+        `Fix: give one of each its own id in ${ARCHITECTURE_MODULES_PATH} (one-registered-cohesive-owner-per-responsibility).`,
     );
   }
 });
 
-test("R48-H: every registered module path exists on disk (no stale/dead entries)", () => {
-  const manifest = read(MANIFEST_PATH);
-  const pathRegex = /path:\s*"([^"]+)"/g;
-  const missing: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = pathRegex.exec(manifest)) !== null) {
-    const p = m[1]!;
-    // Only check src/ + scripts/ + verification/ paths (skip external packages + node:).
-    if (!p.startsWith("src/") && !p.startsWith("scripts/") && !p.startsWith("verification/")) continue;
-    if (!existsSync(join(ROOT, p))) missing.push(p);
-  }
+test("R48-H: every module decision names a file on disk (no stale/dead entries)", () => {
+  const { entries } = readArchitectureModuleDecisions(read(join(ROOT, ARCHITECTURE_MODULES_PATH)));
+  const missing = entries.map((entry) => entry.path).filter((p) => !existsSync(join(ROOT, p)));
   if (missing.length > 0) {
     assert.fail(
-      `R48-H: ${missing.length} registered module path(s) MISSING from disk (stale/dead entries):\n${missing.map(p => `  ${p}`).join("\n")}\n` +
-        `Fix: remove the stale moduleContract entry OR restore the file.`,
+      `R48-H: ${missing.length} module decision(s) name files MISSING from disk (stale/dead entries):\n${missing.map(p => `  ${p}`).join("\n")}\n` +
+        `Fix: run \`harness sync\` (it removes the stale decision) OR restore the file.`,
     );
   }
 });

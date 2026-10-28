@@ -1,0 +1,16 @@
+{
+  "kind": "repository-settings",
+  "scope": {
+    "kind": "repo",
+    "repository": "forge-proving-ground"
+  },
+  "key": "forge-proving-ground",
+  "unavailableOnPlan": [],
+  "desired": {
+    "allow_merge_commit": true,
+    "allow_rebase_merge": false,
+    "allow_squash_merge": false,
+    "delete_branch_on_merge": true,
+    "allow_update_branch": false
+  }
+}

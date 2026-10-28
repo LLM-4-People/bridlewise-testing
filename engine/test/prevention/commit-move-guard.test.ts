@@ -164,13 +164,24 @@ function guardedRepository(): string {
 
 /** `git commit` as DATA: the status is the verdict, so it must not throw. `env` adds to the environment (a `--git-dir` commit). */
 function commit(root: string, message: string, env: Readonly<Record<string, string>> = {}): Readonly<{ status: number; stderr: string }> {
-  const result = spawnSync("git", ["commit", "-q", "-m", message], {
+  const result = spawnSync("git", ["commit", "-s", "-q", "-m", message], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 1 << 24,
     env: { ...process.env, ...env },
   });
   return { status: result.status ?? -1, stderr: result.stderr };
+}
+
+/**
+ * A commit the scenario NEEDS (a setup step, not the verdict under test):
+ * refused, it fails here with the guard's own words, so a refusal for an
+ * unrelated reason (#293: a concurrent change to the live config refused the
+ * guard's bootstrap) is read from the failure, never guessed.
+ */
+function commitSetup(root: string, message: string): void {
+  const done = commit(root, message);
+  assert.equal(done.status, 0, `the setup commit "${message}" was refused:\n${done.stderr}`);
 }
 
 /** A repository holding one tracked file and an ignored destination. */
@@ -442,7 +453,7 @@ test("DRIVEN: untracking a file IN PLACE with `git rm --cached` is not refused",
   // stopped judging rather than about the arm just added.
   writeFile(root, "docs/other.md", "# the only copy of this one\n");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "a second tracked file").status, 0);
+  commitSetup(root, "a second tracked file");
   mkdirSync(join(root, "archive"), { recursive: true });
   renameSync(join(root, "docs", "other.md"), join(root, "archive", "other.md"));
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
@@ -471,7 +482,7 @@ test("DRIVEN: a generated directory that becomes ignored reaches `from === to` w
   writeFile(root, "generated/out.txt", "deterministic bytes\n");
   writeFile(root, "src/keep.txt", "source\n");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "the generated output was tracked").status, 0);
+  commitSetup(root, "the generated output was tracked");
 
   // 1. The sanctioned change: the generated tree gets an ignore rule.
   writeFile(root, ".gitignore", "/generated/\n");
@@ -616,7 +627,7 @@ function shippedHookRepository(root: string, name: string): Readonly<{ scratch: 
   chmodSync(hook, 0o755);
   symlinkSync(join(root, "engine"), join(scratch, "engine"));
   writeFile(scratch, "readme.md", "# scratch\n");
-  execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-q", "--allow-empty", "-m", "base"], { cwd: scratch, stdio: "pipe" });
+  execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-s", "-q", "--allow-empty", "-m", "base"], { cwd: scratch, stdio: "pipe" });
   return { scratch, hook };
 }
 
@@ -634,8 +645,11 @@ test("the shipped hook of every reachable repository resolves and runs", () => {
       const { scratch, hook } = shippedHookRepository(root, name);
       // Invoked the way git invokes it: `commit-msg` is handed the message file.
       const message = join(scratch, "COMMIT_EDITMSG");
-      writeFile(scratch, "COMMIT_EDITMSG", "a message\n");
-      const result = spawnSync("sh", [hook, ...(name === "commit-msg" ? [message] : [])], { cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24 });
+      // Signed off by the committer the hook sees (the DCO is one of the message's duties).
+      writeFile(scratch, "COMMIT_EDITMSG", "a message\n\nSigned-off-by: hook <hook@example.invalid>\n");
+      // The identities git hands a commit's hooks: it resolves author and committer before it runs them.
+      const committer = { GIT_COMMITTER_NAME: "hook", GIT_COMMITTER_EMAIL: "hook@example.invalid", GIT_AUTHOR_NAME: "hook", GIT_AUTHOR_EMAIL: "hook@example.invalid" };
+      const result = spawnSync("sh", [hook, ...(name === "commit-msg" ? [message] : [])], { cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24, env: { ...process.env, ...committer } });
       assert.equal(result.status, 0, `${root}: the shipped ${name} failed to run on a repository with nothing staged:\n${result.stderr}`);
     }
   }
@@ -653,10 +667,10 @@ test("the shipped post-commit hook of every reachable repository resolves and ru
     assert.equal(idle.status, 0, `${root}: the post-commit hook failed to run:\n${String(idle.stderr)}`);
     assert.doesNotMatch(String(idle.stderr), /could not be consumed/u);
     execFileSync("git", ["add", "readme.md"], { cwd: scratch, stdio: "pipe" });
-    execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-q", "-m", "add"], { cwd: scratch, stdio: "pipe" });
+    execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-s", "-q", "-m", "add"], { cwd: scratch, stdio: "pipe" });
     rmSync(join(scratch, "readme.md"));
     declareDeletions(scratch, ["readme.md"]);
-    execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-q", "-a", "-m", "delete"], { cwd: scratch, stdio: "pipe" });
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-s", "-q", "-a", "-m", "delete"], { cwd: scratch, stdio: "pipe" });
     const consumed = run();
     assert.equal(consumed.status, 0, String(consumed.stderr));
     assert.match(String(consumed.stderr), /1 declared deletion\(s\) consumed/u);
@@ -958,7 +972,7 @@ test("DRIVEN: a MISMATCHED declaration (the file changed since) is REFUSED", () 
   // the declaration names is no longer the one a deletion would remove.
   writeFile(root, "docs/paper.md", "# the paper, revised after it was declared\n");
   execFileSync("git", ["add", "docs/paper.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "revise the paper").status, 0);
+  commitSetup(root, "revise the paper");
   renameSync(join(root, "docs", "paper.md"), join(root, "archive", "paper.md"));
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
   const refused = commit(root, "the revised paper, on the old declaration");
@@ -1040,7 +1054,7 @@ test("DRIVEN (gitlink): removing a submodule is ACCEPTED — a gitlink names ano
   execFileSync("git", ["init", "-q"], { cwd: upstream, stdio: "pipe" });
   writeFile(upstream, "lib.md", "# a library\n");
   execFileSync("git", ["add", "lib.md"], { cwd: upstream, stdio: "pipe" });
-  execFileSync("git", ["-c", "user.email=guard@example.invalid", "-c", "user.name=guard", "commit", "-q", "-m", "lib"], { cwd: upstream, stdio: "pipe" });
+  execFileSync("git", ["-c", "user.email=guard@example.invalid", "-c", "user.name=guard", "commit", "-s", "-q", "-m", "lib"], { cwd: upstream, stdio: "pipe" });
   const root = repositoryWithATrackedFile();
   execFileSync("git", ["-c", "protocol.file.allow=always", "submodule", "add", "-q", upstream, "vendor/sub"], { cwd: root, stdio: "pipe" });
   const added = commit(root, "add a submodule");
@@ -1083,7 +1097,7 @@ test("DRIVEN (V4): a declaration made before HEAD moved stays stale even after r
   declareDeletions(root, ["docs/paper.md"]);
   writeFile(root, "unrelated.md", "# something else\n");
   execFileSync("git", ["add", "unrelated.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "HEAD moves").status, 0);
+  commitSetup(root, "HEAD moves");
   execFileSync("git", ["reset", "-q", "--soft", "HEAD~1"], { cwd: root, stdio: "pipe" });
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
   const refused = commit(root, "the deletion, on a declaration HEAD moved away from and back to");
@@ -1165,7 +1179,7 @@ test("DRIVEN (P1): a move into an ignored folder beside a SIMILAR new tracked fi
   const lines = Array.from({ length: 20 }, (_, index) => `line ${String(index)} of the long paper`);
   writeFile(root, "docs/long.md", `${lines.join("\n")}\n`);
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "a long paper").status, 0);
+  commitSetup(root, "a long paper");
   mkdirSync(join(root, "archive"), { recursive: true });
   renameSync(join(root, "docs", "long.md"), join(root, "archive", "long.md"));
   writeFile(root, "docs/long-new.md", `${[...lines.slice(0, 19), "a changed last line"].join("\n")}\n`);
@@ -1184,17 +1198,17 @@ test("DRIVEN (N6): a merge bringing a deliberate deletion is refused with the ro
   writeFile(root, join(HOOKS_DIRECTORY, "pre-merge-commit"), guardHookText("pre-merge-commit", JSON.stringify(COMMIT_GUARD)));
   chmodSync(join(root, HOOKS_DIRECTORY, "pre-merge-commit"), 0o755);
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "wire the pre-merge-commit hook").status, 0);
+  commitSetup(root, "wire the pre-merge-commit hook");
   const base = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   execFileSync("git", ["checkout", "-q", "-b", "retire"], { cwd: root, stdio: "pipe" });
   execFileSync("git", ["rm", "-q", "docs/paper.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "retire the paper").status, 0);
+  commitSetup(root, "retire the paper");
   execFileSync("git", ["checkout", "-q", base], { cwd: root, stdio: "pipe" });
   writeFile(root, "local.md", "# a local change, so the merge is not a fast-forward\n");
   execFileSync("git", ["add", "local.md"], { cwd: root, stdio: "pipe" });
-  assert.equal(commit(root, "local work").status, 0);
+  commitSetup(root, "local work");
   writeFile(root, "archive/paper.md", "# the only copy\n");
-  const merged = spawnSync("git", ["merge", "-q", "--no-edit", "retire"], { cwd: root, encoding: "utf8" });
+  const merged = spawnSync("git", ["merge", "--signoff", "-q", "--no-edit", "retire"], { cwd: root, encoding: "utf8" });
   assert.notEqual(merged.status, 0, "the merge bringing a deletion with an ignored copy was accepted");
   assert.match(merged.stderr, /This is a MERGE/u);
   assert.match(merged.stderr, /git has left the merge in progress: declare the deletion, then git commit/u);

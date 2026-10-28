@@ -12,6 +12,7 @@ import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { EVIDENCE_IGNORE_BLOCK } from "../../../src/kernel/verification-paths.ts";
 import { commitTreeReader } from "../../../src/git/tree-reader.ts";
 import { classifyTree, explainPaths } from "../../../src/workflow/promotion/projection.ts";
 import { repositoryRegistry, repositoryRegistryArea } from "../../../src/workflow/repository-registry.ts";
@@ -339,21 +340,22 @@ test("PC-2: a symbolic link reaches its target, and an edge no literal names is 
 
 test("V1/V29: a generated output differing only in its generated part is no change, and the target regenerating it is no direct edit", async () => {
   const fixture = promotionFixture("promotion-gen");
-  const block = (body: string, title = "# lib"): string => `${title}\n\nRun \`npm run build\`.\n\n<!-- consumers:generated -->\n${body}\n<!-- /consumers:generated -->\n`;
-  // The last promotion carries a README whose consumer block the source generated.
-  const promotedSource = fixture.commit(SOURCE, { "product/lib/README.md": block("- generated on the source") });
-  fixture.commit(TARGET, { "product/lib/README.md": block("- generated on the source") }, "the promoted state");
+  // A generated block in an authored file: the root ignore file's evidence block.
+  const block = (body: string, title = "node_modules/\nbuild/"): string => `${title}\n${EVIDENCE_IGNORE_BLOCK.begin}\n${body}\n${EVIDENCE_IGNORE_BLOCK.end}\n`;
+  // The last promotion carries an ignore file whose evidence block the source generated.
+  const promotedSource = fixture.commit(SOURCE, { [EVIDENCE_IGNORE_BLOCK.path]: block("/a/evidence/") });
+  fixture.commit(TARGET, { [EVIDENCE_IGNORE_BLOCK.path]: block("/a/evidence/") }, "the promoted state");
   const promotion = fixture.git(["commit-tree", fixture.git(["rev-parse", `${TARGET}^{tree}`]), "-p", fixture.tip(TARGET), "-p", promotedSource, "-m", `promote\n\nProjected-From: ${promotedSource}\nPromotion-Profile: dev-to-prod@${fixture.loaded().blob!}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promotion]);
   // The target regenerates the block; the source moves on elsewhere.
-  fixture.commit(TARGET, { "product/lib/README.md": block("- regenerated on the target") }, "the target regenerated a block");
+  fixture.commit(TARGET, { [EVIDENCE_IGNORE_BLOCK.path]: block("/b/evidence/") }, "the target regenerated a block");
   fixture.commit(SOURCE, { "dev/tool.ts": "export const tool = 3;\n" });
   const plan = await fixture.plan();
   assert.deepEqual(codes(plan), [], "a regenerated block on the target is not a direct edit");
   assert.equal(plan.code, "promotion_unchanged", "a generated part alone never makes the projection differ");
-  assert.deepEqual(plan.paths.modified.map((entry) => [entry.path, entry.reason.endsWith("regenerated at build")]), [["product/lib/README.md", true]]);
+  assert.deepEqual(plan.paths.modified.map((entry) => [entry.path, entry.reason.endsWith("regenerated at build")]), [[EVIDENCE_IGNORE_BLOCK.path, true]]);
   // The authored part changes on the source: a change, and still no target edit (the target only regenerated).
-  fixture.commit(SOURCE, { "product/lib/README.md": block("- generated on the source", "# lib, documented") });
+  fixture.commit(SOURCE, { [EVIDENCE_IGNORE_BLOCK.path]: block("/a/evidence/", "node_modules/\nbuild/\ndist/") });
   const authored = await fixture.plan();
   assert.equal(authored.code, "promotion_planned");
   assert.deepEqual(authored.targetEdits, []);

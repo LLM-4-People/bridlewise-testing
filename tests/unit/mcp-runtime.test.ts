@@ -31,6 +31,7 @@ import { plantSettingsDocument } from "../helpers/isolated-config.ts";
 import { enclosingFunctionOf } from "../helpers/function-scope.ts";
 import { readSourceView } from "../../engine/scripts/verification/source-view.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, parentOf, procfsAvailable } from "../../engine/src/process/process-facts.ts";
+import { until } from "../helpers/until.ts";
 
 // Point the harness config at a test-scoped copy BEFORE any server module
 // resolves it (the config path is read from env at module scope). The real
@@ -688,9 +689,8 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
       await getDiscoveredIds(),
       "a discarded generation registers no tools — the map mirrors the current generation only",
     ).toEqual([]);
-    await expectNoOwnedFakeServers(
-      "a superseded build stops its own stdio child before teardown completes — nothing leaks past the drain",
-    );
+    // a superseded build stops its own stdio child before teardown completes — nothing leaks past the drain.
+    await expectNoOwnedFakeServers();
   });
 
   it("a teardown racing a config rebuild still drains the whole transition — no registry materialises after teardown returns", async () => {
@@ -714,9 +714,8 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
       mcpRuntimeStarted(),
       "teardown drained the whole transition — nothing publishes into the torn-down state",
     ).toBe(false);
-    await expectNoOwnedFakeServers(
-      "the stopped rebuild and its replacement build both leave no stdio child behind",
-    );
+    // the stopped rebuild and its replacement build both leave no stdio child behind.
+    await expectNoOwnedFakeServers();
   });
 
   it("teardown drains EVERY in-flight generation — a superseded build's own stop is settled before teardown returns", async () => {
@@ -747,9 +746,8 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     await expect(first, "the superseded generation refuses with the typed supersession").rejects.toMatchObject({ name: "McpError", code: "mcp_start_superseded" });
     await expect(second, "the fenced newest generation refuses with the typed supersession").rejects.toMatchObject({ name: "McpError", code: "mcp_start_superseded" });
     expect(mcpRuntimeStarted(), "after a drained teardown the owner has no registry").toBe(false);
-    await expectNoOwnedFakeServers(
-      "both superseded builds stopped their own stdio children before teardown returned — nothing leaks past the drain",
-    );
+    // both superseded builds stopped their own stdio children before teardown returned — nothing leaks past the drain.
+    await expectNoOwnedFakeServers();
   });
 
   it("teardown never fences AND never waits on a start stamped after its fence — the post-teardown world owns its runtime", async () => {
@@ -846,7 +844,8 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     writeConfig([MARK_SERVER, STALL_SERVER]);
     const { ensureMcpRuntimeStarted, mcpRuntimeStarted } = await import("../../server/integrations/mcp-runtime-bridge.ts");
     const first = ensureMcpRuntimeStarted();
-    await waitForMarkerFile(markerPath, "the marker server's discovery was sent");
+    // the marker server's discovery was sent.
+    await waitForMarkerFile(markerPath);
     // The response bytes were in the kernel pipe before the marker existed;
     // give the loop a bounded margin to deliver them + run the registration
     // before judging the map (delivery is certain within these turns — the
@@ -945,7 +944,8 @@ describe("mcp-runtime-bridge: the start lifecycle fence (a superseded start can 
     // spelling: the old `startsWith("mcp:")` could no longer be true at all.
     expect(getToolManifest().filter((t) => isMcpToolName(t.name) || t.category === "mcp"), "no MCP entries exist behind the seal").toEqual([]);
     expect(mcpRuntimeStarted(), "a manifest build behind the seal must not resurrect the runtime").toBe(false);
-    await expectNoOwnedFakeServers("nothing respawned behind the final seal");
+    // nothing respawned behind the final seal.
+    await expectNoOwnedFakeServers();
 
     // The seal is per-world, not permanent: the test-reset door lifts it and
     // a fresh world starts + calls again. Without this half, "the seal
@@ -1068,16 +1068,10 @@ function ownedFakeServerCount(): number {
  * exits within milliseconds (stdin end → exit(0)); a leaked child idles
  * forever, so the deadline only ever bites the defect it watches for.
  */
-async function expectNoOwnedFakeServers(why: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  for (;;) {
-    const count = ownedFakeServerCount();
-    if (count === 0) return;
-    if (Date.now() > deadline) {
-      expect.fail(`${why} — ${count} fake-mcp-server child process(es) still alive under this worker: a discarded registry's stdio child was never stopped`);
-    }
-    await new Promise((resolve) => { setTimeout(resolve, 10); });
-  }
+async function expectNoOwnedFakeServers(): Promise<void> {
+  // No wall deadline (NO-LOAD-BLOCK): a child that is never stopped is a
+  // hang, ended and named by the hang backstop.
+  await until(() => ownedFakeServerCount() === 0);
 }
 
 /**
@@ -1085,15 +1079,11 @@ async function expectNoOwnedFakeServers(why: string): Promise<void> {
  * arm can never pass vacuously: without the marker, nothing below has been
  * exercised, and the arm says so rather than judging an un-driven fixture.
  */
-async function waitForMarkerFile(path: string, why: string): Promise<void> {
-  const deadline = Date.now() + 3_500;
-  for (;;) {
-    if (existsSync(path)) return;
-    if (Date.now() > deadline) {
-      expect.fail(`${why} — the marker never appeared: the fixture never completed discovery, so this arm proved nothing (liveness)`);
-    }
-    await new Promise((resolve) => { setTimeout(resolve, 10); });
-  }
+async function waitForMarkerFile(path: string): Promise<void> {
+  // No wall deadline (NO-LOAD-BLOCK): a fixture that never completes
+  // discovery never writes the marker, and the hang backstop fails the arm
+  // (liveness kept: it cannot pass vacuously).
+  await until(() => existsSync(path));
 }
 
 describe("mcp-runtime-bridge: a stdio server's host placement — its own home, an allowlisted environment, the confinement owner's door", () => {

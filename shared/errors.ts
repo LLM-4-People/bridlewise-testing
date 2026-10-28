@@ -272,6 +272,11 @@ export const CODE_STATUS_MAP: Readonly<Record<string, number>> = Object.freeze({
   // is a THROW rather than a plausible blank: a schema version of 0 or an
   // empty path would be a fabricated answer to "what are you connected to".
   db_not_open: 500,
+  // a worker thread's entry started without a parent port, i.e. run directly as
+  // a program (server/run/worker-ipc.ts requireWorkerThread). 500 because it is
+  // a launch defect; it is thrown, never process.exit() (#351), and never
+  // reaches a request.
+  worker_without_parent_port: 500,
   // config path traversal guard (routes/config.ts setByPath) — the PUT
   // path traverses through a scalar leaf (a number/string/boolean/array)
   // that cannot be descended into. A client error (the admin sent a path

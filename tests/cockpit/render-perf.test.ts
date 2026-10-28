@@ -14,24 +14,20 @@
  *     regress silently;
  *   - the cost is LINEAR in visible size, not quadratic in document size.
  *
- * MEASUREMENT. Every budget is CPU WORK on this thread (`cpuWorkOf`,
- * engine/src/shared/run-cpu.ts), never wall time (NO-LOAD-BLOCK): the suite
- * runs many files in parallel, and a wall timing measures how long the code
- * WAITED for a core as much as the code — a correct test went red that way.
- * Waiting is not CPU work. Every budget is still the BEST of several runs:
- * a collection pause or a cold cache is real work, but not the code's own,
- * and the least-disturbed sample leaves it out; the budget stays a genuine
- * 16ms frame instead of being inflated to absorb noise.
+ * MEASUREMENT. EVERY BUDGET IS CPU WORK, NEVER WALL TIME (NO-LOAD-BLOCK).
+ * These budgets were wall time, and a loaded CI runner failed a correct
+ * tokenizer at 16.09 ms against the 16 ms frame (#635's Shard 5, and the
+ * merge queue's run that removed #561): the code waited for a core, it did
+ * not do more. `cpuWorkOf` (engine/src/shared/run-cpu.ts, the one CPU
+ * owner) counts the work the test's own thread did, which waiting does not
+ * inflate, and the least of SAMPLES samples is the answer — a collection
+ * pause is real work, but not the code's own. The budget stays a genuine
+ * 16ms frame of work.
  *
- * A RATIO between two timings needs more than that, and taking the minimum
- * of each side separately is not enough. The larger side runs several times
- * longer, so it is several times more likely to contain a collection pause
- * or a descheduling — and the minimum of seven long windows dodges one far
- * less reliably than the minimum of seven short ones. The estimator is
- * therefore biased AGAINST the numerator, and the ratio drifts upward under
- * load even when neither side regressed. `ratio` below measures both sides
- * inside one sample and minimises the QUOTIENT, so a disturbed sample is
- * discarded whole instead of contaminating one half of the comparison.
+ * A RATIO between two costs is measured inside one sample, both sides
+ * through the same owner, and the QUOTIENT is minimised: a sample disturbed
+ * by a collection pause on one side is discarded whole instead of
+ * contaminating one half of the comparison.
  *
  * VACUITY. `highlight` refuses anything past MAX_HIGHLIGHT_CHARS and returns
  * an unhighlighted placeholder instead. A fixture that drifts past that cap
@@ -43,6 +39,7 @@
 import { describe, expect, test } from "vitest";
 
 import { cpuWorkOf } from "../../engine/src/shared/run-cpu.ts";
+
 import { parseProse } from "../../shared/markdown.ts";
 import { highlight } from "../../src/cockpit/render/highlight.ts";
 import { parseUnifiedDiff, firstHunkOf, paintDiffLine } from "../../src/cockpit/render/diff.ts";
@@ -58,28 +55,25 @@ const FRAME_MS = 16;
 /** Beats a tall viewport shows at once (the virtualizer's window, plus slack). */
 const VISIBLE_BEATS = 40;
 
-/** How many samples to take when timing; the best one is reported. */
+/** How many samples to take; the least is reported. */
 const SAMPLES = 7;
 
-/** CPU work of the least-disturbed of SAMPLES runs (see MEASUREMENT); never wall time, which judges the host (NO-LOAD-BLOCK). */
-function elapsed(fn: () => void): number {
+/** The CPU work, in ms, of one call of `fn`: the least of SAMPLES samples (see MEASUREMENT). */
+function work(fn: () => void): number {
   return cpuWorkOf(fn, SAMPLES);
 }
 
 /**
- * `big` divided by `small`, from the least-disturbed sample in which BOTH
- * were measured. See MEASUREMENT for why the quotient is minimised rather
- * than the two sides independently.
+ * `big`'s CPU work divided by `small`'s, from the least-disturbed sample in
+ * which BOTH were measured. See MEASUREMENT for why the quotient is
+ * minimised rather than the two sides independently.
  */
 function ratio(small: () => void, big: () => void): number {
   let best = Number.POSITIVE_INFINITY;
   for (let s = 0; s < SAMPLES; s += 1) {
-    // Each side over several scheduler ticks (cpuWorkOf): one raw reading of
-    // a short call is 0 or a whole tick, and a quotient of those means nothing.
     const smallMs = cpuWorkOf(small);
-    const bigMs = cpuWorkOf(big);
     if (smallMs <= 0) continue;
-    const q = bigMs / smallMs;
+    const q = cpuWorkOf(big) / smallMs;
     if (q < best) best = q;
   }
   return best;
@@ -160,19 +154,19 @@ describe("a screenful of rich beats fits one frame", () => {
   test(`${VISIBLE_BEATS} model turns parse inside ${FRAME_MS}ms`, () => {
     // Warm the JIT the way a real scroll does before measuring.
     for (let i = 0; i < 5; i += 1) parseProse(TURN);
-    const ms = elapsed(() => {
+    const ms = work(() => {
       for (let i = 0; i < VISIBLE_BEATS; i += 1) parseProse(TURN);
     });
-    expect(ms, `${ms.toFixed(2)}ms for ${VISIBLE_BEATS} turns`).toBeLessThan(FRAME_MS);
+    expect(ms, `${ms.toFixed(2)}ms of CPU work for ${VISIBLE_BEATS} turns`).toBeLessThan(FRAME_MS);
   });
 
   test(`${VISIBLE_BEATS} folded code blocks tokenize inside ${FRAME_MS}ms`, () => {
     const shown = foldLines(SOURCE.split("\n"), TURN_CODE_FOLD_LINES).shown.join("\n");
     for (let i = 0; i < 5; i += 1) highlight(shown, "ts");
-    const ms = elapsed(() => {
+    const ms = work(() => {
       for (let i = 0; i < VISIBLE_BEATS; i += 1) highlight(shown, "ts");
     });
-    expect(ms, `${ms.toFixed(2)}ms for ${VISIBLE_BEATS} code blocks`).toBeLessThan(FRAME_MS);
+    expect(ms, `${ms.toFixed(2)}ms of CPU work for ${VISIBLE_BEATS} code blocks`).toBeLessThan(FRAME_MS);
   });
 
   test(`${VISIBLE_BEATS} micro-diffs parse + paint inside ${FRAME_MS}ms`, () => {
@@ -187,21 +181,21 @@ describe("a screenful of rich beats fits one frame", () => {
       }
     };
     for (let i = 0; i < 5; i += 1) run();
-    const ms = elapsed(() => {
+    const ms = work(() => {
       for (let i = 0; i < VISIBLE_BEATS; i += 1) run();
     });
-    expect(ms, `${ms.toFixed(2)}ms for ${VISIBLE_BEATS} micro-diffs`).toBeLessThan(FRAME_MS);
+    expect(ms, `${ms.toFixed(2)}ms of CPU work for ${VISIBLE_BEATS} micro-diffs`).toBeLessThan(FRAME_MS);
   });
 
   test(`${VISIBLE_BEATS} tool outputs classify in well under a frame`, () => {
     const output = Array.from({ length: 500 }, (_, i) => `src/f${i}.ts:${i}:match`).join("\n");
     for (let i = 0; i < 5; i += 1) classifyOutput({ query: "x" }, output, "search");
-    const ms = elapsed(() => {
+    const ms = work(() => {
       for (let i = 0; i < VISIBLE_BEATS; i += 1) {
         classifyOutput({ query: "x" }, output, "search");
       }
     });
-    expect(ms, `${ms.toFixed(2)}ms`).toBeLessThan(FRAME_MS);
+    expect(ms, `${ms.toFixed(2)}ms of CPU work`).toBeLessThan(FRAME_MS);
   });
 });
 
@@ -247,10 +241,10 @@ describe("folding is what makes big content cheap", () => {
     const huge = Array.from({ length: 40_000 }, (_, i) => `line ${i} const a = ${i};`).join("\n");
     const folded = foldLines(huge.split("\n"), TOOL_CELL_FOLD_LINES).shown.join("\n");
     for (let i = 0; i < 5; i += 1) highlight(folded, "ts");
-    const ms = elapsed(() => {
+    const ms = work(() => {
       for (let i = 0; i < 50; i += 1) highlight(folded, "ts");
     }) / 50;
-    expect(ms, `${ms.toFixed(3)}ms per folded preview`).toBeLessThan(1);
+    expect(ms, `${ms.toFixed(3)}ms of CPU work per folded preview`).toBeLessThan(1);
   });
 });
 
@@ -263,7 +257,7 @@ describe("cost is linear, not quadratic", () => {
    */
   const MAX_GROWTH_FOR_4X = 8;
 
-  test("tokenizing 4x the source costs well under 16x the time", () => {
+  test("tokenizing 4x the source costs well under 16x the work", () => {
     const unit = tokenized(SOURCE, "ts");
     const quad = tokenized([unit, unit, unit, unit].join("\n"), "ts");
     for (let i = 0; i < 3; i += 1) {
@@ -274,10 +268,10 @@ describe("cost is linear, not quadratic", () => {
       () => { for (let i = 0; i < 10; i += 1) highlight(unit, "ts"); },
       () => { for (let i = 0; i < 10; i += 1) highlight(quad, "ts"); },
     );
-    expect(growth, `4x the source cost ${growth.toFixed(2)}x the time`).toBeLessThan(MAX_GROWTH_FOR_4X);
+    expect(growth, `4x the source cost ${growth.toFixed(2)}x the work`).toBeLessThan(MAX_GROWTH_FOR_4X);
   });
 
-  test("markdown parsing 4x the document costs well under 16x the time", () => {
+  test("markdown parsing 4x the document costs well under 16x the work", () => {
     const quad = [TURN, TURN, TURN, TURN].join("\n\n");
     for (let i = 0; i < 3; i += 1) {
       parseProse(TURN);
@@ -287,14 +281,14 @@ describe("cost is linear, not quadratic", () => {
       () => { for (let i = 0; i < 20; i += 1) parseProse(TURN); },
       () => { for (let i = 0; i < 20; i += 1) parseProse(quad); },
     );
-    expect(growth, `4x the document cost ${growth.toFixed(2)}x the time`).toBeLessThan(MAX_GROWTH_FOR_4X);
+    expect(growth, `4x the document cost ${growth.toFixed(2)}x the work`).toBeLessThan(MAX_GROWTH_FOR_4X);
   });
 
   test("a pathological run of unmatched emphasis stays bounded", () => {
     // The lenient streaming behaviour means an unmatched `*` scans forward
     // looking for a partner. A wall of them must not become quadratic.
     const hostile = "*".repeat(20_000);
-    const ms = elapsed(() => parseProse(hostile));
-    expect(ms, `${ms.toFixed(2)}ms on 20k unmatched emphasis markers`).toBeLessThan(150);
+    const ms = work(() => parseProse(hostile));
+    expect(ms, `${ms.toFixed(2)}ms of CPU work on 20k unmatched emphasis markers`).toBeLessThan(150);
   });
 });

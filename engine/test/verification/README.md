@@ -11,6 +11,7 @@ The `engine/test/verification/` folder of the development surface.
 - `ratchet.test.ts` — the one shrink-only ratchet (scripts/verification/ratchet.ts): every baseline entry carries a reason, the committed baseline is read from git HEAD, and the real commit guard refuses a staged baseline that grew.
 - `recursive-test-inventory.test.ts` — the `recursive-test-inventory.test` module.
 - `required-fixture-roots.test.ts` — the declared-corpus refusal, driven both ways.
+- `sign-off.test.ts` — the DCO and agent-identity judge (scripts/verification/sign-off.ts): a commit's committer signs it off, an agent commit carries the declared project identity, a pull request a declared agent account opened brings agent commits only, and the required commit-records workflow runs main's judge over the branch's fetched commits.
 - `static-source-tokenizer.test.ts` — the static-source tokenizer's multi-character punctuation, the arrow-fed fenced-code regex, and the two-scanner export agreement over the repository-root scan population.
 - `test-surface-conservation.test.ts` — the `test-surface-conservation.test` module.
 

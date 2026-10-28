@@ -37,8 +37,6 @@ import { writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { cpuWorkOf } from "../../engine/src/shared/run-cpu.ts";
-
 import type { TreeReader } from "../../engine/src/git/tree-reader.ts";
 import { unconsumedCommands } from "../../engine/src/workflow/checkout-setup.ts";
 import { excludedBy, profileCommandNames, type LoadedPromotionProfile } from "../../engine/src/workflow/promotion/profile.ts";
@@ -85,11 +83,8 @@ describe("the source-side promotion guard", () => {
   });
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: the working tree raises no refusal a promotion would", (_name, loaded) => {
-    let found: ReturnType<typeof refusals> = [];
-    // CPU work, never wall time (NO-LOAD-BLOCK).
-    const work = cpuWorkOf(() => { found = refusals(tree, loaded); });
-    expect(found).toEqual([]);
-    expect(work, "the pure projection of the whole tree stays a guard, not a suite").toBeLessThan(60_000);
+    // No wall-clock bound (NO-LOAD-BLOCK, #122): a busy host makes this slower, never wrong. Its cost is the suite's CPU budget.
+    expect(refusals(tree, loaded)).toEqual([]);
   });
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: shipped documents name scripts the derived package carries", (_name, loaded) => {

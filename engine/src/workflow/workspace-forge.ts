@@ -85,6 +85,9 @@ export type ForgeEnqueueAnswer =
   | Readonly<{ kind: "enqueued"; headSha: string }>
   | Readonly<{ kind: "refused"; message: string }>;
 
+/** One pull request in a merge queue: its number, the head it was queued at, and the ref that head is fetched from. */
+export type ForgeQueueEntry = Readonly<{ number: number; headSha: string; fetchRef: string }>;
+
 /** One entry of a tree request: a file (or gitlink) at `path`, or its deletion (`sha: null`). */
 export type ForgeTreeEntry = Readonly<{ path: string; mode: "100644" | "100755" | "120000" | "160000"; sha: string | null }>;
 
@@ -137,6 +140,8 @@ export type WorkspaceForge = Readonly<{
    * auto-merge is never used: it does not enqueue on ruleset queues).
    */
   enqueue(number: number, request: Readonly<{ expectedHeadSha: string }>): Promise<ForgeEnqueueAnswer>;
+  /** The pull requests in `base`'s merge queue now, in queue order (ONE read). */
+  mergeQueue(base: string): Promise<readonly ForgeQueueEntry[]>;
 }>;
 
 /**
@@ -235,6 +240,46 @@ function text(repository: GitRepository, argv: readonly string[]): string {
 export function fetchForgeBranches(git: WorktreeGitPort, root: string, remote: string, branches: readonly string[], timeoutMs: number): void {
   const fetched = git.fetchRefs(root, remote, branches.map((branch) => `+refs/heads/${branch}:${remoteTrackingRef(remote, branch)}`), timeoutMs);
   if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching ${branches.join(", ")} from ${remote} was refused: ${fetched.refusal}`, { remote });
+}
+
+/**
+ * THE QUEUE PREFLIGHT: the land computed against the merge queue BEFORE it
+ * is entered, so a pull request the queue would drop is never queued (the
+ * drops of #123, #474, #456, #334, #269 each cost a lane merge, a review
+ * delta and a full CI cycle). The trunk's tip, then every queued pull
+ * request in queue order, then this one, are merged in the object store
+ * alone (`mergeTree`: no index, no worktree, no ref, no commit): each queued
+ * head is fetched from the ref the forge names, merged onto the result so
+ * far from its own merge base with the trunk; a queued head that conflicts
+ * with those ahead of it is one the queue will drop itself, so it is no base
+ * for this one and is passed over. Answers this head's conflicts with the
+ * queue ahead of it (the paths, and the pull requests ahead), or null when it
+ * merges cleanly onto all of them.
+ */
+export function queuePreflightConflict(
+  git: WorktreeGitPort,
+  root: string,
+  remote: string,
+  trunkTip: string,
+  queued: readonly ForgeQueueEntry[],
+  head: string,
+  timeouts: Readonly<{ fetchMs: number; inspectMs: number; mergeMs: number }>,
+): Readonly<{ paths: readonly string[]; ahead: readonly number[] }> | null {
+  if (queued.length > 0) {
+    const fetched = git.fetchRefs(root, remote, queued.map((entry) => `+${entry.fetchRef}:${remoteTrackingRef(remote, `queue/${String(entry.number)}`)}`), timeouts.fetchMs);
+    if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching the merge queue's heads from ${remote} was refused: ${fetched.refusal}`, { remote });
+  }
+  let merged = trunkTip;
+  const ahead: number[] = [];
+  for (const entry of queued) {
+    const result = git.mergeTree(root, { base: git.mergeBase(root, trunkTip, entry.headSha, timeouts.inspectMs), ours: merged, theirs: entry.headSha }, timeouts.mergeMs);
+    if (result.kind === "clean") {
+      merged = result.tree;
+      ahead.push(entry.number);
+    }
+  }
+  const mine = git.mergeTree(root, { base: git.mergeBase(root, trunkTip, head, timeouts.inspectMs), ours: merged, theirs: head }, timeouts.mergeMs);
+  return mine.kind === "clean" ? null : deepFreeze({ paths: mine.paths, ahead: deepFreeze(ahead) });
 }
 
 /** A commit object's tree, parents, author and message (UTF-8 only: a re-encoded message would be another commit's). */
