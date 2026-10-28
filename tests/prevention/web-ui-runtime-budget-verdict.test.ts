@@ -63,7 +63,8 @@ import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
 import { procfsDocument } from "../../engine/src/process/process-facts.ts";
-import { waitForInstrumentLock } from "../../engine/src/process/instrument-lock.ts";
+import { admitInstrumentRun } from "../../engine/src/process/instrument-lock.ts";
+import { SUBPROCESS_BOUNDS } from "../../engine/src/workflow/workflow-config.ts";
 import { DEFAULT_VITEST_MODULE_CACHE_DIR, moduleCacheDirOf } from "../helpers/budget-paths.ts";
 
 const FULL = 417;
@@ -185,11 +186,11 @@ function passingProfileReport(): string {
   return path;
 }
 let heldLock: string | undefined;
-beforeAll(async () => {
+beforeAll(() => {
   // Made at the file's start, like the fixture repository: a temp folder made
-  // inside a test is removed when that test finishes, and the lock with it.
+  // inside a test is removed when that test finishes, and the registry with it.
   heldLock = join(createTempDir("reporter-instrument-lock-"), "instrument.lock");
-  await waitForInstrumentLock(heldLock, "reporter fixture drives", { onWait: () => undefined, pollIntervalMs: 50 });
+  admitInstrumentRun(heldLock, "reporter fixture drives", { memoryMaxPercent: 50, cpuWeight: 100 }, SUBPROCESS_BOUNDS);
 });
 function heldInstrumentLock(): string {
   if (heldLock === undefined) throw new Error("the held instrument lock is taken in beforeAll");

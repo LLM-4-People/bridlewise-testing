@@ -11,7 +11,12 @@ import type { FileLockHandle } from "../filesystem/file-lock.ts";
 
 let owned: FileLockHandle | undefined;
 
-/** Record (or, with `undefined`, forget) the instrument lock hold this process owns. */
+/**
+ * Record (or, with `undefined`, forget) the admitted run this process owns.
+ * Its caps need no launch prefix: the owner itself is inside the run's scope
+ * and CPU-time limit, so every supervisor it starts is born under them
+ * (src/process/instrument-lock.ts).
+ */
 export function setOwnedInstrumentHold(handle: FileLockHandle | undefined): void {
   owned = handle;
 }
