@@ -32,7 +32,7 @@ The suite uses Node's built-in test runner and covers:
 - `bin/bridlewise.mjs` is executable, prints help/version, and lists every harness verb;
 - `harness` without a verb is a typed refusal, not a crash or a silent success;
 - `preflight` returns `harnessReady: false` and denies model invocation, repository mutation, and network egress;
-- the secret scanner passes a clean tree, fails on a provider-shaped key outside a fixture path, fails on an internal absolute path, and never prints the candidate value;
+- the secret scanner reads the one secret catalogue, exempts no path (test trees included: a test assembles any credential at runtime), fails on a credential shape or an internal absolute path, and never prints the candidate value;
 - the README carries the developer-preview and sensitive-codebase warning;
 - the CLI/testing/extending docs and the licence/community files exist.
 
@@ -116,23 +116,26 @@ npm run perf:profile     # writes the gitignored report
 node --experimental-strip-types bench/run.ts
 ```
 
-### The performance profile (idle-host contract)
+### The performance profile (any-host contract)
 
 The web suite's CPU window and the performance profile are measured over the supported population:
 `npm run test:supported` runs exactly the manifest's files. A raw run also includes the excluded
 files (private artifacts the public snapshot does not publish), so its reds are declared exclusions,
 not a clean run. `npm run perf:profile` writes the gitignored report under `tests/performance`, the artifact the root
-performance-regression gate (`tests/performance/regression.test.ts`) judges. A profile is a
-measurement, not a smoke test, so the conditions under which it is taken are part of the
-result:
+performance-regression gate (`tests/performance/regression.test.ts`) judges. Nothing about the
+profile waits for, or is refused because of, what else runs on the host
+([NO-LOAD-BLOCK](decisions/NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)):
 
-- **One profile at a time.** The step takes the host's one instrument lock. A second run
-  waits, and a run that did not hold the lock records no measurement.
-- **The host is otherwise idle.** No other suite, build, container, or browser runs on the
-  same cores. The budgets judge worker CPU time, so contention inflates the measurement
-  rather than the budget.
-- **The host is on its normal power and thermal profile.** A laptop on battery, a throttled
-  host, or a shared runner under load is not a valid host for a comparison.
+- **Admitted, never queued, never exclusive.** The step is admitted at once as a heavy run under
+  its per-run caps (a cgroup scope and a CPU-time limit). It never waits for another run, and
+  other runs never wait for it. A report records no lock or slot stamp, and none is asked of it.
+- **Wall time is a signal, never a verdict.** The latency readings (page and viewport LCP, long
+  tasks, tab switch, typing, API response, the long-chat and 10k-projects renders) are wall
+  clock, which a busy host inflates. They are recorded in the run's ledger row and printed
+  beside their budgets as `NOT JUDGED`; none fails a run, measured or not
+  (`WEB_PERFORMANCE_WALL_SIGNALS` in `engine/src/kernel/web-performance-budgets.ts`).
+- **What is not time stays judged.** Layout shift, DOM node counts, and long-session heap and
+  DOM growth are judged against their budgets. A breach or an unmeasured value fails.
 - **Comparisons stay within one runner class.** A receipt names the runner class and the
   exact commit; numbers from different machines, core counts, or runner labels are not
   compared.
@@ -143,8 +146,8 @@ result:
   serves it on port 0 with its own server, and removes the fixture when it ends. It never
   uses the developer's running servers or stores.
 - **A budget breach is recorded as a breach.** The regression gate judges whether the report
-  can be judged (present, fresh, non-vacuous, lock-held); the web suite's reporter compares
-  the measurements with their budgets. Neither a dark gate nor a missing report is a pass.
+  can be judged (present, fresh, non-vacuous); the web suite's reporter compares the judged
+  measurements with their budgets. Neither a dark gate nor a missing report is a pass.
 - **Not per shard.** The report is a prerequisite of the root performance-regression test.
   The shard manifest excludes that test because a shard runner does not produce the report,
   and a shard receipt is not a performance verdict.

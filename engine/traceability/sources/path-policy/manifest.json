@@ -22,7 +22,7 @@
       },
       "license": {
         "spdx": "GPL-2.0-only",
-        "path": "traceability/sources/path-policy/git-2.55.0/COPYING",
+        "path": "large-codebases/git/COPYING",
         "url": "https://raw.githubusercontent.com/git/git/v2.55.0/COPYING",
         "byteLength": 18765,
         "sha256": "5b2198d1645f767585e8a88ac0499b04472164c0d2da22e75ecf97ef443ab32e"
@@ -32,7 +32,7 @@
           "id": "git-2.55.0-path-c",
           "role": "production-ntfs-alias-algorithm-authority",
           "upstreamPath": "path.c",
-          "path": "traceability/sources/path-policy/git-2.55.0/path.c",
+          "path": "large-codebases/git/path.c",
           "url": "https://raw.githubusercontent.com/git/git/v2.55.0/path.c",
           "byteLength": 40192,
           "sha256": "2df449fe5972466c44a16d0c599c20be4e83fa15b90ce8f4fb4463a7b34eb387"
@@ -41,7 +41,7 @@
           "id": "git-2.55.0-t0060-path-utils",
           "role": "upstream-ntfs-alias-boundary-test-authority",
           "upstreamPath": "t/t0060-path-utils.sh",
-          "path": "traceability/sources/path-policy/git-2.55.0/t/t0060-path-utils.sh",
+          "path": "large-codebases/git/t/t0060-path-utils.sh",
           "url": "https://raw.githubusercontent.com/git/git/v2.55.0/t/t0060-path-utils.sh",
           "byteLength": 20432,
           "sha256": "56ce23d9967f9015295bb3fdc07a001eb370a31be1b65fe971f663ce963d1c06"

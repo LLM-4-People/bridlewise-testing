@@ -1,0 +1,51 @@
+{
+  "kind": "ruleset",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-coordination"
+  },
+  "key": "content-policy",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "content-policy",
+    "target": "push",
+    "enforcement": "active",
+    "bypass_actors": [],
+    "rules": [
+      {
+        "type": "max_file_size",
+        "parameters": {
+          "max_file_size": 10
+        }
+      },
+      {
+        "type": "file_extension_restriction",
+        "parameters": {
+          "restricted_file_extensions": [
+            "*.pem",
+            "*.key",
+            "*.p12",
+            "*.pfx",
+            "*.env",
+            "*.sqlite",
+            "*.db",
+            "*.zst",
+            "*.tar",
+            "*.gz",
+            "*.zip"
+          ]
+        }
+      },
+      {
+        "type": "file_path_restriction",
+        "parameters": {
+          "restricted_file_paths": [
+            "**/secrets/**",
+            "**/.bridlewise/**",
+            "**/tokens/**"
+          ]
+        }
+      }
+    ]
+  }
+}

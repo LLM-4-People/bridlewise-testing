@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "area:tests",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "area:tests",
+    "color": "d4c5f9",
+    "description": "The web and public test suites"
+  }
+}

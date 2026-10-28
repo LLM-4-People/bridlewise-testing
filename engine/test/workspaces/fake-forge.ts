@@ -1,4 +1,5 @@
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { ForgeError } from "../../src/workflow/forge/codes.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { resolveGitExecutable } from "../../src/git/git-adapter.ts";
 import { commitTreeReader, gitOutput, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
@@ -13,7 +14,10 @@ import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeTreeEntry,
  * only an open one is updated) and a MERGE QUEUE with GitHub's semantics (an
  * enqueue only at the expected head; a pull request whose head moves leaves
  * the queue; the queue's merge is a real merge commit on the base whose second
- * parent is the head it merged). Every call is recorded, the request as given:
+ * parent is the head it merged), and the repository's `delete_branch_on_merge`
+ * (a merged pull request's head branch is deleted, and every open pull
+ * request based on that branch is closed with it — why a stack never opens a
+ * pull request against another one's branch). Every call is recorded, the request as given:
  * a test can prove what a commit request carried (and that it carried no
  * author or committer at all).
  */
@@ -96,6 +100,9 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
       const merge = git(["commit-tree", tree, "-p", baseTip, "-p", merging, "-F", "-"], { input: Buffer.from(`Merge pull request #${String(number)}\n`, "utf8"), environment: FORGE_IDENTITY });
       git(["update-ref", `refs/heads/${pull.base}`, merge, baseTip]);
       Object.assign(pull, { merged: true, mergeCommitSha: merge, state: "closed", queuedHead: null });
+      // delete_branch_on_merge: the head branch goes, and the pull requests based on it are closed with it.
+      git(["update-ref", "-d", `refs/heads/${pull.head}`]);
+      for (const other of pulls.values()) if (other.state === "open" && other.base === pull.head) other.state = "closed";
       return merge;
     },
     dropFromQueue(number: number): void {
@@ -124,8 +131,13 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
       record("branchHead", { branch });
       return headOf(branch);
     },
-    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>> {
+    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null; forwardOnly: boolean }>): Promise<Readonly<{ applied: boolean }>> {
       record("setBranch", request);
+      // `force: false`, as GitHub's: a move that is not a fast-forward is refused (422), never applied.
+      if (request.forwardOnly && request.previous !== null && headOf(request.branch) === request.previous
+        && gitOutput(repository, ["merge-base", "--is-ancestor", request.previous, request.sha], { allowed: [0, 1] }).status !== 0) {
+        throw new ForgeError("github_validation_failed", `the move of ${request.branch} to ${request.sha} is not a fast forward`, { branch: request.branch });
+      }
       // A compare-and-swap, as GraphQL `updateRefs` with `beforeOid` (and a create only while absent): git's own.
       const swapped = gitOutput(repository, ["update-ref", `refs/heads/${request.branch}`, request.sha, request.previous ?? "0".repeat(40)], { allowed: [0, 1, 128] });
       return deepFreeze({ applied: swapped.status === 0 });

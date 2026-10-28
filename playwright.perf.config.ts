@@ -34,9 +34,8 @@ armPlaywrightRun(import.meta.dirname);
 
 export default defineConfig({
   testDir: TEST_DIR,
-  // ONE INSTRUMENT AT A TIME, refused at this door: run concurrently with
-  // vitest, this profile measured DOM growth 1613/1500 (a false red); alone,
-  // 21/21. The refusal names the holder instead — see
+  // HEAVY-RUN ADMISSION at this door: the profile is admitted at once under
+  // its per-run caps and takes no exclusivity (NO-LOAD-BLOCK) — see
   // tests/setup/playwright-concurrency-lock.ts.
   globalSetup: "./tests/setup/perf-concurrency-lock.ts",
   // Only the Playwright spec — NOT the vitest regression gate

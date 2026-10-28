@@ -22,6 +22,7 @@ import { supportedTestFiles } from "./test-manifest.ts";
 import type { AccumulatingCpuBudget, CpuBudgetDeclaration, RollingCpuBudget } from "./budget-verdict.ts";
 import { SUITE_WORK_METRIC } from "../../engine/src/shared/run-cpu.ts";
 import type { SuiteWatchdog } from "../../engine/src/workflow/workflow-config.ts";
+import type { TestCpuClasses } from "../../engine/scripts/tooling/test-cpu-class.ts";
 
 export type { AccumulatingCpuBudget, CpuBudgetDeclaration, RollingCpuBudget };
 
@@ -53,10 +54,6 @@ function positiveFinite(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 }
 
-/** A finite number at or above zero — the ambient envelope's slopes may be 0. */
-function nonNegativeFinite(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
-}
 
 /**
  * The declared rolling budget, or the plain-words reason it cannot be read.
@@ -188,14 +185,11 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
       ...(legacyValue === undefined ? {} : { legacy: legacyValue }),
     };
   }
-  // THE ROLLING SHAPE. Zero is a legal ambient slope now: the calibrated
-  // metric already owns the load normalisation, so a non-zero slope would
-  // double-pay the same effect.
+  // THE ROLLING SHAPE. No ambient envelope: a cap is never scaled by host
+  // load (NO-LOAD-BLOCK, audit A-08).
   const baselineFloorUnitsPerTestFile = positiveFinite(rec.baselineFloorUnitsPerTestFile);
   const sameTreeSpreadFraction = positiveFinite(rec.sameTreeSpreadFraction);
   const baselineWindowRuns = positiveFinite(rec.baselineWindowRuns);
-  const ambientInflationSlopePerCpu = nonNegativeFinite(rec.ambientInflationSlopePerCpu);
-  const ambientInflationCapFraction = nonNegativeFinite(rec.ambientInflationCapFraction);
   if (baselineFloorUnitsPerTestFile === null) {
     return {
       missing:
@@ -222,20 +216,6 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
         `treadmill the rolling derivation exists to end.`,
     };
   }
-  if (
-    ambientInflationSlopePerCpu === null || ambientInflationSlopePerCpu >= 1 ||
-    ambientInflationCapFraction === null || ambientInflationCapFraction >= 1
-  ) {
-    return {
-      missing:
-        `webUiSuiteCpuBudget.ambientInflationSlopePerCpu and ambientInflationCapFraction ` +
-        `under ${CONFIG_SITE} must be fractions from 0 up to (but below) 1 — the measured ` +
-        `CPU-inflation envelope of the recorded 5-minute ambient load, and the bound on the ` +
-        `whole adjustment. ZERO IS LEGAL AND IS THE DECLARED VALUE for the calibrated ` +
-        `metric: the calibration already absorbs the load effect, so a non-zero slope would ` +
-        `double-pay it.`,
-    };
-  }
   return {
     metric,
     baselineFloorUnitsPerTestFile,
@@ -243,8 +223,6 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
     maxPopulationDriftFraction,
     sameTreeSpreadFraction,
     baselineWindowRuns,
-    ambientInflationSlopePerCpu,
-    ambientInflationCapFraction,
     calibrationDriftMaxFraction,
     validThroughLoad5PerCpu,
   };
@@ -331,6 +309,42 @@ export function readWebSuiteWatchdog(): SuiteWatchdog | { readonly missing: stri
         `hardCeilingMs (a run still going after this long is killed, whatever the load) and killGraceMs (a stopped run's ` +
         `time between SIGTERM and SIGKILL): ${parsed.error.issues[0]?.message ?? "invalid"}`,
     };
+  }
+  return parsed.data;
+}
+
+/**
+ * Each test's CPU-work ceiling by class (`testCpuClasses` under the
+ * testExecution section; judged by engine/scripts/tooling/test-cpu-class.ts),
+ * validated by the config contract's own schema, or the plain-words reason it
+ * cannot be read. No default: a ceiling nobody chose is not a ceiling.
+ */
+export function readTestCpuClasses(): TestCpuClasses | { readonly missing: string } {
+  const schema = getConfigDocumentSchema().shape.testExecution.unwrap().shape.testCpuClasses.unwrap();
+  const parsed = schema.safeParse(testExecutionSection().testCpuClasses);
+  if (!parsed.success) {
+    return {
+      missing:
+        `testCpuClasses under ${CONFIG_SITE} must carry defaultCeilingMs (a test's CPU-work ceiling) and classes ` +
+        `(named ceilings, each for the test files it lists): ${parsed.error.issues[0]?.message ?? "invalid"}`,
+    };
+  }
+  return parsed.data;
+}
+
+/**
+ * The one wall bound left on a test: the HANG BACKSTOP (`testHangBackstopMs`
+ * under the testExecution section). A test still running at it is hung, not
+ * slow; slowness is judged in CPU work. Throws its reason when unset.
+ */
+export function readTestHangBackstopMs(): number {
+  const schema = getConfigDocumentSchema().shape.testExecution.unwrap().shape.testHangBackstopMs.unwrap();
+  const parsed = schema.safeParse(testExecutionSection().testHangBackstopMs);
+  if (!parsed.success) {
+    throw new Error(
+      `testHangBackstopMs under ${CONFIG_SITE} must be a positive number of milliseconds (a test still running ` +
+        `after this long is hung): ${parsed.error.issues[0]?.message ?? "invalid"}`,
+    );
   }
   return parsed.data;
 }

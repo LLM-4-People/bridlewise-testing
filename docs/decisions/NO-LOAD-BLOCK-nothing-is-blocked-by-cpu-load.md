@@ -4,8 +4,9 @@ date: 2026-10-15
 by: user
 group: process
 status: in-force
-implementation: pending
+implementation: partial
 route: TEST-10X
+acted_in: [engine/src/process/instrument-lock.ts, engine/src/process/subprocess-bounds.ts, engine/scripts/tooling/test-run-lock.ts, engine/src/workflow/slot-cli.ts, engine/src/shared/budget-verdict.ts, engine/src/workflow/workspace-manager.ts, tests/reporters/budget-reporter.ts, scripts/testing/performance-measurements.ts, engine/src/kernel/web-performance-budgets.ts]
 overrides: [INSTRUMENT-LOCK, FLAKE-REPRO]
 ---
 # Nothing is ever blocked by CPU load
@@ -38,6 +39,27 @@ no matter what cpu usage we have" … "no matter what task".
 - Retroactive: a whole-tree and all-labs audit lists every load-dependent gate
   and wait, and each gets an owned fix.
 
-What is missing: not built yet. Heavy runs still take the one instrument lock
-and wait for it, and the suite budget verdict still defers a saturated host
-as provisional (`engine/src/shared/budget-verdict.ts`).
+Built (2026-10-22): heavy runs are admitted at once under per-run caps and
+never wait for each other (`engine/src/process/instrument-lock.ts`).
+Admission moves the admitting process itself into the run's own cgroup v2
+scope (memory ceiling, CPU weight) and under the harness's CPU-time limit, so
+everything the run starts — a supervised command or a child spawned directly
+— is born under them, and a process borrows a run only from inside its scope:
+there is no uncapped path. A host that cannot cap a run refuses it. The harness's script subprocesses are bounded by CPU work and one
+hang backstop, never a wall timeout (`engine/src/process/subprocess-bounds.ts`).
+
+Built (2026-10-22), the measurement half: no reading is stamped "held" or
+refused "unslotted" — the stamp, its refusals in both suite reporters and the
+held filters of the rolling baseline, the measuring tool and the workspace's
+budget judgement are deleted (audit A-04, A-05, A-07, A-12); a profile report
+is judgeable whatever ran beside it. The ambient envelope is deleted (A-08):
+no cap moves with load, and the load legs are printed as recorded signals.
+The browser profile's wall-time budgets (LCP, long tasks, switch, typing,
+response and render times) are recorded signals only, never a verdict
+(`WEB_PERFORMANCE_WALL_SIGNALS`), and the profile takes no exclusivity.
+
+What is missing: the browser's work judged in CPU work
+([UI-CPU](UI-CPU-browser-gates-judged-in-cpu-work.md)), which turns those
+signals back into gates, and a residual measured past the calibrated metric's
+validity bound (`validThroughLoad5PerCpu`): past it a suite budget verdict is
+NOT JUDGED (said, never a pass, never a wait).

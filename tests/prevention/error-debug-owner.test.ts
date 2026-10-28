@@ -724,7 +724,7 @@ describe("error-debug owner — the debug config wiring census", () => {
 // ── (F) The bridge's sink contract and the always-on redactor ──
 
 describe("error-debug owner — the bridge's sink contract and the fatal sink", () => {
-  const LIVE_KEY = "sk-LIVEKEY-8f31c05a9e27b46d1a08f3c65b92d740";
+  const LIVE_KEY = ("sk" + "-LIVEKEY-8f31c05a9e27b46d1a08f3c65b92d740");
   let originalWrite: typeof process.stderr.write;
   let captured = "";
 

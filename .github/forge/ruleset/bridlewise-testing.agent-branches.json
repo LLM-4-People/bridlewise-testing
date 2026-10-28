@@ -1,0 +1,40 @@
+{
+  "kind": "ruleset",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "agent-branches",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "agent-branches",
+    "target": "branch",
+    "enforcement": "active",
+    "bypass_actors": [
+      {
+        "actor_id": {
+          "$ref": "app",
+          "name": "agent"
+        },
+        "actor_type": "Integration",
+        "bypass_mode": "always"
+      }
+    ],
+    "conditions": {
+      "ref_name": {
+        "include": [
+          "refs/heads/agent/**"
+        ],
+        "exclude": []
+      }
+    },
+    "rules": [
+      {
+        "type": "creation"
+      },
+      {
+        "type": "deletion"
+      }
+    ]
+  }
+}

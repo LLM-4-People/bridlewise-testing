@@ -1,0 +1,52 @@
+{
+  "kind": "ruleset",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "product",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "product",
+    "target": "branch",
+    "enforcement": "active",
+    "bypass_actors": [
+      {
+        "actor_id": {
+          "$ref": "app",
+          "name": "publisher"
+        },
+        "actor_type": "Integration",
+        "bypass_mode": "always"
+      }
+    ],
+    "conditions": {
+      "ref_name": {
+        "include": [
+          "refs/heads/product"
+        ],
+        "exclude": []
+      }
+    },
+    "rules": [
+      {
+        "type": "creation"
+      },
+      {
+        "type": "update",
+        "parameters": {
+          "update_allows_fetch_and_merge": false
+        }
+      },
+      {
+        "type": "deletion"
+      },
+      {
+        "type": "non_fast_forward"
+      },
+      {
+        "type": "required_signatures"
+      }
+    ]
+  }
+}
