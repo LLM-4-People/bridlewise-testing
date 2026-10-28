@@ -443,7 +443,7 @@ export type CommitInventory = Readonly<{ hermetic: ReadonlySet<string>; liveFile
 export type InventoryAt = (commit: string) => Promise<string>;
 
 /** The hermetic identities and live files an inventory's text names. */
-export function commitInventoryOf(text: string): CommitInventory {
+function commitInventoryOf(text: string): CommitInventory {
   const inventory = JSON.parse(text) as { tests?: { sourceId: string; name: string }[]; scope?: { qualifiedExternalSourceIds?: string[] } };
   return {
     hermetic: new Set((inventory.tests ?? []).map((entry) => `${entry.sourceId}::${entry.name}`)),

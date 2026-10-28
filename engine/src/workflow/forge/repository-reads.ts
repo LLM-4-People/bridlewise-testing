@@ -41,7 +41,7 @@ export type AlertCount = Readonly<{
 
 export type Release = Readonly<{ tag: string; name: string | null; draft: boolean; prerelease: boolean; publishedAt: string | null; url: string }>;
 
-/** `/repos/<owner>/<name>` of `owner/name`. */
+/** `/repos/<owner>/<name>` of `owner/name` (the projection store addresses its repository the same way). */
 export function repositoryPath(repository: string): string {
   const [owner, name, ...rest] = repository.split("/");
   if (owner === undefined || name === undefined || owner === "" || name === "" || rest.length > 0) throw new ForgeError("forge_request_invalid", `Not an owner/name repository: ${repository}.`, { repository });
