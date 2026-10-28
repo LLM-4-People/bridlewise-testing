@@ -9,9 +9,9 @@
  * CPU-time limit — and so does a child the admitting process spawns
  * directly, since admission puts the admitting process itself there; a
  * process borrows a run only from inside its scope; a host that cannot make
- * the scope REFUSES the run; a light
- * run records nothing; the stamp is read from the live records and bound to
- * the owner's token; a label is shown escaped; the registry is the host
+ * the scope REFUSES the run; a light run records nothing; nothing stamps a
+ * measurement (a reading is valid whatever ran beside it); a label is shown
+ * escaped; the registry is the host
  * user's (never moved by $HOME) and never in a checkout. Every arm uses its
  * own registry under the run's temp root — the supervising door's too
  * (correctness L-N3).
@@ -27,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
-import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, INSTRUMENT_LOCK_TOKEN_VARIABLE, instrumentLockPath, instrumentLockStamp, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
+import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
 import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../../src/process/process-facts.ts";
 import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
@@ -132,14 +132,14 @@ test("a run INSIDE an admitted run borrows it — whatever the label holds (a ba
       `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)});`,
       `const { spawnSync } = await import("node:child_process");`,
       `const lock = admitInstrumentRun(process.argv[1], ${JSON.stringify(label)}, ${JSON.stringify(CAPS)}, SUBPROCESS_BOUNDS);`,
-      `const inner = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(`const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)}); const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)}); const lock = admitInstrumentRun(process.argv[1], "the nested run", ${JSON.stringify(CAPS)}, SUBPROCESS_BOUNDS); console.log("NESTED owns=" + String(lock.owns) + " stamp=" + lock.stamp);`)}, process.argv[1]], { encoding: "utf8" });`,
+      `const inner = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(`const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)}); const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(workflowConfig)}); const lock = admitInstrumentRun(process.argv[1], "the nested run", ${JSON.stringify(CAPS)}, SUBPROCESS_BOUNDS); console.log("NESTED owns=" + String(lock.owns));`)}, process.argv[1]], { encoding: "utf8" });`,
       "console.log(inner.stdout.trim() || ('NO ANSWER ' + String(inner.status) + ' ' + String(inner.signal) + ' ' + inner.stderr));",
       "lock.release();",
     ].join("\n");
     const run = child(nestedBody, [lockPath]);
     t.after(() => { run.process.kill("SIGKILL"); });
     const answer = await run.next(/^(NESTED|NO ANSWER)/u, 20_000);
-    assert.equal(answer, "NESTED owns=false stamp=held", `label ${JSON.stringify(label.slice(0, 40))}: the nested run borrowed`);
+    assert.equal(answer, "NESTED owns=false", `label ${JSON.stringify(label.slice(0, 40))}: the nested run borrowed`);
     await exited(run.process);
     assert.deepEqual(admittedRuns(lockPath), [], "the admitted run released its record");
   }
@@ -260,39 +260,17 @@ test("a light run records nothing; what is heavy is config — a file is one, a 
   light.release();
 });
 
-test("the stamp is READ from the live records AND bound to the run's token: a run outside every admitted run is unslotted, whatever its environment says; a hand-written record naming this process stamps nothing; a dead run's record stamps nothing", () => {
-  const lockPath = join(createTempDir("instrument-lock-stamp-"), "instrument.lock");
-  const previous = { slot: process.env.HARNESS_HEAVY_SLOT_HOLDER, token: process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] };
+test("NOTHING STAMPS A MEASUREMENT (NO-LOAD-BLOCK, audit A-04): the owner exports no token and no stamp, and a run's record label is bounded", () => {
+  const before = Object.keys(process.env).sort();
+  const lock = admitInstrumentRun(join(createTempDir("instrument-lock-nostamp-"), "instrument.lock"), `a long label ${"y".repeat(5_000)}`, CAPS, SUBPROCESS_BOUNDS);
   try {
-    delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-    process.env.HARNESS_HEAVY_SLOT_HOLDER = String(process.ppid); // the old slot's forgeable handoff: ignored
-    assert.equal(instrumentLockStamp(lockPath), "unslotted");
-    const dead = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
-    plantRecord(lockPath, "dead", { pid: dead.pid, startTime: 1, nonce: "n", holder: "a dead run" });
-    assert.equal(instrumentLockStamp(lockPath), "unslotted", "a dead run's record stamps nothing");
-    // A record written by hand that names this very process: live, in this lineage, but no token.
-    plantRecord(lockPath, "forged", { pid: process.pid, startTime: processIdentity().startTime, nonce: "forged", holder: "a forged run" });
-    assert.equal(instrumentLockStamp(lockPath), "unslotted", "a forged record without the run's token stamps nothing");
-    const lock = admitInstrumentRun(join(createTempDir("instrument-lock-stamp-held-"), "instrument.lock"), "this test", CAPS, SUBPROCESS_BOUNDS);
-    assert.equal(instrumentLockStamp(lock.path), "held", "inside an admitted run, by its admission");
-    assert.match(process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] ?? "", /^[0-9a-f-]{36}$/u, "the owner exports its run's token");
-    // The owner's own stamp reads its admission, not its environment.
-    process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = "the suite's token";
-    assert.equal(instrumentLockStamp(lock.path), "held", "the process that was admitted stamps held by its admission");
-    lock.release();
-    process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = "inherited";
-    const nested = admitInstrumentRun(join(createTempDir("instrument-lock-stamp-nested-"), "instrument.lock"), "another run", CAPS, SUBPROCESS_BOUNDS);
-    nested.release();
-    assert.equal(process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE], "inherited", "a token the process inherited comes back when its own run is released");
-    delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-    const long = admitInstrumentRun(lock.path, `a long label ${"y".repeat(5_000)}`, CAPS, SUBPROCESS_BOUNDS);
-    assert.ok((admittedRuns(long.path)[0] ?? "").length <= 260, "the record's label is bounded");
-    long.release();
-    assert.equal(instrumentLockStamp(lock.path), "unslotted", "after the release");
+    assert.deepEqual(Object.keys(process.env).sort(), before, "admission writes nothing into the environment a measurement could read");
+    assert.equal("stamp" in lock, false, "a hold carries no measurement stamp");
+    assert.ok((admittedRuns(lock.path)[0] ?? "").length <= 260, "the record's label is bounded");
   } finally {
-    if (previous.slot === undefined) delete process.env.HARNESS_HEAVY_SLOT_HOLDER; else process.env.HARNESS_HEAVY_SLOT_HOLDER = previous.slot;
-    if (previous.token === undefined) delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE]; else process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = previous.token;
+    lock.release();
   }
+  assert.deepEqual(admittedRuns(lock.path), [], "released");
 });
 
 test("A RUN'S LABEL IS SHOWN ESCAPED AND BOUNDED, whoever wrote the record: no terminal escape, no forged second line", (t) => {
@@ -359,11 +337,11 @@ test("THE REGISTRY IS THE HOST'S, not the HOME's: its place comes from the passw
   }
 });
 
-test("THE SUPERVISING DOOR (`harness slot run`, the coverage run, the perf profile) admits its run while its command runs — the command, under the adopted supervisor, reads \"held\" — bounds its label to the program and argument count, and exits with the command's code; a signal-ended command exits 128 + its number. On a registry of the test's own (correctness L-N3)", () => {
+test("THE SUPERVISING DOOR (`harness slot run`, the coverage run, the perf profile) admits its run while its command runs — the command, under the adopted supervisor, runs inside it — bounds its label to the program and argument count, and exits with the command's code; a signal-ended command exits 128 + its number. On a registry of the test's own (correctness L-N3)", () => {
   const lockPath = join(createTempDir("instrument-lock-door-"), "instrument.lock");
   const probe = [
-    `const { instrumentLockStamp, admittedRuns } = await import(${JSON.stringify(LOCK_OWNER)});`,
-    `console.log("STAMP " + instrumentLockStamp(${JSON.stringify(lockPath)}) + " LABEL " + JSON.stringify(admittedRuns(${JSON.stringify(lockPath)})[0]?.split(" (pid")[0]));`,
+    `const { borrowInstrumentLock, admittedRuns } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `console.log("INSIDE " + String(borrowInstrumentLock(${JSON.stringify(lockPath)}, "the probe")?.owns === false) + " LABEL " + JSON.stringify(admittedRuns(${JSON.stringify(lockPath)})[0]?.split(" (pid")[0]));`,
     "process.exit(7);",
   ].join("\n");
   const script = join(createTempDir("instrument-lock-door-script-"), "door.mjs");
@@ -376,7 +354,7 @@ test("THE SUPERVISING DOOR (`harness slot run`, the coverage run, the perf profi
   const door = (label: string, command: readonly string[]) => spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath, label, ...command], { cwd: ENGINE, encoding: "utf8", env: process.env });
   const ran = door("slot run: node (5 argument(s))", [process.execPath, "--experimental-strip-types", "--input-type=module", "-e", probe, "secret\targument\\with a backslash"]);
   assert.equal(ran.status, 7, `the command's exit code is the door's (stderr: ${ran.stderr.slice(0, 400)})`);
-  assert.match(ran.stdout, /STAMP held LABEL "slot run: node \(5 argument\(s\)\)"/u, "the command runs inside the admitted run; the label carries no argument");
+  assert.match(ran.stdout, /INSIDE true LABEL "slot run: node \(5 argument\(s\)\)"/u, "the command runs inside the admitted run; the label carries no argument");
   assert.deepEqual(admittedRuns(lockPath), [], "the door releases its record when its command ends");
   assert.equal(door("a signal", ["sh", "-c", "kill -TERM $$"]).status, 143);
   // The CLI's slot run is this door, on the host's registry, heavy by kind.
@@ -399,21 +377,6 @@ test("NESTING READS ADOPTED PROCESSES TOO (correctness M2): a run whose ancestor
   record([{ pid: parent.pid, startTime: parent.startTime }]);
   assert.equal(borrowedInScope(), "false", "an adopted ancestor holds this run inside the admitted run");
   assert.equal(borrowInstrumentLock(lockPath, "a nested run"), undefined, "the same lineage OUTSIDE the run's scope borrows nothing");
-});
-
-test("THE ANCESTOR'S STAMP NEEDS ITS TOKEN (correctness M3): inside an ancestor's run, \"held\" only with the token the run exported; without it, unslotted", () => {
-  const lockPath = join(createTempDir("instrument-lock-token-"), "instrument.lock");
-  const parent = processIdentity(process.ppid);
-  const nonce = randomUUID();
-  plantRecord(lockPath, "ancestor", { pid: parent.pid, startTime: parent.startTime, acquiredAt: "2026-10-09T00:00:00.000Z", nonce, holder: "an ancestor" });
-  const stamp = (token: string | undefined): string => {
-    const env = { ...process.env };
-    if (token === undefined) delete env[INSTRUMENT_LOCK_TOKEN_VARIABLE]; else env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = token;
-    return inRunScope(nonce, `const { instrumentLockStamp } = await import(${JSON.stringify(LOCK_OWNER)}); console.log(instrumentLockStamp(${JSON.stringify(lockPath)}));`, env);
-  };
-  assert.equal(stamp(undefined), "unslotted", "no token: the run is not this one's to claim");
-  assert.equal(stamp("another token"), "unslotted", "a wrong token claims nothing");
-  assert.equal(stamp(nonce), "held");
 });
 
 test("THE REGISTRY'S PLACE IS REFUSED INSIDE A CHECKOUT (correctness M6): a path under the per-user cache that lies in (or around) the checkout is misplaced", () => {
