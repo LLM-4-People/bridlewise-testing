@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import test from "node:test";
 
+import { HarnessError } from "../../src/kernel/errors.ts";
+
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { OLDER_WORKSPACE_SCHEMA_VERSIONS } from "../../src/workflow/workspace-contracts.ts";
 import { WorkspaceConflictError } from "../../src/workflow/workspace-manager.ts";
@@ -334,29 +336,30 @@ test("abort closes the workspace's open pull request (its branch kept)", async (
 });
 
 /**
- * Another pull request in the forge's merge queue (#2, ahead of this one): a
- * commit on `main`'s base writing `path`, pushed as its own branch, opened,
- * readied and queued — as another lane's land would leave it.
+ * Another pull request in the forge's merge queue (ahead of this one): a
+ * commit on `main`'s base writing each of `files`, pushed as its own branch,
+ * opened, readied and queued — as another lane's land would leave it.
  */
-async function queueAnotherPullRequest(fixture: Awaited<ReturnType<typeof readyFixture>>, path: string, text: string): Promise<number> {
+async function queueAnotherPullRequest(fixture: Awaited<ReturnType<typeof readyFixture>>, files: Readonly<Record<string, string>>, branch = "another-lane"): Promise<number> {
   const { bare, baseSha, forge } = fixture;
-  const scratch = mkWorkspaceTempDir("ws-queue-other");
+  const scratch = mkWorkspaceTempDir(`ws-queue-${branch}`);
   rawGit(scratch, ["clone", "-q", bare, "."]);
-  rawGit(scratch, ["checkout", "-q", "-b", "another-lane", baseSha]);
-  commitFile(scratch, path, text, "Another lane's work");
-  rawGit(scratch, ["push", "-q", "origin", "another-lane:another-lane"]);
-  const pull = await forge.openDraftPullRequest({ head: "another-lane", base: "main", title: "another lane", body: "" });
+  rawGit(scratch, ["checkout", "-q", "-b", branch, baseSha]);
+  for (const [path, text] of Object.entries(files)) commitFile(scratch, path, text, `Another lane's ${path}`);
+  rawGit(scratch, ["push", "-q", "origin", `${branch}:${branch}`]);
+  const pull = await forge.openDraftPullRequest({ head: branch, base: "main", title: branch, body: "" });
   await forge.markReadyForReview(pull.number);
-  const answer = await forge.enqueue(pull.number, { expectedHeadSha: rawGit(bare, ["rev-parse", "refs/heads/another-lane"]) });
+  const answer = await forge.enqueue(pull.number, { expectedHeadSha: rawGit(bare, ["rev-parse", `refs/heads/${branch}`]) });
   assert.equal(answer.kind, "enqueued", "the other pull request is in the queue (liveness)");
   return pull.number;
 }
 
-test("QUEUE PREFLIGHT: a pull request that conflicts with one ahead of it in the merge queue is refused BEFORE the queue — never enqueued, back to validating, the conflict named", async () => {
+test("QUEUE PREFLIGHT: a pull request that conflicts with one ahead of it in the merge queue is refused BEFORE the queue — never enqueued, the record untouched, the conflict named", async () => {
   const fixture = await readyFixture("ws-queue-conflict");
   const { manager, forge, workspaceId } = fixture;
+  const before = manager.status(workspaceId);
   // The same file, different bytes: the queue would merge #2, then drop this one.
-  const ahead = await queueAnotherPullRequest(fixture, "src/a.ts", "export const a = 2;\n");
+  const ahead = await queueAnotherPullRequest(fixture, { "src/a.ts": "export const a = 2;\n" });
   const enqueuesBefore = fixture.enqueues();
   await assert.rejects(() => manager.land(workspaceId), (error: unknown) => {
     assert.ok(throwsCode("workspace_queue_conflict")(error), String(error));
@@ -365,14 +368,45 @@ test("QUEUE PREFLIGHT: a pull request that conflicts with one ahead of it in the
   });
   assert.equal(fixture.enqueues(), enqueuesBefore, "no enqueue: the queue was never entered");
   assert.ok(forge.calls.some((call) => call.op === "mergeQueue"), "the queue was read");
-  assert.equal(manager.status(workspaceId).state, "validating", "the land ended: back to validating");
+  // The preflight is read-only and runs before the record moves: nothing to recover, nothing to misread as a dequeue.
+  assert.equal(manager.status(workspaceId).state, before.state, "the record never moved");
+  assert.equal(manager.status(workspaceId).history.length, before.history.length);
   assert.equal(forgeStateOf(manager.status(workspaceId)).land, null);
+});
+
+test("QUEUE PREFLIGHT: a preflight the forge cannot answer leaves the workspace as it was — never merging with nothing queued", async () => {
+  const fixture = await readyFixture("ws-queue-unanswered");
+  const { manager, forge, workspaceId } = fixture;
+  const before = manager.status(workspaceId);
+  forge.failMergeQueueWith(new HarnessError("network down", "forge_unreachable", true));
+  await assert.rejects(() => manager.land(workspaceId), /network down/u);
+  assert.equal(fixture.enqueues(), 0);
+  assert.equal(manager.status(workspaceId).state, before.state, "the record never moved: recover has nothing to misread");
+  assert.equal(forgeStateOf(manager.status(workspaceId)).land, null);
+});
+
+test("QUEUE PREFLIGHT: the queue is read in its own order, and an entry that conflicts with the entries ahead of it is passed over, never used as a base", async () => {
+  // #2 writes src/d.ts; #3 writes src/d.ts too (so it conflicts with #2: the queue will drop it) and src/a.ts
+  // (which conflicts with this workspace's src/a.ts). In the queue's order [#2, #3], #3 is passed over and this
+  // pull request merges cleanly onto main + #2: it is enqueued. Read in the other order, or with #3's
+  // conflicting merge used as a base, the preflight would wrongly refuse it on src/a.ts.
+  const fixture = await readyFixture("ws-queue-order");
+  const { manager, forge, workspaceId, head } = fixture;
+  const second = await queueAnotherPullRequest(fixture, { "src/d.ts": "export const d = 2;\n" }, "lane-two");
+  const third = await queueAnotherPullRequest(fixture, { "src/d.ts": "export const d = 3;\n", "src/a.ts": "export const a = 3;\n" }, "lane-three");
+  assert.deepEqual((await forge.mergeQueue("main")).map((entry) => entry.number), [second, third], "the queue's order (liveness)");
+  fixture.onWait(() => {
+    forge.dropFromQueue(1);
+  });
+  await assert.rejects(() => manager.land(workspaceId));
+  assert.deepEqual(forge.calls.filter((call) => call.op === "enqueue" && (call.request as { number: number }).number === 1).map((call) => call.request), [{ number: 1, expectedHeadSha: head }],
+    "enqueued: the entry that conflicts with the queue ahead of it was passed over");
 });
 
 test("QUEUE PREFLIGHT: a queue ahead that touches other files is no conflict — the pull request is enqueued", async () => {
   const fixture = await readyFixture("ws-queue-clean");
   const { manager, forge, workspaceId, head } = fixture;
-  await queueAnotherPullRequest(fixture, "src/other.ts", "export const other = 1;\n");
+  await queueAnotherPullRequest(fixture, { "src/other.ts": "export const other = 1;\n" });
   fixture.onWait(() => {
     forge.dropFromQueue(1);
   });

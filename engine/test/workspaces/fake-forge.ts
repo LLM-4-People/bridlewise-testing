@@ -34,6 +34,8 @@ export type FakeForge = WorkspaceForge & Readonly<{
   setVerified(verified: boolean): void;
   /** The head the next enqueue answers it queued (a forge that queued another head than asked), or null for the truth. */
   answerEnqueueAt(head: string | null): void;
+  /** The next merge-queue read fails with `error` (a forge that cannot answer), or null to answer truly. */
+  failMergeQueueWith(error: Error | null): void;
   /**
    * The queue merges pull request `number` into its base: a merge commit of
    * the base's tip and `head` (default: the head it was queued at — another
@@ -57,6 +59,7 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
   const pulls = new Map<number, FakePull>();
   let verified = true;
   let enqueueAnswer: string | null = null;
+  let mergeQueueFailure: Error | null = null;
   // The queue's order: each enqueue takes the next position.
   let queueClock = 0;
   const git = (argv: readonly string[], options: Readonly<{ input?: Buffer; environment?: Readonly<Record<string, string>>; allowed?: readonly number[] }> = {}): string =>
@@ -91,6 +94,9 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
     },
     answerEnqueueAt(head: string | null): void {
       enqueueAnswer = head;
+    },
+    failMergeQueueWith(error: Error | null): void {
+      mergeQueueFailure = error;
     },
     runQueue(number: number, head?: string): string {
       const pull = requirePull(number);
@@ -198,6 +204,11 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
     },
     async mergeQueue(base: string) {
       record("mergeQueue", { base });
+      if (mergeQueueFailure !== null) {
+        const failure = mergeQueueFailure;
+        mergeQueueFailure = null;
+        throw failure;
+      }
       // A queued head is fetched from its branch on this forge (GitHub's is refs/pull/<n>/head).
       return deepFreeze([...pulls.values()].filter((pull) => pull.base === base && view(pull).queued).toSorted((left, right) => left.queuedAt - right.queuedAt)
         .map((pull) => ({ number: pull.number, headSha: pull.queuedHead!, fetchRef: `refs/heads/${pull.head}` })));
