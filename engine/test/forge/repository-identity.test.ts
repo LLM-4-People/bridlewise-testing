@@ -35,11 +35,30 @@ test("every address is derived from the organisation, the web origin and the tru
     issuesUrl: "https://github.com/LLM-4-People/bridlewise-testing/issues",
     pagesBasePath: "/bridlewise-testing",
     pagesUrl: "https://llm-4-people.github.io/bridlewise-testing/",
+    docsUrl: "https://llm-4-people.github.io/bridlewise-testing/",
     organisationRepositories: SETTINGS.repositories.map((repository) => repository.name),
     // The product's repository and the preview: identities of their own, from the section's flags.
-    product: { name: "bridlewise", fullName: "LLM-4-People/bridlewise", webUrl: "https://github.com/LLM-4-People/bridlewise", pagesUrl: "https://llm-4-people.github.io/bridlewise/" },
-    preview: { name: "bridlewise", fullName: "LLM-4-People/bridlewise", webUrl: "https://github.com/LLM-4-People/bridlewise", pagesUrl: "https://llm-4-people.github.io/bridlewise/" },
+    product: { name: "bridlewise", fullName: "LLM-4-People/bridlewise", webUrl: "https://github.com/LLM-4-People/bridlewise", pagesUrl: "https://llm-4-people.github.io/bridlewise/", pagesBasePath: "/bridlewise", docsUrl: "https://llm-4-people.github.io/bridlewise/" },
+    preview: { name: "bridlewise", fullName: "LLM-4-People/bridlewise", webUrl: "https://github.com/LLM-4-People/bridlewise", pagesUrl: "https://llm-4-people.github.io/bridlewise/", pagesBasePath: "/bridlewise", docsUrl: "https://llm-4-people.github.io/bridlewise/" },
   });
+});
+
+test("A CUSTOM DOMAIN is one declaration: the trunk's site { host, docsPath } moves the site to its host's root and the documentation under docsPath; the forge's Pages domain stays for the others", () => {
+  const withSite = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, site: { host: "bridlewise.llm4people.dev", docsPath: "/docs/" } } : repository) };
+  const identity = repositoryIdentity(withSite);
+  assert.equal(identity.pagesUrl, "https://bridlewise.llm4people.dev/");
+  assert.equal(identity.pagesBasePath, "", "the site is at its own host's root");
+  assert.equal(identity.docsUrl, "https://bridlewise.llm4people.dev/docs/");
+  // The other repositories keep the forge's Pages domain.
+  assert.equal(identity.preview?.pagesUrl, "https://llm-4-people.github.io/bridlewise/");
+  // The labels follow: site: at the root, docs: under docsPath.
+  assert.match(withIdentityLinks("[a][site:] [b][docs:quickstart/]\n", identity), /\[docs:quickstart\/\]: https:\/\/bridlewise\.llm4people\.dev\/docs\/quickstart\/\n\[site:\]: https:\/\/bridlewise\.llm4people\.dev\/\n/u);
+  // The host and the path are validated by the schema.
+  for (const site of [{ host: "Bridlewise.example", docsPath: "/docs/" }, { host: "bridlewise.llm4people.dev", docsPath: "docs" }, { host: "localhost", docsPath: "/docs/" }]) {
+    assert.throws(() => FORGE_CONFIG_SCHEMA.parse({ ...withSite, repositories: withSite.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, site } : repository) }), JSON.stringify(site));
+  }
+  // There is no product-site label any more: after P1.10 the product's site IS the trunk's.
+  assert.doesNotMatch(withIdentityLinks("[a][product-site:]\n", identity), /\[product-site:\]:/u);
 });
 
 test("THE P1.10 RENAME is one edit of the forge section: the preview is renamed first, then the trunk takes the product's name and flag; renaming the trunk alone is refused", () => {
@@ -61,9 +80,9 @@ test("THE P1.10 RENAME is one edit of the forge section: the preview is renamed 
   assert.throws(() => productRenamedSettings({ ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => { const { preview: _preview, ...rest } = repository; return rest; }) }), (error: unknown) => isForgeError(error, "forge_declaration_invalid"));
 });
 
-test("each identity reference names its own repository before the rename: product and product-site the product's, preview the preview's, repo and site the trunk's", () => {
+test("each identity reference names its own repository before the rename: product the product's, preview the preview's, repo, site and docs the trunk's", () => {
   const identity = repositoryIdentity(SETTINGS);
-  const text = "[a][product:] [b][product:releases] [c][product-site:docs/] [d][preview:releases/tag/v1] [e][repo:issues] [f][site:floor/]\n";
+  const text = "[a][product:] [b][product:releases] [c][docs:quickstart/] [d][preview:releases/tag/v1] [e][repo:issues] [f][site:floor/]\n";
   const definitions = new Map(withIdentityLinks(text, identity).split("\n").flatMap((line) => {
     const match = /^\[([^\]]+)\]: (\S+)$/u.exec(line);
     return match === null ? [] : [[match[1]!, match[2]!] as const];
@@ -71,7 +90,7 @@ test("each identity reference names its own repository before the rename: produc
   assert.deepEqual(Object.fromEntries(definitions), {
     "product:": "https://github.com/LLM-4-People/bridlewise",
     "product:releases": "https://github.com/LLM-4-People/bridlewise/releases",
-    "product-site:docs/": "https://llm-4-people.github.io/bridlewise/docs/",
+    "docs:quickstart/": "https://llm-4-people.github.io/bridlewise-testing/quickstart/",
     "preview:releases/tag/v1": "https://github.com/LLM-4-People/bridlewise/releases/tag/v1",
     "repo:issues": "https://github.com/LLM-4-People/bridlewise-testing/issues",
     "site:floor/": "https://llm-4-people.github.io/bridlewise-testing/floor/",

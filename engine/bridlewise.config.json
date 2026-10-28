@@ -1169,7 +1169,11 @@
       {
         "name": "bridlewise-testing",
         "kind": "trunk",
-        "visibility": "public"
+        "visibility": "public",
+        "site": {
+          "host": "bridlewise.llm4people.dev",
+          "docsPath": "/docs/"
+        }
       },
       {
         "name": ".github",

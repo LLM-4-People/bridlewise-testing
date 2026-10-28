@@ -33,7 +33,7 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   apiUrl: httpsOrigin,
   /** The web origin (`https://github.com`): App creation and installation pages. */
   webUrl: httpsOrigin,
-  /** The domain of the forge's project Pages sites (`github.io`): a project's site is `<owner, lower-cased>.<pagesDomain>/<name>/`. */
+  /** The domain of the forge's project Pages sites (`github.io`): a repository with no `site` of its own is served at `<owner, lower-cased>.<pagesDomain>/<name>/`. */
   pagesDomain: z.string().regex(/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u),
   /** The `User-Agent` every request carries (GitHub requires one). */
   userAgent: z.string().min(1).max(128).regex(/^[\x21-\x7e]+$/u),
@@ -67,6 +67,17 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     provingGround: z.boolean().optional(),
     /** A branch the repository protects from deletion and force-pushes by its own ruleset (`protect-<branch>`; the notes repository's working branch). */
     protectedBranch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/u).optional(),
+    /**
+     * The repository's OWN site address (a custom domain): its Pages site is
+     * served at the root of `host` (`https://<host>/`), its documentation at
+     * `docsPath` under it. This is the one declaration of the site's address:
+     * every copy (the identity, the site's configuration, the links) is
+     * derived from it. Without it the repository is served on `pagesDomain`.
+     */
+    site: z.strictObject({
+      host: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u),
+      docsPath: z.string().regex(/^\/(?:[a-z0-9-]+\/)*$/u),
+    }).optional(),
     /** Where the product is published (exactly one repository). */
     product: z.literal(true).optional(),
     /** The public preview repository: the product as published before the rename (at most one). */
