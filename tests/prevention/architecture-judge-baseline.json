@@ -1,0 +1,3546 @@
+{
+  "schema": "bridlewise-ratchet-baseline/v1",
+  "id": "architecture-judge",
+  "entries": [
+    {
+      "key": "architecture-adapter-construction:src/memory/unified/unified-memory-store.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-adapter-construction:src/runtime/provider-adapter.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-adapter-construction:src/self-improving/config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-adapter-construction:src/self-improving/index.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-adapter-construction:src/shared/dedup-compression/module-integration.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-adapter-construction:src/shared/outbound-http.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/concurrent/worker-handlers.mjs:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/tooling/network-under-test-guard.mjs:pure:network",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/tooling/test-cpu-class.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/tooling/test-run-lock.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/tooling/verification/guard-dossier.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/tooling/verification/raw-source-readers.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/declared-universe.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/event-loop-callbacks.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/filesystem-cache.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/gitignore-anchoring.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/hermetic-skips.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/lesson-trailers.ts:pure:child-process,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/measurement-contract.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/pattern-liveness.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/ratchet.ts:pure:child-process,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/required-fixture-roots.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/source-view.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/source-walk.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:scripts/verification/staged-move-loss.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/awareness/engine.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/awareness/git-command-runner.ts:pure:child-process,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/editor/edit-tools.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/atomic-write.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/checkout-write-door.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/database-files.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/database-provenance.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/file-lock.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/journaled-commit.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/link-containment.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/move-path.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/path-identity.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/private-home.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/private-state.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/self-protection/confined-run.ts:pure:child-process,filesystem-read,filesystem-write,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/self-protection/guardian-build-stamp.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/self-protection/keep-out.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/self-protection/key-home.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/filesystem/temporary-root.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/git/checkout-state-record.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/git/declared-deletions.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/git/ignored-copies.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/git/index-baseline.ts:pure:child-process,filesystem-write,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/git/repository-ownership.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/git/tree-reader.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/git/working-copy.ts:pure:child-process,filesystem-read,filesystem-write,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/intelligence/file-slice.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/intelligence/process-farm.ts:pure:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/intelligence/quick-view.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/intelligence/repository-stat-scan.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/intelligence/tree-sitter-backend.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/kernel/config.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/kernel/preflight.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/memory/scale/memory-store-1b.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/memory/unified/content-store.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/modules/tasks-agents/domain/handoff-protocol-authority.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/process/instrument-lock.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/process/process-facts.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/process/subprocess-bounds.ts:pure:child-process,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/process/supervised-run.ts:pure:child-process,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/quality/languages/shared/tree-sitter-loader.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/runtime/entry-point.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/exposure/registrations/editor.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/flake-reproduction.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/long-task-timing.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/memory/shared-memory-store.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/module-location.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/outbound-http.ts:pure:network",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/run-cpu.ts:pure:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/run-history.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/shared/tree-identity.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/tools/concurrent/long-task-runner.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/tools/concurrent/worker-pool.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/checkout-setup.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/community/health-files.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/community/sources.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/evidence-store.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/failure-owners.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/flake-cli.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/flaky-burn-down.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/forge/app-keys.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/forge/generated-files.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/forge/maintainer-cli.ts:pure:child-process,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/forge/projector/confined.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/format-command.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/apply.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/context.ts:pure:child-process,filesystem-read,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/last-run.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/projection.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/promoter-home.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/promotion-run.ts:pure:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/publication.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/release-assets.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/release-cli.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/promotion/transforms.ts:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/record-links.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/repository-registry.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/tree-landing.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:src/workflow/workspace-registry.ts:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/better-sqlite3.mjs:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/node-sqlite.mjs:pure:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:pure:child-process,filesystem-read,filesystem-write,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/common.mjs:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:pure:child-process,filesystem-read,filesystem-write,git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-boundary:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs:pure:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/bootstrap-hooks.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/bootstrap-hooks.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/bootstrap-hooks.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/build-bundle.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/commit-guard.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/commit-guard.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/commit-guard.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/concurrent/worker-handlers.mjs:node:fs/promises:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/pin-authority-regeneration.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/regenerate-handoff-manifest.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/test-inventory.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/test-inventory.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/artifact-manifest.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/candidate-checkout.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/candidate-checkout.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/candidate-checkout.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/compile-cache.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/migration-write-authority-genesis.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/migration-write-authority-genesis.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/network-under-test-guard.mjs:node:net:network",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/s1-verification.ts:node:fs:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/test-cpu-class.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/test-run-lock.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/test-worker.ts:node:fs:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/verification/guard-dossier.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/tooling/verification/raw-source-readers.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/architecture.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/consumer-plants.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/corpus.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/corpus.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/corpus.ts:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/corpus.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/decision-index.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/declared-universe.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/event-loop-callbacks.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/filesystem-cache.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/gitignore-anchoring.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/guardian-spec-artifact.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/hermetic-skips.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/lesson-trailers.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/lesson-trailers.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/measurement-contract.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/pattern-liveness.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/ratchet.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/ratchet.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/required-fixture-roots.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/shipped-hooks.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/source-view.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/source-walk.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/staged-move-loss.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/staged-move-loss.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/staged-move-loss.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:scripts/verification/tsconfig-include-liveness.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/awareness/engine.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/awareness/git-command-runner.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/awareness/git-command-runner.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/cli.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/editor/edit-tools.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/evaluation/results-writer.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/atomic-write.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/checkout-write-door.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/database-files.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/database-provenance.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/file-lock.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/journaled-commit.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/link-containment.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/move-path.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/path-identity.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/private-home.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/private-state.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/confined-run.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/confined-run.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/confined-run.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/guardian-binary.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/guardian-binary.ts:node:fs:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/guardian-build-stamp.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/keep-out.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/self-protection/key-home.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/filesystem/temporary-root.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/forensics/forensic-crypto.ts:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/checkout-state-record.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/declared-deletions.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/ignored-copies.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/ignored-copies.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/ignored-copies.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/index-baseline.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/index-baseline.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/index-baseline.ts:node:fs:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/repository-ownership.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/repository-ownership.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/repository-ownership.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/tree-reader.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/tree-reader.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/tree-reader.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/working-copy.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/working-copy.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/git/working-copy.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/intelligence/farm-child.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/intelligence/file-slice.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/intelligence/process-farm.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/intelligence/quick-view.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/intelligence/repository-stat-scan.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/intelligence/tree-sitter-backend.ts:node:fs/promises:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/intelligence/tree-sitter-backend.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/kernel/config.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/kernel/integrity.ts:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/kernel/preflight.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/memory/scale/memory-store-1b.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/memory/scale/memory-store-1b.ts:node:sqlite:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/memory/unified/content-store.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/modules/tasks-agents/domain/handoff-protocol-authority.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/instrument-lock.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/instrument-lock.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/instrument-lock.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/process-facts.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/subprocess-bounds.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/subprocess-bounds.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/supervised-run.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/process/supervised-run.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/quality/languages/shared/tree-sitter-loader.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/runtime/entry-point.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/exposure/registrations/editor.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/flake-reproduction.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/git-churn.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/long-task-timing.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/memory/shared-memory-store.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/module-location.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/outbound-http.ts:node:net:network",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/run-cpu.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/run-history.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/tree-identity.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/tree-identity.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/tree-identity.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/shared/workflow/e2e-runner.mjs:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/timeline/ledger-dig.ts:node:sqlite:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/tools/concurrent/long-task-runner.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/tools/concurrent/long-task-runner.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/tools/concurrent/long-task-runner.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/tools/concurrent/worker-pool.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/checkout-setup.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/community/health-files.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/community/sources.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/evidence-store.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/failure-owners.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/flake-cli.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/flaky-burn-down.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/forge/app-keys.ts:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/forge/app-keys.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/forge/apps-page.ts:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/forge/generated-files.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/forge/maintainer-cli.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/forge/maintainer-cli.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/forge/projector/confined.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/format-command.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/apply.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/context.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/context.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/context.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/last-run.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/projection.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/promoter-home.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/promotion-run.ts:node:fs:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/publication.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/release-assets.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/release-cli.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/promotion/transforms.ts:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/record-links.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/repository-registry.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/tree-landing.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:src/workflow/workspace-registry.ts:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/security/s3-key-anchor-qualification/run-all.mjs:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/security/s3-key-anchor-qualification/src/systemd-credential-consumer.mjs:node:fs:filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/better-sqlite3.mjs:better-sqlite3:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/adapters/node-sqlite.mjs:node:sqlite:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:node:fs/promises:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/common.mjs:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/common.mjs:node:fs/promises:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:node:fs/promises:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:node:fs:filesystem-read,filesystem-write",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs:node:crypto:cryptography",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs:node:fs/promises:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/verify-artifacts.mjs:node:fs:filesystem-read",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/effects.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/effects.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/repository-facts.ts:git-invocation:git",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/repository-facts.ts:node:child_process:child-process",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:scripts/commit-guard.ts:node:child_process:dynamic-executable-spawn",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:scripts/tooling/migration-write-authority-genesis.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:scripts/verification/consumer-plants.ts:node:child_process:dynamic-executable-execFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/filesystem/self-protection/confined-run.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/filesystem/self-protection/guardian-binary.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/git/git-adapter.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/git/tree-reader.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/memory/tool-result-retrieval.ts:dynamic-import",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/memory/unified/unified-embeddings.ts:dynamic-import",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/process/instrument-lock.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/process/subprocess-bounds.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/process/supervised-run.ts:node:child_process:dynamic-executable-spawn",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/process/supervised-run.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/process/worker-bootstrap.ts:dynamic-import",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/shared/git-churn.ts:node:child_process:dynamic-executable-execSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/shared/memory/retrieval/embeddings.ts:dynamic-import",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/shared/workflow/e2e-runner.mjs:node:child_process:dynamic-executable-execSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/tools/built-in-tools.ts:node:child_process:dynamic-executable-spawn",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/tools/concurrent/long-task-runner.ts:node:child_process:dynamic-executable-execFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/tools/concurrent/long-task-wrapper.mjs:node:child_process:dynamic-executable-spawn",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/workflow/forge/maintainer-cli.ts:node:child_process:dynamic-executable-spawn",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/workflow/harness-commands.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:src/workflow/promotion/context.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/benchmarks/coordination/migration-write-authority/repository-facts.mjs:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/benchmarks/security/s3-key-anchor-qualification/run-all.mjs:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:node:child_process:dynamic-executable-execFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/benchmark.mjs:node:child_process:dynamic-executable-execFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/core/coordination/migration-write-authority/effects.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-effect-unmodeled:verification/core/coordination/migration-write-authority/repository-facts.ts:node:child_process:dynamic-executable-spawnSync",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/conversation-study/build_manifest.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/conversation-study/build_work_units.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/conversation-study/review_digest.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/conversation-study/validate_failures_agent_b.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/editor-benchmark/analyze_history.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/editor-benchmark/validate_artifacts.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/production-methodology/v4.7.0/integration_test_manifest.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/read-only-adapter/fixtures/generate_fixtures.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/read-only-adapter/tests/test_adapter.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/sanitizer/opencode_analysis.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/sanitizer/test_v46.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/sanitizer/test_v46_acceptance.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/sanitizer/test_v46_lineage_v467.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/sanitizer/test_v46_properties.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/sanitizer/v46_public_verify.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-external-command-source-not-published:verification/benchmarks/historical-opencode/sanitizer/v46_test_manifest.py",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-import-cycle:src/kernel/errors.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-import-cycle:src/shared/dedup-compression/index.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-import-cycle:src/workflow/promotion/apply.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/awareness/languages/tree-sitter-base.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/git/worktree-port.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/memory/tool-result-retrieval.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/memory/unified/unified-embeddings.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/process/worker-bootstrap.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/quality-packs/prevention/esm-cjs-detector.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/quality/languages/shared/tree-sitter-loader.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/shared/memory/retrieval/embeddings.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-lexical-module-unmodeled:src/shared/outbound-http.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:scripts/tooling/artifact-manifest.ts:ArtifactManifestRefusal",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:scripts/tooling/test-run-lock.ts:TestRunLockError",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:scripts/verification/corpus.ts:CorpusError",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:scripts/verification/source-walk.ts:ScanUniverseError",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:src/shared/llm/errors.ts:LLMError",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:src/shared/llm/queue.ts:QueueOverflowError",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:src/shared/llm/queue.ts:QueueTimeoutError",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-local-errors-authority:src/shared/module-location.ts:EngineModuleResolutionError",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:ARCH-001-flat-physical-layout",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:CAP-001-runtime-capability-false-absence",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:COORD-001-concurrent-research-layout-move",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:COORD-002-implicit-default-root-write-effect",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:FOUNDATION-003-candidate-identity-conflated-content-and-git-state",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:FOUNDATION-004-execution-receipt-overwrite-and-race-gap",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:FOUNDATION-005-configuration-contract-duplicate-authority",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:FOUNDATION-006-universal-authority-graph-unavailable",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:FOUNDATION-008-content-addressed-evidence-production-admission-unavailable",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-open-blocking-finding:SEC-001-runbook-search-scope-exposure",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-pinned-process-internal-import-denied:src/git/worktree-port.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-realm-direction:src/workflow/harness-commands.ts->scripts/verification/architecture.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-realm-direction:src/workflow/module-registrar.ts->scripts/verification/architecture.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/agents/agent-runtime.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/agents/agent-runtime.ts->src/runtime/governed-tool-dispatch.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/agents/agent-runtime.ts->src/runtime/response-turn.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/agents/agent-type-background.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/bundle-entry.ts->src/cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/evaluation/index.ts->src/evaluation/scenario-runner.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/checkout-write-door.ts->src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/file-lock.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/file-lock.ts->src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/journaled-commit.ts->src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/linux-path.ts->src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/private-state.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/private-state.ts->src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/confined-run.ts->src/filesystem/private-state.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/confined-run.ts->src/filesystem/self-protection/guardian-binary.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/confined-run.ts->src/filesystem/self-protection/self-protection-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/confined-run.ts->src/process/environment-projection.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/confined-run.ts->src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/keep-out.ts->src/filesystem/database-files.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/keep-out.ts->src/filesystem/linux-path.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/keep-out.ts->src/filesystem/path-identity.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/keep-out.ts->src/filesystem/private-home.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/keep-out.ts->src/filesystem/user-folders.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/keep-out.ts->src/shared/debug/debug-system.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/key-home.ts->src/filesystem/atomic-write.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/key-home.ts->src/filesystem/database-files.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/key-home.ts->src/filesystem/path-identity.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/key-home.ts->src/filesystem/private-home.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/key-home.ts->src/filesystem/private-state.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/key-home.ts->src/filesystem/self-protection/self-protection-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/filesystem/self-protection/key-home.ts->src/shared/debug/debug-system.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/forensics/forensic-normalization.ts->src/shared/type-guards.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/forensics/forensic-projection.ts->src/shared/debug/debug-system.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/forensics/offline-contracts.ts->src/runtime/capability-negotiation.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/forensics/offline-contracts.ts->src/runtime/event-state.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/intelligence/farm-child.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/intelligence/farm-child.ts->src/runtime/cli-debug.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/intelligence/process-farm.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/agents/agent-type-registry.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/filesystem/path-boundary.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/filesystem/self-protection/self-protection-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/git/git-port.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/intelligence/intelligence-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/intelligence/retrieval.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/mcp/tool-name.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/memory/memory-types.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/performance/performance-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/privacy/classification-catalog.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/privacy/privacy-config-section.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/repository-path/contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/safety/safety-config-section.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/shared/debug/debug-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/shared/exposure/module-config-sections.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/shared/llm/config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/shared/llm/provider-endpoint.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/shared/llm/responses.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/shared/outbound-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/shared/run-history.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-contracts.ts->src/workflow/forge/forge-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config-write-lock.ts->src/filesystem/file-lock.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config.ts->src/filesystem/link-containment.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config.ts->src/filesystem/linux-path.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config.ts->src/shared/identity.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/config.ts->src/shared/source-scan.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/errors.ts->src/shared/debug/debug-system.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/execution-closure.ts->src/shared/best-effort.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/execution-closure.ts->src/timeline/ledger-primitives.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/preflight.ts->src/filesystem/link-containment.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/preflight.ts->src/filesystem/linux-path.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/preflight.ts->src/filesystem/path-boundary.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/preflight.ts->src/privacy/data-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/preflight.ts->src/shared/identity.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/protocol-projections.ts->src/shared/json-pointer.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/protocol-projections.ts->src/shared/type-guards.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/requirements.ts->src/privacy/secret-signals.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/root-policy.ts->src/privacy/classification-catalog.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/schema-subset.ts->src/shared/debug/debug-system.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/schema-subset.ts->src/shared/json-pointer.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/schema-subset.ts->src/shared/type-guards.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/test-surface-manifest.ts->src/filesystem/path-boundary.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/kernel/test-surface-manifest.ts->src/shared/source-scan.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/mcp/config.ts->src/process/environment-projection.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/mcp/core.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/mcp/tool-adapter.ts->src/tools/tool-adapter.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/mcp/transport/helpers.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/mcp/transport/stdio.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/mcp/transport/streamable-http.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/mcp/transport/websocket.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/performance/index.ts->src/performance/benchmark-runner.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/performance/index.ts->src/performance/diagnostic-modes.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/quality-packs/typescript-pack.ts->src/quality-packs/prevention/index.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/repository-path/logical.ts->src/runtime/runtime-capabilities.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/runtime/governed-tool-dispatch.ts->src/safety/tool-call-gate.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/runtime/harness-bootstrap.ts->src/timeline/timeline-recorder.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/runtime/harness-bootstrap.ts->src/workflow/workspace-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/abort-signals.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/index.ts->src/safety/safety-config-section.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/module-config-sections.ts->src/process/environment-projection.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/registrations/awareness.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/registrations/editor.ts->src/editor/transactional-editor.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/registrations/harness-commands.ts->src/workflow/workflow-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/registrations/process.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/registrations/safety.ts->src/safety/tool-call-gate.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/registrations/test-execution.ts->src/workflow/workflow-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/exposure/registrations/workspace-git.ts->src/workflow/workflow-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/llm/client.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/llm/provider-http.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/llm/queue.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/outbound-http.ts->src/process/environment-projection.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/outbound-http.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/outbound-http.ts->src/process/live-network.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/run-cpu.ts->src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/shared/run-cpu.ts->src/workflow/workflow-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/tools/concurrent/dispatcher.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/tools/concurrent/long-task-runner.ts->src/process/environment-projection.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/tools/concurrent/long-task-wrapper.mjs->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/tools/concurrent/long-task-wrapper.mjs->src/runtime/cli-debug.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/tools/concurrent/worker-pool.ts->src/process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/tools/concurrent/worker-pool.ts->src/process/worker-bootstrap.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/workflow/auto-generator.ts->src/workflow/command-result.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/workflow/harness-commands.ts->scripts/verification/architecture.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/workflow/hash-binding-registry.ts->src/workflow/byte-pin-objects.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/workflow/module-registrar.ts->scripts/verification/architecture.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/workflow/module-registrar.ts->src/workflow/command-result.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:src/workflow/resource-lock.ts->src/workflow/workflow-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:verification/core/coordination/migration-write-authority/authority.ts->verification/core/coordination/migration-write-authority/internal.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "architecture-reverse-layer:verification/core/coordination/migration-write-authority/recovery.ts->verification/core/coordination/migration-write-authority/internal.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-2F934CFA3EFE:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-52652B12AA53:docs/research/git/qualification/sources.lock.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-641071D1A21D:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-6E03CFB9AE05:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-84D7CC2EA0A5:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-BBA555927558:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-C2DDF58CA600:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-D239EBEDD734:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-E2E2662BA7C2:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-provenance-link-missing:ART-EA7CBCE32D90:docs/research/context/qualification/manifest.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-rejection-replacement-missing:REJ-1EC403E67A06:traceability/evidence/research/storage/s4-storage-qualification/artifacts/qualification-results.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-rejection-replacement-missing:REJ-9240CDE361C5:docs/research/git/qualification/sources.lock.json",
+      "reason": "#563"
+    },
+    {
+      "key": "artifact-rejection-replacement-missing:REJ-BA95013D5275:traceability/evidence/research/code-intelligence/measured-summary.json",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:filesystem/checkout-write-door.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:filesystem/private-home.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:filesystem/user-folders.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:kernel/config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:process/live-network.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:scripts/tooling/coverage.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:shared/dev-mode-env.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:shared/outbound-http.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:workflow/forge/credentials.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:workflow/harness-commands.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-acquisition-unmodeled:workflow/promotion/last-run.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:filesystem/checkout-write-door.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:filesystem/private-home.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:filesystem/self-protection/confined-run.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:filesystem/user-folders.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:git/repository-ownership.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:git/worktree-port.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:kernel/config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:process/live-network.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:scripts/exp409/run-escalate.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:scripts/exp409/sweep.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:scripts/exp435/compare.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:scripts/tooling/compile-cache.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:scripts/tooling/coverage.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:scripts/tooling/run-tests.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:scripts/tooling/test-guards.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:shared/dev-mode-env.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:shared/outbound-http.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:shared/run-cpu.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:shared/source-scan.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:shared/workflow/e2e-runner.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:tools/concurrent/long-task-runner.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:tools/concurrent/long-task-wrapper.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/checkout-setup.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/flake-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/forge/credentials.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/forge/maintainer-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/harness-commands.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/promotion/context.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/promotion/last-run.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/promotion/promoter-home.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/promotion/trigger.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "environment-configuration-source:workflow/slot-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/concurrent/worker-handlers.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/tooling/compile-cache.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/tooling/run-tests.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/tooling/test-execution.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/tooling/verification/guard-dossier.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/authority/exceptions.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/authority/shared.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/corpus-root.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/corpus.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/effect-surface.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/gitignore-anchoring.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/licence-boundary.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/ratchet-baselines.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/ratchet.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/slice-declarations.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/slice-projection-captured-values.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/slice-source-contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/staged-move-loss.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:scripts/verification/tracker-entries.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/agents/agent-type-background.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/agents/agent-type-call-return.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/awareness/config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/awareness/languages/index.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/awareness/types.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/editor/edit-operations.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/evaluation/matrix-generator.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/evaluation/scenarios.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/extensions/extension-manifest.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/extensions/extension-validation.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/filesystem/file-lock.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/filesystem/persisted-key.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/filesystem/private-state.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/filesystem/self-protection/self-protection-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/filesystem/self-protection/self-protection-contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/forensics/forensic-contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/forensics/offline-contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/forensics/offline-forensics.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/git/git-port.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/git/worktree-port.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/intelligence/intelligence-types.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/intelligence/process-farm.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/intelligence/repository-map.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/config-contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/execution-closure.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/integrity.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/language-extensions.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/requirements.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/root-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/test-surface-manifest.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/kernel/web-performance-budgets.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/mcp/config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/mcp/core.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/mcp/tool-name.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/memory/memory-types.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/modules/effect-boundary/domain/write-lease.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/performance/benchmark-runner.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/performance/diagnostic-modes.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/performance/function-manifest.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/performance/performance-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/privacy/encrypted-field.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/privacy/held-set.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/privacy/pii-registry.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/privacy/privacy-config-section.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/privacy/privacy-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/privacy/secret-signals.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/process/environment-projection.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/quality-packs/bug-zoo.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/quality-packs/quality-pack.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/repository-path/contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/runtime/sse-parser.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/safety/bandaid-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/self-improving/config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/self-improving/llm-boundary.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/self-improving/workflow-improver.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/debug/debug-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/awareness.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/bias.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/context.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/editor.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/hallucination.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/learning.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/memory.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/quality.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/safety.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/search.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registrations/tools.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/exposure/registry.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/flake-reproduction.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/llm/responses-endpoints.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/llm/responses.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/memory/memory-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/memory/retrieval/text-utils.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/outbound-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/shared/run-history.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/timeline/ledger-primitives.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/timeline/timeline-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/timeline/timeline-schema.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/timeline/timeline-types.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/tools/tool-manifest.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/auto-generator.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/command-result.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/evidence-store.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/flaky-burn-down.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/forge/live-state.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/forge/projector/model.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/forge/projector/roadmap-feed.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/harness-commands.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/hash-binding-registry.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/module-registrar.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/promotion/trigger-hook.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/resource-lock.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/test-result-collector.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/workflow-config.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-export-unmodeled:src/workflow/workspace-contracts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp409/sweep.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp435/compare.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp438/plant-babel.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp445/run-exp445.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp446/run-llm-usefulness.mts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp452/run-exp452.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp456/run-exp456.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/exp462/run-llm-usefulness-10x.mts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/regenerate-handoff-manifest.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/tooling/artifact-manifest.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/tooling/flake-reproduction-reporter.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/tooling/verification/prevention-review.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/authority/exceptions.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/authority/occurrence-selectors.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/authority/registry-runtime.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/authority/shared.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/authority/typescript-adapter.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/corpus.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/declared-universe.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/guardian-spec-artifact.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:scripts/verification/ratchet-baselines.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/agents/agent-state.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/agents/workspace-peek.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/evaluation/matrix-generator.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/evaluation/results-writer.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/evaluation/scenario-runner.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/filesystem/durable-filesystem-internal.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/filesystem/private-directory-create-worker.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/filesystem/self-protection/keep-out.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/intelligence/tree-sitter-backend.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/mcp/core.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/memory/memory-store.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/memory/unified/drift-detector.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/performance/benchmark-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/process/process-facts.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/quality/languages/semantic-form.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/admitted-node-runtime.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/agent-tools.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/extension-tools.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/git-tools.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/intelligence-tools.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/interactive-session.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/orchestrator-tools.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/runtime/tool-registry.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/shared/exposure/reporter.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/shared/llm/failover.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/shared/llm/responses-tracking.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/shared/run-history.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/shared/workflow/e2e-runner.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/timeline/effect-documents.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/timeline/ledger-dig.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/timeline/recording-context.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/timeline/rollback.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/timeline/timeline-recorder.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/tools/built-in-tools.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/tools/concurrent/dispatcher.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/tools/concurrent/long-task-wrapper.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/evidence-store.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/forge/app-keys.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/forge/credentials.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/promotion/promoter-home.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/promotion/release-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/promotion/transforms.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/record-links.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "governed-sink-unmodeled:src/workflow/timeline-shard.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "lock-dependency-missing:@xenova/transformers",
+      "reason": "#563"
+    },
+    {
+      "key": "module-acquisition-unmodeled:process/worker-bootstrap.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "nonliteral-module-load:src/quality-packs/prevention/esm-cjs-detector.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "nonliteral-module-load:src/quality/languages/shared/tree-sitter-loader.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "nonliteral-module-load:src/shared/memory/retrieval/embeddings.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "package-development-dependencies",
+      "reason": "#563"
+    },
+    {
+      "key": "package-runtime-dependencies",
+      "reason": "#563"
+    },
+    {
+      "key": "package-runtime-range-policy",
+      "reason": "#563"
+    },
+    {
+      "key": "package-script-surface",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:filesystem/checkout-write-door.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:filesystem/file-lock.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:filesystem/private-state.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:filesystem/self-protection/keep-out.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:intelligence/farm-child.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:process/fault-policy.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:process/supervised-run.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:runtime/runtime-capabilities.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:scripts/tooling/coverage.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:scripts/tooling/inventory-test-run.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:scripts/tooling/network-under-test-guard.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:shared/outbound-http.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:shared/workflow/e2e-runner.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:tools/concurrent/long-task-wrapper.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:workflow/forge/cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:workflow/promotion/release-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "process-member-unmodeled:workflow/promotion/trigger.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "production-dependency-denied:undici",
+      "reason": "#563"
+    },
+    {
+      "key": "production-dependency-denied:web-tree-sitter",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/atomic-write.ts:fchmodSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/atomic-write.ts:fsyncSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/atomic-write.ts:linkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/atomic-write.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/atomic-write.ts:renameSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/atomic-write.ts:unlinkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/checkout-write-door.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/file-lock.ts:renameSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/file-lock.ts:unlinkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/journaled-commit.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/journaled-commit.ts:renameSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/journaled-commit.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/move-path.ts:cpSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/move-path.ts:renameSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/move-path.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/path-identity.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/private-home.ts:chmodSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/private-home.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/private-state.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/private-state.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/self-protection/confined-run.ts:writeFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/self-protection/guardian-binary.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/self-protection/guardian-binary.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/self-protection/guardian-binary.ts:writeFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/self-protection/key-home.ts:chmodSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/self-protection/key-home.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:filesystem/self-protection/key-home.ts:unlinkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/declared-deletions.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/index-baseline.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:chmodSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:copyFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:renameSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:symlinkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:utimesSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:git/working-copy.ts:writeFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:intelligence/process-farm.ts:kill",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:mcp/transport/stdio.ts:kill",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:memory/scale/memory-store-1b.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:memory/scale/memory-store-1b.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:memory/unified/content-store.ts:unlinkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:process/process-facts.ts:kill",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:process/process-facts.ts:writeFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:process/supervised-run.ts:kill",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:shared/abort-signals.ts:abort",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:shared/exposure/registrations/editor.ts:unlinkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:shared/memory/shared-memory-store.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:shared/outbound-http.ts:abort",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/checkout-setup.ts:appendFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/checkout-setup.ts:chmodSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/checkout-setup.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/checkout-setup.ts:symlinkSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/community/health-files.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/community/health-files.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/flake-cli.ts:abort",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/flake-cli.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/flake-cli.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/forge/generated-files.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/forge/projector/confined.ts:link",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/promotion/apply.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/promotion/last-run.ts:rmSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/promotion/promotion-run.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/promotion/release-assets.ts:copyFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/promotion/release-assets.ts:mkdirSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/promotion/release-assets.ts:writeFileSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/promotion/transforms.ts:utimesSync",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-api:workflow/workspace-cli.ts:abort",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:async_hooks",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:dns/promises",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:fs/promises",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:http",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:module",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:net",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:string_decoder",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-builtin:node:zlib",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-sink-unmodeled:safety/bias-detector.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "production-effect-sink-unmodeled:timeline/provider-recording.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "production-graph-incomplete-or-extra",
+      "reason": "#563"
+    },
+    {
+      "key": "production-relative-import-denied:../shared/constants.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "production-relative-import-denied:../shared/markdown.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "production-relative-import-denied:../shared/markup.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "production-relative-import-denied:guardian/build.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "production-relative-import-denied:scripts/verification/architecture.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "s2-contract-identity-mismatch",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-product-boundary-reference:src/kernel/architecture-external-commands.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-product-boundary-reference:test/research/README.md",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-product-boundary-reference:test/research/opencode-history-analysis.test.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-product-boundary-reference:test/workspaces/fixtures/v2-records/merged-feature-receipt.json",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-product-boundary-reference:traceability/flake-reproductions/b7ebdc038b662928fbf41434.json",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-product-boundary-reference:traceability/flake-reproductions/f59bbc198abe83202330c35a.json",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-product-boundary-reference:traceability/prevention/prevention-retrospective.json",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:scripts/commit-guard.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:scripts/tooling/verification/command-effect-inventory.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:scripts/verification/consumer-plants.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/filesystem/self-protection/confined-run.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/filesystem/self-protection/guardian-binary.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/git/tree-reader.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/intelligence/process-farm.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/mcp/transport/stdio.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/process/supervised-run.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/shared/git-churn.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/shared/workflow/e2e-runner.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/tools/concurrent/long-task-runner.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/tools/concurrent/long-task-wrapper.mjs",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/workflow/forge/maintainer-cli.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/workflow/harness-commands.ts",
+      "reason": "#563"
+    },
+    {
+      "key": "standalone-runtime-sink-unmodeled:src/workflow/promotion/context.ts",
+      "reason": "#563"
+    }
+  ]
+}

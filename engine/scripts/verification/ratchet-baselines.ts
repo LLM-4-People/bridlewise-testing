@@ -137,7 +137,7 @@ function webUnhandledCatchFindings(repositoryRoot: string): readonly RatchetFind
 const ARCHITECTURE_JUDGE_INSTRUMENT = "engine/scripts/tooling/s1-verification.ts";
 
 /** Every finding of the engine's structural judge (S1 over the census), each as its own key. */
-export function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFinding[] {
+function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFinding[] {
   const instrument = join(repositoryRoot, ARCHITECTURE_JUDGE_INSTRUMENT);
   if (!existsSync(instrument)) {
     throw new InputError(`the architecture judge's instrument ${ARCHITECTURE_JUDGE_INSTRUMENT} is not in this tree, but its baseline is: the judge cannot run`, "ratchet_instrument_absent");
@@ -153,6 +153,7 @@ const SCANS: Readonly<Record<string, RatchetBaselineSpec["findings"]>> = Object.
   "inline-literal-defaults": inlineLiteralDefaultFindings,
   "web-unhandled-catch": webUnhandledCatchFindings,
   "dead-markdown-links": deadMarkdownLinks,
+  "architecture-judge": architectureJudgeFindings,
 });
 
 /**

@@ -2319,6 +2319,23 @@ function parseArguments(argv: readonly string[]): Readonly<{ root: string; attem
   return { root: argv[1], attemptId: argv[3] };
 }
 
+/**
+ * THE FINDINGS THAT JUDGE A TEST RUN, NOT THE TREE: each reads the test-run
+ * inventory (`VERIFICATION_PATHS.testInventory`, a cache a run writes, ignored
+ * and never committed, #221), so the same tree answers differently with and
+ * without a local run (measured: the commit guard's staged tree, which has no
+ * run, reported all five; this worktree, after a run, none). They stay judged
+ * where they belong — S1 over a receipted run — and the structure door reports
+ * them apart (`runEvidence`), by name, never silently.
+ */
+const RUN_EVIDENCE_FINDINGS: readonly string[] = Object.freeze([
+  "test-inventory-invalid-or-incomplete",
+  "s2-test-inventory-unavailable",
+  "s2.4-test-inventory-unavailable",
+  "s3.1-test-inventory-unavailable",
+  "s2-behavior-test-missing",
+]);
+
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
   // `--root . --structure`: the structural judge alone (no receipt), every finding as one sorted list — the
@@ -2326,7 +2343,9 @@ if (isEntryPoint(import.meta.url)) {
   // so the shipped ratchet never imports this testing-floor module.
   const argv = process.argv.slice(2);
   if (argv.length === 3 && argv[0] === "--root" && argv[1] === "." && argv[2] === "--structure") {
-    process.stdout.write(`${canonicalJson({ violations: verifyS1Structure(".").violations })}\n`);
+    const all = verifyS1Structure(".").violations;
+    const isRunEvidence = (violation: string): boolean => RUN_EVIDENCE_FINDINGS.includes(violation.split(":")[0]!);
+    process.stdout.write(`${canonicalJson({ violations: all.filter((violation) => !isRunEvidence(violation)), runEvidence: all.filter(isRunEvidence) })}\n`);
   } else try {
     const input = parseArguments(argv);
     const receipt = loadTestResultFromExecution(configuredExecutionAuthority().receipt, input.attemptId);
