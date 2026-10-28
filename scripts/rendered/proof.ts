@@ -157,6 +157,7 @@ const PLANTS: readonly Plant[] = [
   { name: "a month input's text", body: '<input type="month" value="2026-10" style="font-family: Georgia">', rule: "font-families" },
   { name: "a week input's text", body: '<input type="week" value="2026-W44" style="font-family: Georgia">', rule: "font-families" },
   { name: "a file input's label", body: '<input type="file" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a picture button with no picture (drawn as its alt text)", body: '<input type="image" alt="Send the run" style="font-family: Georgia">', rule: "font-families" },
   { name: "an empty text field (it draws what is typed)", body: '<input type="text" style="font-family: Georgia">', rule: "font-families" },
   { name: "generated ::before content", head: '<style>#prose::before { content: "→ "; font-family: Georgia }</style>', rule: "font-families" },
   { name: "a finite animation in a shadow root", body: `<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes late { to { font-family: Georgia } } p { animation: late 1ms 6s forwards }</style><p>shadow text</p>"</script>`, rule: "font-families" },
