@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -21,7 +21,11 @@ import { pathToFileURL } from "node:url";
 import { createTempDir } from "../support/temp-dir.ts";
 import {
   pruneCompileCache,
+  parsePruneStamp,
+  PRUNE_STAMP_MALFORMED,
   pruneCompileCacheAtEnablement,
+  pruneStamp,
+  pruneStampText,
   pruneSummary,
   type CompileCachePruningPolicy,
 } from "../../scripts/tooling/compile-cache.ts";
@@ -123,7 +127,7 @@ test("compile-cache bound: at enablement, at most one prune per interval (a stam
   assert.ok(first?.line.startsWith("prune: 1 of 1 entries"), first?.line);
   assert.ok(existsSync(join(root, ".last-prune")), "the prune stamps the root");
   plant(version, "abandoned-again", 1, NOW - 100 * HOUR);
-  assert.equal(pruneCompileCacheAtEnablement(POLICY, root, Date.now()), null, "within the interval, no second prune");
+  assert.equal(pruneCompileCacheAtEnablement(POLICY, root, NOW + 1_000), null, "within the interval, no second prune");
   assert.deepEqual(readdirSync(version), ["abandoned-again"]);
   const notADirectory = join(createTempDir("cc-file-root-"), "a-file");
   writeFileSync(notADirectory, "x");
@@ -155,4 +159,35 @@ test("compile-cache bound: the ENABLER prunes, reports through the logger on STD
   });
   assert.equal(failed.stdout, "");
   assert.ok(failed.stderr.includes("PRUNE FAILED, the cache is NOT bounded this time"), failed.stderr);
+});
+
+test("compile-cache bound: the prune stamp is ONE typed record — written by its one writer, read back field by field — and a malformed stamp is a typed refusal, never a substring guess", () => {
+  assert.deepEqual(parsePruneStamp(pruneStampText(pruneStamp(NOW, true))), { schema: "compile-cache-prune-stamp/1", prunedAtMs: NOW, workLeft: true });
+  assert.deepEqual(parsePruneStamp(pruneStampText(pruneStamp(NOW, false))), { schema: "compile-cache-prune-stamp/1", prunedAtMs: NOW, workLeft: false });
+  const refused = (text: string, why: string) => {
+    assert.throws(() => parsePruneStamp(text), (error: unknown) => {
+      assert.equal((error as { code?: unknown }).code, PRUNE_STAMP_MALFORMED);
+      assert.ok((error as Error).message.includes(`is malformed: ${why}.`), (error as Error).message);
+      return true;
+    });
+  };
+  // The pre-record text form: its "work-left" word is NOT read as a field.
+  refused("2026-10-28T12:00:00.000Z work-left\n", "not JSON");
+  refused("[]", "not a JSON object");
+  refused("null", "not a JSON object");
+  refused(JSON.stringify({ schema: "compile-cache-prune-stamp/1", prunedAtMs: NOW }), "its fields are [prunedAtMs, schema], not [prunedAtMs, schema, workLeft]");
+  refused(JSON.stringify({ schema: "compile-cache-prune-stamp/1", prunedAtMs: NOW, workLeft: true, note: "work-left" }), "its fields are [note, prunedAtMs, schema, workLeft], not [prunedAtMs, schema, workLeft]");
+  refused(JSON.stringify({ schema: "compile-cache-prune-stamp/2", prunedAtMs: NOW, workLeft: true }), "its schema is not compile-cache-prune-stamp/1");
+  refused(JSON.stringify({ schema: "compile-cache-prune-stamp/1", prunedAtMs: "now", workLeft: true }), "prunedAtMs is not a finite, non-negative instant");
+  refused(JSON.stringify({ schema: "compile-cache-prune-stamp/1", prunedAtMs: -1, workLeft: true }), "prunedAtMs is not a finite, non-negative instant");
+  refused(JSON.stringify({ schema: "compile-cache-prune-stamp/1", prunedAtMs: NOW, workLeft: "work-left" }), "workLeft is not a boolean");
+  // At enablement: the stamp the prune wrote is that record, and a malformed one refuses the prune (the enabler says PRUNE FAILED).
+  const { root, version } = cacheRoot("cc-stamp-");
+  plant(version, "abandoned", 1, NOW - 100 * HOUR);
+  pruneCompileCacheAtEnablement(POLICY, root, NOW);
+  assert.deepEqual(parsePruneStamp(readFileSync(join(root, ".last-prune"), "utf8")), { schema: "compile-cache-prune-stamp/1", prunedAtMs: NOW, workLeft: false });
+  writeFileSync(join(root, ".last-prune"), "2026-10-28T12:00:00.000Z work-left\n");
+  plant(version, "abandoned-again", 1, NOW - 100 * HOUR);
+  assert.throws(() => pruneCompileCacheAtEnablement(POLICY, root, NOW + 1_000), (error: unknown) => (error as { code?: unknown }).code === PRUNE_STAMP_MALFORMED);
+  assert.deepEqual(readdirSync(version), ["abandoned-again"], "a refused stamp prunes nothing on a guess");
 });

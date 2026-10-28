@@ -2,6 +2,8 @@ import { mkdirSync, opendirSync, readdirSync, readFileSync, statSync, unlinkSync
 import { enableCompileCache, getCompileCacheDir } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
+import { InputError } from "../../src/kernel/errors.ts";
+import { parseJsonExact } from "../../src/kernel/json-integrity.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { debugLog, reportAlwaysOn } from "../../src/shared/debug/debug-system.ts";
 import { userCacheFolder } from "../../src/filesystem/user-folders.ts";
@@ -339,9 +341,52 @@ export function pruneCompileCache(root: string, policy: CompileCachePruningPolic
   };
 }
 
-/** The stamp in the cache root: its mtime is the last prune's instant; its text says whether work was left. */
+/** The stamp in the cache root: one typed record of the last prune. */
 const PRUNE_STAMP = ".last-prune";
-const WORK_LEFT = "work-left";
+const PRUNE_STAMP_SCHEMA = "compile-cache-prune-stamp/1";
+
+/** The last prune, as its stamp records it: when it ran, and whether it left prunable entries behind. */
+export type CompilePruneStamp = Readonly<{ schema: typeof PRUNE_STAMP_SCHEMA; prunedAtMs: number; workLeft: boolean }>;
+
+/** The code of a stamp that is not a {@link CompilePruneStamp}. */
+export const PRUNE_STAMP_MALFORMED = "compile_cache_prune_stamp_malformed";
+
+/**
+ * THE STAMP, parsed and checked field by field: exactly `schema`,
+ * `prunedAtMs` (a finite, non-negative instant) and `workLeft` (a boolean).
+ * Anything else is a typed refusal ({@link PRUNE_STAMP_MALFORMED}), never a
+ * guess: a stamp nobody can read cannot say whether work was left.
+ */
+export function parsePruneStamp(text: string): CompilePruneStamp {
+  const refuse = (why: string): never => {
+    throw new InputError(
+      `the compile cache's prune stamp (${PRUNE_STAMP} in the cache root) is malformed: ${why}. ` +
+      `It is the record of the last prune; remove it and the next enabler prunes and writes a well-formed one.`,
+      PRUNE_STAMP_MALFORMED,
+    );
+  };
+  const parsed = parseJsonExact(text);
+  if (parsed === undefined) return refuse("not JSON");
+  const record = parsed.value;
+  if (typeof record !== "object" || record === null || Array.isArray(record)) return refuse("not a JSON object");
+  const keys = Object.keys(record).sort();
+  if (keys.join(",") !== "prunedAtMs,schema,workLeft") return refuse(`its fields are [${keys.join(", ")}], not [prunedAtMs, schema, workLeft]`);
+  const { schema, prunedAtMs, workLeft } = record as Record<string, unknown>;
+  if (schema !== PRUNE_STAMP_SCHEMA) return refuse(`its schema is not ${PRUNE_STAMP_SCHEMA}`);
+  if (typeof prunedAtMs !== "number" || !Number.isFinite(prunedAtMs) || prunedAtMs < 0) return refuse("prunedAtMs is not a finite, non-negative instant");
+  if (typeof workLeft !== "boolean") return refuse("workLeft is not a boolean");
+  return { schema, prunedAtMs, workLeft };
+}
+
+/** The stamp of a prune at `prunedAtMs` that did or did not leave work. */
+export function pruneStamp(prunedAtMs: number, workLeft: boolean): CompilePruneStamp {
+  return { schema: PRUNE_STAMP_SCHEMA, prunedAtMs, workLeft };
+}
+
+/** A stamp's text: the one writer {@link parsePruneStamp} reads. */
+export function pruneStampText(stamp: CompilePruneStamp): string {
+  return `${JSON.stringify(stamp)}\n`;
+}
 
 /** What a prune did, in words, and whether that is a condition to report loudly. */
 export function pruneSummary(result: CompileCachePruneResult, policy: CompileCachePruningPolicy): Readonly<{ line: string; loud: boolean }> {
@@ -363,12 +408,11 @@ export function pruneSummary(result: CompileCachePruneResult, policy: CompileCac
  * the interval has not passed and no work was left.
  */
 export function pruneCompileCacheAtEnablement(policy: CompileCachePruningPolicy, root: string = COMPILE_CACHE_DIRECTORY, nowMs: number = Date.now()): ReturnType<typeof pruneSummary> | null {
-  const stamp = join(root, PRUNE_STAMP);
-  const last = statSync(stamp, { throwIfNoEntry: false });
-  const workWasLeft = last !== undefined && readFileSync(stamp, "utf8").includes(WORK_LEFT);
-  if (last !== undefined && !workWasLeft && nowMs - last.mtimeMs < policy.intervalMinutes * 60_000) return null;
+  const stampPath = join(root, PRUNE_STAMP);
+  const last = statSync(stampPath, { throwIfNoEntry: false }) === undefined ? undefined : parsePruneStamp(readFileSync(stampPath, "utf8"));
+  if (last !== undefined && !last.workLeft && nowMs - last.prunedAtMs < policy.intervalMinutes * 60_000) return null;
   const result = pruneCompileCache(root, policy, nowMs);
-  writeFileSync(stamp, `${new Date(nowMs).toISOString()}${result.workLeft ? ` ${WORK_LEFT}` : ""}\n`);
+  writeFileSync(stampPath, pruneStampText(pruneStamp(nowMs, result.workLeft)));
   return pruneSummary(result, policy);
 }
 
