@@ -1,0 +1,57 @@
+name: DIAGNOSTIC boundary probe (#293 follow-up, never merged)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe Landlock and a locked read-only bind on the hosted runner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Kernel, Landlock ABI and user-namespace policy
+        run: |
+          uname -r
+          python3 -c "import ctypes,os; libc=ctypes.CDLL(None,use_errno=True); abi=libc.syscall(444,None,0,1); print('landlock ABI', abi, '' if abi>=0 else os.strerror(ctypes.get_errno()))"
+          echo "apparmor_restrict_unprivileged_userns=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
+          echo "max_user_namespaces=$(cat /proc/sys/user/max_user_namespaces)"
+          command -v unshare && unshare --version
+
+      - name: Locked read-only bind of the checkout, with the image's default policy
+        run: |
+          probe() {
+            unshare -Urm sh -c "mount --bind '$PWD' '$PWD' && mount -o remount,bind,ro '$PWD' && unshare -Urm sh -c '
+              cd \"$PWD\"
+              chmod 600 engine/bridlewise.config.json; echo chmod=\$?
+              touch -a engine/bridlewise.config.json; echo utime=\$?
+              echo x >> engine/bridlewise.config.json; echo write=\$?
+              mkdir probe-dir; echo mkdir=\$?
+              mount -o remount,bind,rw \"$PWD\"; echo remount_rw=\$?
+              umount \"$PWD\"; echo umount=\$?
+              echo y > \"\${TMPDIR:-/tmp}/probe-outside\"; echo write_outside=\$?
+            '" 2>&1
+          }
+          probe || echo "probe exit $?"
+          stat -c 'config mode=%a ctime=%.Z' engine/bridlewise.config.json
+
+      - name: The same, after the engine job's own sysctl step
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          stat -c 'config before mode=%a ctime=%.Z' engine/bridlewise.config.json
+          unshare -Urm sh -c "mount --bind '$PWD' '$PWD' && mount -o remount,bind,ro '$PWD' && unshare -Urm sh -c '
+            cd \"$PWD\"
+            chmod 600 engine/bridlewise.config.json; echo chmod=\$?
+            touch -a engine/bridlewise.config.json; echo utime=\$?
+            echo x >> engine/bridlewise.config.json; echo write=\$?
+            mkdir probe-dir; echo mkdir=\$?
+            mount -o remount,bind,rw \"$PWD\"; echo remount_rw=\$?
+            umount \"$PWD\"; echo umount=\$?
+            echo y > \"\${RUNNER_TEMP}/probe-outside\"; echo write_outside=\$?
+          '" 2>&1 || echo "probe exit $?"
+          stat -c 'config after mode=%a ctime=%.Z' engine/bridlewise.config.json
