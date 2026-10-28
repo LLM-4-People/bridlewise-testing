@@ -4437,7 +4437,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-run-cpu", path: "src/shared/run-cpu.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 16, namesSha256: "2619fc0c3294894aff49068c892bc4ab41f7cce32f42e3ca9ee993bc9af8dcaf" },
+      owner: "shared-abort-signals", publicApi: { exportCount: 13, namesSha256: "cc71b67886096dc895e7f1cdae53aa644201662fe6641080768e5572dbad9281" },
       dependencies: ["node:child_process","src/kernel/errors.ts","src/process/process-facts.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({

@@ -234,13 +234,16 @@ let probedTickMs: number | undefined;
 
 /**
  * The step this thread's CPU reading moves in (the scheduler tick), PROBED
- * on this host once per process: the largest of three steps seen while
- * spinning. Never a constant: HZ is a kernel build choice.
+ * on this host once per process: the LARGEST of sixteen steps seen while
+ * spinning. Never a constant: HZ is a kernel build choice. The largest, not
+ * a typical one: the reading also moves at a context switch, by less than a
+ * tick (measured: a 0.3 ms step on a 1 ms-tick host under load), and an
+ * underestimated tick would leave a sample short of the ticks it needs.
  */
 export function threadCpuTickMs(): number {
   if (probedTickMs !== undefined) return probedTickMs;
   let largest = 0;
-  for (let step = 0; step < 3; step += 1) {
+  for (let step = 0; step < 16; step += 1) {
     const from = threadCpuWorkMs();
     let to = from;
     while (to === from) to = threadCpuWorkMs();
@@ -251,9 +254,9 @@ export function threadCpuTickMs(): number {
 }
 
 /** How many ticks one sample of {@link cpuWorkOf} spans at least: the reading's error is then at most one tick in this many. */
-export const CPU_WORK_MIN_TICKS = 8;
+const CPU_WORK_MIN_TICKS = 8;
 /** The most calls one sample makes when the code does almost nothing: its per-call error is then at most a tick over this many. */
-export const CPU_WORK_MAX_CALLS = 64;
+const CPU_WORK_MAX_CALLS = 64;
 
 /**
  * THE CPU WORK OF ONE CALL OF `fn`, in ms (NO-LOAD-BLOCK), for a
@@ -280,26 +283,6 @@ export function cpuWorkOf(fn: (call: number) => void, samples = 1): number {
     let spent = 0;
     while (calls === 0 || (spent < enough && calls < CPU_WORK_MAX_CALLS)) {
       fn(call);
-      call += 1;
-      calls += 1;
-      spent = threadCpuWorkMs() - start;
-    }
-    least = Math.min(least, spent / calls);
-  }
-  return least;
-}
-
-/** {@link cpuWorkOf} for code that awaits (a render that settles, a stubbed fetch): what awaiting costs is waiting, never counted. */
-export async function cpuWorkOfAsync(fn: (call: number) => Promise<void>, samples = 1): Promise<number> {
-  const enough = CPU_WORK_MIN_TICKS * threadCpuTickMs();
-  let least = Number.POSITIVE_INFINITY;
-  let call = 0;
-  for (let sample = 0; sample < samples; sample += 1) {
-    const start = threadCpuWorkMs();
-    let calls = 0;
-    let spent = 0;
-    while (calls === 0 || (spent < enough && calls < CPU_WORK_MAX_CALLS)) {
-      await fn(call);
       call += 1;
       calls += 1;
       spent = threadCpuWorkMs() - start;
