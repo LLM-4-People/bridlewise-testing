@@ -10,7 +10,8 @@ import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations } from "../
 import { differences, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { codeownersFile, dependabotEntryViolations, dependabotFile, dependabotUpdates, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
-import { looseningOf } from "../../src/workflow/forge/strictness.ts";
+import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
+import { TRACKER_ITEM_TYPES } from "../../src/workflow/failure-owners.ts";
 import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
 import { join } from "node:path";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
@@ -64,9 +65,14 @@ test("the declarations: every object once, in apply order, with the plan's unava
   assert.ok(objects.some((entry) => entry.kind === "label" && entry.key === "area:engine"));
   assert.ok(objects.some((entry) => entry.kind === "label" && entry.key === "lane:gh-1"));
   for (const form of SOURCES.intake.issueForms) assert.ok(FORGE_ISSUE_TYPES.some((type) => type.name === form.type), `the ${form.type} form type is in the registry`);
-  for (const name of ["Workstream", "Flake", "Lesson", "Bug", "Task"]) assert.ok(objects.some((entry) => entry.kind === "issue-type" && entry.key === name), name);
-  assert.deepEqual((find(objects, "issue-field", "Area").desired as { options: { name: string }[] }).options.map((option) => option.name), ["engine", "docs"]);
-  assert.equal((find(objects, "issue-field", "Severity").desired as { visibility: string }).visibility, "all");
+  // The issue types are the tracker's one list (Milestone included: the projector writes it).
+  assert.deepEqual(objects.filter((entry) => entry.kind === "issue-type").map((entry) => entry.key), [...TRACKER_ITEM_TYPES]);
+  // Every select option carries the color and priority GitHub requires; the fields are visible to organisation members.
+  assert.deepEqual((find(objects, "issue-field", "Area").desired as { options: unknown[] }).options, [{ name: "engine", color: "gray", priority: 1 }, { name: "docs", color: "gray", priority: 2 }]);
+  for (const field of ["Severity", "Area"]) {
+    for (const option of (find(objects, "issue-field", field).desired as { options: Record<string, unknown>[] }).options) assert.ok(typeof option.color === "string" && typeof option.priority === "number", `${field} ${String(option.name)}`);
+  }
+  for (const field of objects.filter((entry) => entry.kind === "issue-field")) assert.equal((field.desired as { visibility: string }).visibility, "organization_members_only", field.key);
   // The content policy: one push ruleset per PRIVATE governed repository (the notes one), from the config section; never on a public or ungoverned one.
   const pushRulesets = objects.filter((entry) => entry.kind === "ruleset" && (entry.desired as { target: string }).target === "push");
   assert.deepEqual(pushRulesets.map((entry) => `${scopeName(entry.scope)}:${entry.key}`), ["bridlewise-coordination:content-policy"]);
@@ -102,6 +108,7 @@ function specifiedBaseline(stage: "p0" | "door"): unknown {
       { type: "pull_request", parameters: {
         required_approving_review_count: door ? 1 : 0, dismiss_stale_reviews_on_push: true, require_code_owner_review: false,
         require_last_push_approval: door, required_review_thread_resolution: true, allowed_merge_methods: ["merge"],
+        require_extra_approval_for_unattributed_changes: true, dismissal_restriction: { enabled: false, allowed_actors: [] }, required_reviewers: [],
       } },
       { type: "required_status_checks", parameters: {
         strict_required_status_checks_policy: false, do_not_enforce_on_create: false,
@@ -150,6 +157,28 @@ test("merge commits only (#486): the settings, the baseline's pull-request rule 
   assert.notDeepEqual(looseningOf("org-ruleset", widened("org-ruleset", "baseline", "pull_request", { allowed_merge_methods: ["merge", "squash"] }), baseline), [], "the baseline allowing squash again");
   assert.notDeepEqual(looseningOf("ruleset", widened("ruleset", "trunk", "merge_queue", { merge_method: "SQUASH" }), trunk), [], "the trunk queue squashing");
   assert.deepEqual(looseningOf("org-ruleset", baseline, widened("org-ruleset", "baseline", "pull_request", { allowed_merge_methods: ["merge", "squash"] })), [], "narrowing the baseline back to merge is not");
+});
+
+test("the live trunk's protections move into the declared baseline at least as strict (the plan's trunk is moved, not loosened): GitHub's stored pull_request fields and an unbound check are carried", () => {
+  // The live trunk ruleset as GitHub answered it (2026-10-28): the pull_request rule with the fields GitHub stores, and one
+  // required check without an integration binding.
+  const pullRequest = { type: "pull_request", parameters: { allowed_merge_methods: ["merge"], dismiss_stale_reviews_on_push: true, dismissal_restriction: { allowed_actors: [], enabled: false }, require_code_owner_review: false, require_extra_approval_for_unattributed_changes: true, require_last_push_approval: false, required_approving_review_count: 0, required_review_thread_resolution: true, required_reviewers: [] } };
+  const checks = { type: "required_status_checks", parameters: { do_not_enforce_on_create: false, strict_required_status_checks_policy: false, required_status_checks: [
+    ...SETTINGS.p0RequiredChecks.slice(0, -1).map((check) => ({ context: check.context, integration_id: check.integrationId })),
+    { context: SETTINGS.p0RequiredChecks.at(-1)!.context },
+  ] } };
+  const objects = forgeDeclarations(SOURCES);
+  const declaredTrunk = find(objects, "ruleset", "trunk").desired as Record<string, unknown>;
+  const live = { ...declaredTrunk, rules: [{ type: "deletion" }, { type: "non_fast_forward" }, pullRequest, checks, ...(declaredTrunk.rules as unknown[])] };
+  const loosening = looseningOf("ruleset", declaredTrunk, live);
+  assert.deepEqual([...loosening].sort(), ["removes rule deletion", "removes rule non_fast_forward", "removes rule pull_request", "removes rule required_status_checks"]);
+  assert.deepEqual(movedPremisesUnmet(loosening, live, find(objects, "org-ruleset", "baseline").desired, "trunk"), [], "every removed rule is carried by the baseline");
+  // Near misses: the binding to another App, or turning the unattributed-changes approval off, is not carried.
+  const otherApp = { ...checks, parameters: { ...checks.parameters, required_status_checks: [{ context: SETTINGS.p0RequiredChecks[0]!.context, integration_id: 1 }] } };
+  assert.notDeepEqual(movedPremisesUnmet(loosening, { ...live, rules: [{ type: "deletion" }, { type: "non_fast_forward" }, pullRequest, otherApp] }, find(objects, "org-ruleset", "baseline").desired, "trunk"), []);
+  const baseline = find(objects, "org-ruleset", "baseline").desired as { rules: { type: string; parameters?: Record<string, unknown> }[] };
+  const weaker = { ...baseline, rules: baseline.rules.map((rule) => rule.type === "pull_request" ? { ...rule, parameters: { ...rule.parameters, require_extra_approval_for_unattributed_changes: false } } : rule) };
+  assert.notDeepEqual(movedPremisesUnmet(loosening, live, weaker, "trunk"), []);
 });
 
 test("a form naming a type outside the registry, or two labels with one name, refuses the declarations", () => {

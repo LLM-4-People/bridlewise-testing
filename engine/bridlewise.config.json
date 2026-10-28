@@ -1226,6 +1226,7 @@
       "secretProtection": false
     },
     "maintainer": "amberflag48",
+    "teamMembers": {},
     "p0RequiredChecks": [
       {
         "context": "Typecheck, public tests, build",
