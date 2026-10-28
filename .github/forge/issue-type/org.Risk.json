@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Risk",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Risk",
+    "color": "pink",
+    "description": "A risk, including forge drift and key rotation",
+    "is_enabled": true
+  }
+}

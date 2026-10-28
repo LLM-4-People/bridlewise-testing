@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "lane:mkt",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "lane:mkt",
+    "color": "5319e7",
+    "description": "Work of the marketing and site lane"
+  }
+}

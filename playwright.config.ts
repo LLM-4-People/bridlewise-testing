@@ -39,9 +39,9 @@ const API_SERVER_STATE = armPlaywrightRun(import.meta.dirname);
 
 export default defineConfig({
   testDir: TEST_DIR,
-  // ONE INSTRUMENT AT A TIME, refused at this door: the e2e suite contends
-  // for the same cores and the same dev server as every other runner — see
-  // tests/setup/playwright-concurrency-lock.ts.
+  // HEAVY-RUN ADMISSION at this door: the e2e suite is admitted at once under
+  // its per-run caps, beside any other run (none waits), and its dev server
+  // is checked fresh — see tests/setup/playwright-concurrency-lock.ts.
   globalSetup: "./tests/setup/e2e-concurrency-lock.ts",
   // Built from the declaration above, and anchored at the end so a
   // vitest-owned `*.test.ts` cannot enter.

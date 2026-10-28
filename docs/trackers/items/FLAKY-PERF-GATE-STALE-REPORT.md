@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLAKY-PERF-GATE-STALE-REPORT
 type: Flake
 state: open

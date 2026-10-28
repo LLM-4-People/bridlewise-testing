@@ -1,0 +1,13 @@
+{
+  "kind": "team",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "reviewers",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "reviewers",
+    "privacy": "closed",
+    "description": "The reviewer role (docs/community/roles.json)"
+  }
+}

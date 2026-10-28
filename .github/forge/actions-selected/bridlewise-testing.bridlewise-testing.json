@@ -1,0 +1,16 @@
+{
+  "kind": "actions-selected",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "bridlewise-testing",
+  "unavailableOnPlan": [],
+  "desired": {
+    "github_owned_allowed": true,
+    "verified_allowed": false,
+    "patterns_allowed": [
+      "ossf/scorecard-action@*"
+    ]
+  }
+}

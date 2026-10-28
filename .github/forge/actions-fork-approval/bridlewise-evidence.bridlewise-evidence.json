@@ -1,0 +1,12 @@
+{
+  "kind": "actions-fork-approval",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-evidence"
+  },
+  "key": "bridlewise-evidence",
+  "unavailableOnPlan": [],
+  "desired": {
+    "approval_policy": "first_time_contributors"
+  }
+}

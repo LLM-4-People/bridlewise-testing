@@ -22,6 +22,7 @@
  * the default stays here as the fallback, the config overrides it.
  */
 
+import type { SubprocessBounds } from "../process/subprocess-bounds.ts";
 import type { ConfigDocument } from "../kernel/config-contracts.ts";
 import { InputError } from "../kernel/errors.ts";
 import { statePath } from "../kernel/product-identity.ts";
@@ -62,7 +63,7 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
 export const DEFAULT_GIT_ADD_TIMEOUT_MS = 30_000;
 export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 
-// ── the harness's subprocess bounds (src/workflow/subprocess-bounds.ts): NO-LOAD-BLOCK L2 ──
+// ── the harness's subprocess bounds (src/process/subprocess-bounds.ts): NO-LOAD-BLOCK L2 ──
 //
 // Every script subprocess (`runScriptSubprocess`), `harness check`'s tsc and
 // the commit guard's compile legs run under these, and nothing else bounds
@@ -82,11 +83,17 @@ export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 // - the hang backstop is the one wall bound left: very large, and a step that
 //   reaches it is reported HUNG, with how it ended, never retried here.
 /** CPU seconds each process of a script subprocess may use (RLIMIT_CPU's soft limit: SIGXCPU). */
-export const SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS = 1_800;
+const SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS = 1_800;
 /** CPU seconds past the soft limit at which the kernel kills a process that ignored SIGXCPU (the hard limit, which no child can raise). */
-export const SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS = 60;
+const SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS = 60;
 /** Wall time after which a script subprocess is hung, not slow. */
-export const SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS = 7_200_000;
+const SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS = 7_200_000;
+/** The harness's subprocess bounds, as one value (the mechanism is src/process/subprocess-bounds.ts). */
+export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
+  cpuLimitSeconds: SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS,
+  cpuKillGraceSeconds: SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS,
+  hangBackstopMs: SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
+});
 /** The most output a script subprocess may print before it is cut off (`harness check`'s payload is ~75 KB). */
 export const SCRIPT_SUBPROCESS_OUTPUT_BYTES = 256 * 1024 * 1024;
 /**

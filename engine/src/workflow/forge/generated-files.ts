@@ -1,9 +1,16 @@
 /**
- * THE FORGE'S GENERATED FILES — everything under `.github/forge/` is written
- * here, from its owners, never by hand: the four App manifests
- * (`apps/<role>.json`, from the App registry and the `forge` section), and
- * the index of them (`manifest.json`: each file's sha256 and its owner, the
- * one record `harness forge plan|apply|audit` bind to).
+ * THE FORGE'S GENERATED FILES — written here, from their owners, never by
+ * hand:
+ *
+ * - under `.github/forge/`: the four App manifests (`apps/<role>.json`, from
+ *   the App registry and the `forge` section); every declared GitHub object
+ *   (`<kind>/<scope>.<key>.json`, `declarations.ts`: rulesets, settings,
+ *   environments, the security configuration, properties, teams, labels,
+ *   issue types and fields, autolinks, the Project); and the index of them
+ *   all (`manifest.json`: each file's sha256 — the one record `harness forge
+ *   plan|apply|audit` bind to);
+ * - beside it: `.github/dependabot.yml` and `.github/CODEOWNERS`
+ *   (`repository-files.ts`).
  *
  * `syncForgeFiles` is one arm of `harness regenerate` (written by `harness
  * sync`) and of `harness check` (refused when a file differs from its
@@ -15,9 +22,13 @@ import { join, relative } from "node:path";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
+import { workingTreeReader } from "../../git/tree-reader.ts";
+import { readIntake, readRoles, type CommunityRoles } from "../community/sources.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
+import { forgeDeclarations, type DeclarationSources } from "./declarations.ts";
 import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import { CODEOWNERS_FILE, codeownersFile, DEPENDABOT_FILE, dependabotFile, forgeTreeFacts, type ForgeTreeFacts } from "./repository-files.ts";
 
 /** Where the generated files live, relative to the repository top. */
 const FORGE_FILES_DIRECTORY = ".github/forge";
@@ -60,12 +71,27 @@ function jsonText(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-/** Every generated file, by its path under {@link FORGE_FILES_DIRECTORY}, with its exact bytes (the index last). */
-export function forgeGeneratedFiles(settings: ForgeSettings): ReadonlyMap<string, string> {
-  const files = new Map<string, string>();
-  for (const role of FORGE_APP_ROLES) files.set(`apps/${role}.json`, jsonText(appManifest(role, settings)));
-  const entries = [...files].map(([path, text]) => ({ path, sha256: sha256(text), owner: "engine/src/workflow/forge/generated-files.ts" }));
-  files.set(INDEX_FILE, jsonText({
+/** Everything the generated files are a function of. */
+export type ForgeFileSources = DeclarationSources & Readonly<{ roles: CommunityRoles; facts: ForgeTreeFacts }>;
+
+/** The sources as the repository at `top` holds them (its `forge` section given). */
+export function forgeFileSources(top: string, settings: ForgeSettings): ForgeFileSources {
+  const facts = forgeTreeFacts(workingTreeReader(top), settings);
+  return deepFreeze({ settings, intake: readIntake(top), roles: readRoles(top), workflowActions: facts.workflowActions, facts });
+}
+
+/** Every generated file, by its repository-relative path, with its exact bytes (the index last). */
+export function forgeGeneratedFiles(sources: ForgeFileSources): ReadonlyMap<string, string> {
+  const forge = new Map<string, string>();
+  for (const role of FORGE_APP_ROLES) forge.set(`apps/${role}.json`, jsonText(appManifest(role, sources.settings)));
+  for (const declared of forgeDeclarations(sources)) {
+    forge.set(declared.file, jsonText({ kind: declared.kind, scope: declared.scope, key: declared.key, unavailableOnPlan: declared.unavailableOnPlan, desired: declared.desired }));
+  }
+  const files = new Map<string, string>([...forge].map(([path, text]) => [`${FORGE_FILES_DIRECTORY}/${path}`, text]));
+  files.set(DEPENDABOT_FILE, dependabotFile(sources.settings, sources.facts));
+  files.set(CODEOWNERS_FILE, codeownersFile(sources.settings, sources.roles));
+  const entries = [...files].map(([path, text]) => ({ path, sha256: sha256(text) }));
+  files.set(`${FORGE_FILES_DIRECTORY}/${INDEX_FILE}`, jsonText({
     schemaVersion: INDEX_SCHEMA,
     generator: "harness sync (engine/src/workflow/forge/generated-files.ts); never edit by hand",
     files: entries,
@@ -95,28 +121,30 @@ function filesUnder(directory: string): readonly string[] {
 }
 
 /**
- * Compare `.github/forge/` under `top` with its owners' bytes; with `write`,
- * write what differs and remove what is not generated. `settings` absent
- * (a checkout without a `forge` section): converged only when the folder is
- * absent too.
+ * Compare the generated files under `top` with their owners' bytes
+ * (`sources`, from {@link forgeFileSources}); with `write`, write what
+ * differs and remove what under `.github/forge/` is not generated. `sources`
+ * absent (a checkout without a `forge` section):
+ * converged only when `.github/forge/` is absent too (the renders beside it
+ * are then not the forge's).
  */
-export function syncForgeFiles(top: string, settings: ForgeSettings | undefined, write: boolean): ForgeFilesReport {
-  const directory = join(top, FORGE_FILES_DIRECTORY);
-  const wanted = settings === undefined ? new Map<string, string>() : forgeGeneratedFiles(settings);
+export function syncForgeFiles(top: string, sources: ForgeFileSources | undefined, write: boolean): ForgeFilesReport {
+  const wanted = sources === undefined ? new Map<string, string>() : forgeGeneratedFiles(sources);
   const changed: string[] = [];
   for (const [path, text] of wanted) {
-    const file = join(directory, path);
+    const file = join(top, path);
     if (existsSync(file) && readFileSync(file, "utf8") === text) continue;
-    changed.push(`${FORGE_FILES_DIRECTORY}/${path}`);
+    changed.push(path);
     if (write) {
       const written = atomicWriteFile(file, text, { createMode: 0o666 });
       if (!written.success) throw new ForgeError("forge_request_invalid", `The generated forge file ${path} could not be written (${written.reason ?? "unknown"}).`, { path });
     }
   }
-  for (const path of filesUnder(directory)) {
+  const directory = join(top, FORGE_FILES_DIRECTORY);
+  for (const path of filesUnder(directory).map((entry) => `${FORGE_FILES_DIRECTORY}/${entry}`)) {
     if (wanted.has(path)) continue;
-    changed.push(`${FORGE_FILES_DIRECTORY}/${path}`);
-    if (write) rmSync(join(directory, path));
+    changed.push(path);
+    if (write) rmSync(join(top, path));
   }
   const status = changed.length === 0 ? "current" : write ? "regenerated" : "stale";
   return deepFreeze({ status, converged: status !== "stale", changed: changed.sort() });

@@ -26,7 +26,6 @@ export const BENCHMARK_RESULT_SCHEMA_VERSION =
 export type HardwareFingerprint = Readonly<{
   cpuModel: string;
   cpuCount: number;
-  cpuSpeedMhz: number;
   totalMemoryBytes: number;
   platform: string;
   arch: string;
@@ -255,13 +254,19 @@ export function createBenchmarkRunner(options: BenchmarkRunnerOptions): Benchmar
   });
 }
 
+/**
+ * The machine's IDENTITY, hashed: what it is (CPU model and count, memory,
+ * platform, OS, host, runtime), never what it is doing. The CPU's speed is
+ * not identity: on Linux `os.cpus()[n].speed` is the core's CURRENT
+ * frequency, which moves with frequency scaling between two calls (#429), so
+ * it is left out; a speed reading is a measurement, never a fingerprint.
+ */
 export function captureHardwareFingerprint(): HardwareFingerprint {
   const cpuList = cpus();
   const firstCpu = cpuList[0];
   const core: Omit<HardwareFingerprint, "fingerprintHash"> = deepFreeze({
     cpuModel: firstCpu?.model ?? "unknown",
     cpuCount: cpuList.length,
-    cpuSpeedMhz: firstCpu?.speed ?? 0,
     totalMemoryBytes: totalmem(),
     platform: platform(),
     arch: arch(),
