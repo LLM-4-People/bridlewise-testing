@@ -5695,8 +5695,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-verification-sign-off", path: "scripts/verification/sign-off.ts", realm: "builder", layer: "verification",
-      owner: "verification-foundation", publicApi: { exportCount: 5, namesSha256: "037dd29b39ad2f97b907407323e14bb07654f9e7e92d71ac2047015bf59ac17c" },
-      dependencies: ["scripts/verification/commit-trailers.ts","src/runtime/cli-debug.ts"],
+      owner: "verification-foundation", publicApi: { exportCount: 9, namesSha256: "54072548d5b7a35c2f6fcb433a980505c11d9b8a87968ba8996a3627462c8b66" },
+      dependencies: ["scripts/verification/commit-trailers.ts","src/kernel/root-policy.ts","src/runtime/cli-debug.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
     moduleContract({

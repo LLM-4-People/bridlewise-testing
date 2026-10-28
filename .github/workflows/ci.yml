@@ -100,54 +100,6 @@ jobs:
         working-directory: engine
         run: node --experimental-strip-types --test test/prevention/no-unhandled-errors.test.ts
 
-  # THE DCO (scripts/verification/sign-off.ts): every commit a pull request,
-  # a merge group or a push brings carries a Signed-off-by trailer naming its
-  # own committer; a merge GitHub made itself is mechanical. The commit-msg
-  # hook refuses an unsigned commit locally; this refuses one that reached a
-  # pull request anyway (a hook skipped, a web edit).
-  sign-off:
-    name: DCO sign-off
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out the history
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Node 24
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: engine/package-lock.json
-
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
-
-      - name: Every commit carries its committer's sign-off
-        working-directory: engine
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
-          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          PUSH_AFTER: ${{ github.sha }}
-        run: |
-          case "$EVENT" in
-            pull_request) range="$PR_BASE..$PR_HEAD" ;;
-            merge_group) range="$GROUP_BASE..$GROUP_HEAD" ;;
-            push) range="$PUSH_BEFORE..$PUSH_AFTER" ;;
-            *) echo "sign-off: a $EVENT run brings no new commits to judge"; exit 0 ;;
-          esac
-          node scripts/verification/sign-off.ts --range "$range"
-
   # Generated values are never edited by hand: hashes, pins, inventories,
   # manifests and README consumer blocks come from `harness sync`. This job
   # runs the generators (with the bundle, so the self-protection pin

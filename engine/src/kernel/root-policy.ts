@@ -2623,6 +2623,21 @@ const ROOT_POLICY_VALUE = {
   },
   workflow: {
     /**
+     * THE PROJECT'S CONTRIBUTOR IDENTITY FOR AGENT COMMITS
+     * (scripts/verification/sign-off.ts): every commit an agent makes —
+     * author, committer and every `Signed-off-by` — is this identity, never a
+     * person's own. An agent commit is told apart from a human's by its marks
+     * (any of its identities is this one, or uses this address's domain) and,
+     * server-side, by the pull request's author (`agentAccounts`, the GitHub
+     * logins and Apps that open the lanes' pull requests). A human outside
+     * contributor keeps the ordinary DCO: their own name and address, signed
+     * off as their committer.
+     */
+    commitIdentity: {
+      agent: { name: "bridlewise.llm4people.dev", email: "hello@bridlewise.llm4people.dev" },
+      agentAccounts: ["amberflag48"],
+    },
+    /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs
      * (src/shared/flake-reproduction.ts; written by `harness flake
      * reproduce`): one canonical JSON record per (test, fix), engine-relative.
