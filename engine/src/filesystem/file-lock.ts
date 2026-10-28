@@ -400,11 +400,6 @@ function attempt(lockPath: string, options: FileLockOptions): FileLockAttempt {
   return { state: "contended" };
 }
 
-/** This process owns the hold at `lockPath` whose record carries `nonce` (its own acquisition, in this process). */
-export function ownsFileLockHold(lockPath: string, nonce: string): boolean {
-  return owned.get(lockPath) === nonce;
-}
-
 /** Synchronous sleep — Node's built-in main-thread-compatible wait (the lock's waits, and the instrument lock's). */
 export function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);

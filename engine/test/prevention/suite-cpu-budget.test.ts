@@ -26,7 +26,7 @@ import type { MetricEntry } from "../../src/shared/measurement-registry.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 
 import {
   deriveRollingBaseline,
@@ -625,7 +625,7 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
       delete environment.HARNESS_MUTATION_RUN;
       const output: string[] = [];
       const child = await superviseCommand({
-        supervisor: testProcessSupervisorBinary(), command: process.execPath,
+        supervisor: ensureTestProcessSupervisor(), command: process.execPath,
         args: ["--input-type=module", "-e", [
           'import assert from "node:assert/strict"; import { writeFileSync } from "node:fs";',
           `const { judgeSuiteRunCost } = await import(${JSON.stringify(owner)});`,
