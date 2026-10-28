@@ -474,10 +474,12 @@ function runFollow(
   process.stdin.resume();
   process.once("SIGINT", () => {
     clearInterval(timer);
-    process.exit(0);
+    // Releasing the stdin hold lets the loop drain: never `process.exit()`,
+    // which can deadlock at shutdown (Node #54918, #351).
+    process.stdin.destroy();
   });
   // The stream never "completes": this returns 0 immediately and the loop
-  // stays alive through the stdin hold — the process exits through the
+  // stays alive through the stdin hold — the process ends through the
   // SIGINT door (or when stdin closes) with code 0 either way.
   return 0;
 }

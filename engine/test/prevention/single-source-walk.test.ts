@@ -49,7 +49,6 @@ const INTENTIONAL_WALKERS: Readonly<Record<string, string>> = {
   // Repository-source walkers not yet migrated.
   "tests/cockpit/a11y-hidden-focus-owner.test.ts": PENDING,
   "tests/helpers/module-resolver.ts": PENDING,
-  "tests/helpers/readme-consumers.ts": PENDING,
   "tests/prevention/absence-witness-owner.test.ts": PENDING,
   "tests/prevention/client-api-owner.test.ts": PENDING,
   "tests/prevention/filesystem-owner.test.ts": PENDING,

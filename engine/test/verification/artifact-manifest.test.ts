@@ -45,11 +45,15 @@ function makeFixture(): string {
   return root;
 }
 
+/** The committed record: each governed artifact's path, and an authored origin with its bytes where there is one. */
 function readManifest(root: string): Record<string, unknown> & {
-  entries: Array<{ path: string; origin: Record<string, string> }>;
+  artifacts: Array<{ path: string; origin?: Record<string, string>; integrity?: { byteLength: number; sha256: string } }>;
 } {
   return JSON.parse(readFileSync(join(root, ARTIFACT_MANIFEST_PATH), "utf8"));
 }
+
+/** The full admission manifest of the fixture, derived from its tree and its record. */
+const derived = (root: string) => buildArtifactAdmissionManifest({ root: rawSafeRepositoryRootAccess(root), previousManifest: readManifest(root) });
 
 test("artifact-manifest: the producer reads no clock — one tree gives the same bytes at any two times, one entry per line (#221)", (t) => {
   const root = makeFixture();
@@ -74,7 +78,7 @@ test("artifact-manifest: the producer reads no clock — one tree gives the same
   }
 });
 
-test("artifact-manifest: two branches that change different artifacts merge cleanly into the manifest of both (#221)", () => {
+test("artifact-manifest: an edit to a governed artifact rewrites nothing; two branches adding different artifacts merge (#221)", () => {
   const manifestAfter = (edits: Readonly<Record<string, string>>): string => {
     const root = makeFixture();
     try {
@@ -86,46 +90,41 @@ test("artifact-manifest: two branches that change different artifacts merge clea
     }
   };
   const base = manifestAfter({});
-  // Entries sort by path (traceability/README.md, traceability/canonical/…, verification/…): the two edited
-  // artifacts' lines have an unchanged one between them, as any two artifacts of a real tree almost always do.
-  const ours = manifestAfter({ [GOVERNED[1]]: "edited on one branch\n" });
-  const theirs = manifestAfter({ [GOVERNED[2]]: "edited on the other branch\n" });
-  const both = manifestAfter({ [GOVERNED[1]]: "edited on one branch\n", [GOVERNED[2]]: "edited on the other branch\n" });
+  // No committed digest of a mechanically captured artifact: an edit changes nothing here.
+  assert.equal(manifestAfter({ [GOVERNED[1]]: "edited on one branch\n" }), base, "an edit rewrites nothing");
+  // Two new artifacts on two branches: one line each, and git's own merge holds both.
+  const ours = manifestAfter({ "traceability/added-on-one-branch.md": "a\n" });
+  const theirs = manifestAfter({ "verification/benchmarks/test/added-on-another.md": "b\n" });
+  const both = manifestAfter({ "traceability/added-on-one-branch.md": "a\n", "verification/benchmarks/test/added-on-another.md": "b\n" });
   const dir = createTempDir("artifact-manifest-merge-");
   try {
     writeFileSync(join(dir, "ours"), ours);
     writeFileSync(join(dir, "base"), base);
     writeFileSync(join(dir, "theirs"), theirs);
     const merged = spawnSync("git", ["merge-file", "-p", join(dir, "ours"), join(dir, "base"), join(dir, "theirs")], { encoding: "utf8" });
-    assert.equal(merged.status, 0, `the two branches' manifests conflicted:\n${merged.stdout}`);
-    assert.equal(merged.stdout, both, "the clean merge is exactly the manifest of both changes");
+    assert.equal(merged.status, 0, `the two branches' records conflicted:\n${merged.stdout}`);
+    assert.equal(merged.stdout, both, "the clean merge is exactly the record of both changes");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("artifact-manifest: a hand-edited origin.license or producingTool reds --check and is replaced, never reused", () => {
+test("artifact-manifest: a hand-written origin that is not admitted reds --check and is replaced by the mechanical capture, never reused", () => {
   for (const [field, value] of [["license", "unknown"], ["producingTool", "rogue-tool"]] as const) {
     const root = makeFixture();
     try {
       syncArtifactManifest(root, { write: true });
       const path = join(root, ARTIFACT_MANIFEST_PATH);
       const committed = readFileSync(path, "utf8");
-      const parsed = readManifest(root);
-      const target = parsed.entries[0]!.origin[field]!;
-      assert.equal(target.length > 0, true);
-      const edited = committed.replace(`"${field}":"${target}"`, `"${field}":"${value}"`);
-      assert.notEqual(edited, committed, `the ${field} mutation must change the document`);
+      // The plant: the first artifact's mechanical origin written into the record with one field edited, for its exact bytes.
+      const entry = derived(root).entries[0]!;
+      const forged = { path: entry.path, origin: { ...entry.origin, [field]: value }, integrity: entry.integrity };
+      const edited = committed.replace(`{"path":"${entry.path}"}`, JSON.stringify(forged));
+      assert.notEqual(edited, committed, `the ${field} plant must change the record`);
       writeFileSync(path, edited);
-      const drifted = syncArtifactManifest(root, { write: false });
-      assert.equal(drifted.allCurrent, false, `a hand-edited origin.${field} must not be current`);
-      // THE OLD BEHAVIOUR: the producer reused the prior origin by digest, so
-      // `--write` reproduced the edit. The claim is now replaced by the
-      // mechanical capture the licence authority derives.
+      assert.equal(syncArtifactManifest(root, { write: false }).allCurrent, false, `a hand-written origin.${field} must not be current`);
       syncArtifactManifest(root, { write: true });
-      const healed = readManifest(root);
-      assert.equal(healed.entries[0]!.origin[field], target, `the producer republishes the admitted ${field}`);
-      assert.equal(syncArtifactManifest(root, { write: false }).allCurrent, true);
+      assert.equal(readFileSync(path, "utf8"), committed, `the producer replaces the unadmitted ${field} with the mechanical capture`);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -136,9 +135,9 @@ test("artifact-manifest: the provenance policy refuses an unadmitted origin", ()
   const root = makeFixture();
   try {
     syncArtifactManifest(root, { write: true });
-    const manifest = readManifest(root);
-    // The committed document passes its own policy.
-    assert.deepEqual([...artifactProvenanceViolations(manifest as never)], []);
+    const manifest = derived(root);
+    // The derived document passes its own policy.
+    assert.deepEqual([...artifactProvenanceViolations(manifest)], []);
     const tampered = structuredClone(manifest) as never as {
       entries: Array<{ id: string; origin: Record<string, string> }>;
     };
@@ -206,11 +205,9 @@ test("artifact-manifest: the builder refuses a previous origin that is not one o
   try {
     const built = syncArtifactManifest(root, { write: true });
     assert.equal(built.entries, GOVERNED.length);
-    const parsed = readManifest(root);
-    const tampered = structuredClone(parsed) as never as {
-      entries: Array<{ origin: Record<string, string> }>;
-    };
-    tampered.entries[0]!.origin["producingTool"] = "rogue-tool";
+    const record = readManifest(root);
+    const entry = derived(root).entries[0]!;
+    const tampered = { ...record, artifacts: record.artifacts.map((artifact) => artifact.path === entry.path ? { path: entry.path, origin: { ...entry.origin, producingTool: "rogue-tool" }, integrity: entry.integrity } : artifact) };
     const rebuilt = buildArtifactAdmissionManifest({
       root: rawSafeRepositoryRootAccess(root),
       previousManifest: tampered,

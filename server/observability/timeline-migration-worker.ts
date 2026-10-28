@@ -12,16 +12,16 @@
  * Handed `{ path, busyTimeoutMs }` (it reads no settings file); posts
  * `{ ok: true, applied }` or `{ ok: false, error }`.
  */
-import { parentPort, workerData } from "node:worker_threads";
+import { workerData } from "node:worker_threads";
 
 import { describeFault, migrateTimelineFile } from "../kernel/canonical.ts";
-import { postWorkerResult } from "../run/worker-ipc.ts";
+import { postWorkerResult, requireWorkerThread } from "../run/worker-ipc.ts";
 
 type WorkerResult =
   | Readonly<{ ok: true; applied: readonly string[] }>
   | Readonly<{ ok: false; error: Readonly<{ message: string; code?: string }> }>;
 
-if (parentPort === null) process.exit(1);
+requireWorkerThread();
 
 const input = workerData as Readonly<{ path?: unknown; busyTimeoutMs?: unknown }> | undefined;
 if (input === undefined || typeof input.path !== "string" || input.path.length === 0) {

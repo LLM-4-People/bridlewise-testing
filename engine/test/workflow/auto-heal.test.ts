@@ -34,7 +34,8 @@ function makeEntry(path: string): TestSurfaceDispositionEntry {
     language: "javascript-typescript",
     disposition: "canonical-node-test",
     rationale: "Fixture entry for the auto-heal regression test.",
-    evidenceLinks: [],
+    // Evidence makes it an exception the manifest records: a qualified source without one is canonical by default and has no entry.
+    evidenceLinks: ["test/README.md"],
     blocksFullRepositoryClaim: false,
   };
 }
@@ -105,33 +106,23 @@ test("auto-heal: actual maintenance CLI preserves a no-op success without a test
   }
 });
 
-test("auto-heal: autoAddMissingDispositionEntries adds a new recognizable test file to the manifest", async () => {
+test("auto-heal: a new qualified Node test file needs no entry — the manifest is left as it was (#221)", async () => {
   const root = createRepositoryLocalTemporaryDirectory("auto-heal-disposition-");
   try {
-    // Seed the manifest with one existing entry. The fake file below is NOT
-    // included, so auto-heal must add it.
     const existing = "test/workflow/existing-fixture.test.ts";
     mkdirSync(join(root, "test", "workflow"), { recursive: true });
     writeFileSync(join(root, existing), `import test from "node:test"; test("pass", () => {});\n`);
     writeManifest(root, [makeEntry(existing)]);
+    const before = readFileSync(join(root, MANIFEST_REL_PATH), "utf8");
 
-    // Create a new recognizable test file that is absent from the manifest.
+    // A new recognizable test file under a qualified pattern: canonical by default.
     const newFile = "test/workflow/new-fixture.test.ts";
     writeFileSync(join(root, newFile), `import test from "node:test"; test("pass", () => {});\n`);
     assert.equal(recognizableTestSourceLanguage(newFile), "javascript-typescript");
 
     const { addedPaths } = await autoAddMissingDispositionEntries(root);
-
-    // The return value reports exactly the entries that were added.
-    assert.deepEqual([...addedPaths], [newFile]);
-    const entries = readManifestEntries(root);
-    const paths = entries.map((e) => e.path);
-    assert.ok(paths.includes(newFile), "auto-heal added the missing test file to the manifest");
-    assert.ok(paths.includes(existing), "existing entry preserved");
-    const added = entries.find((e) => e.path === newFile)!;
-    assert.equal(added.disposition, "canonical-node-test");
-    assert.equal(added.language, "javascript-typescript");
-    assert.equal(added.blocksFullRepositoryClaim, false);
+    assert.deepEqual([...addedPaths], [], "nothing to add: adding a test rewrites no committed aggregate");
+    assert.equal(readFileSync(join(root, MANIFEST_REL_PATH), "utf8"), before);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -158,8 +149,9 @@ test("auto-heal: autoAddMissingDispositionEntries is a no-op when the manifest a
 test("auto-heal: autoAddMissingDispositionEntries is idempotent across repeated runs", async () => {
   const root = createRepositoryLocalTemporaryDirectory("auto-heal-idempotent-");
   try {
-    const file = "test/workflow/idempotent-fixture.test.ts";
-    mkdirSync(join(root, "test", "workflow"), { recursive: true });
+    // Outside the qualified patterns: an exception the auto-heal records (pending).
+    const file = "scripts/idempotent-fixture.test.ts";
+    mkdirSync(join(root, "scripts"), { recursive: true });
     writeFileSync(join(root, file), `import test from "node:test"; test("pass", () => {});\n`);
     writeManifest(root, []);
 
@@ -447,10 +439,10 @@ test("auto-heal: an untracked recognizable test source refuses before the manife
     );
     assert.equal(readFileSync(join(root, MANIFEST_REL_PATH), "utf8"), before, "a refusal must not have written");
 
-    // The named way out works: intent-to-add puts the file in the index.
+    // The named way out works: intent-to-add puts the file in the index (a qualified source: nothing to add).
     git("add", "-N", "--", untracked);
     const { addedPaths } = await autoAddMissingDispositionEntries(root);
-    assert.deepEqual([...addedPaths], [untracked]);
+    assert.deepEqual([...addedPaths], []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

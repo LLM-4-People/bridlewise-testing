@@ -25,18 +25,6 @@ The cockpit render layer: markdown, JSON, diffs, code, and artifacts rendered as
 - `ToolOutput.svelte` — Recorded output, rendered in the shape the data actually has.
 - `UnifiedDiff.svelte` — THE ONE diff renderer — the flow's micro-diff.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/render/`.
-
-- `artifact-errors.ts` is consumed by `src/cockpit/render/ArtifactFrame.svelte`.
-- `artifact.ts` is consumed by `src/cockpit/flow/ToolBeat.svelte`, `src/cockpit/render/ArtifactFrame.svelte`.
-- `diff.ts` is consumed by `src/cockpit/editor/FilePane.svelte`, `src/cockpit/flow/EffectBeat.svelte`, `src/cockpit/render/ToolInput.svelte`, `src/cockpit/render/UnifiedDiff.svelte`, `src/cockpit/rooms/DiffSheet.svelte`.
-- `highlight.ts` is consumed by `src/cockpit/render/CodeBlock.svelte`, `src/cockpit/render/ToolInput.svelte`, `src/cockpit/render/UnifiedDiff.svelte`, `src/cockpit/render/diff.ts`, `src/cockpit/render/shapes.ts`.
-- `html-preview.ts` is consumed by `src/cockpit/render/ArtifactFrame.svelte`, `src/cockpit/render/artifact-errors.ts`.
-- `render-config.ts` is consumed by `src/cockpit/flow/ActBeat.svelte`, `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/EffectBeat.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/StreamPulse.svelte`, `src/cockpit/flow/ThinkingFold.svelte` and 10 more.
-- `shapes.ts` is consumed by `src/cockpit/desk/ItemBody.svelte`, `src/cockpit/flow/ActBeat.svelte`, `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/ToolBeat.svelte`, `src/cockpit/render/CodeBlock.svelte`, `src/cockpit/render/JsonNode.svelte` and 3 more.
-
-<!-- /consumers:generated -->
