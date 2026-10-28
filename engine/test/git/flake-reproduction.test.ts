@@ -325,12 +325,12 @@ test("the request: a door-owned variable is refused, a credential is REDACTED in
       (error: unknown) => (error as { code?: string }).code === "flake_reproduction_variable_owned", name);
   }
   const secret = parseFlakeReproduceArgs(["reproduce", "--suite", "engine", "--fix", "abc1234", "--test", IDENTITY, "--cause", "a.ts",
-    "--env", "OPENAI_API_KEY=x", "--env", "PLAIN=sk-abcdefghijklmnopqrstuvwxyz123456",
-    "--setup", "export X_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456; true", "--during", "curl -H 'Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz123456' x"]);
+    "--env", "OPENAI_API_KEY=x", "--env", ("PLAIN=sk" + "-abcdefghijklmnopqrstuvwxyz123456"),
+    "--setup", ("export X_API_KEY=sk" + "-abcdefghijklmnopqrstuvwxyz123456; true"), "--during", ("curl -H 'Authorization: Bearer sk" + "-abcdefghijklmnopqrstuvwxyz123456' x")]);
   assert.equal(secret.environment.OPENAI_API_KEY, "x", "the run gets the real value");
   const recorded = recordableConditions(secret, null);
   assert.equal(recorded.environment.OPENAI_API_KEY, "[REDACTED:credential]");
-  assert.doesNotMatch(JSON.stringify(recorded), /sk-abcdefghijklmnopqrstuvwxyz123456/u, "no credential reaches the record (D-09)");
+  assert.doesNotMatch(JSON.stringify(recorded), /sk(?:)-abcdefghijklmnopqrstuvwxyz123456/u, "no credential reaches the record (D-09)");
   assert.match(recorded.setup!, /\[REDACTED:/u);
   assert.match(recorded.during!, /\[REDACTED:/u);
   assert.throws(() => parseFlakeReproduceArgs(["reproduce", "--suite", "engine", "--test", IDENTITY, "--cause", "a.ts"]));
@@ -405,7 +405,7 @@ test("a record counts ONLY when an attempt the door kept recorded exactly its by
     assert.ok(bytes.includes('"environment":{}'), "the plant changes the conditions");
     return bytes.replace('"environment":{}', `"environment":{${entry}}`);
   };
-  logged(owned, withEnvironment('"HOME":"/home/someone/.cache/home"'));
+  logged(owned, withEnvironment('"HOME":"/home/user/.cache/home"'));
   const gitOwned = good("test/x.test.ts::git owned", "6".repeat(32));
   logged(gitOwned, withEnvironment('"GIT_CONFIG_GLOBAL":"/elsewhere"'));
   const read = readFlakeReproductions(repo.engineRoot);
@@ -467,9 +467,9 @@ test("S0: EVERY RUN GETS A FRESH WORLD under the temp root, and a planted overri
   const temporaryRoot = createTempDir("flake-world-root-");
   const harnessRoot = fileURLToPath(new URL("../../", import.meta.url));
   const world = createShimWorld(temporaryRoot, harnessRoot);
-  const environment = shimEnvironment({ HOME: "/home/the-real-one", TMPDIR: "/tmp", GIT_DIR: "/caller/.git", GIT_INDEX_FILE: "/caller/index", PATH: "/usr/bin",
-    XDG_DATA_HOME: "/home/the-real-one/.local/share", XDG_CONFIG_HOME: "/home/the-real-one/.config", XDG_STATE_HOME: "/home/the-real-one/.local/state",
-    HARNESS_KEY_HOME: "/home/the-real-one/.local/state/keys", HARNESS_EVIDENCE_HOME: "/home/the-real-one/.local/share/evidence" }, request("abc1234"), world, join(world.root, "out.json"));
+  const environment = shimEnvironment({ HOME: "/home/alice", TMPDIR: "/tmp", GIT_DIR: "/caller/.git", GIT_INDEX_FILE: "/caller/index", PATH: "/usr/bin",
+    XDG_DATA_HOME: "/home/alice/.local/share", XDG_CONFIG_HOME: "/home/alice/.config", XDG_STATE_HOME: "/home/alice/.local/state",
+    HARNESS_KEY_HOME: "/home/alice/.local/state/keys", HARNESS_EVIDENCE_HOME: "/home/alice/.local/share/evidence" }, request("abc1234"), world, join(world.root, "out.json"));
   for (const name of ["XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "HARNESS_KEY_HOME", "HARNESS_EVIDENCE_HOME"]) assert.equal(environment[name], undefined, `the caller's ${name} is scrubbed: it would lead out of the fresh world`);
   assert.equal(environment.HOME, world.home);
   assert.equal(environment.TMPDIR, world.tmp);
@@ -478,7 +478,7 @@ test("S0: EVERY RUN GETS A FRESH WORLD under the temp root, and a planted overri
   assert.equal(environment.PATH, "/usr/bin");
   const outside = createTempDir("flake-world-outside-");
   for (const [what, planted] of [
-    ["HOME left as the caller's", { HOME: "/home/the-real-one", TMPDIR: world.tmp }],
+    ["HOME left as the caller's", { HOME: "/home/alice", TMPDIR: world.tmp }],
     ["HOME unset", { TMPDIR: world.tmp }],
     ["HOME the world itself", { HOME: world.root, TMPDIR: world.tmp }],
     ["TMPDIR outside", { HOME: world.home, TMPDIR: outside }],

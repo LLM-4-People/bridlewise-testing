@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Finding",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Finding",
+    "color": "blue",
+    "description": "A finding from a review or an audit",
+    "is_enabled": true
+  }
+}

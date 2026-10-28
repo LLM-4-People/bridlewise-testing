@@ -6,7 +6,7 @@ group: process
 status: in-force
 implementation: partial
 route: A4-OWNED-BUDGET
-acted_in: [scripts/testing/measure-web-budget.ts, engine/src/shared/budget-verdict.ts, tests/helpers/budget-config.ts]
+acted_in: [scripts/testing/measure-web-budget.ts, engine/src/shared/budget-verdict.ts, engine/src/workflow/harness-commands.ts, tests/helpers/budget-config.ts]
 ---
 # Measured budgets come from their measuring tool
 
@@ -54,3 +54,12 @@ cap (round 13, design HIGH 1). With the floor as its lower bound, the rolling
 baseline therefore never rises above the floor; only this tool moves the
 floor. The spread is never a verdict's allowance (one judged run over the cap
 fails, UR-24-BUDGETS).
+
+The population is generated as well, and `harness sync` writes it. In the
+accumulation phase, `derivedAtTestFileCount` is the live supported population.
+The sync arm (`measure-web-budget.ts --population`, `WEB_BUDGET_POPULATION`)
+writes it, and `harness check` judges it, so a new test file moves it in the
+same commit and no pull request types it. In the measured phase it is the
+population the floor was measured at. It is written with the floor by
+`--write` and is never moved without it; the population drift gate decides
+when the floor must be measured again.

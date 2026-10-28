@@ -1,0 +1,37 @@
+{
+  "kind": "issue-field",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Area",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Area",
+    "data_type": "single_select",
+    "visibility": "all",
+    "description": "Where it lives (the areas table)",
+    "options": [
+      {
+        "name": "engine"
+      },
+      {
+        "name": "forge"
+      },
+      {
+        "name": "server"
+      },
+      {
+        "name": "web"
+      },
+      {
+        "name": "docs"
+      },
+      {
+        "name": "ci"
+      },
+      {
+        "name": "tests"
+      }
+    ]
+  }
+}

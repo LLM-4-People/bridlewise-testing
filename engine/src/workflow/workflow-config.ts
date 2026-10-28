@@ -96,6 +96,15 @@ export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
 });
 /** The most output a script subprocess may print before it is cut off (`harness check`'s payload is ~75 KB). */
 export const SCRIPT_SUBPROCESS_OUTPUT_BYTES = 256 * 1024 * 1024;
+/**
+ * How long one CPU-calibration child (`src/shared/run-cpu.ts`: the fixed
+ * benchmark a run takes at start and end to turn CPU time into work units)
+ * may take before its reading is absent.
+ */
+export const DEFAULT_CPU_CALIBRATION_TIMEOUT_MS = 120_000;
+
+/** Hex digits of the test-inventory hash `harness check` quotes in its passing message. */
+export const INVENTORY_HASH_PREVIEW_HEX = 12;
 
 // ── resource-lock.ts defaults ─────────────────────────────────────────────
 
@@ -165,6 +174,14 @@ export const DEFAULT_E2E_SUITE_TIMEOUT_MS = 600_000;
 
 /** How many events `harness timeline` lists when no `--limit` is given. */
 export const DEFAULT_TIMELINE_COMMAND_LIMIT = 50;
+
+// ── workspace-manager.ts display lengths ───────────────────────────────────
+/** The length of a workspace id's random suffix: the last characters of a generated id. */
+export const WORKSPACE_NONCE_CHARACTERS = 12;
+/** How many characters of a commit or tree id a workspace's generated pull request text shows. */
+export const WORKSPACE_SHORT_ID_CHARACTERS = 12;
+/** How many paths a workspace refusal names before it stops listing. */
+export const WORKSPACE_REFUSAL_PATHS_NAMED = 8;
 
 // ── test-result-collector.ts defaults ──────────────────────────────────────
 

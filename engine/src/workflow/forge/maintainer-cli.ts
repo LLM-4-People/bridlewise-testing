@@ -27,7 +27,9 @@ import { spawn } from "node:child_process";
 import { guarded } from "../../process/fault-policy.ts";
 import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
 import { CLOCK_TICK_MS, ownedChild, statFactsOf, terminate } from "../../process/process-facts.ts";
+import { processUnderTest } from "../../filesystem/checkout-write-door.ts";
 import { ForgeError } from "./codes.ts";
+import { FORGE_REFUSAL_TEXT } from "./forge-config.ts";
 
 /** What `gh` needs besides the command set: its own configuration home. */
 const GH_ENVIRONMENT: readonly string[] = Object.freeze([...COMMAND_ENVIRONMENT, "XDG_CONFIG_HOME", "GH_CONFIG_DIR", "GH_HOST"]);
@@ -91,8 +93,15 @@ export function runBoundedCommand(command: string, args: readonly string[], inpu
   });
 }
 
-/** THE RUN of the maintainer's `gh`. */
-const runGh: MaintainerCliRun = (args, input, limits) => runBoundedCommand("gh", args, input, limits);
+/**
+ * THE RUN of the maintainer's `gh`. A process under test never runs the
+ * real one: it is refused at once, typed, so a path that bypasses an
+ * injected `gh` fails fast instead of reaching the maintainer's account or
+ * hanging on it.
+ */
+const runGh: MaintainerCliRun = (args, input, limits) => processUnderTest()
+  ? Promise.reject(new ForgeError("forge_maintainer_cli_failed", "This process is under test: the maintainer's real gh is never run here. Inject a gh (the forge CLI's wiring, maintainerCli's run).", { underTest: true }))
+  : runBoundedCommand("gh", args, input, limits);
 
 export type MaintainerCli = Readonly<{
   /** Whether `gh` is installed and logged in to the web origin's host (`gh auth status`). */
@@ -108,7 +117,7 @@ function failed(what: string, run: MaintainerCliAnswer): ForgeError {
   if (run.ending !== "exited") {
     return new ForgeError("forge_maintainer_cli_stalled", `${what}: gh ${run.ending === "stalled" ? "made no progress (no output, no CPU work) within its stall window" : "used more CPU than its limit"}, so it was ended.`, { what, ending: run.ending });
   }
-  const words = run.missing ? "the gh command is not installed" : run.stderr.trim().split("\n").slice(-3).join(" ").slice(0, 400);
+  const words = run.missing ? "the gh command is not installed" : run.stderr.trim().split("\n").slice(-FORGE_REFUSAL_TEXT.cliStderrLines).join(" ").slice(0, FORGE_REFUSAL_TEXT.cliStderrChars);
   return new ForgeError("forge_maintainer_cli_failed", `${what}: ${words || `gh exited ${String(run.status)}`}`, { what, ...(run.status === null ? {} : { exitCode: run.status }) });
 }
 

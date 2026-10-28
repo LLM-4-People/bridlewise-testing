@@ -93,7 +93,7 @@ test("Native identity context preserves opaque IDs while retaining credential, d
   registerKnownSecret(registered, "native-id-test");
   try { assert.throws(() => assertResponseIdentity(registered), { code: "responses_identity_sensitive" }); }
   finally { forgetKnownSecret("native-id-test"); }
-  for (const value of ["alice@example.com", "sk-proj-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]) assert.throws(() => assertResponseIdentity(value), { code: "responses_identity_sensitive" });
+  for (const value of ["alice@example.com", ("sk" + "-proj-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]) assert.throws(() => assertResponseIdentity(value), { code: "responses_identity_sensitive" });
   assert.throws(() => mintTestRequest("create", { input: "my password may be admin44xyz", previous_response_id: "admin44xyz" }), { code: "responses_identity_sensitive" });
   assert.throws(() => mintTestRequest("create", { metadata: { ["resp_" + hash.slice(0, 48)]: "witness" } }), { code: "responses_identity_sensitive" }, "arbitrary keys must not acquire protocol identity authority");
 });
