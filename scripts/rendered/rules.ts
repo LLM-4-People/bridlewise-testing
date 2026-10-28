@@ -19,16 +19,47 @@
  *
  * Every page row runs in every RENDER STATE of its surface (the second table,
  * below): a mark hidden only at a narrow width, a family only in print, a
- * remote sheet only under reduced motion are each a state of their own. And a
- * state is judged only once the page is QUIET (judge.ts `settle`): no request
- * in flight, no short timer pending, and no DOM mutation for the quiet window
- * — measured from those events, never a fixed sleep — so a family or a sheet
- * a script adds after load is judged too. The request rows and the
- * Content-Security-Policy listener stay on for the whole session.
+ * remote sheet only under reduced motion are each a state of their own. Each
+ * state is judged once the page is READY (judge.ts `ready`): no request in
+ * flight and every frame's fonts settled — events, never a sleep and never a
+ * time limit. Then the judge runs the page's FUTURE (FUTURE_MS of page time on
+ * the page's clock, in STEP_MS steps, judging after each, then every finite
+ * animation finished): every timeout, interval and animation frame due in
+ * that span, in every frame and however it was scheduled, has fired before
+ * the page is left.
+ *
+ * A page row runs in every frame the page holds (outside FRAMES_NOT_JUDGED,
+ * each declared with its reason) and sees open shadow roots; what the page
+ * records as it runs (every canvas font and every Content-Security-Policy
+ * violation, in any frame) reaches the rows through `record`; and whatever
+ * the judgement cannot reach — a worker, a closed shadow root, a window the
+ * page opens — is refused by the judgeable row, never passed in silence. The
+ * request rows stay on for the whole session.
  */
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 
 export type Surface = "cockpit" | "site";
+
+/** What the page recorded as it ran (judge.ts keeps it in Node, so a frame or worker that is gone still counts). */
+export type Recorded = Readonly<{
+  /** Every font a canvas was given or drew text in, in any frame. */
+  canvasFonts: readonly string[];
+  /** Every Content-Security-Policy violation, in any frame. */
+  cspViolations: readonly string[];
+  /** Everything the judgement cannot reach, each in one sentence. */
+  unjudgeable: readonly string[];
+}>;
+
+/**
+ * The helpers every page row may use, passed in beside its arguments (a row's
+ * `judge` runs in the page, so it can import nothing).
+ */
+export type Kit = Readonly<{
+  /** Every element of the document's composed tree: the light DOM and, recursively, every open shadow root. */
+  elements: (root: Document) => Element[];
+  /** An element as a finding names it: tag, id and first classes. */
+  describe: (element: Element) => string;
+}>;
 
 export type PageRule = Readonly<{
   kind: "page";
@@ -39,7 +70,11 @@ export type PageRule = Readonly<{
   /** Surfaces it does not hold on yet, each with the reason and who flips it. */
   pending?: Readonly<Partial<Record<Surface, string>>>;
   input: () => unknown;
-  judge: (args: { input: never; surface: Surface }) => string[];
+  /**
+   * Runs in every judged frame: `top` is the page's own document, and only
+   * there is `record` given (it holds the whole page's, every frame's).
+   */
+  judge: (args: { input: never; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit) => string[];
 }>;
 
 export type RequestRule = Readonly<{
@@ -72,16 +107,32 @@ const FACE_TOKENS: readonly string[] = ["--face-sans", "--face-mono"];
 /** Where the brand mark renders: the cockpit's `Brand.svelte` and any page that includes the generated mark. */
 const MARK_SELECTOR = ".brand > svg, svg[data-brand-mark]";
 
-/** The brand mark as rendered: the declared parts, each in its token's value, nothing hiding or recolouring it. */
-function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string }; surface: Surface }): string[] {
-  const findings: string[] = [];
-  const { parts, selector } = args.input;
-  const describe = (element: Element): string => {
+/** THE KIT (see `Kit`): each helper self-contained, as it runs in the page. */
+export const KIT: Readonly<Record<keyof Kit, (...args: never[]) => unknown>> = {
+  elements: (root: Document): Element[] => {
+    const out: Element[] = [];
+    const walk = (scope: Document | ShadowRoot): void => {
+      for (const el of scope.querySelectorAll("*")) {
+        out.push(el);
+        if (el.shadowRoot !== null) walk(el.shadowRoot);
+      }
+    };
+    walk(root);
+    return out;
+  },
+  describe: (element: Element): string => {
     const cls = typeof element.className === "string" && element.className.trim() ? `.${element.className.trim().split(/\s+/u).slice(0, 2).join(".")}` : "";
     return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${cls}`;
-  };
-  const marks = [...document.querySelectorAll(selector)];
-  if (marks.length === 0 && args.surface === "cockpit") findings.push("no brand mark is rendered on this view");
+  },
+};
+
+/** The brand mark as rendered, wherever it is (any frame, any open shadow root): the declared parts, each in its token's value, nothing hiding or recolouring it. */
+function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+  const findings: string[] = [];
+  const { parts, selector } = args.input;
+  const describe = kit.describe;
+  const marks = kit.elements(document).filter((el) => el.matches(selector));
+  if (marks.length === 0 && args.top && args.surface === "cockpit") findings.push("no brand mark is rendered on this view");
   const resolveToken = (scope: Element, token: string): string => {
     const probe = document.createElement("span");
     probe.style.color = `var(${token})`;
@@ -90,8 +141,10 @@ function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string
     probe.remove();
     return value;
   };
+  // Up the composed tree: through a shadow root to its host.
+  const parentOf = (node: Element): Element | null => node.parentElement ?? ((node.parentNode as ShadowRoot | null)?.host ?? null);
   const shown = (element: Element, where: string): void => {
-    for (let node: Element | null = element; node !== null; node = node.parentElement) {
+    for (let node: Element | null = element; node !== null; node = parentOf(node)) {
       const s = getComputedStyle(node);
       const at = node === element ? where : `${where} (its ancestor ${describe(node)})`;
       if (s.display === "none") findings.push(`${at}: display none`);
@@ -131,45 +184,96 @@ function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string
   return findings;
 }
 
-/** Every element that renders text computes exactly a token stack, and every face the document loaded is a token family. */
-function judgeFonts(args: { input: { faceTokens: readonly string[] }; surface: Surface }): string[] {
+/** A face the token owner vendors: its family, and the files (served paths) it may be loaded from. */
+export type VendoredFace = Readonly<{ family: string; files: readonly string[] }>;
+
+/**
+ * THE VENDORED FACES the font rows bind each token family to. None yet: until
+ * the font owner (#92) vendors IBM Plex under public/fonts and binds this to
+ * its lock, a page may declare no font face at all.
+ */
+const VENDORED_FACES: readonly VendoredFace[] = [];
+
+/**
+ * Every element that renders text computes exactly a token stack; every face
+ * the document declares or holds is a token family loaded from its vendored
+ * files; every font a canvas is given or draws in is exactly a token stack.
+ */
+function judgeFonts(args: { input: { faceTokens: readonly string[]; faces: readonly VendoredFace[] }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
   const findings: string[] = [];
-  const { faceTokens } = args.input;
+  const { faceTokens, faces } = args.input;
   const normal = (family: string): string => family.split(",").map((f) => f.trim().replace(/^["']|["']$/gu, "")).filter((f) => f.length > 0).join(", ");
-  const describe = (element: Element): string => {
-    const cls = typeof element.className === "string" && element.className.trim() ? `.${element.className.trim().split(/\s+/u).slice(0, 2).join(".")}` : "";
-    return `${element.tagName.toLowerCase()}${cls}`;
-  };
   const rootStyle = getComputedStyle(document.documentElement);
   const stacks = new Set(faceTokens.map((token) => normal(rootStyle.getPropertyValue(token))).filter((stack) => stack.length > 0));
-  if (stacks.size !== faceTokens.length) findings.push(`the page declares ${stacks.size} of the ${faceTokens.length} face tokens (${faceTokens.join(", ")})`);
+  if (args.top && stacks.size !== faceTokens.length) findings.push(`the page declares ${stacks.size} of the ${faceTokens.length} face tokens (${faceTokens.join(", ")})`);
   const families = new Set([...stacks].flatMap((stack) => stack.split(", ")));
+  const elements = kit.elements(document);
+  // Text, in the light DOM and in every open shadow root (a closed one is refused by the judgeable row).
   const offStack = new Map<string, string[]>();
-  for (const el of document.body.querySelectorAll("*")) {
-    const text = [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0);
+  for (const el of elements) {
+    const own = [...el.childNodes, ...(el.shadowRoot?.childNodes ?? [])];
+    const text = own.some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0);
     if (!text || el.getClientRects().length === 0) continue;
     const family = normal(getComputedStyle(el).fontFamily);
     if (stacks.has(family)) continue;
     const seen = offStack.get(family) ?? [];
-    if (seen.length < 3) seen.push(describe(el));
+    if (seen.length < 3) seen.push(kit.describe(el));
     offStack.set(family, seen);
   }
   for (const [family, where] of offStack) findings.push(`text renders in "${family}", not a --face-* stack (${where.join(", ")})`);
+  // Every face a stylesheet declares: a token family, from that family's vendored files only (no local(), no other file).
+  const sheets: CSSStyleSheet[] = [...document.styleSheets, ...document.adoptedStyleSheets];
+  for (const el of elements) if (el.shadowRoot !== null) sheets.push(...el.shadowRoot.styleSheets, ...el.shadowRoot.adoptedStyleSheets);
+  const declared = new Map<string, number>();
+  const visit = (sheet: CSSStyleSheet): void => {
+    let rules: CSSRuleList;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      findings.push(`a stylesheet the judgement cannot read (${sheet.href ?? "inline"})`);
+      return;
+    }
+    const walk = (list: CSSRuleList): void => {
+      for (const rule of list) {
+        if (rule instanceof CSSImportRule) {
+          if (rule.styleSheet !== null) visit(rule.styleSheet);
+        } else if (rule instanceof CSSFontFaceRule) {
+          const family = normal(rule.style.getPropertyValue("font-family"));
+          declared.set(family, (declared.get(family) ?? 0) + 1);
+          const allowed = new Set(faces.filter((face) => face.family === family).flatMap((face) => face.files.map((file) => new URL(file, location.origin).href)));
+          if (!families.has(family)) findings.push(`a stylesheet declares the font face "${family}", not a token family`);
+          const src = rule.style.getPropertyValue("src");
+          const sources = src.split(/,(?![^(]*\))/u).map((item) => item.trim()).filter((item) => item.length > 0);
+          for (const source of sources.length === 0 ? [""] : sources) {
+            const url = /^url\(\s*["']?([^"')]*)["']?\s*\)(?:\s+(?:format|tech)\([^)]*\))*$/u.exec(source)?.[1];
+            const at = url === undefined ? null : new URL(url, sheet.href ?? document.baseURI).href;
+            if (at === null || !allowed.has(at)) findings.push(`the font face "${family}" is loaded from ${source || "nothing"}, not one of its vendored files`);
+          }
+        } else if ("cssRules" in rule) walk((rule as CSSGroupingRule).cssRules);
+      }
+    };
+    walk(rules);
+  };
+  for (const sheet of sheets) visit(sheet);
+  // Every face the document holds: a token family, and no more faces of a family than its stylesheets declare
+  // (a face a script made — new FontFace — has a source no stylesheet states, so it cannot be bound).
+  const held = new Map<string, number>();
   for (const face of document.fonts) {
-    const family = face.family.replace(/^["']|["']$/gu, "");
-    if (face.status === "loaded" && !families.has(family)) findings.push(`the document loaded the font face "${family}", not a token family`);
+    const family = normal(face.family);
+    held.set(family, (held.get(family) ?? 0) + 1);
+    if (!families.has(family)) findings.push(`the document holds the font face "${family}" (${face.status}), not a token family`);
   }
-  // Every font a canvas was given (recorded at the context's setter by judge.ts), parsed by the browser itself:
-  // each family it names must be a token family.
-  const canvasFonts = (window as unknown as { __renderedCanvasFonts?: string[] }).__renderedCanvasFonts;
-  if (canvasFonts === undefined) findings.push("the page was not instrumented for canvas fonts");
-  for (const value of new Set(canvasFonts ?? [])) {
+  for (const [family, count] of held) {
+    if (count > (declared.get(family) ?? 0)) findings.push(`the document holds ${count} faces of "${family}" but its stylesheets declare ${declared.get(family) ?? 0}: a face made by script cannot be bound to a vendored file`);
+  }
+  // Every font a canvas was given or drew in, in any frame (recorded by judge.ts as it happened),
+  // parsed by the browser itself: its family list must be exactly one token stack.
+  for (const value of new Set(args.record?.canvasFonts ?? [])) {
     const probe = document.createElement("span");
     probe.style.font = value;
-    const named = probe.style.fontFamily === "" ? [] : normal(probe.style.fontFamily).split(", ");
-    if (named.length === 0) findings.push(`a canvas was given the font "${value}", which names no family the browser can read`);
-    const foreign = named.filter((family) => !families.has(family));
-    if (foreign.length > 0) findings.push(`a canvas was given the font "${value}": ${foreign.join(", ")} is not a token family`);
+    const family = normal(probe.style.fontFamily);
+    if (family === "") findings.push(`a canvas was given the font "${value}", which names no family the browser can read`);
+    else if (!stacks.has(family)) findings.push(`a canvas draws in "${value}": "${family}" is not exactly a --face-* stack`);
   }
   return findings;
 }
@@ -183,7 +287,8 @@ function judgeFonts(args: { input: { faceTokens: readonly string[] }; surface: S
 export const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'";
 
 /** The page carries exactly one CSP meta tag, and it says exactly the policy. */
-function judgeCspMeta(args: { input: { policy: string }; surface: Surface }): string[] {
+function judgeCspMeta(args: { input: { policy: string }; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  if (!args.top && location.protocol === "about:") return []; // a srcdoc or blank frame lives under its parent's policy
   const metas = [...document.querySelectorAll("meta")].filter((m) => (m.getAttribute("http-equiv") ?? "").toLowerCase() === "content-security-policy");
   if (metas.length !== 1) return [`the page carries ${metas.length} Content-Security-Policy meta tags, not one`];
   const normal = (policy: string): string => policy.split(";").map((d) => d.trim().replace(/\s+/gu, " ")).filter((d) => d.length > 0).join("; ");
@@ -191,12 +296,14 @@ function judgeCspMeta(args: { input: { policy: string }; surface: Surface }): st
   return content === normal(args.input.policy) ? [] : [`the Content-Security-Policy is "${content}", not "${normal(args.input.policy)}"`];
 }
 
-/** No Content-Security-Policy violation happened on the page (recorded from the first byte by judge.ts's context instrument). */
-function judgeCspViolations(args: { input: Record<string, never>; surface: Surface }): string[] {
-  void args;
-  const seen = (window as unknown as { __renderedCspViolations?: { directive: string; blocked: string }[] }).__renderedCspViolations;
-  if (seen === undefined) return ["the page was not instrumented for Content-Security-Policy violations"];
-  return seen.map((v) => `a Content-Security-Policy violation: ${v.directive} blocked ${v.blocked || "an inline resource"}`);
+/** No Content-Security-Policy violation happened in any frame of the page (recorded from the first byte by judge.ts). */
+function judgeCspViolations(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  return (args.record?.cspViolations ?? []).map((v) => `a Content-Security-Policy violation: ${v}`);
+}
+
+/** Nothing the page runs is out of the judgement's reach (judge.ts records what is: a worker, a closed shadow root). */
+function judgeJudgeable(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  return [...(args.record?.unjudgeable ?? [])];
 }
 
 /** A request that leaves the page's origin (data:, blob: and about: URLs are the page's own). */
@@ -217,7 +324,13 @@ export type RenderState = Readonly<{
   surfaces: readonly Surface[];
   media: "screen" | "print";
   reducedMotion: "reduce" | "no-preference";
-  /** Set by the judge on the site; on the cockpit the capture walk's surfaces already span desktop and mobile, Carbon and Logbook. */
+  /**
+   * Set by the judge on the site. On the cockpit the capture walk's surfaces
+   * already span desktop and mobile, Carbon and Logbook, and its contexts are
+   * dark: the cockpit themes by attribute, never by prefers-color-scheme, so a
+   * light scheme state would judge nothing new (a media-query theme would
+   * need one here).
+   */
   viewport?: Readonly<{ width: number; height: number }>;
   colorScheme?: "light" | "dark";
 }>;
@@ -241,19 +354,31 @@ export const RENDER_STATES: readonly RenderState[] = [
   { id: "narrow", surfaces: ["site"], media: "screen", reducedMotion: "no-preference", viewport: NARROW, colorScheme: "light" },
 ];
 
-/** A page is quiet once nothing happened for this long: no request, no short timer firing, no DOM mutation. */
-export const QUIET_WINDOW_MS = 400;
-/** A timer longer than this is a schedule, not part of loading (a poll, a reminder); shorter ones are waited for. */
-export const TIMER_HORIZON_MS = 5000;
-/** The longest a page may take to go quiet; a page still busy then is judged as it stands, and the run says so. */
-export const SETTLE_LIMIT_MS = 15_000;
+/**
+ * THE FUTURE a page is judged through before it is left, in page time on the
+ * page's own clock (no wall time passes for it): every timeout, interval and
+ * animation frame due in it fires, in every frame, and the rows are judged
+ * after each STEP_MS. A change that lasts less than a step between two
+ * judgements, or one scheduled later than this, is outside the claim.
+ */
+export const FUTURE_MS = 30_000;
+export const STEP_MS = 1_000;
+
+/**
+ * THE FRAMES NOT JUDGED, each declared with its reason: a frame whose element
+ * carries the attribute is skipped with everything inside it. Every other
+ * frame is judged by every page row.
+ */
+export const FRAMES_NOT_JUDGED: readonly Readonly<{ attribute: string; value: string; why: string }>[] = [
+  { attribute: "data-artifact", value: "frame", why: "a user artifact (ArtifactFrame.svelte): the user's own document, in its own sandbox; its fonts and marks are the user's, not the cockpit's" },
+];
 
 /** THE TABLE. */
 export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "brand-mark",
-    holds: "Every rendered brand mark draws exactly the declared parts, each in its token's value, opaque, unfiltered, visible, unclipped and unmasked, and has a size.",
+    holds: "Every rendered brand mark, in any frame or open shadow root, draws exactly the declared parts, each in its token's value, opaque, unfiltered, visible, unclipped and unmasked, and has a size.",
     surfaces: ["cockpit"],
     pending: { site: "the site's layout draws a mark of its own (another geometry, painted with currentColor) until DESIGN generates it from brand-mark.ts (#201); DESIGN adds \"site\" here when it does" },
     input: () => ({ parts: markParts(), selector: MARK_SELECTOR }),
@@ -262,10 +387,10 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "font-families",
-    holds: "Every element that renders text computes exactly a --face-* token stack, and the document loads only token families.",
+    holds: "Every element that renders text (open shadow roots included) computes exactly a --face-* token stack; every font face is a token family loaded from its vendored files; every canvas font, in any frame, is exactly a --face-* stack.",
     surfaces: ["cockpit"],
     pending: { site: "the site declares its own --sans/--mono stacks until it wears the token owner (DESIGN, #201); DESIGN adds \"site\" here when it does" },
-    input: () => ({ faceTokens: FACE_TOKENS }),
+    input: () => ({ faceTokens: FACE_TOKENS, faces: VENDORED_FACES }),
     judge: judgeFonts as PageRule["judge"],
   },
   {
@@ -283,10 +408,18 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "csp-violations",
-    holds: "No Content-Security-Policy violation happens while the page loads and runs.",
+    holds: "No Content-Security-Policy violation happens, in any frame, while the page loads and runs.",
     surfaces: ["cockpit", "site"],
     input: () => ({}),
     judge: judgeCspViolations as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "judgeable",
+    holds: "Everything the page runs is within the judgement's reach: no worker (dedicated or shared), no closed shadow root, no window the page opens; every frame outside FRAMES_NOT_JUDGED is judged.",
+    surfaces: ["cockpit", "site"],
+    input: () => ({}),
+    judge: judgeJudgeable as PageRule["judge"],
   },
   {
     kind: "request",

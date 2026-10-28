@@ -80,7 +80,7 @@ import {
   type ViewportId,
 } from "./cockpit-plan.ts";
 import { decodePngRgb, encodeGif } from "./gif.ts";
-import { instrumentContext, judgeAgainIfChanged, judgeStates, launchBrowser, type RenderRestore } from "../rendered/judge.ts";
+import { instrumentContext, judgeFuture, judgeStates, launchBrowser, openPage, type RenderRestore } from "../rendered/judge.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -310,8 +310,8 @@ function captureLayer(config: LayerConfig): void {
   // A region mask is an opaque overlay ABOVE the reading (the reading stays in place and hit-testable, so the layout and the Lens are unchanged).
   style.textContent = `${config.css}
 [data-capture-mask]{position:relative!important}
-[data-capture-mask]::after{content:"[" attr(data-capture-mask) "]";position:absolute;inset:0;z-index:1;pointer-events:none;display:flex;align-items:center;font:11px/1 ui-monospace,monospace;color:var(--capture-mask-color);background:var(--capture-mask-bg)}
-[data-capture-badge]{position:fixed;right:0;bottom:0;z-index:2147483647;pointer-events:none;font:11px/1.3 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.72);padding:3px 7px;border-top-left-radius:4px}`;
+[data-capture-mask]::after{content:"[" attr(data-capture-mask) "]";position:absolute;inset:0;z-index:1;pointer-events:none;display:flex;align-items:center;font:11px/1 var(--face-mono);color:var(--capture-mask-color);background:var(--capture-mask-bg)}
+[data-capture-badge]{position:fixed;right:0;bottom:0;z-index:2147483647;pointer-events:none;font:11px/1.3 var(--face-mono);color:#fff;background:rgba(0,0,0,.72);padding:3px 7px;border-top-left-radius:4px}`;
   let badge: HTMLElement | null = null;
   const setBadge = (text: string | null): void => {
     if (text === null) { badge?.remove(); badge = null; return; }
@@ -412,11 +412,12 @@ async function newSurface(browser: Browser, theme: Theme, viewport: ViewportId, 
     serviceWorkers: "block",
     ...(video !== undefined ? { recordVideo: { dir: video, size: { width: spec.width, height: spec.height } } } : {}),
   });
-  await context.clock.setFixedTime(new Date(FIXED_INSTANT_ISO));
+  // The judgement installs the page clock (it runs a view's future before leaving); the date shown stays fixed.
   await instrumentContext(context, "cockpit", APP_ORIGIN, (finding) => offOrigin.add(`[${theme}/${viewport}] ${finding}`));
+  await context.clock.setFixedTime(new Date(FIXED_INSTANT_ISO));
   const config: LayerConfig = { css: STILLNESS_CSS, theme, themeKey: THEME_STORAGE_KEY, textMasks: TEXT_MASKS, regionMasks: REGION_MASKS, badge };
   await context.addInitScript(captureLayer, config);
-  const page = await context.newPage();
+  const page = await openPage(context);
   page.setDefaultTimeout(15_000);
   page.on("pageerror", (error) => log(`[${theme}/${viewport}] page error: ${error.message.slice(0, 300)}`));
   return { theme, viewport, context, page };
@@ -573,24 +574,26 @@ const POINTER_HELD: ReadonlySet<ViewAction> = new Set(["openLensCallout"]);
 /** How the walk's own contexts are set (newSurface): a judgement puts each view back this way. */
 const restoreOf = (surface: Surface): RenderRestore => ({ media: "screen", reducedMotion: "reduce", colorScheme: "dark", viewport: { width: VIEWPORTS[surface.viewport].width, height: VIEWPORTS[surface.viewport].height } });
 
-/** THE RENDERED JUDGEMENT of one view: every cockpit row in every cockpit render state, once quiet; returns the mutation mark to judge again on leaving. */
-async function judgeView(state: Run, surface: Surface, label: string): Promise<number> {
-  const judged = await judgeStates(surface.page, "cockpit", restoreOf(surface));
-  for (const finding of judged.findings) state.violations.push(`${label}: ${finding}`);
-  if (judged.busy.length > 0) log(`${label}: never went quiet within the settle limit in ${judged.busy.join(", ")} (judged as it stood)`);
-  return judged.mutations;
+/** THE RENDERED JUDGEMENT of one view: every cockpit row in every cockpit render state, once ready. */
+async function judgeView(state: Run, surface: Surface, label: string): Promise<void> {
+  for (const finding of await judgeStates(surface.page, "cockpit", restoreOf(surface))) state.violations.push(`${label}: ${finding}`);
 }
 
-async function capture(state: Run, surface: Surface, stage: ShotStage, parkPointer: boolean): Promise<number> {
+/** Before the walk leaves a view: its future, judged (rendered/judge.ts judgeFuture). */
+async function judgeLeaving(state: Run, surface: Surface, label: string): Promise<void> {
+  for (const finding of await judgeFuture(surface.page, "cockpit")) state.violations.push(`${label}: ${finding}`);
+}
+
+async function capture(state: Run, surface: Surface, stage: ShotStage, parkPointer: boolean): Promise<void> {
   const { page } = surface;
   const file = captureFileName(stage, surface.theme, surface.viewport);
   const spec = VIEWPORTS[surface.viewport];
   if (parkPointer) await page.mouse.move(1, spec.height - 1);
   await settle(page, 400, 4000);
-  const mark = await judgeView(state, surface, file);
+  await judgeView(state, surface, file);
   if (state.options.judgeOnly) {
     log(`judged ${file}`);
-    return mark;
+    return;
   }
   const readText = (): Promise<string> => page.evaluate(() => (window as unknown as { __capture: { pageText: () => string } }).__capture.pageText());
   const regionsMasked = await page.locator("[data-capture-mask]:visible").count();
@@ -632,7 +635,6 @@ async function capture(state: Run, surface: Surface, stage: ShotStage, parkPoint
     textSha256: sha256(text),
   });
   log(`shot ${file}`);
-  return mark;
 }
 
 /** The fixture run, recorded: a fresh signed-in desktop page with video on. */
@@ -659,8 +661,8 @@ async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const clipEnd = Date.now() - recordStart;
   if (state.options.judgeOnly) {
     // The run's own page, judged as rendered, with no recording.
-    const mark = await judgeView(state, surface, "fixture run");
-    for (const finding of await judgeAgainIfChanged(page, "cockpit", mark)) state.violations.push(`fixture run: ${finding}`);
+    await judgeView(state, surface, "fixture run");
+    await judgeLeaving(state, surface, "fixture run");
     await surface.context.close();
     log("judged the fixture run");
     return;
@@ -743,9 +745,9 @@ async function drive(state: Run, browser: Browser): Promise<void> {
         const file = captureFileName(stage, surface.theme, surface.viewport);
         try {
           const leave = await VIEW[stage.action](surface);
-          const mark = await capture(state, surface, stage, !POINTER_HELD.has(stage.action));
-          // A view that changed after its judgement is judged again before the walk leaves it.
-          for (const finding of await judgeAgainIfChanged(surface.page, "cockpit", mark)) state.violations.push(`${file}: ${finding}`);
+          await capture(state, surface, stage, !POINTER_HELD.has(stage.action));
+          // The view's future (its timers, intervals and animation frames), judged before the walk leaves it.
+          await judgeLeaving(state, surface, file);
           if (leave) await leave();
         } catch (error) {
           throw new CaptureRefusal("view_failed", `${file}: ${error instanceof Error ? error.message : String(error)}`);

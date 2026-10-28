@@ -2,17 +2,28 @@
  * THE RENDERED JUDGEMENT — runs the one rule table (rules.ts) against pages a
  * real browser has rendered. Two callers, one runner:
  *
- *   - the cockpit: the capture walk (scripts/capture/cockpit.ts) calls
- *     `judgeStates` on every view it reaches and `instrumentContext` on every
- *     browser context; `--judge-only` is that walk without images (CI);
+ *   - the cockpit: the capture walk (scripts/capture/cockpit.ts) prepares
+ *     every context with `instrumentContext`, opens every page with
+ *     `openPage`, calls `judgeStates` on every view it reaches and
+ *     `judgeFuture` before it leaves one; `--judge-only` is that walk without
+ *     images (CI);
  *   - the site: `node scripts/rendered/judge.ts site --site <built site>
  *     --baseurl <base path>` serves a built site on loopback and judges every
- *     HTML page it holds, in every render state of the site (rules.ts).
+ *     HTML page it holds the same way, in every render state of the site.
  *
- * Each state is judged once the page is quiet (`settle`): no request in
- * flight, no short timer pending, no DOM mutation for the quiet window. The
- * request rows and the CSP listener stay on for the whole session, and a page
- * that changed after its judgement is judged again before it is left.
+ * Each state is judged once the page is READY (`ready`): no request in flight
+ * and every frame's fonts settled, each known from its event — never a sleep,
+ * and never a time limit (a page that keeps loading is waited for, and the
+ * wait is logged). Then `judgeFuture` runs the page's clock forward (rules.ts
+ * FUTURE_MS, in STEP_MS steps, judging after each), so a change any timer,
+ * interval or animation frame makes later is judged too, in no wall time.
+ *
+ * Everything the page does that a later look could miss is recorded in Node
+ * as it happens, from every frame (even one removed since): each canvas font,
+ * each Content-Security-Policy violation, and whatever cannot be judged — a
+ * worker (seen as the browser attaches it, so even one that ended at once), a
+ * closed shadow root. The request rows see every request for the whole
+ * session.
  *
  * It prints one finding per line and exits 1 when any rule is broken. Typed
  * refusals (`rendered_*`) for a run that cannot judge at all.
@@ -22,10 +33,10 @@ import { createServer, type Server } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { chromium, type Browser, type BrowserContext, type CDPSession, type Frame, type Page } from "playwright-core";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
-import { QUIET_WINDOW_MS, RENDER_STATES, RENDERED_RULES, SETTLE_LIMIT_MS, TIMER_HORIZON_MS, type PageRule, type RenderState, type RequestRule, type Surface } from "./rules.ts";
+import { FRAMES_NOT_JUDGED, FUTURE_MS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type RenderState, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
   readonly code: string;
@@ -48,95 +59,139 @@ export function launchBrowser(executable: string | null, args: readonly string[]
 const pageRules = (surface: Surface): readonly PageRule[] => RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && r.surfaces.includes(surface));
 const requestRules = (surface: Surface): readonly RequestRule[] => RENDERED_RULES.filter((r): r is RequestRule => r.kind === "request" && r.surfaces.includes(surface));
 
-/** Every page rule of `surface` (or exactly `rules`, for the proof), judged on the view `page` shows now; each finding names its rule. */
-export async function judgePage(page: Page, surface: Surface, rules: readonly PageRule[] = pageRules(surface)): Promise<readonly string[]> {
-  const findings: string[] = [];
-  for (const rule of rules) {
-    for (const finding of await page.evaluate(rule.judge, { input: rule.input() as never, surface })) findings.push(`[${rule.id}] ${finding}`);
-  }
-  return findings;
+/** The binding every frame the judge instruments records through. */
+const BINDING = "__renderedRecord";
+
+/**
+ * What one page recorded as it ran (rules.ts `Recorded`), each entry with
+ * whether it counts (one from a frame FRAMES_NOT_JUDGED declares does not;
+ * that is settled as it arrives, and a judgement waits for it).
+ */
+type Entry = Readonly<{ kind: string; value: string; counts: Promise<boolean> }>;
+type Journal = { entries: Entry[] };
+const journals = new WeakMap<Page, Journal>();
+const sessions = new WeakMap<Page, CDPSession>();
+
+function record(page: Page, frame: Frame | null, kind: unknown, value: unknown): void {
+  const journal = journals.get(page);
+  if (journal === undefined) return; // a window the walk did not open: reported when it opens (instrumentContext)
+  const known = kind === "canvas-font" || kind === "csp" || kind === "unjudgeable";
+  const counts = frame === null ? Promise.resolve(true) : excluded(frame).then((skip) => !skip, () => true);
+  journal.entries.push({ kind: known ? kind : "unjudgeable", value: known ? String(value) : `an unknown record ${String(kind)}: ${String(value)}`, counts });
 }
 
-/** Requests in flight per page (the network half of "quiet"), and their URLs (to say what kept a page busy). */
+/** What `page` recorded that counts, as the rows read it. */
+async function recordedOf(page: Page, journal: Journal): Promise<Recorded> {
+  const counted = new Map<string, Set<string>>([["canvas-font", new Set()], ["csp", new Set()], ["unjudgeable", new Set()]]);
+  for (const entry of journal.entries) if (await entry.counts) counted.get(entry.kind)?.add(entry.value);
+  return {
+    canvasFonts: [...counted.get("canvas-font")!],
+    cspViolations: [...counted.get("csp")!],
+    unjudgeable: [...counted.get("unjudgeable")!, ...(await unreachable(page))],
+  };
+}
+
+/**
+ * THE ONE INSTRUMENT of a frame — every frame of every page, from its first
+ * byte (an init script; self-contained, as it runs there). A canvas names its
+ * family in its context's font, so the font is recorded at the context's own
+ * prototype — on every assignment (whatever its spelling: ctx.font =,
+ * ctx["font"] =, Object.assign, +=, another frame's setter) and on every text
+ * it draws (the default font included) — never at a spelling. A shared
+ * worker, which no frame or CDP attach reaches, is recorded as it is made.
+ */
+function instrumentFrame(binding: string): void {
+  const scope = globalThis as unknown as Record<string, unknown>;
+  const call = scope[binding];
+  if (typeof call !== "function") {
+    scope.__renderedUninstrumented = `the ${binding} binding is missing`;
+    return;
+  }
+  const sent = new Set<string>();
+  const send = (kind: string, value: string): void => {
+    const key = `${kind}\n${value}`;
+    if (sent.has(key)) return;
+    sent.add(key);
+    void (call as (k: string, v: string) => unknown)(kind, value);
+  };
+  for (const name of ["CanvasRenderingContext2D", "OffscreenCanvasRenderingContext2D"]) {
+    const proto = (scope[name] as { prototype: Record<string, unknown> } | undefined)?.prototype;
+    const descriptor = proto === undefined ? undefined : Object.getOwnPropertyDescriptor(proto, "font");
+    if (proto === undefined || descriptor?.set === undefined || descriptor.get === undefined) continue;
+    const { get, set } = descriptor;
+    Object.defineProperty(proto, "font", {
+      configurable: true,
+      enumerable: descriptor.enumerable ?? false,
+      get(this: object) { return get.call(this); },
+      set(this: object, value: string) { set.call(this, value); send("canvas-font", String(get.call(this))); },
+    });
+    for (const draw of ["fillText", "strokeText"]) {
+      const original = proto[draw] as ((...args: unknown[]) => unknown) | undefined;
+      if (typeof original !== "function") continue;
+      proto[draw] = function (this: object, ...args: unknown[]): unknown {
+        send("canvas-font", String(get.call(this)));
+        return original.apply(this, args);
+      };
+    }
+  }
+  const Shared = scope.SharedWorker as (new (...args: unknown[]) => object) | undefined;
+  if (typeof Shared === "function") {
+    scope.SharedWorker = function (...args: unknown[]): object {
+      send("unjudgeable", `a shared worker (${String(args[0])}): the judgement does not reach inside a worker`);
+      return new Shared(...args);
+    };
+  }
+  document.addEventListener("securitypolicyviolation", (event) => { send("csp", `${event.violatedDirective} blocked ${event.blockedURI || "an inline resource"}`); });
+  scope.__renderedInstrumented = true;
+}
+
+/** Requests in flight per page (the network half of "ready"), their URLs (to say what a page waits on), and who waits. */
 const inFlight = new WeakMap<Page, number>();
 const openUrls = new WeakMap<Page, Set<string>>();
+const waiters = new WeakMap<Page, (() => void)[]>();
+/** Pages openPage is opening in a context (any other page there is a window the page opened). */
+const opening = new WeakMap<BrowserContext, number>();
 
 /**
  * Instruments `context` for the table, once, before any page opens, for the
- * whole session: every request rule of `surface` sees every request; every
- * page records its Content-Security-Policy violations from the first byte
- * (the csp-violations row reads them) and the events that say whether it is
- * quiet (DOM mutations and short timers; requests are counted here).
+ * whole session: the page clock is installed (judgeFuture runs it forward),
+ * every frame is instrumented from its first byte (`instrumentFrame`), and
+ * every request rule of `surface` sees every request. A window the page opens
+ * itself is reported: only pages opened by `openPage` are judged.
  */
 export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void): Promise<void> {
-  await context.addInitScript((horizon: number) => {
-    const seen: { directive: string; blocked: string }[] = [];
-    const quiet = { mutations: 0, last: performance.now(), timers: 0 };
-    const canvasFonts: string[] = [];
-    const w = window as unknown as { __renderedCspViolations: typeof seen; __renderedQuiet: typeof quiet; __renderedCanvasFonts: string[] };
-    w.__renderedCspViolations = seen;
-    w.__renderedQuiet = quiet;
-    w.__renderedCanvasFonts = canvasFonts;
-    // A canvas names its family in its context's font: every value assigned is recorded at the setter,
-    // however the assignment was spelled (ctx.font =, ctx["font"] =, Object.assign, +=), on 2D and offscreen contexts.
-    for (const name of ["CanvasRenderingContext2D", "OffscreenCanvasRenderingContext2D"]) {
-      const proto = (window as unknown as Record<string, { prototype: object } | undefined>)[name]?.prototype;
-      const descriptor = proto === undefined ? undefined : Object.getOwnPropertyDescriptor(proto, "font");
-      if (proto === undefined || descriptor?.set === undefined || descriptor.get === undefined) continue;
-      const { get, set } = descriptor;
-      Object.defineProperty(proto, "font", {
-        configurable: true,
-        enumerable: descriptor.enumerable ?? false,
-        get(this: object) { return get.call(this); },
-        set(this: object, value: string) { canvasFonts.push(String(value)); set.call(this, value); },
-      });
-    }
-    document.addEventListener("securitypolicyviolation", (event) => { seen.push({ directive: event.violatedDirective, blocked: event.blockedURI }); });
-    new MutationObserver(() => { quiet.mutations += 1; quiet.last = performance.now(); }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-    // Short timers are part of loading: a stylesheet or a family a script adds 2 s in must be waited for.
-    const pending = new Set<number>();
-    const setTimer = window.setTimeout.bind(window);
-    const clearTimer = window.clearTimeout.bind(window);
-    window.setTimeout = ((handler: TimerHandler, delay?: number, ...rest: unknown[]) => {
-      if ((delay ?? 0) > horizon || typeof handler !== "function") return setTimer(handler, delay, ...rest);
-      const id: number = setTimer((...args: unknown[]) => {
-        pending.delete(id);
-        quiet.timers = pending.size;
-        quiet.last = performance.now();
-        (handler as (...a: unknown[]) => void)(...args);
-      }, delay, ...rest);
-      pending.add(id);
-      quiet.timers = pending.size;
-      return id;
-    }) as typeof window.setTimeout;
-    window.clearTimeout = ((id?: number) => {
-      if (id !== undefined) pending.delete(id);
-      quiet.timers = pending.size;
-      clearTimer(id);
-    }) as typeof window.clearTimeout;
-  }, TIMER_HORIZON_MS);
+  await context.clock.install();
+  await context.exposeBinding(BINDING, ({ page, frame }: { page: Page; frame: Frame }, kind: unknown, value: unknown) => record(page, frame, kind, value));
+  await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)});` });
+  context.on("page", (page) => {
+    const expected = opening.get(context) ?? 0;
+    if (expected > 0) opening.set(context, expected - 1);
+    else report(`[judgeable] the page opened a window the judgement does not judge: ${page.url()}`);
+  });
   const rules = requestRules(surface);
   const page = (request: { frame(): { page(): Page } }): Page | null => { try { return request.frame().page(); } catch { return null; } };
-  // A request is loading until it ends — or, for a stream (server-sent events, a WebSocket), until it opens:
-  // a stream is a channel the page keeps, not part of loading.
+  // A request to the network is loading until it ends — or, for a stream (server-sent events, a WebSocket),
+  // until it opens: a stream is a channel the page keeps, not part of loading. A blob: or data: URL is the
+  // page's own bytes, not a load (and a worker's never reports its end).
   const open = new WeakSet<object>();
-  const isStream = (request: { resourceType(): string; headers(): Record<string, string> }): boolean =>
-    ["eventsource", "websocket"].includes(request.resourceType()) || /text\/event-stream/iu.test(request.headers()["accept"] ?? "");
-  const begin = (request: { frame(): { page(): Page }; resourceType(): string; headers(): Record<string, string> }): void => {
+  const loads = (request: { resourceType(): string; headers(): Record<string, string>; url(): string }): boolean =>
+    /^https?:/u.test(request.url()) && !["eventsource", "websocket"].includes(request.resourceType()) && !/text\/event-stream/iu.test(request.headers()["accept"] ?? "");
+  const begin = (request: { frame(): { page(): Page }; resourceType(): string; headers(): Record<string, string>; url(): string }): void => {
     const p = page(request);
-    if (p === null || isStream(request)) return;
+    if (p === null || !loads(request)) return;
     open.add(request);
     inFlight.set(p, (inFlight.get(p) ?? 0) + 1);
-    openUrls.set(p, (openUrls.get(p) ?? new Set<string>()).add((request as unknown as { url(): string }).url()));
+    openUrls.set(p, (openUrls.get(p) ?? new Set<string>()).add(request.url()));
   };
-  const end = (request: { frame(): { page(): Page } }): void => {
+  const end = (request: { frame(): { page(): Page }; url(): string }): void => {
     if (!open.has(request)) return;
     open.delete(request);
     const p = page(request);
-    if (p !== null) {
-      inFlight.set(p, Math.max(0, (inFlight.get(p) ?? 0) - 1));
-      openUrls.get(p)?.delete((request as unknown as { url(): string }).url());
-    }
+    if (p === null) return;
+    const left = Math.max(0, (inFlight.get(p) ?? 0) - 1);
+    inFlight.set(p, left);
+    openUrls.get(p)?.delete(request.url());
+    if (left === 0) for (const done of waiters.get(p)?.splice(0) ?? []) done();
   };
   context.on("response", (response) => {
     const type = response.headers()["content-type"] ?? "";
@@ -154,33 +209,144 @@ export async function instrumentContext(context: BrowserContext, surface: Surfac
 }
 
 /**
- * Waits until `page` is QUIET: no request in flight, no short timer pending,
- * and no DOM mutation for QUIET_WINDOW_MS — each measured from its events. A
- * page still busy at SETTLE_LIMIT_MS is judged as it stands; the answer says
- * so, and the caller reports it.
+ * Opens a page in an instrumented context, with its journal, and watches the
+ * workers it starts: the browser attaches each dedicated worker to the page's
+ * CDP session as it is made, and each is recorded as out of the judgement's
+ * reach — whatever it draws happens where no frame instrument runs, and it
+ * cannot be held for one before it runs (Playwright's own session resumes
+ * it). The only way a judged page is opened.
  */
-export async function settle(page: Page): Promise<"quiet" | "busy"> {
-  const started = Date.now();
-  let last = "";
-  for (;;) {
-    const state = await page.evaluate(() => {
-      const q = (window as unknown as { __renderedQuiet?: { last: number; timers: number } }).__renderedQuiet;
-      return q === undefined ? null : { idle: performance.now() - q.last, timers: q.timers };
-    });
-    if (state === null) throw new RenderedRefusal("rendered_not_instrumented", "the page was opened in a context instrumentContext did not prepare");
-    if ((inFlight.get(page) ?? 0) === 0 && state.timers === 0 && state.idle >= QUIET_WINDOW_MS) return "quiet";
-    last = `requests in flight ${String(inFlight.get(page) ?? 0)} (${[...(openUrls.get(page) ?? [])].slice(-3).join(", ")}), short timers ${String(state.timers)}, idle ${String(Math.round(state.idle))} ms`;
-    if (Date.now() - started > SETTLE_LIMIT_MS) {
-      process.stderr.write(`[rendered] still busy: ${last}\n`);
-      return "busy";
-    }
-    await page.waitForTimeout(Math.max(25, QUIET_WINDOW_MS - Math.max(0, state.idle)));
-  }
+export async function openPage(context: BrowserContext): Promise<Page> {
+  const journal: Journal = { entries: [] };
+  opening.set(context, (opening.get(context) ?? 0) + 1);
+  const page = await context.newPage();
+  journals.set(page, journal);
+  const cdp = await context.newCDPSession(page);
+  sessions.set(page, cdp);
+  cdp.on("Target.attachedToTarget", (event: { targetInfo: { type: string; url: string } }) => {
+    if (event.targetInfo.type === "worker") record(page, null, "unjudgeable", `a worker (${event.targetInfo.url}): the judgement does not reach inside a worker`);
+  });
+  await cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: false });
+  // A new document starts a new record (what the last one recorded was judged before it was left).
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) journal.entries = [];
+  });
+  return page;
 }
 
-/** The DOM mutations a page has seen so far (a page that changed after its judgement is judged again). */
-export async function mutationsOf(page: Page): Promise<number> {
-  return page.evaluate(() => (window as unknown as { __renderedQuiet?: { mutations: number } }).__renderedQuiet?.mutations ?? 0);
+/** Waits, by events, until `page` has no request in flight; a long wait is logged (never judged by its length). */
+function idle(page: Page): Promise<void> {
+  if ((inFlight.get(page) ?? 0) === 0) return Promise.resolve();
+  return new Promise((done) => {
+    const started = Date.now();
+    const liveness = setInterval(() => {
+      process.stderr.write(`[rendered] waiting ${String(Math.round((Date.now() - started) / 1000))} s on ${String(inFlight.get(page) ?? 0)} requests (${[...(openUrls.get(page) ?? [])].slice(-3).join(", ")})\n`);
+    }, 10_000);
+    waiters.set(page, [...(waiters.get(page) ?? []), () => { clearInterval(liveness); done(); }]);
+  });
+}
+
+/**
+ * Waits until `page` is READY to be judged: no request in flight and every
+ * judged frame's fonts settled (document.fonts.ready), then no request again
+ * (a font is a request). Events only: no sleep, no limit.
+ */
+export async function ready(page: Page): Promise<void> {
+  if (!journals.has(page)) throw new RenderedRefusal("rendered_not_instrumented", "the page was not opened by openPage in a context instrumentContext prepared");
+  await idle(page);
+  for (const frame of await judgedFrames(page)) await frame.evaluate(() => document.fonts.ready.then(() => undefined)).catch(() => undefined);
+  await idle(page);
+}
+
+/** Whether `frame`, or a frame it sits in, is one rules.ts declares not judged. */
+async function excluded(frame: Frame): Promise<boolean> {
+  for (let at: Frame | null = frame; at?.parentFrame() != null; at = at.parentFrame()) {
+    const element = await at.frameElement();
+    const hit = await element.evaluate((el, declared) => declared.some((d) => (el as Element).getAttribute(d.attribute) === d.value), FRAMES_NOT_JUDGED);
+    await element.dispose();
+    if (hit) return true;
+  }
+  return false;
+}
+
+/** Every frame of `page` the rows run in: all of them, but a detached one and those FRAMES_NOT_JUDGED declares. */
+async function judgedFrames(page: Page): Promise<readonly Frame[]> {
+  const frames: Frame[] = [];
+  for (const frame of page.frames()) {
+    if (frame.isDetached()) continue;
+    try {
+      if (await excluded(frame)) continue;
+    } catch (error) {
+      if (frame.isDetached()) continue;
+      throw error;
+    }
+    frames.push(frame);
+  }
+  return frames;
+}
+
+type DomNode = { nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
+
+/** What the page holds out of the rows' reach, read from the browser's own tree (CDP, piercing every root and frame): each closed shadow root. */
+async function unreachable(page: Page): Promise<readonly string[]> {
+  const cdp = sessions.get(page)!;
+  const { root } = (await cdp.send("DOM.getDocument", { depth: -1, pierce: true })) as { root: DomNode };
+  await cdp.send("DOM.disable");
+  const found: string[] = [];
+  const declared = (node: DomNode): boolean => {
+    const attributes = node.attributes ?? [];
+    return FRAMES_NOT_JUDGED.some((d) => attributes.some((name, i) => i % 2 === 0 && name === d.attribute && attributes[i + 1] === d.value));
+  };
+  const walk = (node: DomNode): void => {
+    if (node.contentDocument !== undefined && declared(node)) return;
+    for (const shadow of node.shadowRoots ?? []) {
+      if (shadow.shadowRootType === "closed") found.push(`a closed shadow root on <${node.localName ?? node.nodeName.toLowerCase()}>: what it renders cannot be judged`);
+      else if (shadow.shadowRootType === "open") walk(shadow);
+    }
+    for (const child of node.children ?? []) walk(child);
+    if (node.contentDocument !== undefined) walk(node.contentDocument);
+  };
+  walk(root);
+  return found;
+}
+
+/** Each page row as a function that runs in a frame, with the kit beside it (built once). */
+const runners = new Map<PageRule, (args: unknown) => string[]>();
+const kitSource = `{ ${Object.entries(KIT).map(([name, helper]) => `${name}: ${helper.toString()}`).join(", ")} }`;
+function runnerOf(rule: PageRule): (args: unknown) => string[] {
+  let runner = runners.get(rule);
+  if (runner === undefined) {
+    // The row's own source, sent to the browser: it runs there, never here.
+    runner = new Function("args", `return (${rule.judge.toString()})(args, ${kitSource});`) as (args: unknown) => string[];
+    runners.set(rule, runner);
+  }
+  return runner;
+}
+
+/**
+ * Every page row of `surface` (or exactly `rules`, for the proof), judged on
+ * the view `page` shows now, in every judged frame; each finding names its
+ * rule (and its frame, when it is not the page's own).
+ */
+export async function judgePage(page: Page, surface: Surface, rules: readonly PageRule[] = pageRules(surface)): Promise<readonly string[]> {
+  const journal = journals.get(page);
+  if (journal === undefined) throw new RenderedRefusal("rendered_not_instrumented", "the page was not opened by openPage in a context instrumentContext prepared");
+  const recorded = await recordedOf(page, journal);
+  const findings: string[] = [];
+  for (const frame of await judgedFrames(page)) {
+    const top = frame === page.mainFrame();
+    const missing = await frame.evaluate(() => {
+      const scope = globalThis as unknown as { __renderedInstrumented?: boolean; __renderedUninstrumented?: string };
+      return scope.__renderedInstrumented === true ? null : (scope.__renderedUninstrumented ?? "its instrument never ran");
+    });
+    if (missing !== null) throw new RenderedRefusal("rendered_not_instrumented", `the frame ${frame.url()} was not instrumented: ${missing}`);
+    const where = top ? "" : `in the frame ${frame.url().slice(0, 80)}: `;
+    for (const rule of rules) {
+      const args = { input: rule.input(), surface, top, record: top ? recorded : null };
+      for (const finding of await frame.evaluate(runnerOf(rule), args)) findings.push(`[${rule.id}] ${where}${finding}`);
+    }
+  }
+  return findings;
 }
 
 /** How a judgement leaves the page: the media, motion, viewport and scheme to put back (the capture's own). */
@@ -188,31 +354,50 @@ export type RenderRestore = Readonly<{ media: "screen" | "print"; reducedMotion:
 
 /**
  * Every page row of `surface`, in every render state of `surface`, each once
- * the page is quiet; then the page is put back as `restore` says. Returns the
- * findings, each naming its state and rule, the states that never went quiet,
- * and the mutation count it ended on (for `judgeAgainIfChanged`).
+ * the page is ready; then the page is put back as `restore` says. Returns the
+ * findings, each naming its state and rule.
  */
-export async function judgeStates(page: Page, surface: Surface, restore: RenderRestore | null, rules?: readonly PageRule[], states: readonly RenderState[] = statesOf(surface)): Promise<{ findings: readonly string[]; busy: readonly string[]; mutations: number }> {
+export async function judgeStates(page: Page, surface: Surface, restore: RenderRestore | null, rules?: readonly PageRule[], states: readonly RenderState[] = statesOf(surface)): Promise<readonly string[]> {
   const findings: string[] = [];
-  const busy: string[] = [];
   for (const state of states) {
     await enter(page, state);
-    if ((await settle(page)) === "busy") busy.push(state.id);
+    await ready(page);
     for (const finding of await judgePage(page, surface, rules)) findings.push(`(${state.id}) ${finding}`);
   }
   if (restore !== null) {
     if (restore.viewport !== null) await page.setViewportSize({ ...restore.viewport });
     await page.emulateMedia({ media: restore.media, reducedMotion: restore.reducedMotion, colorScheme: restore.colorScheme });
-    await settle(page);
+    await ready(page);
   }
-  return { findings, busy, mutations: await mutationsOf(page) };
+  return findings;
 }
 
-/** Before a page is left: if it changed since `mutations`, its rows are judged again, as it now stands. */
-export async function judgeAgainIfChanged(page: Page, surface: Surface, mutations: number, rules?: readonly PageRule[]): Promise<readonly string[]> {
-  await settle(page);
-  if ((await mutationsOf(page)) === mutations) return [];
-  return (await judgePage(page, surface, rules)).map((finding) => `(after its judgement) ${finding}`);
+/**
+ * Before a page is left: its FUTURE (rules.ts FUTURE_MS of page time, on the
+ * page's clock, in every frame) runs in STEP_MS steps, and the rows are judged
+ * after each step, as the page then stands; then every finite CSS animation
+ * and transition (they run on the document timeline, not the clock) is
+ * finished and the rows are judged once more. Each finding is reported once,
+ * at the first moment it was seen.
+ */
+export async function judgeFuture(page: Page, surface: Surface, rules?: readonly PageRule[]): Promise<readonly string[]> {
+  const first = new Map<string, string>();
+  const note = (moment: string, findings: readonly string[]): void => { for (const finding of findings) if (!first.has(finding)) first.set(finding, moment); };
+  for (let at = STEP_MS; at <= FUTURE_MS; at += STEP_MS) {
+    await page.clock.runFor(STEP_MS);
+    await ready(page);
+    note(`at +${String(at / 1000)} s`, await judgePage(page, surface, rules));
+  }
+  for (const frame of await judgedFrames(page)) {
+    await frame.evaluate(() => {
+      for (const animation of document.getAnimations()) {
+        if (Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))) animation.finish();
+      }
+    });
+  }
+  await ready(page);
+  note("with its animations finished", await judgePage(page, surface, rules));
+  return [...first].map(([finding, moment]) => `(${moment}) ${finding}`);
 }
 
 const statesOf = (surface: Surface): readonly RenderState[] => RENDER_STATES.filter((s) => s.surfaces.includes(surface));
@@ -220,6 +405,13 @@ const statesOf = (surface: Surface): readonly RenderState[] => RENDER_STATES.fil
 async function enter(page: Page, state: RenderState): Promise<void> {
   if (state.viewport !== undefined) await page.setViewportSize({ ...state.viewport });
   await page.emulateMedia({ media: state.media, reducedMotion: state.reducedMotion, ...(state.colorScheme === undefined ? {} : { colorScheme: state.colorScheme }) });
+}
+
+/** The site's own state (its first), which a judged site page is put back to before its future runs. */
+export function siteRestore(): RenderRestore {
+  const [first] = statesOf("site");
+  if (first?.viewport === undefined || first.colorScheme === undefined) throw new RenderedRefusal("rendered_states", "the site's first render state names no viewport and scheme");
+  return { media: first.media, reducedMotion: first.reducedMotion, colorScheme: first.colorScheme, viewport: first.viewport };
 }
 
 const TYPES: Readonly<Record<string, string>> = Object.freeze({
@@ -275,14 +467,12 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
     const context = await browser.newContext({ serviceWorkers: "block" });
     let current = "";
     await instrumentContext(context, "site", origin, (finding) => findings.add(`${current}: ${finding}`));
-    const page = await context.newPage();
+    const page = await openPage(context);
     for (const path of pages) {
       current = path;
       await page.goto(`${origin}${path}`, { waitUntil: "load" });
-      const judged = await judgeStates(page, "site", null);
-      for (const finding of judged.findings) findings.add(`${path} ${finding}`);
-      for (const state of judged.busy) findings.add(`${path} (${state}): the page never went quiet within ${SETTLE_LIMIT_MS} ms (requests, short timers or DOM mutations kept coming)`);
-      for (const finding of await judgeAgainIfChanged(page, "site", judged.mutations)) findings.add(`${path} ${finding}`);
+      for (const finding of await judgeStates(page, "site", siteRestore())) findings.add(`${path} ${finding}`);
+      for (const finding of await judgeFuture(page, "site")) findings.add(`${path} ${finding}`);
     }
     await context.close();
   } finally {

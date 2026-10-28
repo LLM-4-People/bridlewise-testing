@@ -16,7 +16,7 @@ import { parseArgs } from "node:util";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { instrumentContext, judgeAgainIfChanged, judgeStates, launchBrowser, serveSite } from "./judge.ts";
+import { instrumentContext, judgeFuture, judgeStates, launchBrowser, openPage, serveSite, siteRestore } from "./judge.ts";
 import { CONTENT_SECURITY_POLICY, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
@@ -49,6 +49,11 @@ body { font-family: var(--face-sans); }
 type Plant = Readonly<{ name: string; head?: string; body?: string; rule: string; only?: readonly string[] }>;
 
 const cspMeta = (policy: string): string => `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
+/** A script that runs `body` in a dedicated worker. */
+const inWorker = (body: string): string => `<script>new Worker(URL.createObjectURL(new Blob([${JSON.stringify(body)}], { type: "text/javascript" })))</script>`;
+/** A script that runs `body` once `delay` ms of page time have passed. */
+const later = (delay: number, body: string): string => `<script>setTimeout(() => { ${body} }, ${delay})</script>`;
+const GEORGIA_RULE = 'document.styleSheets[0].insertRule("#prose { font-family: Georgia }", 0)';
 
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
@@ -78,14 +83,47 @@ const PLANTS: readonly Plant[] = [
   { name: "the mark hidden only at a narrow width", head: "<style>@media (max-width: 600px) { .brand svg { display: none } }</style>", rule: "brand-mark" },
   { name: "a part hidden only in print", head: "<style>@media print { svg circle { opacity: 0 } }</style>", rule: "brand-mark" },
   { name: "a family only under reduced motion", head: "<style>@media (prefers-reduced-motion: reduce) { #prose { font-family: Georgia } }</style>", rule: "font-families" },
+  // What happens later — each caught only because the page's future is run (judgeFuture), however it was scheduled.
+  { name: "a family an interval sets on its third tick", body: `<script>let n = 0; const t = setInterval(() => { if (++n === 3) { clearInterval(t); ${GEORGIA_RULE}; } }, 2100)</script>`, rule: "font-families" },
+  { name: "the beam hidden on an interval's third tick", body: '<script>let n = 0; const t = setInterval(() => { if (++n === 3) { clearInterval(t); document.styleSheets[0].insertRule("svg circle { opacity: 0 }", 0); } }, 2100)</script>', rule: "brand-mark" },
+  { name: "a family a timer adds 20 s after load, through the CSSOM", body: later(20_000, GEORGIA_RULE), rule: "font-families" },
+  { name: "a stylesheet a timer appends 20 s after load", body: later(20_000, 'const s = document.createElement("style"); s.textContent = "#prose{font-family:Georgia}"; document.head.append(s);'), rule: "font-families" },
+  { name: "a rule's own declaration changed through the CSSOM 3 s after load", body: later(3000, 'document.styleSheets[0].cssRules[1].style.fontFamily = "Georgia";'), rule: "font-families" },
+  { name: "a family a string-handler timer sets", body: `<script>setTimeout("document.getElementById('prose').style.fontFamily = 'Georgia'", 4000)</script>`, rule: "font-families" },
+  { name: "a family set after 300 animation frames", body: `<script>let f = 0; const step = () => { if (++f === 300) ${GEORGIA_RULE}; else requestAnimationFrame(step); }; requestAnimationFrame(step)</script>`, rule: "font-families" },
+  { name: "a family an animation sets after a 6 s delay", head: "<style>@keyframes late { to { font-family: Georgia } } #prose { animation: late 1ms 6s forwards }</style>", rule: "font-families" },
+  { name: "a family set when the page leaves its narrow state", body: `<script>matchMedia("(max-width: 600px)").addEventListener("change", (e) => { if (!e.matches) ${GEORGIA_RULE}; })</script>`, rule: "font-families" },
+  // Other realms: frames, shadow roots, workers.
+  { name: "a worker that draws and ends at once", body: inWorker('new OffscreenCanvas(10, 10).getContext("2d").font = "12px Georgia"; close();'), rule: "judgeable" },
+  { name: "a shared worker", body: `<script>new SharedWorker(URL.createObjectURL(new Blob(["onconnect = () => {}"], { type: "text/javascript" })))</script>`, rule: "judgeable" },
+  { name: "a canvas font set through another frame's setter", body: '<canvas id="c"></canvas><script>const f = document.createElement("iframe"); document.body.append(f); Object.getOwnPropertyDescriptor(f.contentWindow.CanvasRenderingContext2D.prototype, "font").set.call(document.getElementById("c").getContext("2d"), "12px Georgia"); f.remove();</script>', rule: "font-families" },
+  { name: "a canvas font in a frame", body: `<iframe srcdoc="<canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
+  { name: "text in a frame", body: `<iframe srcdoc="<p style='font-family: Georgia'>framed text</p>"></iframe>`, rule: "font-families" },
+  { name: "text in an open shadow root", body: '<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = "<p style=\'font-family: Georgia\'>shadow text</p>"</script>', rule: "font-families" },
+  { name: "a mark in an open shadow root with its beam hidden", body: `<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = ${JSON.stringify(`<style>.brand path { fill: none } circle { opacity: 0 }</style><span class="brand">${markSvg()}</span>`)}</script>`, rule: "brand-mark" },
+  { name: "a closed shadow root", body: '<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "closed" }).innerHTML = "<p>closed text</p>"</script>', rule: "judgeable" },
+  { name: "a window the page opens", body: '<script>window.open("clean.html")</script>', rule: "judgeable" },
+  // Faces: bound to the token owner's vendored files, whoever declares them.
+  { name: "a token family redefined to a local face", head: '<style>@font-face { font-family: "Proof Sans"; src: local("DejaVu Serif"), local("Liberation Serif") }</style>', rule: "font-families" },
+  { name: "a face of another family from a local font", head: '<style>@font-face { font-family: "Shadow Serif"; src: local("DejaVu Serif") }</style>', rule: "font-families" },
+  { name: "a face a script makes and never uses", body: "<script>const f = new FontFace(\"Evil\", \"local('DejaVu Serif')\"); document.fonts.add(f); f.load().catch(() => {})</script>", rule: "font-families" },
+  { name: "a token family a script makes from another face", body: "<script>const f = new FontFace(\"Proof Sans\", \"local('DejaVu Serif')\"); document.fonts.add(f); f.load().catch(() => {})</script>", rule: "font-families" },
+  // A canvas font is exactly one stack, like an element's.
+  { name: "a canvas given only the browser's monospace", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px monospace"</script>', rule: "font-families" },
+  { name: "a canvas given only the browser's sans-serif", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px sans-serif"</script>', rule: "font-families" },
+  { name: "a canvas given a mix of the two stacks", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px monospace, \'Proof Sans\'"</script>', rule: "font-families" },
+  { name: "text drawn in a canvas's default font", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").fillText("x", 0, 10)</script>', rule: "font-families" },
   { name: "the Content-Security-Policy meta tag missing", rule: "csp-meta", only: ["csp-meta"] },
   { name: "a loosened Content-Security-Policy", head: cspMeta(`${CONTENT_SECURITY_POLICY.replace("'self'", "'self' 'unsafe-inline'")}`), rule: "csp-meta", only: ["csp-meta"] },
   { name: "a second Content-Security-Policy meta tag", head: `${cspMeta(CONTENT_SECURITY_POLICY)}${cspMeta("default-src *")}`, rule: "csp-meta", only: ["csp-meta"] },
   { name: "a resource the policy blocks", head: cspMeta("default-src 'self' 'unsafe-inline'"), body: '<img alt="" src="https://cdn.example.invalid/pixel.png">', rule: "csp-violations", only: ["csp-violations"] },
 ];
 
-/** Near-misses each row must pass: the exact policy, in another spacing. */
+/** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "an interval that only changes text", body: '<script>let n = 0; setInterval(() => { document.getElementById("prose").textContent = `tick ${++n}`; }, 500)</script>', rule: "font-families" },
+  { name: "a frame the declared exclusion skips", body: `<iframe data-artifact="frame" srcdoc="<p style='font-family: Georgia'>a user's artifact</p><canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
+  { name: "a canvas drawing text in a token stack", body: '<canvas id="c"></canvas><script>const x = document.getElementById("c").getContext("2d"); x.font = "12px \'Proof Sans\', sans-serif"; x.fillText("x", 0, 10)</script>', rule: "font-families" },
   { name: "a canvas given a token family", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px \'Proof Mono\', monospace"</script>', rule: "font-families" },
   { name: "the exact policy, spaced differently", head: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },
 ];
@@ -104,19 +142,17 @@ async function prove(executable: string | null): Promise<readonly string[]> {
     const { server, origin } = await serveSite(dir, "/proof");
     const browser = await launchBrowser(executable);
     try {
-      // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once quiet,
-      // and again if it changed after its judgement; the request rows listen for the whole visit.
+      // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
+      // then through its future; the request rows listen for the whole visit.
       const states = RENDER_STATES.filter((s) => s.surfaces.includes("site"));
       const judge = async (file: string, only?: readonly string[]): Promise<readonly string[]> => {
         const context = await browser.newContext({ serviceWorkers: "block" });
         const requests: string[] = [];
         await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding));
-        const view = await context.newPage();
+        const view = await openPage(context);
         await view.goto(`${origin}/proof/${file}`, { waitUntil: "load" });
         const selected = rows(only);
-        const judged = await judgeStates(view, "cockpit", null, selected, states);
-        const later = await judgeAgainIfChanged(view, "cockpit", judged.mutations, selected);
-        const findings = [...judged.findings, ...later, ...judged.busy.map((s) => `(${s}) never went quiet`), ...(selected === undefined ? requests : [])];
+        const findings = [...(await judgeStates(view, "cockpit", siteRestore(), selected, states)), ...(await judgeFuture(view, "cockpit", selected)), ...(selected === undefined ? requests : [])];
         await context.close();
         return findings;
       };
