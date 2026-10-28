@@ -26,11 +26,13 @@ test("a repository holding every declared label as declared has no drift, and it
   assert.deepEqual(labelDrift(declared, live), { drift: [], others: ["lane:floor", "ui"] });
 });
 
-test("a missing label and a changed colour or description are drift; names compare without case", () => {
+test("a missing label, a case-only rename and a changed colour or description are drift; names match without case", () => {
   const [first, second, ...rest] = declared;
   const live = [{ ...first!, name: first!.name.toUpperCase(), color: "000000" }, ...rest.map((label) => ({ ...label, description: "changed" }))];
-  const { drift } = labelDrift(declared, live);
-  assert.deepEqual(drift.map((entry) => `${entry.name}:${entry.kind}`), [`${first!.name}:color`, `${second!.name}:missing`, ...rest.map((label) => `${label.name}:description`)]);
+  const { drift, others } = labelDrift(declared, live);
+  assert.deepEqual(drift.map((entry) => `${entry.name}:${entry.kind}`), [`${first!.name}:name`, `${first!.name}:color`, `${second!.name}:missing`, ...rest.map((label) => `${label.name}:description`)]);
+  assert.deepEqual(others, [], "a case-only rename is the declared label, never an other");
+  assert.match(drift[0]!.detail, new RegExp(`spelled "${first!.name.toUpperCase()}" on GitHub`, "u"));
 });
 
 test("the registry refuses a colour GitHub would not store and a name declared twice", () => {

@@ -8,8 +8,9 @@
  * written by the projector from a registry, never typed by a form.
  *
  * {@link labelDrift} compares the registry with the repository's labels: a
- * declared label that is missing or differs in colour or description is
- * drift; a label the registry does not declare is listed (`others`), not
+ * declared label is matched without case (GitHub treats `bug` and `Bug` as one
+ * label), then a missing one, or one that differs in its exact spelling,
+ * colour or description, is drift; a label the registry does not declare is listed (`others`), not
  * judged, because other owners write labels too (the tracker's lanes through
  * the projector, the coordination lanes).
  */
@@ -44,7 +45,7 @@ export async function liveLabels(client: ForgeClient, owner: string, repository:
   return Object.freeze(labels.map((label) => Object.freeze({ name: label.name, color: label.color.toLowerCase(), description: label.description ?? "" })));
 }
 
-export type LabelDrift = Readonly<{ name: string; kind: "missing" | "color" | "description"; detail: string }>;
+export type LabelDrift = Readonly<{ name: string; kind: "missing" | "name" | "color" | "description"; detail: string }>;
 
 /** The drift of `declared` against `live`, and the live labels the registry does not declare. */
 export function labelDrift(declared: readonly CommunityLabel[], live: readonly CommunityLabel[]): Readonly<{ drift: readonly LabelDrift[]; others: readonly string[] }> {
@@ -54,6 +55,8 @@ export function labelDrift(declared: readonly CommunityLabel[], live: readonly C
     const found = byName.get(label.name.toLowerCase());
     if (found === undefined) drift.push({ name: label.name, kind: "missing", detail: `create it: colour ${label.color}, "${label.description}"` });
     else {
+      // Matched without case (GitHub treats "bug" and "Bug" as one label), then judged exactly: a case-only rename is drift.
+      if (found.name !== label.name) drift.push({ name: label.name, kind: "name", detail: `spelled "${found.name}" on GitHub, "${label.name}" in the registry` });
       if (found.color !== label.color) drift.push({ name: label.name, kind: "color", detail: `colour ${found.color} on GitHub, ${label.color} in the registry` });
       if (found.description !== label.description) drift.push({ name: label.name, kind: "description", detail: `"${found.description}" on GitHub, "${label.description}" in the registry` });
     }
