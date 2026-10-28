@@ -44,7 +44,9 @@ test("commit-msg: a message signed off by the committer passes; none, another's 
   assert.equal(judge(root, `feat: a change\n\n${SIGNED}\n`, committer), null);
   assert.equal(judge(root, `feat: a change\n\nSigned-off-by: ${committer.name} <${committer.email.toUpperCase()}>\n`, committer), null, "an address compares without case");
   assert.match(judge(root, "feat: a change\n", committer) ?? "", /carries none/u);
-  assert.match(judge(root, "feat: a change\n\nSigned-off-by: Someone Else <else@example.invalid>\n", committer) ?? "", /Someone Else/u);
+  const other = judge(root, "feat: a change\n\nSigned-off-by: Someone Else <else@example.invalid>\n", committer) ?? "";
+  assert.match(other, /it carries <redacted, domain example\.invalid>/u);
+  assert.doesNotMatch(other, /Someone Else|else@/u, "a refusal never echoes a person");
   // A `Signed-off-by:` paragraph in the body, followed by more prose, is no trailer (git's own parse).
   assert.notEqual(judge(root, `feat: a change\n\n${SIGNED}\n\nAnd a closing paragraph of prose.\n`, committer), null);
   // Merges included: a merge message is a message like any other.
@@ -92,38 +94,79 @@ test("CI: every commit of a range carries its own committer's sign-off; no commi
   );
 });
 
-test("CI: in a merge group, only the queue's own first-parent merges go unjudged; every commit they bring in is judged, and a non-merge on that chain is refused", () => {
+test("CI: a merge group is VERIFIED (its ref in GitHub's queue namespace, held at the head); only then do the queue's first-parent merges go unjudged", () => {
   const { root, git } = repository();
   const base = commit(git, root, "base.txt", `base\n\n${SIGNED}`);
   git(["checkout", "-q", "-b", "pr", base]);
   const unsigned = commit(git, root, "pr.txt", "a pull request's commit without a sign-off");
   git(["checkout", "-q", "main"]);
-  // The queue's merge: unsigned, as GitHub makes it; it is the group's first-parent chain.
+  // The queue's merge: unsigned, as GitHub makes it, on its own queue ref of the remote.
   git(["merge", "-q", "--no-ff", "--no-edit", "pr"], { GIT_COMMITTER_NAME: "GitHub", GIT_COMMITTER_EMAIL: "noreply@github.com" });
-  assert.deepEqual(unsignedCommits(root, `${base}..HEAD`, { mergeGroup: true }).map((line) => line.slice(0, 12)), [unsigned.slice(0, 12)],
+  const head = git(["rev-parse", "HEAD"]).trim();
+  const remote = createTempDir("sign-off-remote-");
+  execFileSync("git", ["init", "-q", "--bare", remote]);
+  const queueRef = "refs/heads/gh-readonly-queue/main/pr-1-0000000000000000000000000000000000000000";
+  git(["push", "-q", remote, `HEAD:${queueRef}`]);
+  assert.deepEqual(unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: queueRef, remote } }).map((line) => line.slice(0, 12)), [unsigned.slice(0, 12)],
     "the queue's merge is not judged; the commit it brings in is");
+  // Not the queue's namespace, or not held at the head: nothing is taken for the queue's.
+  git(["push", "-q", remote, "HEAD:refs/heads/elsewhere"]);
+  assert.match(unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: "refs/heads/elsewhere", remote } }).join("\n"), /not in GitHub's queue namespace/u);
+  git(["push", "-q", "--force", remote, `${base}:${queueRef}`]);
+  assert.match(unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: queueRef, remote } }).join("\n"), new RegExp(`does not hold the merge group's ref .* at ${head.slice(0, 12)}`, "u"));
   // A plain commit on the chain is not the queue's.
+  git(["push", "-q", "--force", remote, `HEAD:${queueRef}`]);
   const plain = commit(git, root, "plain.txt", "pushed onto the chain");
-  const refused = unsignedCommits(root, `${base}..HEAD`, { mergeGroup: true });
+  git(["push", "-q", "--force", remote, `HEAD:${queueRef}`]);
+  const refused = unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: queueRef, remote } });
   assert.ok(refused.some((line) => line.startsWith(`${plain.slice(0, 12)} is on the merge group's first-parent chain but is not a merge`)), refused.join("\n"));
 });
 
-test("identity trailers: every one is exactly Name <address>, judged in any spelling of its key — never dropped", () => {
+test("identity trailers are judged by KEY (any -by key, any case): one carrying an address is exactly Name <address>; other keys keep their own grammar", () => {
   const { root } = repository();
   const committer = TEST_GIT_IDENTITY;
   // The review's plants: each was ACCEPTED when unreadable trailers were dropped.
-  for (const trailer of ["Signed-off-by: person@example.invalid", "Signed-off-by: <person@example.invalid>", `Signed-off-by: ${committer.name} <${committer.email}> person@example.invalid`, "Reported-by: someone"]) {
-    assert.match(judge(root, `feat: a change\n\n${SIGNED}\n${trailer}\n`, committer) ?? "", /is not exactly one "Name <address>"/u, `${trailer} was accepted`);
+  for (const trailer of ["Signed-off-by: person@example.invalid", "Signed-off-by: <person@example.invalid>", `Signed-off-by: ${committer.name} <${committer.email}> person@example.invalid`, "Reviewed-BY: person@example.invalid"]) {
+    const refusal = judge(root, `feat: a change\n\n${SIGNED}\n${trailer}\n`, committer) ?? "";
+    assert.match(refusal, /carries an address but is not exactly one "Name <address>"/u, `${trailer} was accepted`);
+    assert.doesNotMatch(refusal, /person@/u, "a refusal never echoes the address");
+  }
+  // No address, no mailbox: a human's Reported-by passes; so do the binding Flake-cause trailer and a Link with an @.
+  for (const trailer of ["Reported-by: Bob Smith", "Reported-by: @octocat", "Flake-cause: engine/test/x.test.ts::a case => engine/src/x.ts @ 0123456789abcdef0123456789abcdef01234567", "Link: https://example.com/@someone/a-post"]) {
+    assert.equal(judge(root, `feat: a change\n\n${SIGNED}\n${trailer}\n`, committer), null, `${trailer} was refused`);
   }
   // Any case of a sign-off key is a sign-off (and is judged as one).
   assert.equal(judge(root, `feat: a change\n\nsigned-off-by: ${committer.name} <${committer.email}>\n`, committer), null);
 });
 
+test("agent commit: every -by key in any case, and any address anywhere in the NFKC-normalised message, must be the agent's — refused without echoing the person", () => {
+  const { root } = repository();
+  const agent = `Signed-off-by: ${AGENT.name} <${AGENT.email}>`;
+  const person = `${PERSONAL.name} <${PERSONAL.email}>`;
+  const plants: ReadonlyArray<readonly [string, string, RegExp]> = [
+    ["a lower-case sign-off", `feat: a change\n\n${agent}\nsigned-off-by: ${person}\n`, /signed-off-by trailer is <redacted, domain example\.invalid>/u],
+    ["Signed-Off-By", `feat: a change\n\n${agent}\nSigned-Off-By: ${person}\n`, /Signed-Off-By trailer is <redacted, domain example\.invalid>/u],
+    ["Reviewed-BY", `feat: a change\n\n${agent}\nReviewed-BY: ${person}\n`, /Reviewed-BY trailer is <redacted, domain example\.invalid>/u],
+    ["Co-authored-by", `feat: a change\n\n${agent}\nCo-authored-by: ${person}\n`, /Co-authored-by trailer is <redacted, domain example\.invalid>/u],
+    ["a Cc with an address", `feat: a change\n\n${agent}\nCc: ${person}\n`, /message names <redacted, domain example\.invalid>/u],
+    ["a fullwidth ＠", `feat: a change\n\nreach me at person＠example.invalid\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
+    ["a body-paragraph sign-off", `feat: a change\n\nSigned-off-by: ${person}\n\nmore prose\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
+    ["\"Signed off by:\" with spaces", `feat: a change\n\nSigned off by: ${person}\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
+    ["a bare address in the subject", `feat: thanks ${PERSONAL.email}\n\n${agent}\n`, /message names <redacted, domain example\.invalid>/u],
+  ];
+  for (const [name, message, expected] of plants) {
+    const refusal = judge(root, message, AGENT) ?? "";
+    assert.match(refusal, expected, `${name} was accepted`);
+    assert.doesNotMatch(refusal, /A Person|person@|person＠/u, `${name}: a refusal never echoes the person`);
+  }
+  assert.equal(judge(root, `feat: a change\n\n${agent}\n`, AGENT), null, "the agent identity alone passes (liveness)");
+});
+
 test("agent identity: a lower-case sign-off or a Co-authored-by trailer carrying a person's address is refused on an agent commit", () => {
   const { root } = repository();
   const agent = `Signed-off-by: ${AGENT.name} <${AGENT.email}>`;
-  assert.match(judge(root, `feat: a change\n\n${agent}\nsigned-off-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /signed-off-by trailer is A Person/u);
-  assert.match(judge(root, `feat: a change\n\n${agent}\nCo-authored-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /Co-authored-by trailer is A Person/u);
+  assert.match(judge(root, `feat: a change\n\n${agent}\nsigned-off-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /signed-off-by trailer is <redacted, domain example\.invalid>/u);
+  assert.match(judge(root, `feat: a change\n\n${agent}\nCo-authored-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, AGENT) ?? "", /Co-authored-by trailer is <redacted, domain example\.invalid>/u);
   // On a human's commit, a co-author is theirs to name.
   assert.equal(judge(root, `feat: a change\n\n${SIGNED}\nCo-authored-by: ${PERSONAL.name} <${PERSONAL.email}>\n`, TEST_GIT_IDENTITY), null);
 });
@@ -134,7 +177,7 @@ test("agent checkout: a commit made in a checkout the harness made for an agent 
   git(["config", AGENT_CHECKOUT_KEY, "true"]);
   assert.equal(isAgentCheckout(root), true);
   // The review's plant: committer, author and sign-off all a person's own — no agent mark at all.
-  assert.match(judge(root, signedBy(PERSONAL), PERSONAL, PERSONAL, true) ?? "", /agent commit and its author is A Person[\s\S]*this checkout is an agent's/u);
+  assert.match(judge(root, signedBy(PERSONAL), PERSONAL, PERSONAL, true) ?? "", /agent commit and its author is <redacted, domain example\.invalid>[\s\S]*this checkout is an agent's/u);
   assert.equal(judge(root, signedBy(AGENT), AGENT, AGENT, true), null);
 });
 
@@ -161,10 +204,10 @@ test("commit-msg: an agent commit whose sign-off, author or committer is a perso
   const { root } = repository();
   assert.equal(judge(root, signedBy(AGENT), AGENT, AGENT), null, "the project identity throughout passes (liveness)");
   // The incident: an extra sign-off with the person's own address beside the agent's.
-  assert.match(judge(root, signedBy(AGENT, PERSONAL), AGENT, AGENT) ?? "", /Signed-off-by trailer is A Person <person@example\.invalid>, not the project's agent identity/u);
-  assert.match(judge(root, signedBy(AGENT), AGENT, PERSONAL) ?? "", /author is A Person/u);
+  assert.match(judge(root, signedBy(AGENT, PERSONAL), AGENT, AGENT) ?? "", /Signed-off-by trailer is <redacted, domain example\.invalid>, not the project's agent identity/u);
+  assert.match(judge(root, signedBy(AGENT), AGENT, PERSONAL) ?? "", /author is <redacted, domain example\.invalid>/u);
   // A person's committer signing off as themselves, on a commit authored by the agent identity.
-  assert.match(judge(root, signedBy(PERSONAL), PERSONAL, AGENT) ?? "", /committer is A Person/u);
+  assert.match(judge(root, signedBy(PERSONAL), PERSONAL, AGENT) ?? "", /committer is <redacted, domain example\.invalid>/u);
   // The agent's domain is an agent mark too: a different name or mailbox in it is not the identity.
   const sameDomain = { name: "someone", email: `someone@${AGENT.email.split("@")[1]!}` };
   assert.match(judge(root, signedBy(sameDomain), sameDomain, sameDomain) ?? "", /not the project's agent identity/u);
@@ -183,7 +226,7 @@ test("CI: a pull request a declared agent account opened brings agent commits on
   commit(git, root, "human.txt", `human\n\n${SIGNED}`);
   assert.deepEqual(unsignedCommits(root, `${base}..HEAD`), [], "in a human's pull request, the ordinary DCO holds");
   const refused = unsignedCommits(root, `${base}..HEAD`, { agentPullRequest: true });
-  assert.deepEqual(refused.map((line) => /its (\S+)(?: trailer)? is/u.exec(line)?.[1]), ["author", "committer", "Signed-off-by"], "in an agent's pull request, a person's identity is refused, each role named");
+  assert.deepEqual(refused.map((line) => /its (\S+)(?: trailer)? is|its (message) names/u.exec(line)?.slice(1).find((role) => role !== undefined)), ["author", "committer", "Signed-off-by", "message"], "in an agent's pull request, a person's identity is refused, each role named");
   assert.equal(isAgentAccount(ROOT_POLICY.workflow.commitIdentity.agentAccounts[0]!), true);
   assert.equal(isAgentAccount("an-outside-contributor"), false);
 
@@ -193,8 +236,10 @@ test("CI: a pull request a declared agent account opened brings agent commits on
   git(["add", "--", "agent.txt"]);
   git(["commit", "-q", "-m", signedBy(AGENT, PERSONAL)], agentEnvironment);
   const agentLines = unsignedCommits(root, "HEAD~1..HEAD");
-  assert.equal(agentLines.length, 1);
-  assert.match(agentLines[0]!, /Signed-off-by trailer is A Person/u);
+  assert.equal(agentLines.length, 2, "the trailer, and the address its message names");
+  assert.match(agentLines[0]!, /Signed-off-by trailer is <redacted, domain example\.invalid>/u);
+  assert.match(agentLines[1]!, /its message names <redacted, domain example\.invalid>/u);
+  assert.doesNotMatch(agentLines.join("\n"), /A Person|person@/u, "the range refusals never echo the person");
 });
 
 test("the commit-records workflow checks out the base and only fetches the branch's commits — a spelling pin, not a boundary (a pull_request run uses the branch's copy; the boundary is the door App, #67)", () => {
@@ -206,7 +251,7 @@ test("the commit-records workflow checks out the base and only fetches the branc
   assert.doesNotMatch(dco, /pull_request_target/u, "no pull_request_target (write access beside a fork's code)");
   assert.match(dco, /^ {2}merge_group:$/mu);
   assert.match(dco, /node scripts\/verification\/sign-off\.ts --range/u, "the one commit-records workflow runs the sign-off judge");
-  assert.match(dco, /--range "\$GROUP_BASE\.\.\$GROUP_HEAD" --merge-group/u, "a merge group is read as one");
+  assert.match(dco, /--range "\$GROUP_BASE\.\.\$GROUP_HEAD" --merge-group "\$GROUP_REF" --remote "\$SERVER\/\$REPOSITORY"/u, "a merge group is verified by its queue ref");
   assert.match(dco, /A `pull_request` run uses the BRANCH's copy/u, "the header states what it does not guarantee");
   // One owner: CI carries no second DCO job a trimmed branch could edit.
   assert.doesNotMatch(readFileSync(join(workflows, "ci.yml"), "utf8"), /sign-off\.ts/u);

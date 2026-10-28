@@ -102,7 +102,7 @@ function checkCommitMessage(): void {
     // THE DCO: every commit, a merge too, carries its committer's sign-off (scripts/verification/sign-off.ts).
     const signOff = messageSignOffProblem(root, message);
     if (signOff !== null) {
-      process.stderr.write(`\nCOMMIT REFUSED — the commit is not signed off (the DCO is binding): ${signOff}\n\n`);
+      process.stderr.write(`\nCOMMIT REFUSED — the commit's records are wrong (the DCO and the agent identity are binding): ${signOff}\n\n`);
       process.exitCode = 1;
     }
     const missing = missingLessonTrailers(root, message);

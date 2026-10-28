@@ -534,7 +534,7 @@ test("DRIVEN: the DCO — a commit, and a merge, without the committer's sign-of
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
   const unsigned = spawnSync("git", ["commit", "-q", "-m", "an unsigned change"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
   assert.notEqual(unsigned.status, 0, "an unsigned commit was accepted");
-  assert.match(unsigned.stderr, /COMMIT REFUSED — the commit is not signed off \(the DCO is binding\)/u);
+  assert.match(unsigned.stderr, /COMMIT REFUSED — the commit's records are wrong \(the DCO and the agent identity are binding\)/u);
   const other = spawnSync("git", ["commit", "-q", "-m", "signed by another\n\nSigned-off-by: Someone Else <else@example.invalid>"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
   assert.notEqual(other.status, 0, "a commit signed off by someone other than its committer was accepted");
   assertCommitted(root, "a signed change");

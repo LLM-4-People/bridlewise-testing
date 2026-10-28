@@ -37,13 +37,19 @@ source; nothing else spells it), and never a person's own name or address.
   which live on a ref only GitHub writes.
 - **Where it is judged.** One judge (`engine/scripts/verification/sign-off.ts`)
   at the `commit-msg` hook and in the `Commit records` check
-  (`.github/workflows/commit-records.yml`), a required status check in the
-  trunk ruleset (#537).
+  (`.github/workflows/commit-records.yml`). A refusal names the role, the
+  trailer key and only the domain of an address, never a person's name or
+  mailbox, because it is printed into a public log.
+- **The merge queue.** In a merge group the judge verifies the group's ref is
+  in GitHub's `refs/heads/gh-readonly-queue/` namespace and held at the
+  group's head; that namespace and the event's ref name are what is trusted,
+  and only the queue's first-parent merges then go unjudged.
 
-**What is not yet guaranteed.** A `pull_request` run uses the branch's copy of
-the workflow, so a branch can change what runs under the check's name, and a
-ruleset requiring a workflow from main is Enterprise-only (the plan is Team).
-The lasting boundary is the door App (#67, route P3.2): main's code run
-out-of-band, posting the check, with the ruleset accepting it only from that
-App. Until then this record says so, and so do the workflow and the pull
-request.
+**What is not yet guaranteed, at landing.** `Commit records` is not a
+required check yet: GH-1 declares it in the trunk ruleset (#537), and it
+counts only once that is applied. A `pull_request` run uses the branch's copy
+of the workflow, so a branch can change what runs under the check's name,
+and a ruleset requiring a workflow from main is Enterprise-only (the plan is
+Team). The lasting boundary is the door App (#67, route P3.2): main's code
+run out-of-band, posting the check, with the ruleset accepting it only from
+that App.
