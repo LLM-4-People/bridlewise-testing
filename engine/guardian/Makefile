@@ -46,7 +46,7 @@ TEST_BIN := $(BUILD)/test_payload
 
 .PHONY: all guardian test_payload test_process_supervisor clean test
 
-all: guardian test_payload
+all: guardian test_payload test_process_supervisor
 
 guardian: $(BIN)
 
