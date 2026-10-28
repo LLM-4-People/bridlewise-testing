@@ -1,11 +1,13 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: PERF-REPORT-REPRODUCIBLE
 type: Task
 title: Make the performance report reproducible
 state: closed
 resolution: completed
 lane: floor
+parent: M1-PERF
 opened: 2026-10-20
 closed: 2026-10-20
 ---

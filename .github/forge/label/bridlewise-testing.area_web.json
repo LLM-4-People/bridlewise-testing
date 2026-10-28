@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "area:web",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "area:web",
+    "color": "c5def5",
+    "description": "The web interface"
+  }
+}

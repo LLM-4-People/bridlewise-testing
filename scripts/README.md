@@ -67,9 +67,9 @@ ships into the client bundle or the server runtime.
   `files.mjs` shares the filesystem reads, and every GitHub read goes
   through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
-  blocks: it renders them from the page's `ROADMAP-PLAN` block, the open rows
-  of `docs/trackers/TASKS.md`, and the non-proofs in
-  `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
+  blocks: it renders them from the tracker items (`docs/trackers/items/`,
+  states computed by `engine/src/workflow/tracker-status.ts`), the decision
+  records, and the non-proofs in `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
   `npm run docs:roadmap -- --check` is the read-only form, and
   `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
 

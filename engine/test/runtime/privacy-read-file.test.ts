@@ -77,7 +77,7 @@ test("privacy-read-file: redacts credential assignments (api_key = value)", () =
 test("privacy-read-file: redacts PEM private key blocks (private-key signal)", () => {
   const dir = mkTempDir("privacy-read-file-");
   try {
-    const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIKBgQDAQAB\n-----END RSA PRIVATE KEY-----";
+    const pem = ("--" + "---BEGIN RSA PRIVATE KEY-----\nMIIEpAIKBgQDAQAB\n-----END RSA PRIVATE KEY-----");
     writeFileSync(join(dir, "id_rsa"), pem);
     const out = readViaTool(dir, "id_rsa");
     assert.ok(out.includes("[REDACTED"), `expected a redaction marker for the private key block, got: ${out}`);

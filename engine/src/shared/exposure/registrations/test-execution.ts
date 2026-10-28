@@ -406,6 +406,48 @@ export function registerTestExecutionExposure(): void {
       return Array.isArray(shims) ? (shims.length === 0 ? "no deterministic shim: every reproduction needs its runs" : `deterministic shims: ${shims.join(", ")}`) : NOT_DECLARED;
     },
   });
+  // PER-TEST LIMITS (TEST-CPU-CLASSES): judged in CPU work by class, with one
+  // wall hang backstop. Read-only like every suite-gate number: a settings
+  // write that raised a ceiling would change what a green test means.
+  registerSignal({
+    id: "testExecution.testCpuDefaultCeiling",
+    module: "testExecution",
+    name: "CPU work a test may do (its class's ceiling, by default)",
+    description:
+      "Each test is judged by the CPU work it did (its process and every child it reaped), never by its wall time: a test over its file's class ceiling fails. This is the ceiling of every file no class names. Shown read-only.",
+    type: "string",
+    value: () => {
+      const ms = readBudgetNumber("testExecution.testCpuClasses.defaultCeilingMs");
+      return ms === undefined ? NOT_DECLARED : `a test may do ${ms / 1000} s of CPU work unless its file's class says otherwise`;
+    },
+  });
+  registerSignal({
+    id: "testExecution.testCpuClasses",
+    module: "testExecution",
+    name: "Test files with their own CPU-work ceiling",
+    description:
+      "The named CPU-work classes and the test files each holds, each ceiling measured for its files. Shown read-only: a class added from a settings write would let a test do more work unseen.",
+    type: "string",
+    value: () => {
+      const classes = readConfigCustomization("testExecution.testCpuClasses.classes");
+      if (!Array.isArray(classes)) return NOT_DECLARED;
+      if (classes.length === 0) return "no class: every test file has the default ceiling";
+      return (classes as { name: string; ceilingMs: number; files: string[] }[])
+        .map((one) => `${one.name} (${one.ceilingMs / 1000} s): ${one.files.join(", ")}`).join("; ");
+    },
+  });
+  registerSignal({
+    id: "testExecution.testHangBackstop",
+    module: "testExecution",
+    name: "Wall time after which a test is reported hung",
+    description:
+      "The one wall bound left on a test: one still running after this long is hung (a promise that never settles), not slow; how much a test costs is judged in CPU work. Shown read-only.",
+    type: "string",
+    value: () => {
+      const ms = readBudgetNumber("testExecution.testHangBackstopMs");
+      return ms === undefined ? NOT_DECLARED : `a test still running after ${ms / 1000} s is reported hung`;
+    },
+  });
   // The web suite's supervisor (`scripts/run-tests.ts`): served read-only,
   // like every other suite-gate number — loosening a stall limit or the
   // hard ceiling from a settings cookie would change what a green run means.

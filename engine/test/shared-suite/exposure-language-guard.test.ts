@@ -674,14 +674,30 @@ test("enrichment sweep: every declared measuredBy resolves to a same-module regi
  * belonged to: a declaration that tells a generic renderer to format a value
  * as something it is not. Two mechanical rules over every registered signal.
  */
+/**
+ * Prose that names a point in time: "epoch", "instant", or "at" as a
+ * preposition of time. "At least" and "at most" are quantities, not instants:
+ * "not measured until at least one call is recorded" describes a duration's
+ * availability, and reading it as an instant misdeclared two correct timers.
+ */
+const DESCRIBES_AN_INSTANT = /epoch|instant|\bat\b(?!\s+(?:least|most)\b)/iu;
+
+test("the instant reading: a preposition of time is an instant; 'at least' and 'at most' are not", () => {
+  for (const instant of ["The epoch ms of the last edit.", "The instant the turn began.", "When the run started, at the wall clock."]) {
+    assert.ok(DESCRIBES_AN_INSTANT.test(instant), instant);
+  }
+  for (const quantity of ["Not measured until at least one call is recorded.", "Kept for at most an hour.", "The median duration of every call."]) {
+    assert.ok(!DESCRIBES_AN_INSTANT.test(quantity), quantity);
+  }
+});
+
 test("misdeclaration sweep: an epoch instant is typed `timestamp`, never a duration `timer`", () => {
   resetAllRegistrations();
   registerAllExposure();
   try {
     const misdeclared: string[] = [];
     for (const signal of listSignals()) {
-      const describesAnInstant =
-        /epoch|instant|\bat\b/i.test(signal.description) || /At$|lastUpdate$/.test(signal.id);
+      const describesAnInstant = DESCRIBES_AN_INSTANT.test(signal.description) || /At$|lastUpdate$/.test(signal.id);
       if (describesAnInstant && signal.type === "timer") {
         misdeclared.push(
           `${signal.id}: describes an instant but is typed "timer" — a renderer will format it as a duration`,

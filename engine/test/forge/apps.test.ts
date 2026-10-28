@@ -23,35 +23,17 @@ import { serveAppsPage } from "../../src/workflow/forge/apps-page.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { readIntake } from "../../src/workflow/community/sources.ts";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
-import { FORGE_CONFIG_SCHEMA, forgeEndpoint, repositoriesOfKinds, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
+import { FORGE_CONFIG_SCHEMA, forgeEndpoint, repositoriesOfKinds } from "../../src/workflow/forge/forge-config.ts";
 import { appManifest, forgeGeneratedFiles, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
 import { maintainerCli, runBoundedCommand, type MaintainerCliRun } from "../../src/workflow/forge/maintainer-cli.ts";
 import { fakeGithub } from "./fake-github.ts";
 import { requireTestKeyHome, temporaryKeyHome } from "./forge-key-home.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+import { SETTINGS, SOURCES } from "./forge-settings.ts";
 
 /** The repository's own community intake: the one table of the Discussion categories. */
 const CATEGORIES = readIntake(trackedTop(join(import.meta.dirname, "..", ".."))).discussionCategories;
 
-const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
-  organization: "LLM-4-People",
-  apiUrl: "https://api.github.com",
-  webUrl: "https://github.com",
-  userAgent: "bridlewise-forge-test",
-  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10 },
-  tokenRenewBeforeMs: 300_000,
-  repositories: [
-    { name: "bridlewise-testing", kind: "trunk", visibility: "public" },
-    { name: ".github", kind: "meta", visibility: "public" },
-    { name: "bridlewise-evidence", kind: "evidence", visibility: "public" },
-    { name: "bridlewise-coordination", kind: "notes", visibility: "private" },
-    { name: "bridlewise-archive", kind: "archive", visibility: "private" },
-    { name: "forge-proving-ground", kind: "none", visibility: "public", provingGround: true },
-  ],
-  maintainerCli: { stallMs: 120_000, cpuLimitMs: 30_000, killGraceMs: 500 },
-  historyImport: { toolHangBackstopMs: 43_200_000 },
-  appsPage: { port: 47811, legacyApps: [{ slug: "claude", repositories: ["bridlewise-testing"] }] },
-});
 
 const LIMITS = SETTINGS.maintainerCli;
 
@@ -95,32 +77,36 @@ test("the forge section refuses what it must: two trunks, a duplicate name, a no
 
 test("the generated files: written from their owners, hand edits and strays are drift, and the index binds each file's sha256", () => {
   const top = createTempDir("forge-files-");
-  const files = forgeGeneratedFiles(SETTINGS);
-  assert.deepEqual([...files.keys()], ["apps/agent.json", "apps/verifier.json", "apps/door.json", "apps/publisher.json", "manifest.json"]);
-  const index = JSON.parse(files.get("manifest.json")!) as { files: { path: string; sha256: string }[] };
+  const files = forgeGeneratedFiles(SOURCES);
+  assert.deepEqual([...files.keys()].filter((path) => path.startsWith(".github/forge/apps/")), [".github/forge/apps/agent.json", ".github/forge/apps/verifier.json", ".github/forge/apps/door.json", ".github/forge/apps/publisher.json"]);
+  assert.ok(files.has(".github/dependabot.yml") && files.has(".github/CODEOWNERS"));
+  assert.equal([...files.keys()].at(-1), ".github/forge/manifest.json", "the index is written last");
+  const index = JSON.parse(files.get(".github/forge/manifest.json")!) as { files: { path: string; sha256: string }[] };
+  assert.equal(index.files.length, files.size - 1, "the index names every other file");
   for (const entry of index.files) assert.equal(entry.sha256, sha256(files.get(entry.path)!));
   assert.equal(syncForgeFiles(top, undefined, false).status, "current", "no section and no folder: converged by absence");
-  assert.equal(syncForgeFiles(top, SETTINGS, false).status, "stale");
-  assert.equal(syncForgeFiles(top, SETTINGS, true).status, "regenerated");
-  assert.deepEqual(syncForgeFiles(top, SETTINGS, false), { status: "current", converged: true, changed: [] });
+  assert.equal(syncForgeFiles(top, SOURCES, false).status, "stale");
+  assert.equal(syncForgeFiles(top, SOURCES, true).status, "regenerated");
+  assert.deepEqual(syncForgeFiles(top, SOURCES, false), { status: "current", converged: true, changed: [] });
   assert.deepEqual(JSON.parse(readFileSync(join(top, ".github/forge/apps/door.json"), "utf8")), appManifest("door", SETTINGS));
-  // A hand edit in one place and a stray file in another: both named.
+  // A hand edit in two places (a manifest, the CODEOWNERS render) and a stray file under the folder: all named.
   const handEdited = JSON.parse(readFileSync(join(top, ".github/forge/apps/agent.json"), "utf8")) as { default_permissions: Record<string, string> };
   handEdited.default_permissions.checks = "write";
   writeFileSync(join(top, ".github/forge/apps/agent.json"), `${JSON.stringify(handEdited, null, 2)}\n`);
-  mkdirSync(join(top, ".github/forge/rulesets"), { recursive: true });
-  writeFileSync(join(top, ".github/forge/rulesets/hand.json"), "{}\n");
-  // Near miss: a file beside the folder is not the forge's.
   writeFileSync(join(top, ".github/CODEOWNERS"), "* @x\n");
-  const stale = syncForgeFiles(top, SETTINGS, false);
-  assert.deepEqual(stale.changed, [".github/forge/apps/agent.json", ".github/forge/rulesets/hand.json"]);
+  mkdirSync(join(top, ".github/forge/ruleset"), { recursive: true });
+  writeFileSync(join(top, ".github/forge/ruleset/hand.json"), "{}\n");
+  // Near miss: a file beside the folder that the forge does not render is not the forge's.
+  writeFileSync(join(top, ".github/release.yml"), "changelog: {}\n");
+  const stale = syncForgeFiles(top, SOURCES, false);
+  assert.deepEqual(stale.changed, [".github/CODEOWNERS", ".github/forge/apps/agent.json", ".github/forge/ruleset/hand.json"]);
   assert.equal(stale.converged, false);
-  syncForgeFiles(top, SETTINGS, true);
-  assert.equal(syncForgeFiles(top, SETTINGS, false).status, "current");
-  assert.equal(readFileSync(join(top, ".github/CODEOWNERS"), "utf8"), "* @x\n");
-  // No section but a folder: every file under it is drift, and a write removes them all.
+  syncForgeFiles(top, SOURCES, true);
+  assert.equal(syncForgeFiles(top, SOURCES, false).status, "current");
+  assert.equal(readFileSync(join(top, ".github/release.yml"), "utf8"), "changelog: {}\n");
+  // No section but a folder: every file under the folder is drift, and a write removes them all (the renders beside it are not the folder's).
   const orphaned = syncForgeFiles(top, undefined, false);
-  assert.deepEqual(orphaned, { status: "stale", converged: false, changed: [...files.keys()].map((path) => `.github/forge/${path}`).sort() });
+  assert.deepEqual(orphaned, { status: "stale", converged: false, changed: [...files.keys()].filter((path) => path.startsWith(".github/forge/")).sort() });
   assert.equal(syncForgeFiles(top, undefined, true).status, "regenerated");
   assert.equal(existsSync(join(top, ".github/forge/apps/agent.json")), false);
   assert.deepEqual(syncForgeFiles(top, undefined, false), { status: "current", converged: true, changed: [] });

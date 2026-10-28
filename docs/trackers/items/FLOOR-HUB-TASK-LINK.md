@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-HUB-TASK-LINK
 type: Task
 title: Link the task board from the hub

@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "030487f7cd0f337c66045ca3b4b1dc652e371418984a0fdc2bb7a142e6c0f0db",
+      sourceSha256: "ad26ff3c2c343f6ac4af01bd787b98fc419cc3592465dd373b57843f57a92a68",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1364,10 +1364,10 @@ const ROOT_POLICY_VALUE = {
      * regenerates is a value someone can add or edit without evidence — the
      * exact shape this floor refuses.
      */
-    binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
+    binaryStamp: "e297762aac11ddcd6b63451c8d327f1ace9bcf3bf937e12a5f2f7a140681c00c",
     bundleRelativePath: "dist/bundle.js",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
-    specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
+    specSchemaArtifactSha256: "fd0ecade13d7b2690cb9585d6464a92459c2c3961a6a18ec5b978e4ab9e48790",
     /**
      * THE SOURCE HALF OF THE SPEC-SCHEMA PIN.
      *
@@ -1390,7 +1390,7 @@ const ROOT_POLICY_VALUE = {
      * decides admission is the reviewed source".
      */
     specSchemaSourcePath: "src/filesystem/self-protection/self-protection-contracts.ts",
-    specSchemaSourceSha256: "13e5d2112ef059ae3efac6ab66668b6d06a1210bdd5068e9bd3473cf0492255f",
+    specSchemaSourceSha256: "c29864150e2bef90c49a4db09f0907aea2b617927860a0814398ecf2224dabd2",
     /**
      * RELATIVE TO THE HARNESS ROOT — the tree that holds `dist/bundle.js` and
      * `guardian/build/…` above, never the repository root.
@@ -1982,6 +1982,10 @@ const ROOT_POLICY_VALUE = {
       maximumFileBytes: 16_777_216,
       maximumDirectoryEntries: 100_000,
       temporaryRandomBytes: 16,
+      // Hex digits of a path's SHA-256 in a journaled commit's backup name
+      // (`<transaction>.<digest>.previous`, beside the journal): enough to keep
+      // a transaction's few files apart, short enough for a file name.
+      journalBackupPathDigestHex: 16,
       procFileDescriptorRoot: "/proc/self/fd",
       segmentContract: {
         maximumUtf8Bytes: 255,

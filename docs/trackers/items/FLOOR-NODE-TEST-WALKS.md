@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-NODE-TEST-WALKS
 type: Task
 title: Allow the public node:test suite in the source walks

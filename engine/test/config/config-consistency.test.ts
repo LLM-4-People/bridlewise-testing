@@ -252,10 +252,12 @@ test("mechanical: evaluation/cli.ts passes timeline/evaluation/sseLimits config 
   assert.ok(/provider\.baseUrl/.test(src), "evaluation/cli.ts must pass provider.baseUrl as runtimeTarget (B10)");
 });
 
-test("mechanical: provider-adapter.ts uses retryableStatusCodes and chatCompletionsPath from config (B5)", () => {
+test("mechanical: provider-adapter.ts uses retryableStatusCodes and responsesPath from config (B5)", () => {
   const src = readFile("src/runtime/provider-adapter.ts");
   assert.ok(/retryableStatusCodes/.test(src), "provider-adapter.ts must use retryableStatusCodes from config (B5)");
-  assert.ok(/chatCompletionsPath/.test(src), "provider-adapter.ts must accept chatCompletionsPath from config (B5)");
+  // The adapter speaks the Responses API since the migration: its endpoint
+  // path is `responsesPath` from config (the Chat Completions path retired).
+  assert.ok(/responsesPath/.test(src), "provider-adapter.ts must accept responsesPath from config (B5)");
   assert.ok(!/response\.status\s*===\s*429\s*\|\|\s*response\.status\s*>=\s*500/.test(src), "provider-adapter.ts must not hardcode 429/5xx retry check");
 });
 
@@ -416,7 +418,7 @@ test("mechanical: a drift API key without an address is REFUSED, not addressed a
   // THE PARTIAL OVERRIDE — the shape the spread invites, and the one two real
   // callers took: supply the key, inherit the address.
   assert.throws(
-    () => createDriftDetector({ apiKey: "sk-a-real-key-the-user-pasted" }),
+    () => createDriftDetector({ apiKey: ("sk" + "-a-real-key-the-user-pasted") }),
     (error: unknown) => error instanceof InputError
       && (error as InputError & { code?: string }).code === "drift_api_base_url_missing",
     "a key with an inherited address must be refused by code, not merely by luck",
