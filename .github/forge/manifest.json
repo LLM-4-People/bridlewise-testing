@@ -304,7 +304,7 @@
     },
     {
       "path": ".github/forge/label/bridlewise-testing.ci-failure.json",
-      "sha256": "f4a02cdaa1b8eb56c41f82144e93a0232dbf09a8d1ee572a665356aa42ce747a"
+      "sha256": "0987e275877a8dc93f3d7ad458cf5a2e6a359f2e2659118b91cc26267aceab9b"
     },
     {
       "path": ".github/forge/label/bridlewise-testing.needs-evidence.json",
