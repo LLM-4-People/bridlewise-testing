@@ -353,12 +353,15 @@ test("outbound http: a request whose pool is DESTROYED during the stall, before 
     const first = await outboundFetch(request({ url: server.url, method: "POST", body: "{}" }));
     assert.equal(await readBody(first, AbortSignal.timeout(5_000), 64, 100, "llm"), "ok");
     stallOnce.armed = true;
-    // FAILED BY ITS PATH, never judged by a wall clock (NO-LOAD-BLOCK): when
-    // the request rejects, its deadline has not fired, so the destroyed pool
-    // failed it, not the deadline.
-    const deadline = AbortSignal.timeout(8_000);
-    await assert.rejects(outboundFetch(request({ url: server.url, method: "POST", body: "{}", signal: deadline })),
-      (error: unknown) => error instanceof Error && !deadline.aborted, "the request fails, typed, before its deadline fired");
+    // FAILED BY ITS PATH, read from the rejection's own typed identity, never
+    // a clock (NO-LOAD-BLOCK): the destroyed pool rejects with undici's
+    // ClientDestroyedError (UND_ERR_DESTROYED); the deadline's path would be
+    // a TimeoutError instead.
+    await assert.rejects(outboundFetch(request({ url: server.url, method: "POST", body: "{}", signal: AbortSignal.timeout(8_000) })),
+      (error: unknown) => {
+        const failed = error as { code?: string; cause?: { name?: string } };
+        return failed.code === "UND_ERR_DESTROYED" && failed.cause?.name === "ClientDestroyedError";
+      }, "the request fails typed by the destroyed pool, never by its deadline");
     assert.equal(server.staleBytes(), 0, "and nothing was written on the stale connection");
   } finally {
     diagnosticsChannel.unsubscribe("undici:request:create", stall);

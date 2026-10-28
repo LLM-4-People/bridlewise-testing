@@ -203,9 +203,10 @@ test("the grace is the CALLER's (the suite watchdog's killGraceMs): a command th
     onStdout: (chunk) => { if (chunk.toString("utf8").includes("ready")) stop.abort(); }, onStderr: () => undefined, stop: stop.signal,
   });
   assert.equal(run.supervision?.commandKilled, true, "a command ignoring its stop was not killed");
-  // KILLED AT THE GRACE, observed by its path (NO-LOAD-BLOCK): a kill that
-  // waited for the 60 s hard ceiling would end the run as "ceiling".
-  assert.equal(run.ending, "stopped", "the stop's grace ended the command, not the hard ceiling");
+  // KILLED AT THE GRACE, read from the supervisor's own receipt (NO-LOAD-BLOCK):
+  // a kill that waited for the 60 s hard ceiling records that it timed out.
+  // (`run.ending` cannot tell them apart: a stopped run is "stopped" either way.)
+  assert.equal(run.supervision?.timedOut, false, "the stop's grace ended the command, not the hard ceiling");
 });
 
 test("DRIVEN: a runner that DIES (SIGKILL) stops its supervisor (the parent-death signal): the command gets its grace, and nothing outlives the runner", async (t) => {
