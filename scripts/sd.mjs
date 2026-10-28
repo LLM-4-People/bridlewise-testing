@@ -251,7 +251,8 @@ function checkHealth() {
  * THE SERVED-SCOPE PROBE. Fetches one known component's served style module
  * from the LIVE dev server and refuses a boot that serves its sizing CSS
  * UNSCOPED. The component is the desk shell — its `.bar` was the rule the
- * stale hot-update served bare. A refusal EXITS NON-ZERO so a wedged dev
+ * stale hot-update served bare. A refusal sets a non-zero exit code and answers
+ * `false` (the boot stops there), so a wedged dev
  * server cannot be reported "UP"; a probe that cannot reach the server or
  * read a payload logs NOT JUDGED and does not fail the boot (the health check
  * is the boot's gate; this probe only refuses a POSITIVE unscoped read).
@@ -279,17 +280,18 @@ function probeServedCssScope() {
   const outcome = pollServedModule(() => { get(componentUrl); }, () => get(styleUrl), judge);
   if (outcome.kind === "settled-clean") {
     console.log("[sd] served-CSS scope probe: OK (component sizing CSS is scoped).");
-    return;
+    return true;
   }
   if (outcome.kind === "not-judged") {
     // The window closed without one judgeable read — absence, not a pass and
     // not a refusal: the health check is the boot's gate; this probe only
     // refuses a POSITIVE unscoped read.
     console.log("[sd] served-CSS scope probe: NOT JUDGED (no style payload read within the settle window).");
-    return;
+    return true;
   }
   console.error(`[sd] served-CSS scope probe REFUSED the boot (still unscoped after the settle window): ${outcome.judgment}`);
-  process.exit(1);
+  process.exitCode = 1;
+  return false;
 }
 
 // ── Commands ──
@@ -324,7 +326,8 @@ async function cmdStart() {
     console.error("[sd] The service ports are held by processes this lifecycle did not start:");
     reportPortListeners();
     console.error("[sd] Refused: stop them from the run (or terminal) that started them, then start again.");
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   await reportStaleProcesses(REPO_ROOT);
 
@@ -402,7 +405,8 @@ async function cmdStart() {
     }
     if (servingVerdicts.some((v) => v.refused)) {
       console.error("[sd] SERVING-TREE VERIFICATION REFUSED the boot: the health check answered from a server serving a different tree than the one sd.mjs was invoked from. Stop it, then start again from the tree you are working in.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
     // THE SERVED-SCOPE PROBE. The health check proves the server answers; it
     // does NOT prove the CSS it serves is scoped. A stale vite-plugin-svelte
@@ -412,8 +416,7 @@ async function cmdStart() {
     // judges the LIVE served module, the only surface the defect lives on.
     // A probe that cannot read a style payload reports NOT JUDGED, never a
     // guess — a healthy server without this probe still passed health.
-    probeServedCssScope();
-    await cmdStatus();
+    if (probeServedCssScope()) await cmdStatus();
   } else {
     console.error("[sd] Server did NOT respond to health check within 30s.");
     console.error("[sd] Ports:", PORTS.map(p => `${p}: ${pidsOnPort(p).length} PIDs`).join(", "));
@@ -424,7 +427,7 @@ async function cmdStart() {
     for (const line of bootStderrTailMessage(readBootStderr(), BOOT_STDERR_TAIL_LINES, BOOT_STDERR_LOG).split("\n")) {
       console.error(`[sd] ${line}`);
     }
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
@@ -499,6 +502,7 @@ if (isEntryPoint(import.meta.url)) {
     case "status": await cmdStatus(); break;
     default:
       console.error(`Unknown command: ${cmd}. Use: start | stop | restart | status`);
-      process.exit(1);
+      // Every ending sets the exit code and drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
+      process.exitCode = 1;
   }
 }

@@ -48,6 +48,7 @@ The `tests/helpers/` folder of the development surface.
 - `source-scan.ts` — shared source-scan helpers for the prevention test suite.
 - `stub-llm-client.ts` — shared stub for the provider seam: the scripted `SharedLLMClient` mock factory + state, so tests drive the real `streamChat` chain without a live provider.
 - `temp-git-repo.ts` — a throwaway git repository for a fixture: the temp-dir owner's folder, a local fixture identity (never the ambient one), a named first branch (`main` by default), and a `git(...)` that runs without the caller's `GIT_*` variables or global/system config (the engine owner's `directoryGitEnvironment`) and throws with git's own stderr, so a broken fixture fails as a fixture and never touches another repository.
+- `until.ts` — the one wait for a condition (`until`): polls every 10 ms with NO wall deadline (NO-LOAD-BLOCK); a condition that never holds is a hang, ended and named by the hang backstop.
 - `temp-dir.ts` — sINGLE-PARTY OWNER of test temporary directories. ── The defect this exists to make impossible ──────────────────────────── Test files created temp….
 - `timeline-documents.ts` — a timeline document as the ledger admits it: exact JSON text and the digest of that text; fixtures build documents here and never hand-write a digest.
 - `vm-context-pool.ts` — the DOM test process pool: fresh VM contexts per file, cancellation and memory recycling through Vitest's owned child processes.

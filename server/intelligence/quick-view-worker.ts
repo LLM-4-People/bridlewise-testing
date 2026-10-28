@@ -20,9 +20,9 @@
  *
  * Built-in `node:worker_threads` — no new runtime dependency.
  */
-import { parentPort, workerData } from "node:worker_threads";
+import { workerData } from "node:worker_threads";
 import { QuickViewIndex, type QuickViewBuiltState } from "../../engine/src/intelligence/quick-view.ts";
-import { postWorkerResult } from "../run/worker-ipc.ts";
+import { postWorkerResult, requireWorkerThread } from "../run/worker-ipc.ts";
 
 type WorkerOk = Readonly<{ ok: true; state: QuickViewBuiltState }>;
 type WorkerErr = Readonly<{ ok: false; error: Readonly<{ message: string; code?: string }> }>;
@@ -34,10 +34,7 @@ type WorkerResult = WorkerOk | WorkerErr;
 // The `satisfies WorkerResult` checks keep the payload type aliases used
 // (noUnusedLocals) + type-check the posted shape.
 
-if (parentPort === null) {
-  // Spawned without a parent port (e.g. run directly) — nothing to do.
-  process.exit(1);
-}
+requireWorkerThread();
 
 const input = workerData as Readonly<{ projectPath: string }> | undefined;
 if (input === undefined || typeof input.projectPath !== "string" || input.projectPath.length === 0) {

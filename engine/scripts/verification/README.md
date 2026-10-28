@@ -80,6 +80,7 @@ The folder lives at `engine/scripts/verification/`.
 - `authority-graph.ts` is consumed by nothing yet.
 - `candidate-format.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/repository-git.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts`, `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts` and 1 more.
 - `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.
+- `commit-trailers.ts` is consumed by `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/sign-off.ts`.
 - `consumer-plants.ts` is consumed by nothing yet.
 - `corpus-root.ts` is consumed by `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/verification/corpus.ts`.
 - `corpus.ts` is consumed by nothing yet.
@@ -101,6 +102,7 @@ The folder lives at `engine/scripts/verification/`.
 - `required-fixture-roots.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.
 - `safe-repository-reader.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/artifact-admission.ts` and 3 more.
 - `shipped-hooks.ts` is consumed by nothing yet.
+- `sign-off.ts` is consumed by `engine/scripts/commit-guard.ts`.
 - `slice-declarations.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`.
 - `slice-projection-captured-values.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/scripts/verification/slice-projections.ts`.
 - `slice-projection-inputs.ts` is consumed by `engine/scripts/verification/slice-projections.ts`.

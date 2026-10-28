@@ -19,7 +19,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 
 const FORGE_OBJECT_KINDS = deepFreeze([
-  "custom-property", "custom-property-values", "org-settings", "team", "team-repository", "security-configuration",
+  "custom-property", "custom-property-values", "org-settings", "team", "team-repository", "security-configuration", "security-configuration-repositories",
   "org-ruleset", "repository-settings", "actions-permissions", "actions-selected", "actions-workflow", "actions-fork-approval",
   "immutable-releases", "environment", "ruleset", "label", "issue-type", "issue-field", "autolink", "project",
 ] as const);
