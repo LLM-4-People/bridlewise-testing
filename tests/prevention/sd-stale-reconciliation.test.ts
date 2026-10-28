@@ -376,7 +376,7 @@ describe("sd.mjs stale-process reconciliation — the safety gate and the wiring
     expect(stop).toContain("stopRecordedServers()");
     // A start with the ports still held by another run REFUSES (names them, exits), never takes them down.
     const startBody = SD_SOURCE.slice(SD_SOURCE.indexOf("async function cmdStart("), SD_SOURCE.indexOf("\nasync function cmd", SD_SOURCE.indexOf("async function cmdStart(") + 1));
-    expect(startBody.indexOf("process.exit(1)")).toBeGreaterThan(startBody.indexOf("allServerPids().length > 0"));
+    expect(startBody.indexOf("process.exitCode = 1")).toBeGreaterThan(startBody.indexOf("allServerPids().length > 0"));
   });
 });
 
@@ -540,7 +540,7 @@ describe("sd.mjs start — the boot's operator-visible verdicts (the boot-refusa
     expect(failBranch).toBeGreaterThan(-1);
     const tailCall = body.indexOf("bootStderrTailMessage(readBootStderr(), BOOT_STDERR_TAIL_LINES, BOOT_STDERR_LOG)");
     expect(tailCall, "the health failure must print the captured stderr tail").toBeGreaterThan(failBranch);
-    expect(body.indexOf("process.exit(1)", tailCall)).toBeGreaterThan(tailCall);
+    expect(body.indexOf("process.exitCode = 1", tailCall)).toBeGreaterThan(tailCall);
     // THE VERIFICATION: after health, every running pid's tree is read
     // from /proc and verified against the boot's tree; a refusal exits.
     const healthCall = body.indexOf("if (checkHealth())");

@@ -2240,7 +2240,8 @@ async function main(): Promise<void> {
   const unknown = (ONLY ?? []).filter((p) => !(p in PHASES));
   if (unknown.length > 0) {
     console.error(`unknown phase(s): ${unknown.join(", ")}. Available: ${Object.keys(PHASES).join(", ")}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const gitHead =
@@ -2422,13 +2423,14 @@ async function main(): Promise<void> {
     const { removedBytes } = clearScratch();
     console.log(`\nbench/.scratch removed — reclaimed ${fmtBytes(removedBytes)}`);
   }
-  process.exit(failure === null && failedPhases.length === 0 ? 0 : 1);
+  // The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
+  process.exitCode = failure === null && failedPhases.length === 0 ? 0 : 1;
 }
 
 void main().catch(async (err) => {
   console.error(err);
   await reapStrayInstances();
-  process.exit(1);
+  process.exitCode = 1;
 });
 
 export { killPid, type Stats };

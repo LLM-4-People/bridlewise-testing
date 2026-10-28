@@ -165,6 +165,7 @@ const PLANTS: readonly Plant[] = [
   // Text wherever it renders.
   { name: "text in a display:contents element", head: "<style>#prose { display: contents; font-family: Georgia }</style>", rule: "font-families" },
   { name: "a form control's value", body: '<input value="typed" style="font-family: Georgia">', rule: "font-families" },
+  { name: "a button input's label", body: '<input type="submit" value="Send" style="font-family: Georgia">', rule: "font-families" },
   { name: "generated ::before content", head: '<style>#prose::before { content: "→ "; font-family: Georgia }</style>', rule: "font-families" },
   { name: "a finite animation in a shadow root", body: `<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes late { to { font-family: Georgia } } p { animation: late 1ms 6s forwards }</style><p>shadow text</p>"</script>`, rule: "font-families" },
   // The states a pointer and a keyboard put elements in.
@@ -184,7 +185,8 @@ const PLANTS: readonly Plant[] = [
 const CLEAN_TOO: readonly Plant[] = [
   { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
   // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.
-  { name: "a page that keeps replacing its nodes while the states are forced", body: '<ul id="churn"></ul><script>const ul = document.getElementById("churn"); const ch = new MessageChannel(); ch.port1.onmessage = () => { ul.replaceChildren(...Array.from({ length: 40 }, () => document.createElement("li"))); ch.port2.postMessage(0); }; ch.port2.postMessage(0);</script>', rule: "font-families" },
+  // Every animation frame, as an animated list does (not a task-queue loop as fast as the browser runs it: that hogs the browser itself).
+  { name: "a page that keeps replacing its nodes while the states are forced", body: '<ul id="churn"></ul><script>const ul = document.getElementById("churn"); const frame = () => { ul.replaceChildren(...Array.from({ length: 40 }, () => document.createElement("li"))); requestAnimationFrame(frame); }; requestAnimationFrame(frame);</script>', rule: "font-families" },
   // Longer than any default wall limit (Playwright's is 30 s), arriving a little at a time: a slow page is still a page.
   { name: "a page whose stylesheet loads slowly but steadily, for longer than 30 s", head: `<link rel="stylesheet" href="${STEADY_PATH.slice("/proof/".length)}">`, rule: "font-families" },
   { name: "a scheduler.postTask with no delay", body: '<script>scheduler.postTask(() => { document.getElementById("prose").textContent = "posted"; })</script>', rule: "judgeable" },
@@ -192,6 +194,7 @@ const CLEAN_TOO: readonly Plant[] = [
   { name: "an opaque-origin artifact frame the declared exclusion skips", body: `<iframe data-artifact="frame" sandbox="allow-scripts" srcdoc="<p style='font-family: Georgia'>a user's artifact</p><canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
   { name: "a canvas drawing text in a token stack", body: `<canvas id="c"></canvas><script>const x = document.getElementById("c").getContext("2d"); x.font = ${JSON.stringify(canvasFont("--face-sans"))}; x.fillText("x", 0, 10)</script>`, rule: "font-families" },
   { name: "the Logbook theme worn with its own colours", head: `<style>:root[data-cockpit-theme="light"] { ${declarations(LOGBOOK)} }</style>`, body: '<script>document.documentElement.setAttribute("data-cockpit-theme", "light")</script>', rule: "brand-mark" },
+  { name: "a checkbox, whose value is never drawn as text", body: '<input type="checkbox" checked style="font-family: Georgia"><input type="range" style="font-family: Georgia">', rule: "font-families" },
   { name: "a focusable control in the stacks", body: '<button id="go">go</button><input value="typed">', rule: "font-families" },
   { name: "a canvas given a token family", body: `<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = ${JSON.stringify(canvasFont("--face-mono"))}</script>`, rule: "font-families" },
   { name: "the exact policy, spaced differently", head: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },

@@ -29,6 +29,7 @@ import {
   consumeShellViewRequest,
   requestShellView,
 } from "../../src/cockpit/shell/view-request.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -51,13 +52,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 describe("the mounted shell consumes and honors view requests", () => {
   let host: HTMLElement;
@@ -74,7 +68,7 @@ describe("the mounted shell consumes and honors view requests", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
   });
 
   afterEach(() => {
@@ -91,7 +85,7 @@ describe("the mounted shell consumes and honors view requests", () => {
     expect(host.querySelector('[data-room-active="true"]')).toBeNull();
 
     requestShellView({ kind: "room", id: "settings" });
-    await waitFor(() => host.querySelector('[data-room-active="true"]') !== null);
+    await until(() => host.querySelector('[data-room-active="true"]') !== null);
     expect(
       host.querySelector('[data-room-active="true"]')!.getAttribute("aria-label"),
     ).toBe("settings room");
@@ -99,13 +93,13 @@ describe("the mounted shell consumes and honors view requests", () => {
     expect(consumeShellViewRequest()).toBeNull();
 
     requestShellView({ kind: "flow" });
-    await waitFor(() => host.querySelector('[data-room-active="true"]') === null);
+    await until(() => host.querySelector('[data-room-active="true"]') === null);
     expect(consumeShellViewRequest()).toBeNull();
   });
 
   test("a request for a room that is not built surfaces the honest hint, never a half-open room", async () => {
     requestShellView({ kind: "room", id: "custody" });
-    await waitFor(() => host.querySelector(".hint") !== null);
+    await until(() => host.querySelector(".hint") !== null);
     expect(host.querySelector(".hint")!.textContent).toContain("not built yet");
     expect(host.querySelector(".room")).toBeNull();
   });
