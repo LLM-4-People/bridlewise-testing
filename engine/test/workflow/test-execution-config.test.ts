@@ -15,7 +15,7 @@ const ROOT = process.cwd();
 
 test("readTestExecutionConfig: returns the pinned config's testExecution for the repository root", () => {
   // bridlewise.config.json declares:
-  // "testExecution": { "concurrency": "auto", "slowFileThresholdMs": 10000, "runtimeBudgetMs": 120000 }
+  // "testExecution": { "concurrency": "auto", … }
   // parallelConcurrency is intentionally absent so the adaptive
   // availableParallelism() default is used (no manual override).
   const config = readTestExecutionConfig(ROOT);
