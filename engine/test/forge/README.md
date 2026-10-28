@@ -27,6 +27,16 @@ projection store.
 - `declarations.test.ts` — the declarations (every object once, in apply order, the plan's unavailable fields, the registry's references, the stage's flip, a form type outside the registry refused), the allowed actions, Dependabot's breadth over the tracked lockfiles, CODEOWNERS routing, and the comparison.
 - `forge-settings.ts` — the forge section and the generated files' sources the forge tests use (a fixture, not a test file), independent of the repository's own configuration.
 - `plan.test.ts` — plan, apply and audit against the fake GitHub: every action (create, update, unchanged, refused, unmanaged, retire), the tighten-first barriers (the baseline written and read back before rules move out; a read-back that fails stops the apply; a weakening only with its acknowledgement), a partial plan never applied, one object's refusal kept to it, a budget refusal stopping the run, unavailable fields never written, and the whole declaration set applied and converged to zero drift, idempotently.
+- `release-assets.test.ts` — the release assets' raw bodies against the fake GitHub (#400):
+  - an upload streams to the uploads host and GitHub's recorded digest must match;
+  - a body breaking its declared size or SHA-256 is cut before it completes, at every size and chunking, and once the server has seen the connection end nothing was handled or stored;
+  - a download follows one redirect, only to an asset origin and without the credential (another origin, a look-alike and a chain are refused);
+  - the bytes are held to the caller's SHA-256, and the sink never sees a byte past the bound;
+  - `downloadToFile` publishes only verified bytes (no partial file, no temporary sibling, an existing file untouched);
+  - there is no total wall cap: a slow download and a slow upload that keep moving past the progress floor finish, and a drip under the floor ends (the mocked clock);
+  - once an upload's every byte is handed over, GitHub's answer has its own declared silence bound (three silent windows while it stores the asset are not a stall; past the bound, `forge_asset_unanswered`), and a download's answer counts in its window; the bound starts only once the last byte is written (a final chunk blocked on a receiver that does not read is a stall), and an upload's answer returns it to the floor;
+  - a stream reaching its declared size and then yielding more is refused before it completes;
+  - a local sink failure (a full disk) and the caller's own cancellation are their own failures, never GitHub's.
 - `proving/` — the proving-ground scenarios on real GitHub (P1.11, P3.8), run by `proving/run.ts`, never by the offline suites (see its README).
 - `proving-ground-api.ts` — the proving ground's rules on any forge client, shared by the scenarios and their offline tests (not a test file): the repository's identity (the one `provingGround` repository, never the trunk), the seed, the read-only configuration check, a deleted branch (404 only), a commit's verification, and the verdict rules of V-6, V-14 and V-15.
 - `proving-ground-api.test.ts` — those rules against the fake GitHub, each red under mutation.

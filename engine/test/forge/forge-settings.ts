@@ -15,8 +15,10 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   apiUrl: "https://api.github.com",
   webUrl: "https://github.com",
   pagesDomain: "github.io",
+  uploadsUrl: "https://uploads.github.com",
+  assetOrigins: ["https://release-assets.githubusercontent.com"],
   userAgent: "bridlewise-forge-test",
-  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10 },
+  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10, assets: { maxBytes: 1_048_576, progressWindowMs: 30_000, minBytesPerWindow: 1_024, answerSilenceMs: 600_000 } },
   tokenRenewBeforeMs: 300_000,
   repositories: [
     { name: "bridlewise-testing", kind: "trunk", visibility: "public" },

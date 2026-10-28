@@ -48,7 +48,8 @@ ships into the client bundle or the server runtime.
   dev-server boot against a served transform artifact.
 - `svelte-css-scope-probe.ts` — refuses a dev server that serves a
   component's CSS unscoped.
-- `generate-pwa-icons.mjs` — emits the PWA icons using only Node built-ins.
+- `generate-pwa-icons.mjs` — draws the brand mark's icons from its one geometry (`src/cockpit/shell/brand-mark.ts`) in the token owner's colours, using only Node built-ins.
+- `service-worker-cache.ts` — the service worker's cache version, derived once: the digest of every asset it caches, written into `public/sw.js` (`--write|--check`) and into the built worker by the build (`serviceWorkerDigestPlugin`, vite.config.ts).
 - `db-archive.ts` — the conversation-archive shell (the development root package's `db-archive` script, with
   `--db <database> --chats-file <file>`; not installed in the product projection): a thin shell over the `database.conversations.archive` action (`server/db/conversation-archive.ts`); stop the server first.
 
@@ -62,6 +63,18 @@ ships into the client bundle or the server runtime.
   manifest; `cockpit-plan.ts` is its pure plan (sequence, masks, manifest)
   and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
   states what it guarantees.
+- `rendered/` — the rendered judgement: what the browser actually shows,
+  judged by ONE rule table (`rules.ts`: the brand mark's computed paint and
+  visibility, the families text renders in, the Content-Security-Policy meta
+  tag and no violation of it, no request leaving the origin; canvas fonts are
+  recorded at the context's setter). Every row runs in every render state of
+  its surface (desktop, dark, narrow, reduced motion, print), each judged once
+  the page is quiet: no request in flight, no short timer pending, no DOM
+  mutation for the quiet window.
+  `judge.ts` runs the table on a page and over every page of a built site
+  (`judge.ts site`); the capture walk calls it on every cockpit view
+  (`capture/cockpit.ts --judge-only`); `proof.ts` proves each rule on planted
+  breaks. CI's "Rendered pages" job runs all three.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes

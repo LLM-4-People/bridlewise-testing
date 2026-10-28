@@ -28,7 +28,7 @@ npm --version
 
 ## Prefer a prepared workspace?
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/{{ site.product_repository }}?quickstart=1)
+[Open in GitHub Codespaces](https://codespaces.new/{{ site.product_repository }}?quickstart=1)
 
 The dev container installs both lockfiles, builds the guardian's native
 dependencies, forwards ports `5173` and `5174`, and still runs the cockpit on
