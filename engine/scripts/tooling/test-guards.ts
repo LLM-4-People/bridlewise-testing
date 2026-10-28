@@ -52,24 +52,27 @@ import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /**
- * Whether this run is the LIVE suite's (`engine/live/`): every test file it is
- * given lies there. The live suite depends on the world outside the checkout
+ * Which suite this run is: the LIVE suite's (`engine/live/`) when every test
+ * file it is given lies there. The live suite depends on the world outside the checkout
  * and is unconfined by design; a run that mixes live and hermetic files is
  * refused, so a hermetic file can never ride along unconfined.
  */
-function liveSuiteRun(args: readonly string[]): boolean {
+function suiteOfRun(args: readonly string[]): "live" | "hermetic" | "mixed" {
   const live = join(ENGINE_ROOT, "live") + sep;
   const files = args.filter((arg) => !arg.startsWith("-")).map((arg) => resolve(arg));
   const inLive = files.filter((file) => file.startsWith(live));
-  if (inLive.length > 0 && inLive.length !== files.length) {
-    process.stderr.write("[test-guards] REFUSED (test_live_suite_mixed) — a live-suite run takes engine/live/ files only: the live suite runs unconfined, a hermetic file never does\n");
-    process.exit(1);
-  }
-  return files.length > 0 && inLive.length === files.length;
+  if (inLive.length === 0) return "hermetic";
+  return inLive.length === files.length ? "live" : "mixed";
 }
 
 export async function main(): Promise<void> {
   const runner = `engine ${process.env.npm_lifecycle_event ?? "node --test"}`;
+  const suite = suiteOfRun(process.argv.slice(2));
+  if (suite === "mixed") {
+    process.stderr.write("[test-guards] REFUSED (test_live_suite_mixed) — a live-suite run takes engine/live/ files only: the live suite runs unconfined, a hermetic file never does\n");
+    process.exitCode = 1;
+    return;
+  }
   // The subset door (`test:unit`) must take an explicit file or pattern. With
   // no argument, `node --test` discovers the WHOLE tree — including
   // `verification/benchmarks/**` `.mjs` scripts that are not node:test files —
@@ -112,7 +115,7 @@ export async function main(): Promise<void> {
     killOnInterrupt: true,
     // The checkout is read-only to the tests (#293's class), as under the suite runners — except the LIVE suite,
     // unconfined by design (real host facts: decision TEST-CONFINEMENT-SELF-BIND).
-    ...(liveSuiteRun(process.argv.slice(2)) ? {} : { readOnlyCheckout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT }),
+    ...(suite === "live" ? {} : { readOnlyCheckout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT }),
   });
   lock.release();
   if (run.ending !== "exited") {

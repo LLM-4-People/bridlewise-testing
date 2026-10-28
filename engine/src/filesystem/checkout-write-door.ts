@@ -449,7 +449,7 @@ function inWritableDirectory(root: string, relativePath: string): boolean {
  * so the in-process door and the kernel's boundary can never disagree about
  * where a test may write. Each as its segments under `root`, existing or not.
  */
-export function checkoutWritablePlaces(root: string): readonly Readonly<{ segments: readonly string[]; kind: "state" | "tool-scratch" }>[] {
+function checkoutWritablePlaces(root: string): readonly Readonly<{ segments: readonly string[]; kind: "state" | "tool-scratch" }>[] {
   const packages = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entryStats(join(root, entry.name, "package.json"))?.isFile() === true)
     .map((entry) => entry.name)
