@@ -115,6 +115,12 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   }),
   /** The maintainer's login (the `rotation` environment's reviewer). */
   maintainer: z.string().regex(ORGANIZATION),
+  /**
+   * Each role team's members, by team name (logins). Members are data: a
+   * member added in the UI is drift, and adding one is a loosening. A team
+   * with no entry has no members.
+   */
+  teamMembers: z.record(z.string().min(1).max(100), z.array(z.string().regex(ORGANIZATION)).max(100)),
   /** The P0 required contexts (runbook P0.2), kept on the trunk until the flip. */
   p0RequiredChecks: z.array(z.strictObject({ context: z.string().min(1).max(255), integrationId: z.number().int().positive() })).min(1),
   /** The merge queue's parameters (runbook P0.10; the build concurrency is measured, github-only §3.2). */

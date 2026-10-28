@@ -31,6 +31,7 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   stage: "p0",
   plan: { name: "team", secretProtection: false },
   maintainer: "amberflag48",
+  teamMembers: {},
   p0RequiredChecks: [{ context: "Typecheck, public tests, build", integrationId: 15368 }, { context: "Secret and privacy scan", integrationId: 15368 }],
   mergeQueue: { maxEntriesToBuild: 1, minEntriesToMerge: 1, maxEntriesToMerge: 4, minEntriesToMergeWaitMinutes: 0, checkResponseTimeoutMinutes: 60 },
   areas: [
