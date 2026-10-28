@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 
 import { COMMIT_GUARD_PROGRAM, COMMIT_MESSAGE_FLAG, canonicalHookDuty, commitLossVerdict, hookTextIsCanonical, MERGE_COMMIT_FLAG, SHIPPED_HOOKS } from "./verification/staged-move-loss.ts";
 import { LESSON_TRAILER, missingLessonTrailers, stagedTrackerEntryViolations } from "./verification/lesson-trailers.ts";
+import { stagedTestDeletionVerdict, TEST_DELETED_TRAILER, testDeletionProblems } from "./verification/test-deletions.ts";
 import { stagedRatchetGrowth } from "./verification/ratchet.ts";
 import { qualificationEvidence, readRunHistory, readRunFailureRows, WEB_RUN_HISTORY_PATH } from "../src/shared/run-history.ts";
 import { createWorkingCopy } from "../src/git/working-copy.ts";
@@ -97,6 +98,17 @@ if (messageAt >= 0) {
       );
       process.exitCode = 1;
     }
+    // A test deletion is a named decision (scripts/verification/test-deletions.ts):
+    // one `Test-deleted: <path>` per test source the commit takes off the surface.
+    const deletions = testDeletionProblems(stagedTestDeletionVerdict(root, message));
+    if (deletions.length > 0) {
+      process.stderr.write(
+        `\nCOMMIT REFUSED — this commit's test deletions and its ${TEST_DELETED_TRAILER} trailers disagree:\n` +
+          `${deletions.map((problem) => `  - ${problem}`).join("\n")}\n\n` +
+          `Name each test source this commit takes off the test surface (a rename too) in its own trailer at the end of the message (${TEST_DELETED_TRAILER}: <path>; the key is case-sensitive), and none it keeps.\n\n`,
+      );
+      process.exitCode = 1;
+    }
     const missing = missingLessonTrailers(root, message);
     if (missing.length > 0) {
       process.stderr.write(
@@ -108,7 +120,7 @@ if (messageAt >= 0) {
     }
   } catch (error) {
     process.stderr.write(
-      `\nCOMMIT REFUSED — the lesson trailer check could not run, so it cannot say this message names the lessons it acts on:\n` +
+      `\nCOMMIT REFUSED — the message checks could not run, so they cannot say this message names the lessons it acts on and the tests it deletes:\n` +
         `${error instanceof Error ? error.message : String(error)}\n\n`,
     );
     process.exitCode = 1;

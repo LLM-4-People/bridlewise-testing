@@ -1,0 +1,77 @@
+name: Commit records
+
+# WHAT EVERY COMMIT MUST RECORD, judged by MAIN's code on every pull request
+# and merge group: a test deletion names each test source it takes off the
+# surface in a `Test-deleted: <path>` trailer
+# (engine/scripts/verification/test-deletions.ts, the judge the commit-msg
+# hook asks too). It is meant to be required by a repository ruleset that
+# names this file at `main` ("Require workflows to pass before merging"): the
+# ruleset runs main's definition, so a branch that trims or deletes its own
+# copy cannot skip it. The script that judges is main's too: the base is
+# checked out and the branch's commits are only FETCHED as objects to read —
+# nothing of the branch is executed.
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commit-records-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  records:
+    name: Commit records
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the base (main's judge, never the branch's)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install the base's engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      # The branch's commits as objects only: a pull request's head (a fork's
+      # too, through refs/pull/<n>/head) or the merge group's head.
+      - name: Fetch the commits to judge
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          case "$EVENT" in
+            pull_request) git fetch --no-tags "$SERVER/$REPOSITORY" "refs/pull/$PR_NUMBER/head" ;;
+            merge_group) git fetch --no-tags "$SERVER/$REPOSITORY" "$GROUP_HEAD" ;;
+          esac
+
+      - name: Every test deletion is named by the commit that makes it
+        working-directory: engine
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) node scripts/verification/test-deletions.ts --range "$PR_BASE..$PR_HEAD" ;;
+            merge_group) node scripts/verification/test-deletions.ts --range "$GROUP_BASE..$GROUP_HEAD" ;;
+          esac

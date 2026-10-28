@@ -923,7 +923,8 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       `${unnamed.slice(0, 10).join(", ")}${unnamed.length > 10 ? ", …" : ""}. ` +
       `If a directory moved, move the pattern in root-policy.ts with it. If these files were deleted on ` +
       `purpose, name each deletion: node src/cli.ts harness sync ${unnamed.slice(0, 10).map((path) => `--prune ${path}`).join(" ")}` +
-      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags).`,
+      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags), and name each in the deleting ` +
+      `commit's own Test-deleted: <path> trailer (scripts/verification/test-deletions.ts).`,
       "test_surface_prune_refused",
     );
   }

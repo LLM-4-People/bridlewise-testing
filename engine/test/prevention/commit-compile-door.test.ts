@@ -668,6 +668,101 @@ test("DRIVEN: an --amend that drops a lesson's trailer is REPORTED by post-commi
   assert.doesNotMatch(repaired.stderr, /LESSON TRAILER MISSING/u);
 });
 
+/** A guarded fixture holding three engine test sources and one engine module, committed. */
+function testDeletionFixture(): string {
+  const root = compileFixtureRepository("pass");
+  for (const name of ["one", "two", "three"]) writeFile(root, `engine/test/a/${name}.test.ts`, `// ${name}\n`);
+  writeFile(root, "engine/src/kept.ts", "export const kept = 1;\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "baseline");
+  return root;
+}
+
+test("DRIVEN: a commit that takes a test off the surface names it in a Test-deleted: trailer, and names nothing it keeps (commit-msg)", () => {
+  const root = testDeletionFixture();
+  git(root, "rm", "-q", "--", "engine/test/a/one.test.ts");
+  const unnamed = commit(root, "delete one");
+  assert.notEqual(unnamed.status, 0, "a commit deleting a test without naming it was accepted");
+  assert.ok(unnamed.stderr.includes("engine/test/a/one.test.ts: deleted from the test surface without a Test-deleted trailer (test_deletion_undeclared)"), unnamed.stderr);
+  // git log --grep is case-sensitive: a lower-case key names nothing.
+  assert.notEqual(commit(root, "delete one\n\ntest-deleted: engine/test/a/one.test.ts").status, 0, "a lower-case key was accepted");
+  // A trailer naming a test the commit keeps is refused, even beside the right one.
+  const kept = commit(root, "delete one\n\nTest-deleted: engine/test/a/one.test.ts\nTest-deleted: engine/test/a/two.test.ts");
+  assert.notEqual(kept.status, 0, "a trailer naming a kept test was accepted");
+  assert.ok(kept.stderr.includes("engine/test/a/two.test.ts: named by a Test-deleted trailer, but this commit does not delete it (test_deletion_declared_not_deleted)"), kept.stderr);
+  assert.equal(commitCount(root), "1");
+  assertCommitted(root, "delete one\n\nTest-deleted: engine/test/a/one.test.ts");
+  assert.match(execFileSync("git", ["log", "-1", "--format=%B"], { cwd: root, encoding: "utf8" }), /^Test-deleted: engine\/test\/a\/one\.test\.ts$/mu);
+  // A rename moves paths off the surface: every one is named, or the commit is refused naming the rest.
+  git(root, "mv", "engine/test/a", "engine/tests-moved");
+  const partial = commit(root, "move the tests\n\nTest-deleted: engine/test/a/two.test.ts");
+  assert.notEqual(partial.status, 0, "a rename naming only some of its paths was accepted");
+  assert.ok(partial.stderr.includes("engine/test/a/three.test.ts: deleted from the test surface without a Test-deleted trailer"), partial.stderr);
+  assert.ok(!partial.stderr.includes("engine/test/a/two.test.ts: deleted"), partial.stderr);
+  assertCommitted(root, "move the tests\n\nTest-deleted: engine/test/a/three.test.ts\nTest-deleted: engine/test/a/two.test.ts");
+  // Deleting a module that is not a test needs no trailer.
+  git(root, "rm", "-q", "--", "engine/src/kept.ts");
+  assertCommitted(root, "drop a module");
+});
+
+test("DRIVEN: an --amend that drops a Test-deleted: trailer is REPORTED by post-commit", () => {
+  const root = testDeletionFixture();
+  writeFile(root, join(HOOKS_DIRECTORY, "post-commit"), `#!/bin/sh\nexec node --experimental-strip-types ${JSON.stringify(join(INTEGRATION_ROOT, "scripts", "post-commit.ts"))} "$(git rev-parse --show-toplevel)"\n`);
+  chmodSync(join(root, HOOKS_DIRECTORY, "post-commit"), 0o755);
+  git(root, "rm", "-q", "--", "engine/test/a/one.test.ts");
+  const named = commit(root, "delete one\n\nTest-deleted: engine/test/a/one.test.ts");
+  assert.equal(named.status, 0, named.stderr);
+  assert.doesNotMatch(named.stderr, /TEST DELETION UNNAMED/u, "a commit naming its deletion was reported");
+  const amended = git(root, "commit", "-q", "--amend", "-m", "delete one (reworded, trailer dropped)");
+  for (const part of ["TEST DELETION UNNAMED", "engine/test/a/one.test.ts: deleted from the test surface", "Repair it now: git commit --amend"]) {
+    assert.ok(amended.stderr.includes(part), `an amend dropping the trailer went unreported (no "${part}"): ${amended.stderr}`);
+  }
+});
+
+test("DRIVEN: the required commit-records check refuses, over a branch's commits, what a skipped hook let through — and a merge that brings in a named deletion needs no new trailer", () => {
+  const root = testDeletionFixture();
+  assert.ok(existsSync(join(root, ".git")), "the fixture is its own repository");
+  const unhooked = (...args: readonly string[]): void => {
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd: root, stdio: "pipe" });
+  };
+  const head = (): string => execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const check = (range: string): Readonly<{ status: number; stdout: string; stderr: string }> => {
+    // As the workflow runs it: the base's engine, from the engine folder of the repository judged.
+    const run = spawnSync(process.execPath, ["--experimental-strip-types", join(INTEGRATION_ROOT, "scripts", "verification", "test-deletions.ts"), "--range", range], {
+      cwd: join(root, "engine"),
+      encoding: "utf8",
+    });
+    return { status: run.status ?? -1, stdout: run.stdout, stderr: run.stderr };
+  };
+  const base = head();
+  const trunk = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  // A branch whose hooks were skipped: one undeclared deletion, one trailer naming a kept test.
+  unhooked("checkout", "-q", "-b", "skipped");
+  unhooked("rm", "-q", "--", "engine/test/a/one.test.ts");
+  unhooked("commit", "-q", "-m", "delete one");
+  const undeclared = head();
+  unhooked("commit", "-q", "--allow-empty", "-m", "say three went\n\nTest-deleted: engine/test/a/three.test.ts");
+  const stray = head();
+  const refused = check(`${base}..${stray}`);
+  assert.equal(refused.status, 1, `the range check passed a skipped hook's commits:\n${refused.stdout}${refused.stderr}`);
+  assert.ok(refused.stderr.includes(`${undeclared}:\n  - engine/test/a/one.test.ts: deleted from the test surface without a Test-deleted trailer`), refused.stderr);
+  assert.ok(refused.stderr.includes(`${stray}:\n  - engine/test/a/three.test.ts: named by a Test-deleted trailer, but this commit does not delete it`), refused.stderr);
+  assert.deepEqual(JSON.parse(refused.stdout), { range: `${base}..${stray}`, refusedCommits: 2 });
+  // A named deletion on a side branch, merged into a trunk that moved: the merge deletes nothing new.
+  unhooked("checkout", "-q", trunk);
+  unhooked("checkout", "-q", "-b", "named");
+  unhooked("rm", "-q", "--", "engine/test/a/two.test.ts");
+  unhooked("commit", "-q", "-m", "delete two\n\nTest-deleted: engine/test/a/two.test.ts");
+  unhooked("checkout", "-q", trunk);
+  writeFile(root, "engine/src/other.ts", "export const other = 1;\n");
+  unhooked("add", "--", "engine/src/other.ts");
+  unhooked("commit", "-q", "-m", "trunk moves");
+  unhooked("merge", "-q", "--no-ff", "-m", "merge named", "named");
+  const accepted = check(`${base}..${head()}`);
+  assert.equal(accepted.status, 0, `a merge bringing in a named deletion was refused:\n${accepted.stderr}`);
+  assert.deepEqual(JSON.parse(accepted.stdout), { range: `${base}..${head()}`, refusedCommits: 0 });
+});
+
 test("DRIVEN: a commit that removes the execute bit from a tracked hook is REFUSED — git would silently stop running it", () => {
   const root = compileFixtureRepository("pass");
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });

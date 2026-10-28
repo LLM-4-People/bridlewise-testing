@@ -156,6 +156,7 @@ export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "scripts/verification/slice-projections.ts", id: "slice-projections", owner: "slice-projection" },
   { path: "scripts/verification/slice-source-contracts.ts", id: "slice-source-contracts", owner: "slice-projection" },
   { path: "scripts/verification/static-source.ts", id: "static-source-verification", owner: "verification", executionBoundary: "verification", ports: {"requires":[],"provides":["lexical-source-oracle"]}, responsibilities: ["independent-lexical-source-analysis"] },
+  { path: "scripts/verification/test-deletions.ts", executionBoundary: "composition-root", compositionRoot: true },
   { path: "scripts/verification/test-surface.ts", id: "test-surface-verification", owner: "verification", executionBoundary: "verification", responsibilities: ["canonical-qualified-test-surface-scope-and-disposition"] },
   { path: "scripts/verification/tsconfig-include-liveness.ts", executionBoundary: "composition-root", compositionRoot: true },
   { path: "src/agents/agent-config.ts", id: "agents-agent-config", ports: {"requires":[],"provides":["agent-config"]} },
