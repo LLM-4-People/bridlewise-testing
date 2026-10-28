@@ -20,7 +20,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import test from "node:test";
 
@@ -274,7 +274,7 @@ test("SECURITY (planted): a link where the profile's folder belongs is refused b
   const notices = (result.data as { notices: readonly string[] }).notices;
   assert.equal(notices.length, 1, result.message);
   assert.match(notices[0]!, /could not be started/u);
-  assert.deepEqual(readdirSync(outside), [], "no log, no sweep, nothing written through the link");
+  assert.doesNotThrow(() => rmdirSync(outside), "no log, no sweep, nothing written through the link: the outside folder is still empty");
 });
 
 test("an unreadable profile on the HOST'S OWN source is said loudly: one notice, nothing started (a foreign ref's stays silent)", async () => {
