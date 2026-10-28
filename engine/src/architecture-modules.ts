@@ -150,6 +150,7 @@ export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "scripts/verification/ratchet-baselines.ts", executionBoundary: "composition-root", compositionRoot: true, effects: ["child-process","filesystem-read","git"] },
   { path: "scripts/verification/safe-repository-reader.ts", id: "safe-repository-reader-verification", executionBoundary: "verification", ports: {"requires":["linux-mount-inspection"],"provides":["safe-repository-read"]}, effects: ["filesystem-read"], configPaths: ["verification.safeRepositoryRead"], responsibilities: ["linux-descriptor-held-ancestor-safe-repository-file-reading-and-recheck"] },
   { path: "scripts/verification/shipped-hooks.ts", executionBoundary: "composition-root", compositionRoot: true },
+  { path: "scripts/verification/sign-off.ts", executionBoundary: "composition-root", compositionRoot: true, effects: ["cryptography"] },
   { path: "scripts/verification/slice-declarations.ts", id: "slice-declarations", owner: "slice-projection" },
   { path: "scripts/verification/slice-projection-captured-values.ts", id: "slice-projection-captured-values", owner: "slice-projection" },
   { path: "scripts/verification/slice-projection-inputs.ts", id: "slice-projection-inputs", owner: "slice-projection" },

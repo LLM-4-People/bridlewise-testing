@@ -74,6 +74,7 @@ import { resetSweep } from "../../src/cockpit/sweep/sweep-store.ts";
 import { read } from "../helpers/source-scan.ts";
 import type { ShellApi } from "../../src/cockpit/shell/contract.ts";
 import { wholeConversationPage } from "../helpers/history-page.ts";
+import { until } from "../helpers/until.ts";
 
 const STRIP = "src/cockpit/shell/WorkspaceStrip.svelte";
 
@@ -334,13 +335,6 @@ function stubApi(): void {
   );
 }
 
-async function settle(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("settle timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 describe("the strip is present only above ONE workspace, and never says the pair twice", () => {
   let host: HTMLElement;
@@ -384,7 +378,7 @@ describe("the strip is present only above ONE workspace, and never says the pair
 
   async function mountAndReveal(): Promise<void> {
     app = mount(Cockpit, { target: host });
-    await settle(() => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true");
+    await until(() => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true");
   }
 
   /** How many controls on screen state `project ▸ conversation`. */

@@ -28,7 +28,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const cmd = process.argv[2];
-if (!cmd) { process.stderr.write("usage: cli.mjs <start|check|status|kill|list|probe> [args]\n"); process.exit(2); }
+// Every ending sets the exit code and lets the loop drain: `process.exit()` can deadlock at shutdown (Node #54918, #351).
 
 async function main() {
   const { LongTaskRunner } = await import("./tools/concurrent/long-task-runner.ts");
@@ -48,7 +48,8 @@ async function main() {
   const stateDir = opts["state-dir"];
   if (typeof stateDir !== "string" || stateDir.length === 0 || stateDir === "true") {
     process.stderr.write("--state-dir=<path> is required: the folder that holds the task's state between commands (never a shared /tmp default)\n");
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
   const runner = new LongTaskRunner({ stateDir });
 
@@ -56,10 +57,11 @@ async function main() {
     case "probe": {
       const r = LongTaskRunner.checkSystemd();
       process.stdout.write(JSON.stringify(r) + "\n");
-      process.exit(r.ok ? 0 : 1);
+      process.exitCode = r.ok ? 0 : 1;
+      return;
     }
     case "start": {
-      if (positional.length === 0) { process.stderr.write("start: a command is required\n"); process.exit(2); }
+      if (positional.length === 0) { process.stderr.write("start: a command is required\n"); process.exitCode = 2; return; }
       // The command is the rest of the positional args joined (so the agent can pass a complex command).
       const command = positional.join(" ");
       const t = runner.start(command, {
@@ -74,20 +76,20 @@ async function main() {
     }
     case "check": {
       const unit = positional[0];
-      if (!unit) { process.stderr.write("check: unitName required\n"); process.exit(2); }
+      if (!unit) { process.stderr.write("check: unitName required\n"); process.exitCode = 2; return; }
       const s = runner.check(unit);
       process.stdout.write(JSON.stringify(s, null, 2) + "\n");
       break;
     }
     case "status": {
       const unit = positional[0];
-      if (!unit) { process.stderr.write("status: unitName required\n"); process.exit(2); }
+      if (!unit) { process.stderr.write("status: unitName required\n"); process.exitCode = 2; return; }
       process.stdout.write(runner.statusOf(unit) + "\n");
       break;
     }
     case "kill": {
       const unit = positional[0];
-      if (!unit) { process.stderr.write("kill: unitName required\n"); process.exit(2); }
+      if (!unit) { process.stderr.write("kill: unitName required\n"); process.exitCode = 2; return; }
       const r = runner.kill(unit);
       process.stdout.write(JSON.stringify(r) + "\n");
       break;
@@ -98,7 +100,12 @@ async function main() {
     }
     default:
       process.stderr.write(`unknown command: ${cmd}\n`);
-      process.exit(2);
+      process.exitCode = 2;
   }
 }
-main().catch((e) => { process.stderr.write(`error: ${e.message}\n`); process.exit(1); });
+if (!cmd) {
+  process.stderr.write("usage: cli.mjs <start|check|status|kill|list|probe> [args]\n");
+  process.exitCode = 2;
+} else {
+  main().catch((e) => { process.stderr.write(`error: ${e.message}\n`); process.exitCode = 1; });
+}

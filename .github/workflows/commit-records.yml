@@ -1,10 +1,12 @@
 name: Commit records
 
-# WHAT EVERY COMMIT MUST RECORD, on every pull request and merge group: a test
-# deletion names each test source it takes off the surface in a
-# `Test-deleted: <path>` trailer (engine/scripts/verification/test-deletions.ts,
-# the judge the commit-msg hook asks too). The steps check out the BASE and run
-# the base's judge over the branch's commits, which are only fetched as objects.
+# WHAT EVERY COMMIT MUST RECORD, on every pull request and merge group: the DCO
+# sign-off of its committer, every identity trailer readable, and nobody's
+# personal identity on an agent commit (engine/scripts/verification/sign-off.ts);
+# and every test it takes off the test surface named in a `Test-deleted: <path>`
+# trailer (engine/scripts/verification/test-deletions.ts). Each is the judge the
+# commit-msg hook asks too. The steps check out the BASE and run the base's
+# judges over the branch's commits, which are only fetched as objects.
 #
 # WHAT THIS DOES NOT YET GUARANTEE. A `pull_request` run uses the BRANCH's copy
 # of this file, so a branch can change these steps, and a ruleset that requires
@@ -64,6 +66,27 @@ jobs:
           case "$EVENT" in
             pull_request) git fetch --no-tags "$SERVER/$REPOSITORY" "refs/pull/$PR_NUMBER/head" ;;
             merge_group) git fetch --no-tags "$SERVER/$REPOSITORY" "$GROUP_HEAD" ;;
+          esac
+
+      - name: Every commit carries its committer's sign-off; every agent commit is the project identity
+        working-directory: engine
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.head_ref }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          case "$EVENT" in
+            # A pull request a declared agent account opened brings agent commits only.
+            pull_request) node scripts/verification/sign-off.ts --range "$PR_BASE..$PR_HEAD" --pull-request-author "$PR_AUTHOR" ;;
+            # The group is verified first (its ref is in GitHub's queue namespace and holds the head);
+            # the queue's own first-parent merges are then not judged, and every commit they bring in is.
+            merge_group) node scripts/verification/sign-off.ts --range "$GROUP_BASE..$GROUP_HEAD" --merge-group "$GROUP_REF" --remote "$SERVER/$REPOSITORY" ;;
           esac
 
       - name: Every test deletion is named by the commit that makes it

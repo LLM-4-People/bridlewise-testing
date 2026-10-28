@@ -60,6 +60,7 @@ import {
 import { resetUiSchema } from "../../src/state/schema-store.ts";
 import { armedTriggers } from "../../src/cockpit/sweep/sweep-store.ts";
 import { pendingBandGo } from "../../src/cockpit/sweep/band-request.ts";
+import { until } from "../helpers/until.ts";
 
 const actionMock = vi.mocked(action);
 
@@ -322,13 +323,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 describe("plug-proof — a driven failed check lights the real HORIZON", () => {
   let host: HTMLElement;
@@ -355,7 +349,7 @@ describe("plug-proof — a driven failed check lights the real HORIZON", () => {
 
   test("an unconsumed setAnnunciators cannot pass this: the lit slot reaches the pixels", async () => {
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true",
     );
     // Dark when healthy.
@@ -366,7 +360,7 @@ describe("plug-proof — a driven failed check lights the real HORIZON", () => {
     setProjects([PROJECT]);
     selectProject("p1");
     upsertAutoChecks([check("k9", "lint", "failed", new Date().toISOString())]);
-    await waitFor(() => host.querySelector(".annunciator") !== null);
+    await until(() => host.querySelector(".annunciator") !== null);
 
     const slot = host.querySelector(".annunciator")!;
     expect(slot.textContent).toContain("1 check failing");

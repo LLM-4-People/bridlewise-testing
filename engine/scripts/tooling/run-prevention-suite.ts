@@ -103,5 +103,5 @@ function main(): number {
   return totalFail === 0 ? 0 : 1;
 }
 
-const exitCode = main();
-process.exit(exitCode);
+// The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
+process.exitCode = main();

@@ -1192,6 +1192,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       } else {
         git.worktreeAdd({ repoRoot: checkoutRoot, worktreePath, branch, baseSha: overlay?.commit ?? baseSha, timeoutMs: timeouts.worktreeMs });
       }
+      // An agent's checkout commits as the project's agent identity, from the one declared source, and says it is
+      // an agent's: the commit-msg hook then refuses any other identity here (scripts/verification/sign-off.ts).
+      git.agentCheckoutIdentity({ repoRoot: checkoutRoot, worktreePath, identity: ROOT_POLICY.workflow.commitIdentity.agent, markerKey: ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey, timeoutMs: timeouts.worktreeMs });
       applyCheckoutFiles(worktreePath, checkoutRoot, options.engineRelative, config);
       const setup = await runPhase(worktreePath, "setup", { record, targetTip: null });
       if (setup.some((gate) => gate.status === "fail")) throw new WorkspaceGateFailedError(workspaceId, "setup", setup, "workspace_setup_failed");

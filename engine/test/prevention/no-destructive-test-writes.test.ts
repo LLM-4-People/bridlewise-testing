@@ -47,6 +47,7 @@ import { movePath } from "../../src/filesystem/move-path.ts";
 import { regenerateHandoffManifest } from "../../scripts/regenerate-handoff-manifest.ts";
 import { buildTestInventory, writeTestInventoryTransaction } from "../../scripts/test-inventory.ts";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { isProcessAlive } from "../../src/process/process-facts.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { experimentExclusion, walk } from "../../scripts/verification/source-walk.ts";
@@ -728,18 +729,20 @@ const BYPASS_PROBE = [
   "if (MODE === 'detached') {",
   // The grandchild keeps the env (the marker this probe exported), waits until
   // this probe has exited and it was re-parented, then writes.
-  "  spawn(process.execPath, ['--input-type=module', '-e', [",
+  "  const grandchild = spawn(process.execPath, ['--input-type=module', '-e', [",
   "    `const parent = ${process.pid};`,",
   "    'for (let i = 0; i < 200 && process.ppid === parent; i += 1) await new Promise((r) => setTimeout(r, 25));',",
   "    `const { spawnSync } = await import('node:child_process');`,",
   "    `const r = spawnSync(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(WRITE_CODE(TARGET))}], { encoding: 'utf8' });`,",
   "    `(await import('node:fs')).writeFileSync(${JSON.stringify(`${OUT}.detached`)}, JSON.stringify({ reparented: process.ppid !== parent, outcome: r.stdout || r.stderr }));`,",
-  "  ].join('\\n')], { detached: true, stdio: 'ignore' }).unref();",
+  "  ].join('\\n')], { detached: true, stdio: 'ignore' });",
+  "  outcome.grandchild = grandchild.pid;",
+  "  grandchild.unref();",
   "}",
   "writeFileSync(OUT, JSON.stringify(outcome));",
 ].join("\n");
 
-test("prevention: every known bypass is refused — unlisted node options, --import/-e loaders, process.title, a planted .git, a detached grandchild after its test exited", () => {
+test("prevention: every known bypass is refused — unlisted node options, --import/-e loaders, process.title, a planted .git, a detached grandchild after its test exited", async () => {
   const { root, tracked } = throwawayCheckout("door-bypass-");
   mkdirSync(join(root, "test"));
   writeFileSync(join(root, "test", "probe.test.mjs"), BYPASS_PROBE);
@@ -759,12 +762,13 @@ test("prevention: every known bypass is refused — unlisted node options, --imp
       env: bareEnvironment({ DOOR_PROBE_OUT: out, DOOR_PROBE_MODE: mode, DOOR_PROBE_ROOT: root, DOOR_PROBE_WRITER: WRITER }),
     });
     assert.equal(result.status, 0, `${label}: ${result.stderr}`);
-    const report = JSON.parse(waitForFile(out, 1_000)) as Record<string, string>;
+    const report = JSON.parse(await waitForFile(out, ENDED)) as Record<string, string>;
     assert.equal(report["self"], CHECKOUT_WRITE_REFUSAL_CODE, `${label}: the probe's own write`);
     if (mode === "title") assert.equal(report["scrubbedChild"], CHECKOUT_WRITE_REFUSAL_CODE, "a scrubbed child of a re-titled test finds the held marker");
     if (mode === "planted-git") assert.equal(report["planted"], CHECKOUT_WRITE_REFUSAL_CODE, "a planted .git carves out no checkout");
     if (mode === "detached") {
-      const detached = JSON.parse(waitForFile(`${out}.detached`, 60_000)) as { reparented: boolean; outcome: string };
+      const grandchild = Number(report["grandchild"]);
+      const detached = JSON.parse(await waitForFile(`${out}.detached`, () => isProcessAlive(grandchild))) as { reparented: boolean; outcome: string };
       assert.equal(detached.reparented, true, "the grandchild must outlive its test");
       assert.equal(detached.outcome, CHECKOUT_WRITE_REFUSAL_CODE, "the inherited marker still protects");
     }
@@ -772,7 +776,7 @@ test("prevention: every known bypass is refused — unlisted node options, --imp
   assert.equal(readFileSync(tracked, "utf8"), "unchanged\n");
 });
 
-test("prevention: without procfs the door says so, loudly, and a test file still protects its checkout", () => {
+test("prevention: without procfs the door says so, loudly, and a test file still protects its checkout", async () => {
   const { root, tracked } = throwawayCheckout("door-noprocfs-");
   mkdirSync(join(root, "test"));
   writeFileSync(join(root, "test", "probe.test.mjs"), BYPASS_PROBE);
@@ -785,7 +789,7 @@ test("prevention: without procfs the door says so, loudly, and a test file still
   });
   assert.equal(probe.status, 0, `mount namespace capability unavailable: ${probe.stderr}`);
   assert.match(probe.stderr, new RegExp(PROCFS_UNAVAILABLE_WARNING_CODE, "u"));
-  assert.equal((JSON.parse(waitForFile(out, 1_000)) as { self: string }).self, CHECKOUT_WRITE_REFUSAL_CODE);
+  assert.equal((JSON.parse(await waitForFile(out, ENDED)) as { self: string }).self, CHECKOUT_WRITE_REFUSAL_CODE);
   assert.equal(readFileSync(tracked, "utf8"), "unchanged\n");
 });
 
@@ -849,26 +853,35 @@ function plantProbe(engineRoot: string, name: string, body: string): Readonly<{ 
   return { file, out };
 }
 
-function waitForFile(path: string, timeoutMs: number): string {
-  const deadline = Date.now() + timeoutMs;
-  while (!existsSync(path)) {
-    if (Date.now() > deadline) throw new Error(`the probe never reported: ${path}`);
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-  }
-  // The writer may still be mid-write; re-read until it parses.
+/**
+ * The probe's report at `path`, waited for (without blocking) as long as its WRITER lives
+ * (`writerAlive`), never for a wall-clock span (NO-LOAD-BLOCK): a busy host
+ * makes a probe slow, not absent. A writer that has ended without a complete
+ * report is a refusal, at once.
+ */
+async function waitForFile(path: string, writerAlive: () => boolean): Promise<string> {
   for (;;) {
-    const text = readFileSync(path, "utf8");
-    try {
-      JSON.parse(text);
-      return text;
-    } catch {
-      // A partial write: read again.
+    const alive = writerAlive();
+    if (existsSync(path)) {
+      const text = readFileSync(path, "utf8");
+      try {
+        JSON.parse(text);
+        return text;
+      } catch {
+        // A partial write while its writer still runs: read again.
+      }
     }
-    if (Date.now() > deadline) throw new Error(`the probe report never completed: ${path}`);
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    if (!alive) throw new Error(`the probe ended without a complete report: ${path}`);
+    // NON-BLOCKING: this test's own hang backstop (a timer) can end a probe
+    // that lives on without reporting; a blocking wait would leave that to
+    // the run's 900 s stall watchdog, which kills every file of the phase.
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
-test("prevention: a nested runner in a working copy protects THAT copy — generator CLIs with scrubbed env are refused (inventory renameSync, register)", () => {
+
+/** A writer that has already ended (it ran synchronously): its report is complete, or absent. */
+const ENDED = (): boolean => false;
+test("prevention: a nested runner in a working copy protects THAT copy — generator CLIs with scrubbed env are refused (inventory renameSync, register)", async () => {
   const copy = createRepositoryWorkingCopy("checkout-door-", { include: (path) => path.startsWith("engine/") || path.startsWith("shared/") });
   try {
     // A new test makes `test-inventory --write` rewrite the inventory; module
@@ -896,7 +909,7 @@ test("prevention: a nested runner in a working copy protects THAT copy — gener
       "});",
     ].join("\n"));
     const nested = spawnSync(process.execPath, ["--test", probe.file], { cwd: copy.engineRoot, env: scrubbedEnvironment(), encoding: "utf8", timeout: 600_000 });
-    const report = JSON.parse(waitForFile(probe.out, 1_000)) as Record<string, { status: number | null; output: string }>;
+    const report = JSON.parse(await waitForFile(probe.out, ENDED)) as Record<string, { status: number | null; output: string }>;
     for (const [name, outcome] of Object.entries(report)) {
       assert.notEqual(outcome.status, 0, `${name} must fail: ${outcome.output.slice(-2000)}\n${nested.stdout}`);
       assert.match(outcome.output, new RegExp(CHECKOUT_WRITE_REFUSAL_CODE, "u"), `${name} must be refused by the door`);
@@ -907,7 +920,7 @@ test("prevention: a nested runner in a working copy protects THAT copy — gener
   }
 });
 
-test("prevention: `node file.test.ts` and `node --test --test-isolation=none` with NO runner ancestor and NO markers still protect their checkout", () => {
+test("prevention: `node file.test.ts` and `node --test --test-isolation=none` with NO runner ancestor and NO markers still protect their checkout", async () => {
   const copy = createRepositoryWorkingCopy("checkout-door-orphan-", { include: (path) => path.startsWith("engine/") || path.startsWith("shared/") });
   try {
     const target = join(copy.engineRoot, "src", "architecture-manifest.ts");
@@ -927,11 +940,12 @@ test("prevention: `node file.test.ts` and `node --test --test-isolation=none` wi
       ].join("\n"));
       // `sh` starts the probe in the background and exits at once, so the
       // probe is orphaned: no test runner remains among its ancestors.
-      const launch = spawnSync("sh", ["-c", 'DOOR_PROBE_LAUNCHER=$$; export DOOR_PROBE_LAUNCHER; "$@" >/dev/null 2>&1 &', "sh", process.execPath, ...runnerArgs, probe.file], {
+      const launch = spawnSync("sh", ["-c", 'DOOR_PROBE_LAUNCHER=$$; export DOOR_PROBE_LAUNCHER; "$@" >/dev/null 2>&1 & echo $!', "sh", process.execPath, ...runnerArgs, probe.file], {
         cwd: copy.engineRoot, env: { PATH: process.env["PATH"] ?? "", HOME: process.env["HOME"] ?? "" }, encoding: "utf8",
       });
       assert.equal(launch.status, 0, launch.stderr);
-      const report = JSON.parse(waitForFile(probe.out, 120_000)) as { outcome: string; reparented: boolean; markers: string[] };
+      const probePid = Number(launch.stdout.trim());
+      const report = JSON.parse(await waitForFile(probe.out, () => isProcessAlive(probePid))) as { outcome: string; reparented: boolean; markers: string[] };
       assert.equal(report.reparented, true, `${label}: the probe must run with no test ancestor`);
       if (label === "direct") assert.deepEqual(report.markers, [], "no runner marker in the direct probe's env");
       assert.equal(report.outcome, CHECKOUT_WRITE_REFUSAL_CODE, `${label}: the probe's own checkout is protected`);
@@ -952,11 +966,12 @@ test("prevention: `node file.test.ts` and `node --test --test-isolation=none` wi
       "const outcome = await new Promise((done) => { const worker = new Worker(code, { eval: true, env: {} }); worker.once('message', done); worker.once('error', (error) => done('ERROR ' + String(error))); });",
       "record({ outcome, reparented: process.ppid !== launcher });",
     ].join("\n"));
-    const workerLaunch = spawnSync("sh", ["-c", 'DOOR_PROBE_LAUNCHER=$$; export DOOR_PROBE_LAUNCHER; "$@" >/dev/null 2>&1 &', "sh", process.execPath, workerProbe.file], {
+    const workerLaunch = spawnSync("sh", ["-c", 'DOOR_PROBE_LAUNCHER=$$; export DOOR_PROBE_LAUNCHER; "$@" >/dev/null 2>&1 & echo $!', "sh", process.execPath, workerProbe.file], {
       cwd: copy.engineRoot, env: { PATH: process.env["PATH"] ?? "", HOME: process.env["HOME"] ?? "" }, encoding: "utf8",
     });
     assert.equal(workerLaunch.status, 0, workerLaunch.stderr);
-    const workerReport = JSON.parse(waitForFile(workerProbe.out, 120_000)) as { outcome: string; reparented: boolean };
+    const workerPid = Number(workerLaunch.stdout.trim());
+    const workerReport = JSON.parse(await waitForFile(workerProbe.out, () => isProcessAlive(workerPid))) as { outcome: string; reparented: boolean };
     assert.equal(workerReport.reparented, true, "the worker probe must run with no test ancestor");
     assert.equal(workerReport.outcome, CHECKOUT_WRITE_REFUSAL_CODE, "a worker thread with an empty env wrote the checkout its process tests");
     assert.ok(readFileSync(target).equals(before));

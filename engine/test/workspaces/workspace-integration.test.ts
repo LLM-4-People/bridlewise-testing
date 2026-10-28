@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdtempSync, rmdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readLinuxMountPoints } from "../../src/filesystem/linux-path.ts";
@@ -1507,20 +1508,29 @@ test("the CLI states each command's own outcome: a successful abort or list of a
   assert.equal(aborted.status, "pass");
   assert.equal(manager.status(record.workspaceId).state, "aborted");
   await assert.rejects(() => runWorkspaceCli(root, ["validate", record.workspaceId, "--fast"]), (error: unknown) => (error as { code?: unknown }).code === "unknown_flag");
-  // A repository git gives no identity (none local; a HOME with no global config) is refused before a workspace is
-  // made: the integrator's merge commit would be refused at the end (A5-design L8).
+  // The identity of an agent's workspace is the project's, from the one declared source — never the host's: with no
+  // identity anywhere (none local; a HOME with no global config) a create succeeds, and the worktree's OWN config
+  // carries the agent identity and the agent-checkout marker, while the canonical checkout's stays untouched.
   const saved = { HOME: process.env["HOME"], XDG_CONFIG_HOME: process.env["XDG_CONFIG_HOME"] };
   process.env["HOME"] = mkWorkspaceTempDir("ws-cli-no-identity-home");
   process.env["XDG_CONFIG_HOME"] = process.env["HOME"];
   try {
-    await assert.rejects(() => runWorkspaceCli(root, ["create", "--agent", "worker", "--write-set", "src"]), (error: unknown) => (error as { code?: unknown }).code === "workspace_identity_missing");
+    const created = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+    const worktree = created.lease.worktreePath;
+    const config = (cwd: string, ...args: readonly string[]): string => spawnSync("git", ["config", ...args], { cwd, encoding: "utf8" }).stdout.trim();
+    const agent = ROOT_POLICY.workflow.commitIdentity.agent;
+    assert.equal(config(worktree, "user.name"), agent.name);
+    assert.equal(config(worktree, "user.email"), agent.email);
+    assert.equal(config(worktree, "--type=bool", ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey), "true");
+    assert.equal(config(root, "--type=bool", "--default=false", ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey), "false", "the canonical checkout is no agent checkout");
+    assert.notEqual(config(root, "user.email"), agent.email, "the canonical checkout keeps its own identity");
+    assert.equal((await runWorkspaceCli(root, ["abort", created.workspaceId])).status, "pass");
   } finally {
     for (const [name, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
   }
-  assert.equal(manager.list().filter((entry) => entry.state === "active").length, 0, "nothing was made");
 });
 
 
