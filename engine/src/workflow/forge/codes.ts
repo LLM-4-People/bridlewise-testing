@@ -30,7 +30,7 @@ type CodeEntry = Readonly<{ class: ForgeClass; remedy: string }>;
 /** Every code the forge answers with (see the header). */
 const FORGE_CODES = deepFreeze({
   forge_not_configured: { class: "input", remedy: "Declare the `forge` section in engine/bridlewise.config.json (its schema is `forge-config.ts`)." },
-  forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]` or `harness forge apps create`." },
+  forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]`, `harness forge apps create`, `harness forge apps audit [--role <role>]…`, or `harness forge plan|apply|audit`." },
   forge_declaration_invalid: { class: "input", remedy: "Fix the declaration's owner (the forge section, the App registry, the community sources or the tree) so the generated configuration is whole: the message names what is missing or doubled." },
   forge_security_attach_failed: { class: "refused", remedy: "GitHub could not attach the security configuration to the named repositories (their status is failed): a feature the plan cannot enable there (secret scanning or push protection on a private repository without Secret Protection) is the usual cause. Fix the configuration for that visibility, then apply again." },
   forge_reference_unresolved: { class: "refused", remedy: "The object names an App, installation, team or user GitHub does not have yet: create it first (Session 1 for the Apps; `forge apply` creates the teams), then plan again." },

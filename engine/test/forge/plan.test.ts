@@ -202,6 +202,38 @@ test("a team's members are data: a member added in the UI is drift that apply re
   assert.deepEqual(entry(await forgePlan(context, [widened], []), "team", "reviewers").loosening, ['members [] -> ["newcomer"]']);
 });
 
+test("a security configuration's two features read back as GitHub answers them (advanced_security only, the per-feature fields null): the declared features match, and a change of either is drift", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  const declared = { name: "baseline", code_security: "disabled", secret_protection: "enabled", secret_scanning: "enabled" };
+  // GitHub's read: advanced_security "secret_protection" (Secret Protection on, Code Security off); code_security and secret_protection null.
+  fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "secret_protection", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  const object_ = object("security-configuration", "baseline", declared, { kind: "org" });
+  assert.equal(entry(await forgePlan(contextOf(fake), [object_], []), "security-configuration", "baseline").action, "unchanged");
+  // GitHub reading both features enabled: Code Security differs from the declaration.
+  const both = fakeGithub();
+  both.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  both.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "enabled", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  assert.deepEqual(entry(await forgePlan(contextOf(both), [object_], []), "security-configuration", "baseline").differences, ["/code_security"]);
+  // Every direction is drift, for each feature. A feature GitHub reads OFF while declared ON is a tightening to apply; one
+  // read ON while declared OFF is drift too (and turning it off would be the loosening, judged by the strictness order).
+  for (const [advanced, declaredFeatures, differing] of [
+    ["disabled", { code_security: "disabled", secret_protection: "enabled" }, ["/secret_protection"]],
+    ["secret_protection", { code_security: "disabled", secret_protection: "disabled" }, ["/secret_protection"]],
+    ["code_security", { code_security: "disabled", secret_protection: "enabled" }, ["/code_security", "/secret_protection"]],
+    ["disabled", { code_security: "enabled", secret_protection: "disabled" }, ["/code_security"]],
+  ] as const) {
+    const live = fakeGithub();
+    live.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    live.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: advanced, code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+    const planned = entry(await forgePlan(contextOf(live), [object("security-configuration", "baseline", { ...declared, ...declaredFeatures }, { kind: "org" })], []), "security-configuration", "baseline");
+    assert.equal(planned.action, "update", `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    assert.deepEqual([...(planned.differences ?? [])].sort(), differing, `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    // Declared on, read off: a tightening, never a loosening.
+    if (advanced === "disabled" && declaredFeatures.secret_protection === "enabled") assert.equal(planned.loosening, undefined, "turning Secret Protection on is a tightening");
+  }
+});
+
 /** A fake GitHub that answers every kind the declarations use, statefully. */
 function wholeGithub(): FakeGithub {
   const fake = fakeGithub();
