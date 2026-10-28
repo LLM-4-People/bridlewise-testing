@@ -147,6 +147,9 @@ describe("this repository's owner/name is spelled only where it is declared or g
   });
 
   test("THE P1.10 RENAME stays clean: in a copy of the tree with the forge section renamed (the preview first, then the trunk takes the product's name) and its generated copies rewritten, nothing spells the new owner/name by hand", () => {
+    // Before P1.10 this renames a copy; once the P1.10 PR has landed the section is already renamed (the edit is
+    // idempotent), and the same assertions judge the real tree.
+    const alreadyRenamed = configuredRepositoryIdentity().name === PRODUCT_NAME;
     const renamed = productRenamedSettings(configuredForge());
     const identity = repositoryIdentity(renamed);
     expect(identity.name).toBe(PRODUCT_NAME);
@@ -162,7 +165,8 @@ describe("this repository's owner/name is spelled only where it is declared or g
     expect(copies.get("README.md"), "README's product link follows the product to the renamed trunk").toContain(`[product:]: ${identity.webUrl}`);
     expect(copies.get("product-only/README.md"), "the product README's commands name the renamed trunk").toContain(`REPO=${identity.fullName}`);
     for (const entry of HISTORICAL_RECORD_SPELLINGS) {
-      expect(read(entry.path), `${entry.path} still cites ${entry.spelling} (a stale entry is removed)`).toContain(entry.spelling);
+      // Before the rename the record cites its fixed spelling; after it, the runbook's step has rewritten it.
+      expect(read(entry.path), `${entry.path} cites ${alreadyRenamed ? entry.afterRename : entry.spelling} (a stale entry is removed)`).toContain(alreadyRenamed ? entry.afterRename : entry.spelling);
       expect(entry.afterRename, "the rewrite names the preview's new name").toContain(`/${identity.preview!.name}/`);
     }
     expect(codeOffenders(identity, textOf), `after the rename, these files spell ${identity.fullName}`).toEqual([]);
@@ -170,6 +174,25 @@ describe("this repository's owner/name is spelled only where it is declared or g
     // Not blind: a planted product-repository spelling in a document is caught after the rename.
     expect(spells(`See https://github.com/${identity.fullName}/releases.`, identity.fullName)).toBe(true);
     expect(spells(`See https://github.com/${identity.fullName}-evidence.`, identity.fullName), "a longer name is not this one").toBe(false);
+  });
+
+  test("the site's product and preview coordinates are their own repositories', the forge section's flags: never the trunk's before the rename", async () => {
+    // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
+    const { COORDINATES } = await import("../../scripts/floor/repository.mjs") as { COORDINATES: Record<string, string> };
+    const identity = configuredRepositoryIdentity();
+    const forge = configuredForge();
+    const flagged = (flag: "product" | "preview") => forge.repositories.find((repository) => repository[flag] === true)?.name;
+    expect(identity.product.name).toBe(flagged("product"));
+    expect(identity.preview?.name).toBe(flagged("preview"));
+    expect(COORDINATES.productRepository).toBe(identity.product.fullName);
+    expect(COORDINATES.productRepositoryUrl).toBe(identity.product.webUrl);
+    expect(COORDINATES.productSiteUrl).toBe(identity.product.pagesUrl);
+    expect(COORDINATES.previewRepositoryUrl).toBe(identity.preview?.webUrl);
+    if (identity.name !== PRODUCT_NAME) {
+      // Before the rename the product is published from its own repository, not the trunk.
+      expect(COORDINATES.productRepository).not.toBe(identity.fullName);
+      expect(COORDINATES.productSiteUrl).not.toBe(identity.pagesUrl);
+    }
   });
 
   test("the link classifier owns exactly the organisation's declared repositories: another owner, an undeclared repository and a non-file URL are not this project's", () => {

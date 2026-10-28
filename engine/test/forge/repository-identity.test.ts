@@ -53,10 +53,32 @@ test("THE P1.10 RENAME is one edit of the forge section: the preview is renamed 
   const identity = repositoryIdentity(renamed);
   assert.equal(identity.product.fullName, identity.fullName);
   assert.equal(identity.preview?.webUrl, "https://github.com/LLM-4-People/bridlewise-preview");
+  // Idempotent: the already-renamed section is answered unchanged (the guard applies the edit to the configured section).
+  assert.deepEqual(productRenamedSettings(renamed), renamed);
   // The trunk renamed alone collides with the preview's name: the schema refuses it.
   assert.throws(() => FORGE_CONFIG_SCHEMA.parse({ ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "bridlewise" } : repository) }), /unique/u);
   // Without a preview declared there is nothing to rename first: refused, typed.
   assert.throws(() => productRenamedSettings({ ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => { const { preview: _preview, ...rest } = repository; return rest; }) }), (error: unknown) => isForgeError(error, "forge_declaration_invalid"));
+});
+
+test("each identity reference names its own repository before the rename: product and product-site the product's, preview the preview's, repo and site the trunk's", () => {
+  const identity = repositoryIdentity(SETTINGS);
+  const text = "[a][product:] [b][product:releases] [c][product-site:docs/] [d][preview:releases/tag/v1] [e][repo:issues] [f][site:floor/]\n";
+  const definitions = new Map(withIdentityLinks(text, identity).split("\n").flatMap((line) => {
+    const match = /^\[([^\]]+)\]: (\S+)$/u.exec(line);
+    return match === null ? [] : [[match[1]!, match[2]!] as const];
+  }));
+  assert.deepEqual(Object.fromEntries(definitions), {
+    "product:": "https://github.com/LLM-4-People/bridlewise",
+    "product:releases": "https://github.com/LLM-4-People/bridlewise/releases",
+    "product-site:docs/": "https://llm-4-people.github.io/bridlewise/docs/",
+    "preview:releases/tag/v1": "https://github.com/LLM-4-People/bridlewise/releases/tag/v1",
+    "repo:issues": "https://github.com/LLM-4-People/bridlewise-testing/issues",
+    "site:floor/": "https://llm-4-people.github.io/bridlewise-testing/floor/",
+  });
+  // After the rename the product is the trunk, and the preview keeps its own repository under its new name.
+  const after = repositoryIdentity(productRenamedSettings(SETTINGS));
+  assert.match(withIdentityLinks("[a][product:] [d][preview:]\n", after), /\[preview:\]: https:\/\/github\.com\/LLM-4-People\/bridlewise-preview\n\[product:\]: https:\/\/github\.com\/LLM-4-People\/bridlewise\n/u);
 });
 
 test("a rename is one value: the trunk's new name moves every address, and nothing else", () => {

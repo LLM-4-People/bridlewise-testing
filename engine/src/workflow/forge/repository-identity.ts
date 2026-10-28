@@ -100,11 +100,17 @@ function organisationRepository(settings: ForgeSettings, name: string): Organisa
  *    the product's repository (`product: true` moves to it).
  * Every field that names a repository by name follows (the App page's legacy
  * Apps, the retired rulesets). The result is validated by the forge schema.
+ * IDEMPOTENT: a section already renamed (the trunk carries the product's
+ * name and the product flag) is answered unchanged, so the identity guard
+ * that applies this edit to the configured section stays green once the
+ * P1.10 PR has landed.
  */
 export function productRenamedSettings(settings: ForgeSettings): ForgeSettings {
+  const trunk = trunkRepository(settings);
+  if (trunk.name === PRODUCT_NAME && trunk.product === true) return settings;
   const preview = settings.repositories.find((repository) => repository.preview === true);
   if (preview === undefined) throw new ForgeError("forge_declaration_invalid", "The rename needs the preview repository declared (preview: true).", { field: "repositories" });
-  const renamed = new Map([[preview.name, `${preview.name}-preview`], [trunkRepository(settings).name, PRODUCT_NAME]]);
+  const renamed = new Map([[preview.name, `${preview.name}-preview`], [trunk.name, PRODUCT_NAME]]);
   const name = (current: string): string => renamed.get(current) ?? current;
   return FORGE_CONFIG_SCHEMA.parse({
     ...settings,
