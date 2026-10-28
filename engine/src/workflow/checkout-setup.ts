@@ -58,10 +58,10 @@ import { CHECKOUT_COMMAND_ENVIRONMENT, projectEnvironment } from "../process/env
 import { INSTRUMENT_LOCK_TOKEN_VARIABLE } from "../process/instrument-lock.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
-import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, commandRetryPolicy } from "./workflow-config.ts";
+import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, SUBPROCESS_BOUNDS, commandRetryPolicy } from "./workflow-config.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { workingTreeId } from "../git/working-copy.ts";
-import { holdInstrumentLock, waitForInstrumentLock, wholeInstrumentTestFileCount, type InstrumentHold } from "../process/instrument-lock.ts";
+import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, type InstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
 
@@ -123,8 +123,8 @@ export type CheckoutCommandRunner = Readonly<{
   retries: CommandRetryPolicy;
   /** Told when each command starts (an operator's progress line). */
   onStart?: (step: string, argv: readonly string[]) => void;
-  /** A test's own instrument lock (the host's lock is never a test's to take); absent, the host's, from config. */
-  instrumentLock?: Readonly<{ lockPath: string; pollIntervalMs: number }>;
+  /** A test's own run registry and caps (the host's registry is never a test's to write); absent, the host's, from config. */
+  instrumentLock?: Readonly<{ lockPath: string; perRun: PerRunCaps }>;
 }>;
 
 /**
@@ -232,12 +232,9 @@ const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
  * module cache warm-up collects the whole suite). It runs ONCE PER TREE: the
  * tree it ran for is recorded beside the checkout's gate logs (outside the
  * checkout, removed with it), and the same tree is not run again. Otherwise
- * THIS RUNNER takes the host's one instrument lock first, waiting with no
- * deadline and naming the holder on every change (a validate holding the lock
- * makes a create wait, never fail), and only then starts the command, whose
- * `timeoutMs` bounds the command alone; the command runs inside the hold (the
- * vitest door borrows it). The lock has no queue, so the wait names the holder,
- * not a position (a queue is the lock's fairness redesign, E-03).
+ * THIS RUNNER admits it as a heavy run first — at once, never waiting for
+ * another run (NO-LOAD-BLOCK) — so the command runs inside the admitted run
+ * and under its caps (the vitest door borrows it).
  */
 async function runHoldingInstrumentLock(checkoutRoot: string, name: string, command: CheckoutCommand, runner: CheckoutCommandRunner): Promise<CheckoutStep> {
   const marker = join(gateLogDirectory(checkoutRoot), `${name}.tree`);
@@ -246,14 +243,13 @@ async function runHoldingInstrumentLock(checkoutRoot: string, name: string, comm
     return step(name, "pass", `already run for this tree (${tree}): a heavy setup command runs once per tree`);
   }
   const label = `checkout setup: ${name}`;
-  const onWait = (line: string): void => void process.stderr.write(`${line} (a setup step's wait counts toward no timeout)\n`);
   let hold: InstrumentHold;
   if (runner.instrumentLock !== undefined) {
-    hold = await waitForInstrumentLock(runner.instrumentLock.lockPath, label, { onWait, pollIntervalMs: runner.instrumentLock.pollIntervalMs });
+    hold = admitInstrumentRun(runner.instrumentLock.lockPath, label, runner.instrumentLock.perRun, SUBPROCESS_BOUNDS);
   } else {
     const lock = readTestExecutionConfig(ENGINE_ROOT).instrumentLock;
     if (lock === undefined) throw new InputError("testExecution.instrumentLock is not declared in bridlewise.config.json", "instrument_lock_undeclared");
-    hold = await holdInstrumentLock({ config: lock, harnessRoot: ENGINE_ROOT, runner: label, testFileCount: wholeInstrumentTestFileCount(lock, "slot"), onWait });
+    hold = holdInstrumentLock({ config: lock, harnessRoot: ENGINE_ROOT, runner: label, testFileCount: wholeInstrumentTestFileCount(lock, "slot"), cpu: SUBPROCESS_BOUNDS });
   }
   try {
     const outcome = await runWithRetries(checkoutRoot, name, command, runner);
