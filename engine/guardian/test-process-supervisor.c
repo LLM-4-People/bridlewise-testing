@@ -4,10 +4,30 @@
  * Keep this boundary outside the watched runtime; tests and policy stay in TS.
  * Linux manuals: PR_SET_CHILD_SUBREAPER(2), pidfd_open(2), wait4(2).
  *
- * Usage: test-process-supervisor [--pass-fd] <timeout ms> <grace ms> <command> [args...]
+ * Usage: test-process-supervisor [--read-only-root <dir>]... [--writable <dir>]...
+ *                                [--pass-fd] <timeout ms> <grace ms> <command> [args...]
+ *        test-process-supervisor --probe-confinement --read-only-root <dir>... [--writable <dir>]...
  * fd 3 carries this supervisor's receipt. With --pass-fd, the caller's fd 4
  * becomes the COMMAND's fd 3 (a command that reports on fd 3, like the engine
  * test worker, keeps its channel) and the supervisor holds no copy of it.
+ *
+ * THE CHECKOUT IS READ-ONLY TO THE COMMAND (#293's class: a test, or anything
+ * it starts, wrote the live checkout). With --read-only-root, the command is
+ * started in a user and mount namespace of its own where each such <dir> (the
+ * checkout, and its git directories wherever they live: a worktree's are
+ * outside it) is a read-only bind of itself, each --writable <dir> beneath
+ * one of them a read-write bind, and a
+ * SECOND user and mount namespace on top: the kernel locks mounts it copies
+ * into a less privileged namespace (MNT_LOCKED, MNT_LOCK_READONLY), so the
+ * command -- root in its own namespace -- can neither remount the checkout
+ * read-write nor unmount it. Every write, chmod, utime, link or rename under
+ * <dir> outside the writable places is EROFS, for the command and every
+ * descendant. The pid namespace is not changed: this supervisor still owns,
+ * stops and reaps the command as before. A host that refuses an unprivileged
+ * user namespace refuses the run (exit 125 with the step that failed), never
+ * an unconfined run. --probe-confinement sets the same namespaces up in a
+ * child, proves a write under <dir> is EROFS, and exits 0, or 125 with the
+ * refusing step.
  *
  * THE RUNNER'S DEATH IS ONE STOP. It arrives as the parent-death signal, and
  * the kernel sends that on EVERY reparent: a dying multi-threaded runner (Node
@@ -28,7 +48,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sched.h>
+#include <sys/mount.h>
 #include <sys/prctl.h>
+#include <sys/statvfs.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -214,7 +237,127 @@ static long long start_time_of(pid_t pid)
     return -1;
 }
 
+/* The read-only checkout (see the header): the root and its writable places. */
+#define MAX_PLACES 16
+#define CONFINEMENT_REFUSED 125
+static const char *read_only_roots[MAX_PLACES];
+static int read_only_count = 0;
+static const char *writable[MAX_PLACES];
+static int writable_count = 0;
+
+static int write_text(const char *path, const char *text) {
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    size_t length = strlen(text);
+    ssize_t written = write(fd, text, length);
+    int saved = errno;
+    close(fd);
+    errno = saved;
+    return written == (ssize_t)length ? 0 : -1;
+}
+
+/* This user and group, mapped onto themselves: the command keeps its own ids. */
+static int map_own_identity(uid_t uid, gid_t gid) {
+    char line[64];
+    if (write_text("/proc/self/setgroups", "deny") && errno != ENOENT) return -1;
+    snprintf(line, sizeof(line), "%lu %lu 1", (unsigned long)uid, (unsigned long)uid);
+    if (write_text("/proc/self/uid_map", line)) return -1;
+    snprintf(line, sizeof(line), "%lu %lu 1", (unsigned long)gid, (unsigned long)gid);
+    return write_text("/proc/self/gid_map", line);
+}
+
+/* The flags a bind remount must keep (a user namespace may not clear the ones its parent locked). */
+static unsigned long kept_mount_flags(const char *path) {
+    struct statvfs info;
+    if (statvfs(path, &info)) return 0;
+    unsigned long flags = 0;
+    if (info.f_flag & ST_NOSUID) flags |= MS_NOSUID;
+    if (info.f_flag & ST_NODEV) flags |= MS_NODEV;
+    if (info.f_flag & ST_NOEXEC) flags |= MS_NOEXEC;
+    if (info.f_flag & ST_NOATIME) flags |= MS_NOATIME;
+    if (info.f_flag & ST_NODIRATIME) flags |= MS_NODIRATIME;
+    if (info.f_flag & ST_RELATIME) flags |= MS_RELATIME;
+    return flags;
+}
+
+/* Sets the read-only checkout up in THIS process (a forked child, before it
+ * execs). NULL, or the step that failed (errno says why). */
+static const char *confine_checkout(void) {
+    uid_t uid = getuid();
+    gid_t gid = getgid();
+    char cwd[PATH_MAX];
+    bool have_cwd = getcwd(cwd, sizeof(cwd)) != NULL;
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNS)) return "unshare a user and mount namespace";
+    if (map_own_identity(uid, gid)) return "map this user into the namespace";
+    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)) return "make the mounts private";
+    for (int index = 0; index < read_only_count; index++)
+        if (mount(read_only_roots[index], read_only_roots[index], NULL, MS_BIND | MS_REC, NULL)) return "bind a read-only root";
+    for (int index = 0; index < writable_count; index++)
+        if (mount(writable[index], writable[index], NULL, MS_BIND | MS_REC, NULL)) return "bind a writable place";
+    for (int index = 0; index < read_only_count; index++)
+        if (mount(NULL, read_only_roots[index], NULL, MS_REMOUNT | MS_BIND | MS_RDONLY | kept_mount_flags(read_only_roots[index]), NULL))
+            return "remount a root read-only";
+    /* The lock: copied into a less privileged namespace, these mounts can be
+     * neither remounted read-write nor taken away. */
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNS)) return "lock the mounts";
+    if (map_own_identity(uid, gid)) return "map this user into the locking namespace";
+    /* A working directory inside the checkout still named the mount UNDER the
+     * bind: entered again, it resolves through the read-only one. */
+    if (have_cwd && chdir(cwd)) return "re-enter the working directory";
+    return NULL;
+}
+
+static void refuse_confinement(const char *step) {
+    fprintf(stderr, "test supervisor: confinement refused: %s: %s\n", step, strerror(errno));
+}
+
+/* --probe-confinement: the namespaces set up in a child, and a write under the root proven EROFS. */
+static int probe_confinement(void) {
+    pid_t child = fork();
+    if (child < 0) { perror("test supervisor probe fork"); return 1; }
+    if (child == 0) {
+        const char *failed = confine_checkout();
+        if (failed) { refuse_confinement(failed); _exit(CONFINEMENT_REFUSED); }
+        for (int index = 0; index < read_only_count; index++) {
+            char probe[PATH_MAX];
+            snprintf(probe, sizeof(probe), "%s/.read-only-probe-%ld", read_only_roots[index], (long)getpid());
+            int fd = open(probe, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+            if (fd >= 0) { close(fd); unlink(probe); errno = 0; refuse_confinement("a write under a read-only root was not refused"); _exit(CONFINEMENT_REFUSED); }
+            if (errno != EROFS) { refuse_confinement("a write under a read-only root failed, but not read-only"); _exit(CONFINEMENT_REFUSED); }
+            if (mount(NULL, read_only_roots[index], NULL, MS_REMOUNT | MS_BIND | kept_mount_flags(read_only_roots[index]), NULL) == 0) {
+                errno = 0; refuse_confinement("a read-only root could be remounted read-write"); _exit(CONFINEMENT_REFUSED);
+            }
+        }
+        _exit(0);
+    }
+    int status;
+    if (reap(child, &status, 0) != child) { perror("test supervisor probe wait"); return 1; }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+}
+
 int main(int argc, char **argv) {
+    bool probe = argc > 1 && strcmp(argv[1], "--probe-confinement") == 0;
+    if (probe) { argv++; argc--; }
+    while (argc > 2 && (strcmp(argv[1], "--read-only-root") == 0 || strcmp(argv[1], "--writable") == 0)) {
+        bool root = strcmp(argv[1], "--read-only-root") == 0;
+        if ((root ? read_only_count : writable_count) == MAX_PLACES) { fprintf(stderr, "test supervisor: too many confinement places\n"); return 1; }
+        if (argv[2][0] != '/') { fprintf(stderr, "test supervisor: a confinement place needs an absolute path\n"); return 1; }
+        if (root) read_only_roots[read_only_count++] = argv[2];
+        else writable[writable_count++] = argv[2];
+        argv += 2; argc -= 2;
+    }
+    for (int index = 0; index < writable_count; index++) {
+        bool under = false;
+        for (int root = 0; root < read_only_count && !under; root++) {
+            size_t length = strlen(read_only_roots[root]);
+            under = strncmp(writable[index], read_only_roots[root], length) == 0 && writable[index][length] == '/';
+        }
+        if (!under) { fprintf(stderr, "test supervisor: a --writable place must lie under a --read-only-root\n"); return 1; }
+    }
+    if (probe) {
+        if (read_only_count == 0) { fprintf(stderr, "test supervisor: --probe-confinement needs --read-only-root\n"); return 1; }
+        return probe_confinement();
+    }
     bool pass_fd = argc > 1 && strcmp(argv[1], "--pass-fd") == 0;
     if (pass_fd) { argv++; argc--; }
     if (argc < 4) { fprintf(stderr, "test supervisor: expected [--pass-fd] timeout grace command\n"); return 1; }
@@ -259,6 +402,10 @@ int main(int argc, char **argv) {
         if (setpgid(0, 0)) _exit(126);
         if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) || getppid() != supervisor) _exit(126);
         if (sigprocmask(SIG_SETMASK, &original, NULL)) _exit(126);
+        if (read_only_count > 0) {
+            const char *failed = confine_checkout();
+            if (failed) { refuse_confinement(failed); _exit(CONFINEMENT_REFUSED); }
+        }
         execvp(argv[3], &argv[3]);
         perror("test supervisor exec");
         _exit(127);

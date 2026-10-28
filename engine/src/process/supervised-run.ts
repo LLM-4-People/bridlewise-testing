@@ -26,14 +26,19 @@
  * The native binary is built by the caller (`ensureTestProcessSupervisor()`,
  * `engine/guardian/build.ts`) and
  * handed in: this layer runs processes, it builds nothing.
+ *
+ * - {@link checkoutConfinement}: the checkout made READ-ONLY to a command and
+ *   every descendant (`readOnlyCheckout`), the places computed here.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { constants } from "node:os";
 import type { Readable } from "node:stream";
 
+import { checkoutConfinementPlaces } from "../filesystem/checkout-write-door.ts";
+import { checkoutGitDirectories } from "../git/repository-ownership.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { isProcessGroupAlive, ownedAnnouncement, terminate, type ProcessIdentity } from "./process-facts.ts";
+import { isProcessGroupAlive, ownedAnnouncement, procfsDocument, terminate, type ProcessIdentity } from "./process-facts.ts";
 import { adoptIntoOwnedInstrumentLock } from "./instrument-lock-adoption.ts";
 import { guarded } from "./fault-policy.ts";
 
@@ -123,6 +128,61 @@ function supervisorArguments(ceilingMs: number, graceMs: number, command: string
 }
 
 /**
+ * THE TEST CONFINEMENT (#293's class: a test, or anything it started, changed
+ * the live checkout — a same-mode chmod of its configuration refused a
+ * concurrent commit). The places are computed HERE, from the checkout's own
+ * facts, never passed by a caller:
+ *
+ * - READ-ONLY: the checkout and every directory its git state lives in — its
+ *   git directory, the common one (a linked worktree's lies outside the
+ *   checkout) and every object directory it borrows
+ *   (`checkoutGitDirectories`, the git owner);
+ * - WRITABLE inside it: exactly the checkout write door's state directories
+ *   (`checkoutWritablePlaces`: `.bridlewise/` at the top and in each package),
+ *   created through the one state-directory creator so they can be bound.
+ *
+ * The native supervisor makes them so in a user and mount namespace locked by
+ * a second one (`engine/guardian/test-process-supervisor.c`): EROFS for every
+ * write, chmod, utime, link and rename, for every descendant, and no way to
+ * remount or unmount. The arrangement is PROBED once per process and checkout
+ * before it is used; a host that refuses it gets a typed refusal naming the
+ * one-time fix, never an unconfined run.
+ */
+const confinements = new Map<string, readonly string[]>();
+
+export function checkoutConfinement(supervisor: string, checkout: string): readonly string[] {
+  const known = confinements.get(checkout);
+  if (known !== undefined) return known;
+  const { readOnly, writable } = checkoutConfinementPlaces(checkout, checkoutGitDirectories(checkout));
+  const args = Object.freeze([...readOnly.flatMap((place) => ["--read-only-root", place]), ...writable.flatMap((place) => ["--writable", place])]);
+  const probe = spawnSync(supervisor, ["--probe-confinement", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (probe.error !== undefined || probe.status !== 0) {
+    throw new HarnessError(
+      `The test confinement is unavailable on this host, so no test runs: the checkout ${checkout} cannot be made read-only to its tests ` +
+        `(${(probe.stderr || String(probe.error ?? `exit ${String(probe.status)}`)).trim()}). ${confinementRemedy()}`,
+      "test_confinement_unavailable",
+    );
+  }
+  confinements.set(checkout, args);
+  return args;
+}
+
+/**
+ * The one-time host fix a refused confinement names. A host whose AppArmor
+ * restricts unprivileged user namespaces (Ubuntu 24.04's default) admits them
+ * for the supervisor binary alone through the profile the repository ships;
+ * any other refusal is the kernel's own (user namespaces switched off).
+ */
+function confinementRemedy(): string {
+  const restricted = procfsDocument("sys", "kernel", "apparmor_restrict_unprivileged_userns")?.trim() === "1";
+  return restricted
+    ? "AppArmor restricts unprivileged user namespaces here; admit them for the test supervisor alone, once: " +
+      "node engine/guardian/build.ts --apparmor-profile | sudo tee /etc/apparmor.d/bridlewise-test-process-supervisor >/dev/null " +
+      "&& sudo apparmor_parser -r /etc/apparmor.d/bridlewise-test-process-supervisor"
+    : "Unprivileged user namespaces are not available (check /proc/sys/user/max_user_namespaces and the kernel's user-namespace support).";
+}
+
+/**
  * The supervisor left no receipt: it died before it could kill and reap. Its
  * command died with it (the parent-death signal); whatever the command
  * started and left in the command's process group is ended here. Answers
@@ -162,6 +222,13 @@ export type SupervisedCommandOptions = Readonly<{
   stop?: AbortSignal;
   /** Stops the run when THIS process receives SIGINT, SIGTERM or SIGHUP (an operator's Ctrl-C takes every descendant down too). */
   killOnInterrupt?: boolean;
+  /**
+   * THE CHECKOUT IS READ-ONLY TO THE COMMAND: the checkout whose files, git
+   * directories and borrowed objects the command and every descendant may not
+   * change ({@link checkoutConfinement}). Both suites' runners pass their
+   * checkout for their workers; the runner itself stays outside.
+   */
+  readOnlyCheckout?: string;
 }>;
 
 export type SupervisedCommand = Readonly<{
@@ -192,7 +259,8 @@ export type SupervisedCommand = Readonly<{
 export function superviseCommand(options: SupervisedCommandOptions): Promise<SupervisedCommand> {
   const killGraceMs = options.killGraceMs;
   const passFd = options.onResult !== undefined;
-  const args = supervisorArguments(options.hardCeilingMs, killGraceMs, options.command, options.args, passFd);
+  const confinement = options.readOnlyCheckout === undefined ? [] : checkoutConfinement(options.supervisor, options.readOnlyCheckout);
+  const args = [...confinement, ...supervisorArguments(options.hardCeilingMs, killGraceMs, options.command, options.args, passFd)];
   const startedAt = Date.now();
   let lastOutputAt = startedAt;
   // fd 3 carries the supervisor's receipt (the command never inherits it); fd

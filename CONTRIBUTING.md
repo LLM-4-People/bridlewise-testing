@@ -73,6 +73,18 @@ make -C engine/guardian all
 npm --prefix engine run build:bundle
 ```
 
+The test runners make your checkout **read-only to the tests** (a test can
+write only the `.bridlewise/` state folders and outside the checkout), using an
+unprivileged user namespace. On Ubuntu 24.04 and other hosts whose AppArmor
+restricts those (`/proc/sys/kernel/apparmor_restrict_unprivileged_userns`
+is `1`), the first test run stops with `test_confinement_unavailable`. Admit
+user namespaces for the test supervisor binary alone, once per machine:
+
+```bash
+node engine/guardian/build.ts --apparmor-profile | sudo tee /etc/apparmor.d/bridlewise-test-process-supervisor >/dev/null
+sudo apparmor_parser -r /etc/apparmor.d/bridlewise-test-process-supervisor
+```
+
 Before you open a pull request, run the local gate:
 
 ```bash

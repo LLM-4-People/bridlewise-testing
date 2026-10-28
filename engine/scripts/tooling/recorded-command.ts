@@ -17,7 +17,7 @@ export type RecordedCommandRequest = Readonly<{
    * `hardCeilingMs`; a stopped one has `killGraceMs` before the SIGKILL; its
    * fd 3 (the result pipe) is passed through.
    */
-  supervision: Readonly<{ supervisor: string; hardCeilingMs: number; killGraceMs: number }>;
+  supervision: Readonly<{ supervisor: string; hardCeilingMs: number; killGraceMs: number; readOnlyCheckout?: string }>;
 }>;
 
 export type ObservedPipe = Readonly<{
@@ -82,6 +82,7 @@ async function runSupervised(
       args: request.arguments,
       hardCeilingMs: supervision.hardCeilingMs,
       killGraceMs: supervision.killGraceMs,
+      ...(supervision.readOnlyCheckout === undefined ? {} : { readOnlyCheckout: supervision.readOnlyCheckout }),
       cwd: request.cwd,
       ...(request.environment === undefined ? {} : { env: { ...request.environment } }),
       onStdout: (chunk) => collect(chunk, stdout, forward),

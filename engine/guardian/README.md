@@ -24,6 +24,21 @@ CPU receipts. `make test_process_supervisor` builds
 the product's own command runner needs it: a product checkout builds it from
 what ships.
 
+It also makes a CHECKOUT READ-ONLY to the command (#293's class: a test, or
+anything it started, changed the live checkout). With `--read-only-root <dir>`
+(the checkout, and every directory its git state lives in) and `--writable
+<dir>` (the declared state directories beneath it), the command starts in a
+user and mount namespace of its own where the roots are read-only binds and
+the writable places read-write ones, locked by a second user and mount
+namespace so the command can neither remount nor unmount them: every write,
+chmod, utime, link or rename there is EROFS, for every descendant. The places
+are computed by the one door (`engine/src/process/supervised-run.ts`
+`checkoutConfinement`), which probes the arrangement first
+(`--probe-confinement`) and refuses the run, typed, where the host forbids
+unprivileged user namespaces. On a host whose AppArmor restricts them (Ubuntu
+24.04's default), `node guardian/build.ts --apparmor-profile` prints the
+profile that admits them for this binary alone (CONTRIBUTING's one-time step).
+
 ## Build
 
 ```bash

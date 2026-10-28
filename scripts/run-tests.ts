@@ -192,7 +192,7 @@ export async function superviseRun(
   command: string,
   args: readonly string[],
   watchdog: SuiteWatchdog,
-  options: Readonly<{ watchIntervalMs?: number; write?: (text: string) => void; killOnInterrupt?: boolean; stopWhenLauncherExits?: boolean; environment?: Readonly<NodeJS.ProcessEnv> }> = {},
+  options: Readonly<{ watchIntervalMs?: number; write?: (text: string) => void; killOnInterrupt?: boolean; stopWhenLauncherExits?: boolean; environment?: Readonly<NodeJS.ProcessEnv>; readOnlyCheckout?: string }> = {},
 ): Promise<SupervisedRun> {
   const write = options.write ?? ((text: string) => process.stderr.write(text));
   const stop = new AbortController();
@@ -218,6 +218,7 @@ export async function superviseRun(
     onStderr: (chunk) => process.stderr.write(chunk),
     stop: stop.signal,
     ...(options.killOnInterrupt === undefined ? {} : { killOnInterrupt: options.killOnInterrupt }),
+    ...(options.readOnlyCheckout === undefined ? {} : { readOnlyCheckout: options.readOnlyCheckout }),
   });
   stopLauncherWatch();
   const killedDescendants = (run.supervision?.reaped ?? []).filter((entry) => entry.killed).map((entry) => entry.pid);
@@ -288,8 +289,10 @@ async function main(): Promise<void> {
   const instrumentLock = enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   const invocationId = qualificationInvocation(process.env);
   const tree = readMeasuredTree(projectDir);
+  // THE CHECKOUT IS READ-ONLY TO THE RUN (#293's class): vitest and every worker it starts may write only the
+  // declared state directories (engine/src/process/supervised-run.ts `checkoutConfinement`); this runner stays outside.
   const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
-    killOnInterrupt: true, stopWhenLauncherExits: true,
+    killOnInterrupt: true, stopWhenLauncherExits: true, readOnlyCheckout: projectDir,
     environment: { ...process.env, [QUALIFICATION_INVOCATION_ENV]: invocationId },
   });
   process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);

@@ -101,14 +101,15 @@
  * primitive that must commit with a raw `rename` (the journaled multi-file
  * commit) asks the door first.
  */
-import { lstatSync, mkdirSync, openSync, realpathSync, statSync, type Stats } from "node:fs";
+import { lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { SecurityError } from "../kernel/errors.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { identityKey } from "./path-identity.ts";
+import { identityKey, identityOverlapIndex, resolveLocation, type ResolvedAbsolutePath } from "./path-identity.ts";
+import { ensurePrivateStateDirectory } from "./private-state.ts";
 import { ancestorsOf, commandLineOf, executableOf, openFileTargetsOf, procfsAvailable, workingDirectoryOf } from "../process/process-facts.ts";
 
 const POLICY = ROOT_POLICY.verification.checkoutWriteDoor;
@@ -429,9 +430,91 @@ function protectedRootHolding(canonical: string): string | undefined {
  */
 function inWritableDirectory(root: string, relativePath: string): boolean {
   const segments = relativePath.split("/");
-  return (POLICY.writableDirectoryNames as readonly string[]).some((name) =>
-    (segments.length > 1 && segments[0] === name) ||
-    (segments.length > 2 && segments[1] === name && entryStats(join(root, segments[0]!, "package.json"))?.isFile() === true));
+  const inPackage = segments.length > 1 && entryStats(join(root, segments[0]!, "package.json"))?.isFile() === true;
+  const under = (place: string, from: number): boolean => {
+    const parts = place.split("/");
+    return segments.length > from + parts.length && parts.every((part, index) => segments[from + index] === part);
+  };
+  return [...(POLICY.writableDirectoryNames as readonly string[]), ...(POLICY.toolScratchDirectories as readonly string[])]
+    .some((place) => under(place, 0) || (inPackage && under(place, 1)));
+}
+
+/**
+ * THE WRITABLE PLACES OF `root`, by the same rule as {@link inWritableDirectory}:
+ * each declared state directory name (`POLICY.writableDirectoryNames`) and each
+ * declared tool scratch directory (`POLICY.toolScratchDirectories`, vite's) at
+ * the checkout's top and in each top-level package (a folder holding its own
+ * `package.json`). The test confinement binds exactly these read-write inside
+ * the read-only checkout (`src/process/supervised-run.ts`): one declaration,
+ * so the in-process door and the kernel's boundary can never disagree about
+ * where a test may write. Each as its segments under `root`, existing or not.
+ */
+export function checkoutWritablePlaces(root: string): readonly Readonly<{ segments: readonly string[]; kind: "state" | "tool-scratch" }>[] {
+  const packages = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entryStats(join(root, entry.name, "package.json"))?.isFile() === true)
+    .map((entry) => entry.name)
+    .toSorted();
+  return [[], ...packages.map((name) => [name])].flatMap((folder) => [
+    ...(POLICY.writableDirectoryNames as readonly string[]).map((name) => ({ segments: [...folder, name], kind: "state" as const })),
+    ...(POLICY.toolScratchDirectories as readonly string[]).map((name) => ({ segments: [...folder, ...name.split("/")], kind: "tool-scratch" as const })),
+  ]);
+}
+
+/**
+ * THE PLACES OF A TEST RUN'S READ-ONLY CHECKOUT (decision
+ * TEST-CONFINEMENT-SELF-BIND; the one supervisor binds them:
+ * `src/process/supervised-run.ts` `checkoutConfinement`):
+ *
+ * - READ-ONLY: the checkout and the directories its git state lives in
+ *   (`gitDirectories`, the git owner's answer), each nested one dropped;
+ * - WRITABLE inside them: exactly {@link checkoutWritablePlaces}, made real
+ *   directories first. A place that is a link or not a directory, or whose way
+ *   inside the checkout passes a link, is refused
+ *   (`test_confinement_writable_unsafe`): a writable bind must never carry a
+ *   write into the tree. A place that resolves OUTSIDE every read-only root
+ *   (a workspace's linked `node_modules`) is already writable and not bound.
+ *
+ * Containment is decided by identity (the one path-identity owner), never by
+ * comparing spellings.
+ */
+export function checkoutConfinementPlaces(
+  checkout: string,
+  gitDirectories: readonly string[],
+): Readonly<{ readOnly: readonly string[]; writable: readonly string[] }> {
+  const root = resolveLocation(realpathSync(checkout), "the read-only checkout");
+  const overlap = identityOverlapIndex();
+  const places = [root, ...gitDirectories.map((place) => resolveLocation(realpathSync(place), "a git directory"))];
+  const distinct = places.filter((place, index) => places.findIndex((other) => overlap.atOrUnder(place, other) && overlap.atOrUnder(other, place)) === index);
+  const readOnly = distinct.filter((place) => !distinct.some((other) => other !== place && overlap.atOrUnder(place, other)));
+  const inside = (place: ResolvedAbsolutePath): boolean => readOnly.some((rootPlace) => overlap.atOrUnder(place, rootPlace));
+  const writable: string[] = [];
+  for (const place of checkoutWritablePlaces(root)) {
+    const path = join(root, ...place.segments);
+    const found = entryStats(path);
+    if (found !== undefined && (found.isSymbolicLink() || !found.isDirectory())) {
+      throw new SecurityError(
+        `The test confinement refuses ${path}: a writable place must be a real directory, and this one is ${found.isSymbolicLink() ? "a link" : "not a directory"} (it could carry a write into the read-only checkout). Remove it; the run recreates it.`,
+        "test_confinement_writable_unsafe",
+      );
+    }
+    if (found === undefined) {
+      if (place.kind === "state") ensurePrivateStateDirectory(path);
+      else if (entryStats(dirname(path))?.isDirectory() === true) mkdirSync(path);
+      else continue; // no installed dependencies here: nothing for vite to write
+    }
+    if (!inside(resolveLocation(realpathSync(path), "a writable place"))) continue; // resolves outside the checkout: already writable
+    // Inside the checkout, every folder on the way is a real one: a link on the way could carry the writable bind
+    // anywhere in the tree.
+    const linked = place.segments.findIndex((_, index) => entryStats(join(root, ...place.segments.slice(0, index + 1)))?.isSymbolicLink() === true);
+    if (linked >= 0) {
+      throw new SecurityError(
+        `The test confinement refuses ${path}: ${join(root, ...place.segments.slice(0, linked + 1))} on its way is a link, inside the read-only checkout.`,
+        "test_confinement_writable_unsafe",
+      );
+    }
+    writable.push(path);
+  }
+  return Object.freeze({ readOnly: Object.freeze([...readOnly]), writable: Object.freeze(writable) });
 }
 
 /**

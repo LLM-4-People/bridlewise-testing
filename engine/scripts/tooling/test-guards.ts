@@ -40,12 +40,15 @@
 import { fileURLToPath } from "node:url";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
+import { repositoryToplevel } from "../../src/git/repository-ownership.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
 import { enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
 import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+
+const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 export async function main(): Promise<void> {
   const runner = `engine ${process.env.npm_lifecycle_event ?? "node --test"}`;
@@ -89,6 +92,8 @@ export async function main(): Promise<void> {
     onStdout: (chunk) => process.stdout.write(chunk),
     onStderr: (chunk) => process.stderr.write(chunk),
     killOnInterrupt: true,
+    // The checkout is read-only to the tests (#293's class), as under the suite runners.
+    readOnlyCheckout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT,
   });
   lock.release();
   if (run.ending !== "exited") {

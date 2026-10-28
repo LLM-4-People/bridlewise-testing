@@ -151,6 +151,17 @@ jobs:
           npm --prefix engine run build:bundle
           make -C engine/guardian all
 
+      # The runners make the checkout read-only to the tests in an unprivileged
+      # user namespace (#293's class). The image's AppArmor restricts those; the
+      # contributor setup admits them for the test supervisor binary alone (the
+      # profile the repository ships, CONTRIBUTING's one-time step), never a
+      # global sysctl: CI and a contributor's machine run the same setup.
+      - name: Admit user namespaces for the test supervisor alone
+        run: |
+          set -o pipefail
+          node engine/guardian/build.ts --apparmor-profile | sudo tee /etc/apparmor.d/bridlewise-test-process-supervisor >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/bridlewise-test-process-supervisor
+
       - name: Record the guardian build stamp and diagnostic digest
         run: |
           set -o pipefail

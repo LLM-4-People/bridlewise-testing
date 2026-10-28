@@ -71,7 +71,37 @@ export function ensureTestProcessSupervisor(): string {
   return ensuredSupervisor;
 }
 
+/**
+ * THE ONE-TIME HOST FIX FOR THE TEST CONFINEMENT on a host whose AppArmor
+ * restricts unprivileged user namespaces (Ubuntu 24.04's default,
+ * `kernel.apparmor_restrict_unprivileged_userns=1`): a profile that admits
+ * them for the test supervisor binary ALONE (it sets the read-only checkout up
+ * in a user and mount namespace: `engine/src/process/supervised-run.ts`
+ * `checkoutConfinement`), not a global switch. It attaches to the binary at
+ * this path under any home directory, so every checkout and workspace of the
+ * repository is covered by one install. Installed with:
+ *
+ *   node engine/guardian/build.ts --apparmor-profile | sudo tee /etc/apparmor.d/bridlewise-test-process-supervisor >/dev/null
+ *   sudo apparmor_parser -r /etc/apparmor.d/bridlewise-test-process-supervisor
+ */
+export function testProcessSupervisorAppArmorProfile(): string {
+  return [
+    '# bridlewise: admits unprivileged user namespaces for the test supervisor alone (the read-only test checkout).',
+    'abi <abi/4.0>,',
+    'include <tunables/global>',
+    '',
+    `profile bridlewise-test-process-supervisor @{HOME}/**/engine/guardian/${['build', 'test-process-supervisor'].join('/')} flags=(unconfined) {`,
+    '  userns,',
+    '}',
+    '',
+  ].join('\n');
+}
+
 function main(): void {
+  if (process.argv[2] === '--apparmor-profile') {
+    process.stdout.write(testProcessSupervisorAppArmorProfile());
+    return;
+  }
   if (process.argv[2] === '--test-process-supervisor') {
     console.log(ensureTestProcessSupervisor());
     return;

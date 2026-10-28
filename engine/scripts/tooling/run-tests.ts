@@ -25,7 +25,7 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { ensurePrivateStateDirectory } from "../../src/filesystem/private-state.ts";
 import { canonicalJson } from "../../src/kernel/integrity.ts";
 import { harnessFolderChanges, harnessFolderIdentity } from "../../src/kernel/config.ts";
-import { repositoryRefChanges, repositoryRefIdentity } from "../../src/git/repository-ownership.ts";
+import { repositoryRefChanges, repositoryRefIdentity, repositoryToplevel } from "../../src/git/repository-ownership.ts";
 import { parseJsonExact } from "../../src/kernel/json-integrity.ts";
 import { isPlainObject } from "../../src/shared/type-guards.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
@@ -92,10 +92,21 @@ export async function runWorkerWithEvidence(
     // ceiling sits a stall bound above the worker's own watchdog ceiling, so
     // the worker's abort always reports first.
     const { engineSuiteWatchdog } = readTestExecutionConfig(workingDirectory);
+    // A TEST RUN'S WORKER SEES ITS CHECKOUT READ-ONLY (#293's class): the checkout, its git directories and borrowed
+    // objects, except the declared state directories (src/process/supervised-run.ts `checkoutConfinement`). The
+    // runner itself, and its reports, stay outside.
+    const readOnlyCheckout = executionOperationSpec(operation).resultKind === "test-result-receipt"
+      ? repositoryToplevel(workingDirectory, "directory") ?? workingDirectory
+      : undefined;
     const observation = await runRecordedCommand({
       arguments: arguments_,
       cwd: workingDirectory,
-      supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs, killGraceMs: engineSuiteWatchdog.killGraceMs },
+      supervision: {
+        supervisor: ensureTestProcessSupervisor(),
+        hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs,
+        killGraceMs: engineSuiteWatchdog.killGraceMs,
+        ...(readOnlyCheckout === undefined ? {} : { readOnlyCheckout }),
+      },
       ...(options.environment === undefined ? {} : { environment: options.environment }),
       ...(options.setupFailureCode === undefined ? {} : { setupFailureCode: options.setupFailureCode }),
       ...(options.stop === undefined ? {} : { stop: options.stop }),

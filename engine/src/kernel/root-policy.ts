@@ -2479,6 +2479,17 @@ const ROOT_POLICY_VALUE = {
       // packages (a folder holding its own package.json, e.g. the engine) —
       // never a same-named folder planted deeper (`src/.bridlewise/x.ts`).
       writableDirectoryNames: [STATE_DIRECTORY_NAME],
+      // Vite's own gitignored scratch, never repository content: it bundles
+      // every config it loads into `node_modules/.vite-temp/` and vitest
+      // caches under `node_modules/.vite/` (vitest's module cache is kept
+      // outside the checkout: compile-cache.ts `vitestModuleCacheDirectory`),
+      // at the checkout's top and in each
+      // package, so a test run whose checkout is read-only
+      // (src/process/supervised-run.ts `checkoutConfinement`) could launch no
+      // vitest without them. Each must be a real directory: one that is a link,
+      // or not a directory, refuses the run (it could carry a write into the
+      // tree).
+      toolScratchDirectories: ["node_modules/.vite-temp", "node_modules/.vite"],
     },
     // A PROCESS UNDER TEST DIALS NOTHING BUT THIS MACHINE: the outbound door
     // refuses a remote destination (src/shared/outbound-http.ts), and every
