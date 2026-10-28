@@ -29,7 +29,7 @@
  * refusals (`rendered_*`) for a run that cannot judge at all.
  */
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -172,6 +172,12 @@ const opening = new WeakMap<BrowserContext, number>();
  * itself is reported: only pages opened by `openPage` are judged.
  */
 export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void): Promise<void> {
+  // NO WALL-CLOCK LIMIT on anything a judgement waits for — a navigation, an action, a wait — set here, once, for
+  // every judged context: under host load a slow page is still a page, and Playwright's 30 s defaults would fail
+  // it. A long wait logs its progress (`navigate`, `ready`); a true hang is bounded by the run's own backstop
+  // (the instrument lock's supervisor, the CI job's timeout), never by a guess at how long a page may take.
+  context.setDefaultTimeout(0);
+  context.setDefaultNavigationTimeout(0);
   await context.clock.install();
   await context.exposeBinding(BINDING, ({ page, frame }: { page: Page; frame: Frame }, kind: unknown, value: unknown) => record(page, frame, kind, value));
   await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)});` });
@@ -244,6 +250,19 @@ export async function openPage(context: BrowserContext): Promise<Page> {
     if (frame === page.mainFrame()) journal.entries = [];
   });
   return page;
+}
+
+/** Opens `url` in `page` and waits for its load event, with no time limit; a long load logs what it is waiting on. */
+export async function navigate(page: Page, url: string): Promise<void> {
+  const started = Date.now();
+  const liveness = setInterval(() => {
+    process.stderr.write(`[rendered] loading ${url} for ${String(Math.round((Date.now() - started) / 1000))} s: ${String(inFlight.get(page) ?? 0)} requests in flight (${[...(openUrls.get(page) ?? [])].slice(-3).join(", ")})\n`);
+  }, 10_000);
+  try {
+    await page.goto(url, { waitUntil: "load" });
+  } finally {
+    clearInterval(liveness);
+  }
 }
 
 /** Waits, by events, until `page` has no request in flight; a long wait is logged (never judged by its length). */
@@ -432,12 +451,18 @@ const TYPES: Readonly<Record<string, string>> = Object.freeze({
   ".txt": "text/plain; charset=utf-8", ".xml": "application/xml", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json",
 });
 
-/** A static server for a built site under its base path, on a free loopback port. */
-export async function serveSite(siteRoot: string, baseurl: string): Promise<{ server: Server; origin: string }> {
+/**
+ * A static server for a built site under its base path, on a free loopback
+ * port. `served` answers chosen paths itself (the proof's slow but steady
+ * resource); every other path is a file of the site.
+ */
+export async function serveSite(siteRoot: string, baseurl: string, served: Readonly<Record<string, (response: ServerResponse) => void>> = {}): Promise<{ server: Server; origin: string }> {
   const root = resolve(siteRoot);
   const base = baseurl.replace(/\/+$/u, "");
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url ?? "/", "http://site").pathname);
+    const own = served[path];
+    if (own !== undefined) { own(response); return; }
     if (!path.startsWith(`${base}/`) && path !== base) { response.writeHead(404).end(); return; }
     let file = resolve(join(root, path.slice(base.length)));
     if (file !== root && !file.startsWith(`${root}${sep}`)) { response.writeHead(403).end(); return; }
@@ -482,7 +507,7 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
     const page = await openPage(context);
     for (const path of pages) {
       current = path;
-      await page.goto(`${origin}${path}`, { waitUntil: "load" });
+      await navigate(page, `${origin}${path}`);
       for (const finding of await judgeStates(page, "site", siteRestore())) findings.add(`${path} ${finding}`);
       for (const finding of await judgeFuture(page, "site")) findings.add(`${path} ${finding}`);
     }

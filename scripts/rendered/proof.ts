@@ -10,13 +10,14 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { type ServerResponse } from "node:http";
 import { join } from "node:path";
 
 import { parseArgs } from "node:util";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { instrumentContext, judgeFuture, judgeStates, launchBrowser, openPage, serveSite, siteRestore } from "./judge.ts";
+import { instrumentContext, judgeFuture, judgeStates, launchBrowser, navigate, openPage, serveSite, siteRestore } from "./judge.ts";
 import { CONTENT_SECURITY_POLICY, JUDGE_LIMITS, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
@@ -54,6 +55,22 @@ const inWorker = (body: string): string => `<script>new Worker(URL.createObjectU
 /** A script that runs `body` once `delay` ms of page time have passed. */
 const later = (delay: number, body: string): string => `<script>setTimeout(() => { ${body} }, ${delay})</script>`;
 const GEORGIA_RULE = 'document.styleSheets[0].insertRule("#prose { font-family: Georgia }", 0)';
+
+/** The proof's slow but steady stylesheet: a comment line every STEADY_EVERY_MS for STEADY_FOR_MS, then a rule that changes nothing. */
+const STEADY_PATH = "/proof/steady.css";
+const STEADY_FOR_MS = 35_000;
+const STEADY_EVERY_MS = 500;
+function steady(response: ServerResponse): void {
+  response.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+  let sent = 0;
+  const tick = setInterval(() => {
+    sent += STEADY_EVERY_MS;
+    if (sent < STEADY_FOR_MS) { response.write(`/* ${String(sent)} ms */\n`); return; }
+    clearInterval(tick);
+    response.end("#prose { font-family: var(--face-sans); }\n");
+  }, STEADY_EVERY_MS);
+  response.on("close", () => clearInterval(tick));
+}
 
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
@@ -123,6 +140,8 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  // Longer than any default wall limit (Playwright's is 30 s), arriving a little at a time: a slow page is still a page.
+  { name: "a page whose stylesheet loads slowly but steadily, for longer than 30 s", head: `<link rel="stylesheet" href="${STEADY_PATH.slice("/proof/".length)}">`, rule: "font-families" },
   { name: "a scheduler.postTask with no delay", body: '<script>scheduler.postTask(() => { document.getElementById("prose").textContent = "posted"; })</script>', rule: "judgeable" },
   { name: "an interval that only changes text", body: '<script>let n = 0; setInterval(() => { document.getElementById("prose").textContent = `tick ${++n}`; }, 500)</script>', rule: "font-families" },
   { name: "a frame the declared exclusion skips", body: `<iframe data-artifact="frame" srcdoc="<p style='font-family: Georgia'>a user's artifact</p><canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
@@ -142,7 +161,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
     CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
       only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
-    const { server, origin } = await serveSite(dir, "/proof");
+    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady });
     const browser = await launchBrowser(executable);
     try {
       // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
@@ -153,7 +172,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
         const requests: string[] = [];
         await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding));
         const view = await openPage(context);
-        await view.goto(`${origin}/proof/${file}`, { waitUntil: "load" });
+        await navigate(view, `${origin}/proof/${file}`);
         const selected = rows(only);
         const findings = [...(await judgeStates(view, "cockpit", siteRestore(), selected, states)), ...(await judgeFuture(view, "cockpit", selected)), ...(selected === undefined ? requests : [])];
         await context.close();
