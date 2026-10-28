@@ -1155,6 +1155,7 @@
     "organization": "LLM-4-People",
     "apiUrl": "https://api.github.com",
     "webUrl": "https://github.com",
+    "pagesDomain": "github.io",
     "userAgent": "bridlewise-forge",
     "request": {
       "timeoutMs": 30000,

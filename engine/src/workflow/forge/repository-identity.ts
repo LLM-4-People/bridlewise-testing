@@ -36,7 +36,7 @@ export type RepositoryIdentity = Readonly<{
   issuesUrl: string;
   /** The project Pages site's base path (`/name`). */
   pagesBasePath: string;
-  /** The project Pages site (`https://owner.github.io/name/`, the owner lower-cased as GitHub serves it). */
+  /** The project Pages site (`<scheme>://<owner>.<pagesDomain>/name/`, the owner lower-cased as the forge serves it). */
   pagesUrl: string;
   /** Every repository of the organisation the forge declares (this one included), by name. */
   organisationRepositories: readonly string[];
@@ -45,12 +45,13 @@ export type RepositoryIdentity = Readonly<{
 /** The trunk repository's identity under `settings`. */
 export function repositoryIdentity(settings: ForgeSettings): RepositoryIdentity {
   const web = new URL(settings.webUrl);
-  if (web.origin !== "https://github.com") {
-    throw new ForgeError("forge_endpoint_invalid", `Project Pages addresses are derived for github.com only; the forge names ${web.origin}.`, { webUrl: settings.webUrl });
-  }
   const owner = settings.organization;
   const { name } = trunkRepository(settings);
   const webUrl = `${web.origin}/${owner}/${name}`;
+  // The project Pages site: the web origin's scheme, on `<owner>.<pagesDomain>` (the owner lower-cased, as the forge serves it).
+  const pages = new URL(web.origin);
+  pages.hostname = `${owner.toLowerCase()}.${settings.pagesDomain}`;
+  pages.pathname = `/${name}/`;
   return deepFreeze({
     owner,
     name,
@@ -59,7 +60,7 @@ export function repositoryIdentity(settings: ForgeSettings): RepositoryIdentity 
     gitUrl: `${webUrl}.git`,
     issuesUrl: `${webUrl}/issues`,
     pagesBasePath: `/${name}`,
-    pagesUrl: `https://${owner.toLowerCase()}.github.io/${name}/`,
+    pagesUrl: pages.href,
     organisationRepositories: settings.repositories.map((repository) => repository.name),
   });
 }

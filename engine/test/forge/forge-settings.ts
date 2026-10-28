@@ -14,6 +14,7 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   organization: "LLM-4-People",
   apiUrl: "https://api.github.com",
   webUrl: "https://github.com",
+  pagesDomain: "github.io",
   userAgent: "bridlewise-forge-test",
   request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10 },
   tokenRenewBeforeMs: 300_000,

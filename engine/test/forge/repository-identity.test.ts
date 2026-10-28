@@ -22,7 +22,7 @@ function gitTop(prefix: string): string {
   execFileSync("git", ["init", "-q"], { cwd: top });
   return top;
 }
-import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES, TRUNK } from "./forge-settings.ts";
 
 test("every address is derived from the organisation, the web origin and the trunk", () => {
   assert.deepEqual(repositoryIdentity(SETTINGS), {
@@ -48,8 +48,9 @@ test("a rename is one value: the trunk's new name moves every address, and nothi
   assert.equal(after.owner, before.owner);
 });
 
-test("only github.com has derivable project Pages; the configured identity is the configured section's", () => {
-  assert.throws(() => repositoryIdentity({ ...SETTINGS, webUrl: "https://git.example.com" }), (error: unknown) => isForgeError(error, "forge_endpoint_invalid"));
+test("the project Pages address derives from the declared Pages domain, not a vendor literal; the configured identity is the configured section's", () => {
+  // Another forge declares its own web origin and Pages domain: the address follows both.
+  assert.equal(repositoryIdentity({ ...SETTINGS, webUrl: "https://git.example.com", pagesDomain: "pages.example.com" }).pagesUrl, `https://${SETTINGS.organization.toLowerCase()}.pages.example.com/${TRUNK}/`);
   assert.deepEqual(configuredRepositoryIdentity(), repositoryIdentity(configuredForge()));
 });
 

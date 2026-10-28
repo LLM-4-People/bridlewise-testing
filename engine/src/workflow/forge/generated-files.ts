@@ -28,12 +28,28 @@ import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.t
 import { ForgeError } from "./codes.ts";
 import { forgeDeclarations, type DeclarationSources } from "./declarations.ts";
 import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
-import { repositoryIdentity, repositoryIdentityCopies } from "./repository-identity.ts";
+import { repositoryIdentity, repositoryIdentityCopies, type RepositoryIdentity } from "./repository-identity.ts";
 import { CODEOWNERS_FILE, codeownersFile, DEPENDABOT_FILE, dependabotFile, forgeTreeFacts, isDependencyLockfile, type ForgeTreeFacts } from "./repository-files.ts";
 
 /** Where the generated files live, relative to the repository top. */
 const FORGE_FILES_DIRECTORY = ".github/forge";
 const INDEX_FILE = "manifest.json";
+
+/**
+ * The repository identity as plain JSON, generated: a dependency-free reader
+ * (`scripts/repository-links.ts`, run by the docs-link check before any
+ * install) reads this file, never the engine module.
+ */
+export const REPOSITORY_IDENTITY_FILE = `${FORGE_FILES_DIRECTORY}/repository-identity.json`;
+
+function repositoryIdentityFile(identity: RepositoryIdentity): string {
+  return jsonText({
+    schemaVersion: schemaId("forge-repository-identity", 1),
+    generator: "harness sync (engine/src/workflow/forge/generated-files.ts, from repository-identity.ts); never edit by hand",
+    owner: identity.owner, name: identity.name, fullName: identity.fullName, webUrl: identity.webUrl, pagesUrl: identity.pagesUrl, pagesBasePath: identity.pagesBasePath,
+    organisationRepositories: identity.organisationRepositories,
+  });
+}
 const INDEX_SCHEMA = schemaId("forge-generated-files", 1);
 
 /** The local callback every App manifest redirects to (the Apps page, `apps-page.ts`). */
@@ -103,6 +119,7 @@ export function forgeGeneratedFiles(sources: ForgeFileSources): ReadonlyMap<stri
   }
   const files = new Map<string, string>([...forge].map(([path, text]) => [`${FORGE_FILES_DIRECTORY}/${path}`, text]));
   files.set(DEPENDABOT_FILE, dependabotFile(sources.settings, sources.facts));
+  files.set(REPOSITORY_IDENTITY_FILE, repositoryIdentityFile(repositoryIdentity(sources.settings)));
   files.set(CODEOWNERS_FILE, codeownersFile(sources.settings, sources.roles));
   const entries = [...files].map(([path, text]) => ({ path, sha256: sha256(text) }));
   files.set(`${FORGE_FILES_DIRECTORY}/${INDEX_FILE}`, jsonText({

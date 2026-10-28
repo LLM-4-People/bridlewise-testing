@@ -33,6 +33,8 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   apiUrl: httpsOrigin,
   /** The web origin (`https://github.com`): App creation and installation pages. */
   webUrl: httpsOrigin,
+  /** The domain of the forge's project Pages sites (`github.io`): a project's site is `<owner, lower-cased>.<pagesDomain>/<name>/`. */
+  pagesDomain: z.string().regex(/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u),
   /** The `User-Agent` every request carries (GitHub requires one). */
   userAgent: z.string().min(1).max(128).regex(/^[\x21-\x7e]+$/u),
   /** Each request's bounds. */

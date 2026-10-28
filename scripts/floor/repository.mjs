@@ -2,13 +2,32 @@
  * THE REPOSITORY AND ITS SITE — the coordinates the site tooling uses, read
  * from the ONE repository identity (`engine/src/workflow/forge/repository-identity.ts`,
  * derived from the forge section's trunk; the P1.10 rename changes that one
- * value). That module owns the address rules, the Pages rule among them; this
+ * value), through the plain JSON `harness sync` generates from it
+ * (`.github/forge/repository-identity.json`): the site tooling and the link
+ * check run with no dependency installed. That module owns the address rules, the Pages rule among them; this
  * one only shapes them for the site. Nothing in the site tooling, the site's
  * pages or its configuration spells a repository name or a site URL: the
  * builder writes these values into `_config.yml` (`repository_url`,
  * `security_url`, `url`) and pages read them from there.
  */
-import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
+import { readFileSync } from "node:fs";
+
+/**
+ * THE ONE READER of the generated repository identity (owner, name,
+ * fullName, webUrl, pagesUrl, pagesBasePath, organisationRepositories). A
+ * missing or malformed file is a loud failure (run harness sync), never a
+ * guess.
+ */
+export function generatedRepositoryIdentity() {
+  const path = new URL("../../.github/forge/repository-identity.json", import.meta.url);
+  const identity = JSON.parse(readFileSync(path, "utf8"));
+  const text = (value) => typeof value === "string" && value !== "";
+  if (![identity.owner, identity.name, identity.fullName, identity.webUrl, identity.pagesUrl, identity.pagesBasePath].every(text)
+    || !Array.isArray(identity.organisationRepositories) || !identity.organisationRepositories.every(text)) {
+    throw new Error(`${path.pathname} is not the generated repository identity: run harness sync`);
+  }
+  return Object.freeze(identity);
+}
 
 /** The site's coordinates for a repository identity (`repositoryIdentity(settings)`'s answer). */
 export function siteCoordinates(identity) {
@@ -25,7 +44,7 @@ export function siteCoordinates(identity) {
 }
 
 /** This checkout's coordinates: the configured repository identity. */
-export const COORDINATES = siteCoordinates(configuredRepositoryIdentity());
+export const COORDINATES = siteCoordinates(generatedRepositoryIdentity());
 
 export const REPOSITORY = COORDINATES.repository;
 export const REPOSITORY_URL = COORDINATES.repositoryUrl;
