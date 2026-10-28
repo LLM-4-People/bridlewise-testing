@@ -23,6 +23,7 @@ import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { workingTreeReader } from "../../git/tree-reader.ts";
+import { readLabels } from "../community/labels.ts";
 import { readIntake, readRoles, type CommunityRoles } from "../community/sources.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
@@ -77,7 +78,7 @@ export type ForgeFileSources = DeclarationSources & Readonly<{ roles: CommunityR
 /** The sources as the repository at `top` holds them (its `forge` section given). */
 export function forgeFileSources(top: string, settings: ForgeSettings): ForgeFileSources {
   const facts = forgeTreeFacts(workingTreeReader(top), settings);
-  return deepFreeze({ settings, intake: readIntake(top), roles: readRoles(top), workflowActions: facts.workflowActions, facts });
+  return deepFreeze({ settings, intake: readIntake(top), roles: readRoles(top), labels: readLabels(top), workflowActions: facts.workflowActions, facts });
 }
 
 /** Every generated file, by its repository-relative path, with its exact bytes (the index last). */

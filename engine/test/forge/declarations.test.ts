@@ -124,8 +124,8 @@ test("the org baseline is exactly §3.2's, at both stages: a rule removed, added
 test("a form naming a type outside the registry, or two labels with one name, refuses the declarations", () => {
   const intake = { ...SOURCES.intake, issueForms: [...SOURCES.intake.issueForms, { ...SOURCES.intake.issueForms[0]!, type: "Epic" }] };
   assert.throws(() => forgeDeclarations({ ...SOURCES, intake }), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /Epic/u.test(error.message));
-  const labels = [...SETTINGS.labels, { name: "AREA:engine", color: "000000", description: "" }];
-  assert.throws(() => forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, labels } }), (error: unknown) => isForgeError(error, "forge_declaration_invalid"));
+  const labels = [...SOURCES.labels, { name: "AREA:engine", color: "000000", description: "" }];
+  assert.throws(() => forgeDeclarations({ ...SOURCES, labels }), (error: unknown) => isForgeError(error, "forge_declaration_invalid"));
 });
 
 test("allowed actions: third-party pins only, local and docker actions and GitHub's own skipped", () => {

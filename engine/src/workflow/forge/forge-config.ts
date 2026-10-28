@@ -6,7 +6,8 @@
  * organisation, the API and web origins, the request bounds, the repository
  * topology (each repository's `kind`, github-only §2.1), the local Apps page,
  * and what the declarations are made of (the stage, the plan, the merge
- * queue, the areas, labels, autolinks, Dependabot, the Project, the retired
+ * queue, the areas (and their `area:` labels; every other label is
+ * `docs/community/labels.json`'s), autolinks, Dependabot, the Project, the retired
  * objects). There is no default in code: a checkout whose document declares no
  * `forge` section is the typed `forge_not_configured` (its one reader,
  * `configured-forge.ts`). This module imports no configuration reader (the
@@ -118,12 +119,6 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     color: z.string().regex(/^[0-9a-f]{6}$/u),
     paths: z.array(z.string().regex(/^\/(?:[A-Za-z0-9._-]+\/)*(?:[A-Za-z0-9._-]+)?$/u)).min(1),
   })).min(1),
-  /** Labels beyond the `area:` ones (lanes, workflow markers): name, colour (six hex digits) and description. */
-  labels: z.array(z.strictObject({
-    name: z.string().min(1).max(50),
-    color: z.string().regex(/^[0-9a-f]{6}$/u),
-    description: z.string().max(100),
-  })),
   /** Autolinks on the trunk: `<keyPrefix><num>` in any GitHub text links to `urlTemplate` (which holds `<num>`). */
   autolinks: z.array(z.strictObject({
     keyPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}-$/u),

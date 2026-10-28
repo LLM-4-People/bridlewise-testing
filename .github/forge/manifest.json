@@ -239,6 +239,22 @@
       "sha256": "c4fa91d9e880db388913f05a6b58388c5c58244b2acb5486a234d1dc878cb221"
     },
     {
+      "path": ".github/forge/label/bridlewise-testing.good_first_issue.json",
+      "sha256": "d6956737fafc288e4d03fda27e3210fc3f8c5643da10404a1fe392992110b0eb"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.help_wanted.json",
+      "sha256": "25373b82a51c38aa9e48a183522a4cb25329177598403e07872b3038e260d528"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.dependencies.json",
+      "sha256": "aa0d78f6b4668b6d45c3d1e9716eef6003c382338aa892028499fefeed044092"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.javascript.json",
+      "sha256": "72bbafd8cfe4ee3ce747a6ba8809435439a08dbb9991f308198f88e9e57a0737"
+    },
+    {
       "path": ".github/forge/label/bridlewise-testing.lane_gh-1.json",
       "sha256": "fc6f22b56438b1ad393f79184dc8d48f398e3855f7b89c07df196fc9a2f1b906"
     },
@@ -293,10 +309,6 @@
     {
       "path": ".github/forge/label/bridlewise-testing.needs-evidence.json",
       "sha256": "554dbc01f2a0763d8bf78c5b7ef0653f08fddc2a0c4b26775a3123cc842d5086"
-    },
-    {
-      "path": ".github/forge/label/bridlewise-testing.dependencies.json",
-      "sha256": "aa0d78f6b4668b6d45c3d1e9716eef6003c382338aa892028499fefeed044092"
     },
     {
       "path": ".github/forge/issue-type/org.Workstream.json",

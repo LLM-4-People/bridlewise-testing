@@ -500,3 +500,35 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     delete process.env[variable];
   }
 });
+
+test("a label renamed only in case is the declared label: the plan updates its spelling through new_name, never creates it (GitHub would answer 422) nor lists it unmanaged", async () => {
+  const fake = fakeGithub();
+  const path = `/repos/${ORG}/${REPO}/labels`;
+  fake.collection(path, [{ name: "Good First Issue", color: "5fc78e", description: "Small" }, { name: "Bug", color: "d73a4a", description: "" }], "name");
+  const patches: { path: string; body: unknown }[] = [];
+  fake.route("PATCH", /^\/repos\/[^/]+\/[^/]+\/labels\/([^/]+)$/u, (request, match) => {
+    patches.push({ path: request.path, body: request.body });
+    const labels = fake.objects.get(path) as Record<string, unknown>[];
+    const live = labels.find((label) => label.name === match[1])!;
+    const { new_name: newName, ...fields } = request.body as Record<string, unknown>;
+    Object.assign(live, fields, newName === undefined ? {} : { name: newName });
+    return { status: 200, body: live };
+  });
+  fake.route("POST", /^\/repos\/[^/]+\/[^/]+\/labels$/u, (request) => {
+    const name = String((request.body as { name: string }).name);
+    const taken = (fake.objects.get(path) as Record<string, unknown>[]).some((label) => String(label.name).toLowerCase() === name.toLowerCase());
+    return taken ? { status: 422, body: { message: "Validation Failed", errors: [{ code: "already_exists" }] } } : { status: 201, body: {} };
+  });
+  const context = contextOf(fake);
+  const objects = [object("label", "good first issue", { name: "good first issue", color: "5fc78e", description: "Small" })];
+  const plan = await forgePlan(context, objects, []);
+  const renamed = entry(plan, "label", "good first issue");
+  assert.equal(renamed.action, "update");
+  assert.deepEqual(renamed.differences, ["/name"]);
+  assert.ok(!plan.entries.some((candidate) => candidate.action === "unmanaged" && candidate.key === "Good First Issue"), "the live spelling is the declared label, never an unmanaged one");
+  assert.equal(entry(plan, "label", "Bug").action, "unmanaged", "a label no declaration matches in any case is still listed");
+  const outcome = await forgeApply(context, objects, []);
+  assert.deepEqual(patches, [{ path: `${path}/Good First Issue`, body: { color: "5fc78e", description: "Small", new_name: "good first issue" } }], "one PATCH on the live spelling, renaming through new_name");
+  assert.ok(!fake.requests.some((request) => request.method === "POST" && request.path === path), "no create GitHub would refuse");
+  assert.ok(outcome.verification.entries.filter((verified) => verified.kind === "label" && verified.action !== "unmanaged").every((verified) => verified.action === "unchanged"), "the rename converges");
+});

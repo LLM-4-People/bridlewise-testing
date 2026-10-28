@@ -5675,7 +5675,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-generated-files", path: "src/workflow/forge/generated-files.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 7, namesSha256: "e8efb56b3a89e2a799f82f98256e694ba126f2e5f5dc0268a72f7033c685250c" },
-      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/community/sources.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/declarations.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/repository-files.ts"],
+      dependencies: ["node:fs","node:path","src/filesystem/atomic-write.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/community/labels.ts","src/workflow/community/sources.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/codes.ts","src/workflow/forge/declarations.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/repository-files.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-maintainer-cli", path: "src/workflow/forge/maintainer-cli.ts", realm: "runtime", layer: "infrastructure",

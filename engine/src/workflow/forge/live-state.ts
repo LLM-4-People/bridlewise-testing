@@ -25,6 +25,13 @@ export type KindAdapter = Readonly<{
   names?: (context: LiveContext, scope: ForgeScope) => Promise<readonly string[]>;
   /** Delete a live object (a retired one) found by `read`. */
   remove?: (context: LiveContext, found: LiveObject, scope: ForgeScope) => Promise<void>;
+  /**
+   * How GitHub compares two names of this kind (the key matching and the
+   * unmanaged report use it): absent, exactly; a label's name is compared
+   * without case, so "Bug" on GitHub IS the declared "bug", and the
+   * difference in spelling is an update, never a missing label.
+   */
+  nameKey?: (name: string) => string;
 }>;
 
 const segment = encodeURIComponent;
@@ -85,10 +92,14 @@ function namedCollection<T extends Record<string, unknown>>(options: Readonly<{
   items?: (data: unknown) => readonly T[];
   /** What an update may not send (an issue field's data type). */
   updateOmits?: readonly string[];
+  /** The update body as the endpoint names its fields (a label is renamed through `new_name`). */
+  updateBody?: (body: Record<string, unknown>) => Record<string, unknown>;
   normalize?: (item: T) => unknown;
+  nameKey?: (name: string) => string;
 }>): KindAdapter {
+  const key = options.nameKey ?? ((name: string) => name);
   const find = async (context: LiveContext, scope: ForgeScope, name: string): Promise<T | undefined> => {
-    const found = (await list<T>(context, options.collection(context, scope), options.items)).find((item) => options.nameOf(item) === name);
+    const found = (await list<T>(context, options.collection(context, scope), options.items)).find((item) => key(options.nameOf(item)) === key(name));
     if (found === undefined || options.detailed !== true) return found;
     return (await context.client.rest<T>({ method: "GET", path: options.itemPath(context, scope, options.idOf(found)) })).data;
   };
@@ -99,11 +110,13 @@ function namedCollection<T extends Record<string, unknown>>(options: Readonly<{
     },
     create: async (context, object, body) => { await send(context, "POST", options.collection(context, object.scope), body); },
     update: async (context, object, body, found) => {
-      const sent = options.updateOmits === undefined ? body : Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([key]) => !options.updateOmits!.includes(key)));
+      const kept = options.updateOmits === undefined ? body : Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([field]) => !options.updateOmits!.includes(field)));
+      const sent = options.updateBody === undefined ? kept : options.updateBody(kept as Record<string, unknown>);
       await send(context, options.updateMethod, options.itemPath(context, object.scope, found.id!), sent);
     },
     names: async (context, scope) => (await list<T>(context, options.collection(context, scope), options.items)).map(options.nameOf),
     remove: async (context, found, scope) => { await send(context, "DELETE", options.itemPath(context, scope, found.id!)); },
+    ...(options.nameKey === undefined ? {} : { nameKey: options.nameKey }),
   };
 }
 
@@ -307,6 +320,10 @@ export const KIND_ADAPTERS: Readonly<Record<ForgeObjectKind, KindAdapter>> = Obj
     idOf: (item) => String(item.name),
     itemPath: (context, scope, id) => `${repoBase(context, scope)}/labels/${segment(String(id))}`,
     updateMethod: "PATCH",
+    // GitHub compares label names without case; the item path names the LIVE spelling (the id) and `new_name`
+    // carries the declared one, so a case-only rename is one PATCH, never a create GitHub would refuse (422).
+    nameKey: (name) => name.toLowerCase(),
+    updateBody: ({ name, ...fields }) => ({ ...fields, new_name: name }),
   }),
   "issue-type": namedCollection<Record<string, unknown>>({
     collection: (context) => `${orgPath(context)}/issue-types`,
