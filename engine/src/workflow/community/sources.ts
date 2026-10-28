@@ -155,9 +155,18 @@ function invalid(path: string, why: string): never {
 export function readCommunitySource<T>(repositoryRoot: string, path: string, schema: z.ZodType<T>): T {
   const file = join(repositoryRoot, path);
   if (!existsSync(file)) invalid(path, "the file is missing");
+  return parseCommunitySource(readFileSync(file, "utf8"), path, schema);
+}
+
+/**
+ * A community source's TEXT (from the working tree, or from a commit's tree:
+ * the projector reads the declared labels at its source commit), parsed and
+ * checked against `schema` (not JSON or off-schema: `community_source_invalid`).
+ */
+export function parseCommunitySource<T>(text: string, path: string, schema: z.ZodType<T>): T {
   let json: unknown;
   try {
-    json = JSON.parse(readFileSync(file, "utf8"));
+    json = JSON.parse(text);
   } catch (error) {
     invalid(path, `not JSON (${(error as Error).message})`);
   }
