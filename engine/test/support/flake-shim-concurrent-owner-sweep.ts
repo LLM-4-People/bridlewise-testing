@@ -17,10 +17,15 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const SUPPORT = new URL("./repository-local-temporary.ts", import.meta.url).href;
-const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+// THE CHECKOUT UNDER TEST, not this shim's own: the door preloads the shim
+// from the top repository into a private checkout of each revision, and a
+// test file runs with its engine root as cwd. The other "test file" must
+// create under THAT checkout's fixture root, or it sweeps another one.
+const ENGINE_ROOT = process.cwd();
+const SUPPORT = pathToFileURL(join(ENGINE_ROOT, "test", "support", "repository-local-temporary.ts")).href;
 /** An owned root's name: `<prefix>owner-<pid>-<start time>-<nonce>` (src/filesystem/private-state.ts). */
 const OWNED_ROOT = /\/(?:[a-z0-9-]*-)?owner-(\d+)-\d+-[0-9a-f]+(?:\/|$)/u;
 const swept = new Set<string>();
