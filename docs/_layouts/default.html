@@ -100,6 +100,10 @@
     </nav>
     {% endif %}
 
+    {%- comment -%} Every page has one top heading: a page whose text opens without one (a tracker item, a record told by its front matter) is headed by its title. {%- endcomment -%}
+    {%- unless content contains "<h1" %}
+    <h1>{{ page.title | default: site.title | escape }}</h1>
+    {%- endunless %}
     {{ content }}
   </main>
 

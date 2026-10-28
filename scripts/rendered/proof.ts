@@ -202,6 +202,13 @@ const PLANTS: readonly Plant[] = [
   { name: "a duration that is no token", head: `${SITE_INKS}<style>#prose { transition: color 120ms }</style>`, rule: "token-durations", only: SITE_ROWS },
   { name: "an animation duration that is no token", head: `${SITE_INKS}<style>@keyframes k { to { opacity: 1 } } #prose { animation: k 2.5s infinite }</style>`, rule: "token-durations", only: SITE_ROWS },
   { name: "a third Content-Security-Policy meta tag", policy: POLICIES, head: cspMeta("default-src *"), rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "a page wider than its viewport", body: '<div style="width: 4000px; height: 1px"></div>', rule: "no-sideways-scroll", only: ["no-sideways-scroll"] },
+  { name: "a block pushed in above the text after the first paint", body: '<script>addEventListener("load", () => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => { const d = document.createElement("div"); d.style.height = "600px"; document.body.prepend(d); }, 50))))</script>', rule: "layout-shift", only: ["layout-shift"] },
+  { name: "no top heading", rule: "landmarks", only: ["landmarks"] },
+  { name: "two top headings", body: "<h1>one</h1><h1>two</h1>", rule: "landmarks", only: ["landmarks"] },
+  { name: "a second main landmark", body: "<h1>t</h1><main><p>again</p></main>", rule: "landmarks", only: ["landmarks"] },
+  { name: "an image without alt text", body: '<img src="figure.png">', rule: "alt-text", only: ["alt-text"] },
+  { name: "the first face of a stack not loaded", rule: "faces-loaded", only: ["faces-loaded"] },
   { name: "a resource the policy blocks", policy: cspMeta("default-src 'self' 'unsafe-inline'"), body: '<img alt="" src="https://cdn.example.invalid/pixel.png">', rule: "csp-violations", only: ["csp-violations"] },
 ];
 
@@ -219,6 +226,7 @@ const CLEAN_TOO: readonly Plant[] = [
   { name: "a canvas given a token family", body: `<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = ${JSON.stringify(canvasFont("--face-mono"))}</script>`, rule: "font-families" },
   { name: "the exact policies, spaced differently", policy: `${cspMeta(ORIGIN_POLICY.replace("; ", " ;  "))}${cspMeta(PATH_POLICY.replace("; ", " ;  "))}`, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
   { name: "text and ground in their tokens, the mark in its own", head: SITE_INKS, rule: "token-colours", only: SITE_ROWS },
+  { name: "a page that fits, one main, one top heading, every image described", body: '<h1>t</h1><img alt="" src="figure.png">', rule: "landmarks", only: ["no-sideways-scroll", "layout-shift", "landmarks", "alt-text"] },
   { name: "a line stroked in a token (its fill paints nothing)", head: SITE_INKS, body: '<svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" style="stroke: var(--ink-2)"></line></svg>', rule: "token-colours", only: SITE_ROWS },
   { name: "a transition in the owner's duration", head: `${SITE_INKS}<style>#prose { transition: color calc(30ms * 3) }</style>`, rule: "token-durations", only: SITE_ROWS },
 ];

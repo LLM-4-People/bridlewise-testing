@@ -1,7 +1,10 @@
 /**
  * THE VISUAL REGRESSION PLAN — which pages are shot, in which themes and at
- * which sizes, what is volatile on them, and what every shot must hold.
- * Pure data and pure judgements; `screens.ts` runs it.
+ * which sizes, and what is volatile on them. Pure data and pure judgements;
+ * `screens.ts` runs it. What every page must hold (it fits, it does not
+ * shift, it has its landmarks, its faces loaded, its colours are tokens) is
+ * the one rendered table's (`scripts/rendered/rules.ts`), judged on every
+ * built page; this check only compares pictures.
  *
  * The comparison is deterministic by construction: the base commit's site
  * and the head commit's site are built from their own trees and shot by the
@@ -34,8 +37,6 @@ export const PAGES: readonly string[] = Object.freeze([
 /** Both of the owner's themes: Logbook leads (no attribute); Carbon is the remembered choice. */
 export const THEMES: readonly Theme[] = OWNER_THEMES;
 
-/** The theme choice as the site's own script stores it (docs/assets/js/site.js). */
-export const THEME_STORAGE = Object.freeze({ key: "bridlewise-theme", carbon: "carbon" });
 
 export const VIEWPORTS: readonly Viewport[] = Object.freeze([
   { name: "desktop", width: 1440, height: 900 },
@@ -75,35 +76,6 @@ export const BROWSER_ARGS: readonly string[] = Object.freeze([
   "--force-color-profile=srgb", "--disable-lcd-text", "--font-render-hinting=none",
 ]);
 
-/** The page's measurements a shot carries, taken in the browser after load. */
-export interface PageFacts {
-  readonly scrollWidth: number;
-  readonly viewportWidth: number;
-  readonly layoutShift: number;
-  readonly fontsLoaded: readonly string[];
-  readonly imagesWithoutAlt: number;
-  readonly mains: number;
-  readonly h1s: number;
-}
-
-/** The budget a page's load may shift its layout by (Core Web Vitals' "good" bound). */
-export const LAYOUT_SHIFT_BUDGET = 0.1;
-
-/** The faces every page must have actually loaded: text set in a fallback face is a broken page. */
-export const REQUIRED_FACES: readonly string[] = Object.freeze(["IBM Plex Sans Variable"]);
-
-/** What a shot must hold whatever its base looked like. */
-export function invariantViolations(facts: PageFacts): readonly string[] {
-  const problems: string[] = [];
-  if (facts.scrollWidth > facts.viewportWidth) problems.push(`the page scrolls sideways (${String(facts.scrollWidth)}px wide in a ${String(facts.viewportWidth)}px viewport)`);
-  if (facts.layoutShift > LAYOUT_SHIFT_BUDGET) problems.push(`the layout shifts by ${facts.layoutShift.toFixed(3)} while loading (budget ${String(LAYOUT_SHIFT_BUDGET)})`);
-  for (const face of REQUIRED_FACES) if (!facts.fontsLoaded.includes(face)) problems.push(`${face} did not load: the text is set in a fallback face`);
-  if (facts.imagesWithoutAlt > 0) problems.push(`${String(facts.imagesWithoutAlt)} image(s) without alt text`);
-  if (facts.mains !== 1) problems.push(`${String(facts.mains)} <main> landmarks (one is required)`);
-  if (facts.h1s !== 1) problems.push(`${String(facts.h1s)} <h1> headings (one is required)`);
-  return problems;
-}
-
 /** One shot's identity: page, theme, viewport. */
 export interface Shot {
   readonly page: string;
@@ -130,11 +102,10 @@ export interface Comparison {
   readonly verdict: Verdict;
   readonly changedPixels: number;
   readonly totalPixels: number;
-  readonly invariants: readonly string[];
 }
 
 /**
- * The gate: a broken invariant or an unstable shot always fails; a visual
+ * The gate: an unstable shot always fails; a visual
  * change fails unless the change was declared (the pull request carries the
  * `visual-change` label), because a page that changes look without anyone
  * saying so is how a design stops being one.
@@ -142,7 +113,6 @@ export interface Comparison {
 export function gate(comparisons: readonly Comparison[], { changeDeclared }: { changeDeclared: boolean }): Readonly<{ pass: boolean; reasons: readonly string[] }> {
   const reasons: string[] = [];
   for (const comparison of comparisons) {
-    for (const problem of comparison.invariants) reasons.push(`${comparison.name}: ${problem}`);
     if (comparison.verdict === "unstable") reasons.push(`${comparison.name}: two shots of the same page differ, so the page has no single picture (nondeterministic render)`);
   }
   const changed = comparisons.filter((comparison) => comparison.verdict === "changed" || comparison.verdict === "added" || comparison.verdict === "removed");

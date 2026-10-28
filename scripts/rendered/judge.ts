@@ -114,6 +114,19 @@ function instrumentFrame(binding: string): void {
     scope.__renderedUninstrumented = `the ${binding} binding is missing`;
     return;
   }
+  // The page's own layout shifts, summed (the layout-shift row reads them). The
+  // judge stops counting while it changes the viewport and the media itself
+  // (judgeStates) and counts again through the page's future (judgeFuture):
+  // a judge resizing a page is not the page shifting.
+  const shift = { value: 0, counting: true };
+  scope.__renderedShift = shift;
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[]) {
+        if (shift.counting && !entry.hadRecentInput) shift.value += entry.value;
+      }
+    }).observe({ type: "layout-shift", buffered: true });
+  } catch { /* a frame without the Layout Instability API records no shift */ }
   const sent = new Set<string>();
   const send = (kind: string, value: string): void => {
     const key = `${kind}\n${value}`;
@@ -425,8 +438,23 @@ export type RenderRestore = Readonly<{ media: "screen" | "print"; reducedMotion:
  * the page is ready; then the page is put back as `restore` says. Returns the
  * findings, each naming its state and rule.
  */
+/** Starts or stops counting the page's layout shifts, in every frame (see instrumentFrame). */
+async function countShifts(page: Page, counting: boolean): Promise<void> {
+  for (const frame of page.frames()) {
+    if (frame.isDetached()) continue;
+    await frame.evaluate((on) => {
+      const shift = (globalThis as unknown as { __renderedShift?: { counting: boolean } }).__renderedShift;
+      if (shift !== undefined) shift.counting = on;
+    }, counting).catch(() => undefined);
+  }
+}
+
 export async function judgeStates(page: Page, surface: Surface, restore: RenderRestore | null, rules?: readonly PageRule[], states: readonly RenderState[] = statesOf(surface)): Promise<readonly string[]> {
   const findings: string[] = [];
+  // The load is over once the page is ready as it loaded; the judge's own
+  // viewport and media changes that follow are not the page shifting.
+  await ready(page);
+  await countShifts(page, false);
   for (const state of states) {
     await enter(page, state);
     await ready(page);
@@ -489,6 +517,8 @@ async function judgeForcedStates(page: Page, surface: Surface, rules?: readonly 
  * at the first moment it was seen.
  */
 export async function judgeFuture(page: Page, surface: Surface, rules?: readonly PageRule[]): Promise<readonly string[]> {
+  // Whatever the page's future moves is the page's own shift again.
+  await countShifts(page, true);
   const first = new Map<string, string>();
   const note = (moment: string, findings: readonly string[]): void => { for (const finding of findings) if (!first.has(finding)) first.set(finding, moment); };
   for (let at = STEP_MS; at <= FUTURE_MS; at += STEP_MS) {

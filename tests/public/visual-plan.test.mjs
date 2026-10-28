@@ -1,5 +1,6 @@
 // The visual regression plan (scripts/visual/plan.ts): the matrix, the shot
-// names, the invariants every shot holds, and the gate, each refusal planted.
+// names and the gate, each refusal planted. What a page must hold is the
+// rendered table's (scripts/rendered/rules.ts).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -8,7 +9,8 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
-import { gate, invariantViolations, LAYOUT_SHIFT_BUDGET, PAGES, shotName, shots, THEMES, THEME_STORAGE, VIEWPORTS } from "../../scripts/visual/plan.ts";
+import { gate, PAGES, shotName, shots, THEMES, VIEWPORTS } from "../../scripts/visual/plan.ts";
+import { SITE_THEME_STORAGE as THEME_STORAGE } from "../../shared/site-page.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -32,29 +34,9 @@ test("the theme the shots choose is the one the site's own script reads", () => 
   assert.match(readFileSync(join(ROOT, "docs/_layouts/default.html"), "utf8"), /<script src="\{\{ '\/assets\/js\/theme\.js' \| relative_url \}\}"><\/script>/u);
 });
 
-const sound = { scrollWidth: 390, viewportWidth: 390, layoutShift: 0, fontsLoaded: ["IBM Plex Sans Variable", "IBM Plex Mono Variable"], imagesWithoutAlt: 0, mains: 1, h1s: 1 };
+const shot = (name, verdict) => ({ name, verdict, changedPixels: verdict === "changed" ? 10 : 0, totalPixels: verdict === "changed" ? 100 : 0 });
 
-test("a sound page passes; each broken invariant is named", () => {
-  assert.deepEqual(invariantViolations(sound), []);
-  const planted = [
-    [{ scrollWidth: 412 }, /scrolls sideways/u],
-    [{ layoutShift: LAYOUT_SHIFT_BUDGET + 0.01 }, /layout shifts/u],
-    [{ fontsLoaded: ["IBM Plex Mono Variable"] }, /IBM Plex Sans Variable did not load/u],
-    [{ imagesWithoutAlt: 2 }, /without alt text/u],
-    [{ mains: 0 }, /<main>/u],
-    [{ h1s: 2 }, /<h1>/u],
-  ];
-  for (const [change, message] of planted) {
-    const problems = invariantViolations({ ...sound, ...change });
-    assert.equal(problems.length, 1, JSON.stringify(change));
-    assert.match(problems[0], message);
-  }
-  assert.deepEqual(invariantViolations({ ...sound, layoutShift: LAYOUT_SHIFT_BUDGET }), [], "the budget itself is within budget");
-});
-
-const shot = (name, verdict, invariants = []) => ({ name, verdict, changedPixels: verdict === "changed" ? 10 : 0, totalPixels: verdict === "changed" ? 100 : 0, invariants });
-
-test("the gate: unchanged passes; a change passes only when declared; an invariant or an unstable shot always refuses", () => {
+test("the gate: unchanged passes; a change passes only when declared; an unstable shot always refuses", () => {
   assert.deepEqual(gate([shot("a", "same"), shot("b", "same")], { changeDeclared: false }), { pass: true, reasons: [] });
   for (const verdict of ["changed", "added", "removed"]) {
     const undeclared = gate([shot("a", "same"), shot("b", verdict)], { changeDeclared: false });
@@ -62,8 +44,6 @@ test("the gate: unchanged passes; a change passes only when declared; an invaria
     assert.match(undeclared.reasons[0], /visual-change/u);
     assert.equal(gate([shot("b", verdict)], { changeDeclared: true }).pass, true, `${verdict}, declared`);
   }
-  const broken = gate([shot("a", "same", ["the page scrolls sideways"])], { changeDeclared: true });
-  assert.deepEqual(broken, { pass: false, reasons: ["a: the page scrolls sideways"] });
   const unstable = gate([shot("a", "unstable")], { changeDeclared: true });
   assert.equal(unstable.pass, false);
   assert.match(unstable.reasons[0], /nondeterministic/u);

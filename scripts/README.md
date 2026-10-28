@@ -72,7 +72,10 @@ ships into the client bundle or the server runtime.
   - the Content-Security-Policy meta tags, first and exactly as the site's
     policy says, and no violation of them;
   - no request leaving the site's origin and path;
-  - on the site, every colour and duration computing to a token's value.
+  - on the site: every colour and duration computing to a token's value,
+    no sideways scroll (the narrow state is a phone's width), a load within
+    the layout-shift budget, one main and one h1, alt text, the faces
+    actually loaded.
   Every row runs in every render state of its surface (desktop, dark,
   narrow, reduced motion, print), each judged once the page is quiet: no
   request in flight, no short timer pending, no DOM mutation for the quiet
@@ -82,13 +85,12 @@ ships into the client bundle or the server runtime.
   (`capture/cockpit.ts --judge-only`); `proof.ts` proves each rule on planted
   breaks. CI's "Rendered pages" job runs all three.
 - `visual/` — the visual regression check. `plan.ts` declares the key
-  pages, both themes, three viewports, the volatile regions, the invariants
-  every shot holds (no sideways scroll, a load that shifts the layout less
-  than its budget, the faces actually loaded, alt text, one main, one h1) and
-  the gate; `screens.ts` builds no baseline: it shoots the base commit's site
-  and the head's in one browser in one run and compares the bytes, writing a
+  pages, both themes, three viewports, the volatile regions and the gate;
+  `screens.ts` builds no baseline: it shoots the base commit's site and the
+  head's in one browser in one run and compares the bytes, writing a
   side-by-side report with diffs. A changed picture needs the pull request's
-  `visual-change` label. The Pages workflow's `visual` job runs it.
+  `visual-change` label. The Pages workflow's `visual` job runs it. What
+  every page must hold is the rendered table's (`rendered/`).
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes

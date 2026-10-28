@@ -330,6 +330,9 @@ kbd {
 main {
   display: block;
   padding-block-end: var(--page-section-gap);
+  /* A long address or identifier breaks rather than pushing the page wider
+     than a phone. */
+  overflow-wrap: break-word;
 }
 
 /* Running text keeps the reading measure; ledgers, code and figures take
@@ -440,15 +443,18 @@ main dd {
   list-style: none;
 }
 
+/* A task's text stays one inline run (its code spans wrap with it); the box
+   hangs in the gutter. A flex row would make every code span a column. */
 .task-list-item {
-  display: flex;
-  gap: var(--sp-2);
-  padding-inline-start: 0;
+  position: relative;
+  padding-inline-start: calc(var(--sp-2) + 1em);
 }
 
 .task-list-item-checkbox {
-  flex: none;
-  margin-top: 0.4em;
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.35em;
+  margin: 0;
   accent-color: var(--ok);
 }
 
