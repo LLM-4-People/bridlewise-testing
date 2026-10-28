@@ -419,7 +419,6 @@ async function newSurface(browser: Browser, theme: Theme, viewport: ViewportId, 
   const config: LayerConfig = { css: STILLNESS_CSS, theme, themeKey: THEME_STORAGE_KEY, textMasks: TEXT_MASKS, regionMasks: REGION_MASKS, badge };
   await context.addInitScript(captureLayer, config);
   const page = await openPage(context);
-  page.setDefaultTimeout(15_000);
   page.on("pageerror", (error) => log(`[${theme}/${viewport}] page error: ${error.message.slice(0, 300)}`));
   return { theme, viewport, context, page };
 }
@@ -468,7 +467,7 @@ async function signIn(page: Page, password: string): Promise<void> {
   await page.fill("input[name=username]", ACCOUNT_USERNAME);
   await page.fill("input[name=passphrase]", password);
   await page.click("button[type=submit]");
-  await page.locator("header.horizon").waitFor({ timeout: 30_000 });
+  await page.locator("header.horizon").waitFor();
   await settle(page);
 }
 
@@ -512,7 +511,7 @@ const VIEW: Record<ViewAction, ViewHandler> = {
   },
   openContextAndTools: async ({ page }) => {
     await page.click('[data-verb-id="desk.toggle"]');
-    await page.getByText("measuring the next turn's composition").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.getByText("measuring the next turn's composition").waitFor({ state: "hidden" });
     await settle(page);
     return async () => { await page.click('[data-verb-id="desk.toggle"]'); await settle(page); };
   },
@@ -523,13 +522,13 @@ const VIEW: Record<ViewAction, ViewHandler> = {
     // The Lens answers what the pointer is over: a still instrument's name, whose callout names the signal's source.
     await page.locator('.cell[data-signal="awareness.signalCount"] .head .name').hover();
     // The "LENS armed" hint retires itself after a moment; shooting while it shows would race that timer.
-    await page.getByText("LENS armed").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.getByText("LENS armed").waitFor({ state: "hidden" });
     await settle(page);
     return async () => closeRaised(page);
   },
   openCustody: async ({ page }) => {
     await openRoom(page, "custody");
-    await page.getByText("reading the saved history").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.getByText("reading the saved history").waitFor({ state: "hidden" });
     // The saved history is loaded once its oldest commit is in the DOM (the narrow layout truncates it out of sight).
     await page.getByText(DEMO_REPOSITORY.commits[0]!.message).first().waitFor({ state: "attached" });
     await settle(page);
@@ -656,7 +655,7 @@ async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const clipStart = Date.now() - recordStart;
   await page.locator("[name=composer]").pressSequentially(RUN_PROMPT, { delay: 25 });
   await page.getByRole("button", { name: /Send/u }).click();
-  await page.getByText(/stream closed/u).first().waitFor({ timeout: 60_000 });
+  await page.getByText(/stream closed/u).first().waitFor();
   await settle(page, 800, 8000);
   await page.waitForTimeout(1500);
   const clipEnd = Date.now() - recordStart;
@@ -797,7 +796,7 @@ async function main(): Promise<void> {
     const chromiumVersion = browser.version();
     state.violations.push(...[...offOrigin].sort());
     // What a green judgement does not claim, every time it is given (rules.ts JUDGE_LIMITS).
-    for (const { id, limit } of JUDGE_LIMITS) log(`judgement limit ${id}: ${limit}`);
+    for (const { id, limit, why } of JUDGE_LIMITS) log(`judgement limit ${id}: ${limit} (${why})`);
     if (state.violations.length > 0) throw new CaptureRefusal(options.judgeOnly ? "rendered_judgement_failed" : "capture_unpublishable", `\n  ${state.violations.join("\n  ")}`);
     if (options.judgeOnly) {
       log(`judged every view as rendered: the mark, the fonts and the network hold (${((Date.now() - started) / 1000).toFixed(0)} s)`);

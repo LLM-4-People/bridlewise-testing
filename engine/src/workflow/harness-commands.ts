@@ -53,10 +53,10 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, INVENTORY_HASH_PREVIEW_HEX, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
-import { syncCommunityFiles } from "./community/health-files.ts";
+import { communityFilesInput, syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
 import { configuredForgeSection } from "./forge/configured-forge.ts";
-import { forgeFileSources, syncForgeFiles } from "./forge/generated-files.ts";
+import { forgeFileSources, forgeFilesInput, syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
@@ -1427,6 +1427,43 @@ function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexAr
   const report = syncEvidenceIgnore(trackedTop(root), write);
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
+
+/**
+ * THE GENERATOR ARMS' INPUTS BEYOND THE ENGINE: for each arm of `harness
+ * regenerate`, the repository paths outside `engine/` and `shared/` it needs
+ * in order to converge, each declared by the arm's own owner. `null` means
+ * the arm reads only those two trees, or converges by its inputs' absence (a
+ * product-only tree). The table is typed over every arm, so a new arm states
+ * its inputs or does not compile. A repository copy for a generator test
+ * (`engineGeneratorPopulation`) derives its population from this table, never
+ * from a second list.
+ */
+export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegenerateOutput, ((repositoryPath: string) => boolean) | null>> = Object.freeze({
+  autoGenerator: null,
+  moduleRegistrar: null,
+  hashBindings: null,
+  testInventory: null,
+  dispositionAutoAdd: null,
+  dispositionManifest: null,
+  schemaArtifact: null,
+  pinAuthorities: null,
+  ratchetBaselines: null,
+  readmeConsumers: null,
+  decisionIndex: null,
+  trackerBoard: null,
+  shippedHooks: null,
+  evidenceIgnore: null,
+  // Refuses (`community_source_invalid`, a missing lockfile root) when its inputs are absent: it declares them.
+  forgeFiles: forgeFilesInput,
+  frozenRecords: null,
+  // Converges by absence alone, but runs for real once the forge arm's community sources are present: it declares its own.
+  communityFiles: communityFilesInput,
+  webBudgetPopulation: null,
+  // A repository-root generator, like the population: a copy without scripts/service-worker-cache.ts converges by absence.
+  serviceWorkerDigest: null,
+  guardianSpecArtifact: null,
+  artifactManifest: null,
+});
 
 /** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
 function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {

@@ -22,23 +22,31 @@
  * remote sheet only under reduced motion are each a state of their own. Each
  * state is judged once the page is READY (judge.ts `ready`): no request in
  * flight and every frame's fonts settled — events, never a sleep and never a
- * time limit. Then the judge runs the page's FUTURE (FUTURE_MS of page time on
- * the page's clock, in STEP_MS steps, judging after each, then every finite
- * animation finished): every timeout, interval and animation frame due in
- * that span, in every frame and however it was scheduled, has fired before
- * the page is left.
+ * time limit. The rows are then judged once more with :hover, :active and
+ * :focus forced by the browser (judge.ts `judgeForcedStates`). Before the
+ * page is left the judge runs its FUTURE (FUTURE_MS of page time on the
+ * page's clock, in STEP_MS steps, judging after each, then every finite
+ * animation finished): every timeout, interval and animation frame the clock
+ * fakes, due in that span, in every frame, has fired.
+ *
+ * What a page must show comes from the token owner (scripts/token-owner.ts,
+ * src/cockpit/tokens.css), never from the page: the face stacks and the
+ * mark's colours per theme are built in Node and passed in, so a token a page
+ * redefines is judged by what it renders.
  *
  * A page row runs in every frame the page holds (outside FRAMES_NOT_JUDGED,
  * each declared with its reason) and sees open shadow roots; what the page
  * records as it runs (every canvas font and every Content-Security-Policy
  * violation, in any frame) reaches the rows through `record`; and whatever
- * the judgement cannot reach — a worker, a closed shadow root, a window the
- * page opens, a delayed scheduler.postTask — is refused by the judgeable row,
+ * the judgement cannot reach — a worker or worklet, a closed shadow root, a
+ * window the page opens, a delayed scheduler.postTask — is refused by the
+ * judgeable row,
  * never passed in silence. What a green judgement still does not claim is
  * declared in JUDGE_LIMITS, and every report prints it. The request rows stay
  * on for the whole session.
  */
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
+import { TOKEN_THEMES, tokenValues, type TokenTheme } from "../token-owner.ts";
 
 export type Surface = "cockpit" | "site";
 
@@ -106,6 +114,16 @@ function markParts(): readonly MarkPart[] {
 /** The tokens that name a family stack (the token owner's `--face-*`). */
 const FACE_TOKENS: readonly string[] = ["--face-sans", "--face-mono"];
 
+/**
+ * WHAT THE PAGE MUST SHOW, from the token owner (scripts/token-owner.ts), never
+ * from the page: the face stacks, and each theme's value of every token the
+ * mark is painted with. A page that redefines a token renders something the
+ * owner did not declare, and is judged by what it renders.
+ */
+const faceStacks = (): Readonly<Record<string, string>> => tokenValues("carbon", FACE_TOKENS);
+const markThemes = (): readonly Readonly<{ selector: string; colors: Readonly<Record<string, string>> }>[] =>
+  (Object.keys(TOKEN_THEMES) as TokenTheme[]).map((theme) => ({ selector: TOKEN_THEMES[theme], colors: tokenValues(theme, [...new Set(markParts().map((part) => part.token))]) }));
+
 /** Where the brand mark renders: the cockpit's `Brand.svelte` and any page that includes the generated mark. */
 const MARK_SELECTOR = ".brand > svg, svg[data-brand-mark]";
 
@@ -128,17 +146,24 @@ export const KIT: Readonly<Record<keyof Kit, (...args: never[]) => unknown>> = {
   },
 };
 
-/** The brand mark as rendered, wherever it is (any frame, any open shadow root): the declared parts, each in its token's value, nothing hiding or recolouring it. */
-function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+/**
+ * The brand mark as rendered, wherever it is (any frame, any open shadow
+ * root): the declared parts, each in the token owner's value of its token for
+ * the theme the document wears, nothing hiding or recolouring it.
+ */
+function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string; themes: readonly { selector: string; colors: Readonly<Record<string, string>> }[] }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
   const findings: string[] = [];
-  const { parts, selector } = args.input;
+  const { parts, selector, themes } = args.input;
   const describe = kit.describe;
   const marks = kit.elements(document).filter((el) => el.matches(selector));
   if (marks.length === 0 && args.top && args.surface === "cockpit") findings.push("no brand mark is rendered on this view");
-  const resolveToken = (scope: Element, token: string): string => {
+  // The theme the document wears: the last of the owner's theme selectors its root matches (Carbon is :root).
+  const theme = themes.filter((t) => document.documentElement.matches(t.selector)).at(-1);
+  // The owner's literal value, as the browser computes a colour (never through the page's own var()).
+  const ownerColor = (token: string): string => {
     const probe = document.createElement("span");
-    probe.style.color = `var(${token})`;
-    scope.appendChild(probe);
+    probe.style.color = theme?.colors[token] ?? "";
+    document.documentElement.appendChild(probe);
     const value = getComputedStyle(probe).color;
     probe.remove();
     return value;
@@ -172,9 +197,9 @@ function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string
         return;
       }
       const s = getComputedStyle(el);
-      const want = resolveToken(svg.parentElement ?? svg, part.token);
+      const want = ownerColor(part.token);
       const got = part.paint === "fill" ? s.fill : s.stroke;
-      if (got !== want) findings.push(`${where}: ${part.paint} ${got}, not ${part.token} (${want})`);
+      if (got !== want) findings.push(`${where}: ${part.paint} ${got}, not the owner's ${part.token} (${want})`);
       const other = part.paint === "fill" ? s.stroke : s.fill;
       if (other !== "none") findings.push(`${where}: ${part.paint === "fill" ? "stroke" : "fill"} ${other}, not none`);
       const paintOpacity = part.paint === "fill" ? s.fillOpacity : s.strokeOpacity;
@@ -201,26 +226,49 @@ const VENDORED_FACES: readonly VendoredFace[] = [];
  * the document declares or holds is a token family loaded from its vendored
  * files; every font a canvas is given or draws in is exactly a token stack.
  */
-function judgeFonts(args: { input: { faceTokens: readonly string[]; faces: readonly VendoredFace[] }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+function judgeFonts(args: { input: { stacks: Readonly<Record<string, string>>; faces: readonly VendoredFace[] }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
   const findings: string[] = [];
-  const { faceTokens, faces } = args.input;
+  const { faces } = args.input;
   const normal = (family: string): string => family.split(",").map((f) => f.trim().replace(/^["']|["']$/gu, "")).filter((f) => f.length > 0).join(", ");
-  const rootStyle = getComputedStyle(document.documentElement);
-  const stacks = new Set(faceTokens.map((token) => normal(rootStyle.getPropertyValue(token))).filter((stack) => stack.length > 0));
-  if (args.top && stacks.size !== faceTokens.length) findings.push(`the page declares ${stacks.size} of the ${faceTokens.length} face tokens (${faceTokens.join(", ")})`);
+  // The owner's stacks (built in Node from tokens.css), never the page's own --face-* values.
+  const owner = Object.entries(args.input.stacks).map(([token, stack]) => [token, normal(stack)] as const);
+  const stacks = new Set(owner.map(([, stack]) => stack));
+  if (args.top) {
+    const rootStyle = getComputedStyle(document.documentElement);
+    for (const [token, stack] of owner) {
+      const declared = normal(rootStyle.getPropertyValue(token));
+      if (declared !== stack) findings.push(`the page sets ${token} to "${declared}", not the token owner's "${stack}"`);
+    }
+  }
   const families = new Set([...stacks].flatMap((stack) => stack.split(", ")));
   const elements = kit.elements(document);
-  // Text, in the light DOM and in every open shadow root (a closed one is refused by the judgeable row).
+  // What renders text, in the light DOM and every open shadow root (a closed one is refused by the judgeable row):
+  // each text node that has a box of its own (a Range over it, so text in a display:contents element counts),
+  // a form control's value or placeholder, and generated ::before/::after content.
   const offStack = new Map<string, string[]>();
+  const judge = (style: CSSStyleDeclaration, where: string): void => {
+    const family = normal(style.fontFamily);
+    if (stacks.has(family)) return;
+    const seen = offStack.get(family) ?? [];
+    if (seen.length < 3) seen.push(where);
+    offStack.set(family, seen);
+  };
+  const range = document.createRange();
   for (const el of elements) {
     const own = [...el.childNodes, ...(el.shadowRoot?.childNodes ?? [])];
-    const text = own.some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0);
-    if (!text || el.getClientRects().length === 0) continue;
-    const family = normal(getComputedStyle(el).fontFamily);
-    if (stacks.has(family)) continue;
-    const seen = offStack.get(family) ?? [];
-    if (seen.length < 3) seen.push(kit.describe(el));
-    offStack.set(family, seen);
+    const rendered = own.some((node) => {
+      if (node.nodeType !== Node.TEXT_NODE || (node.textContent ?? "").trim().length === 0) return false;
+      range.selectNodeContents(node);
+      return range.getClientRects().length > 0;
+    });
+    if (rendered) judge(getComputedStyle(el), kit.describe(el));
+    const control = el as Partial<HTMLInputElement>;
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && `${control.value ?? ""}${control.placeholder ?? ""}`.trim().length > 0 && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its value)`);
+    for (const pseudo of ["::before", "::after"]) {
+      const style = getComputedStyle(el, pseudo);
+      if (style.display === "none" || ["none", "normal", '""', "''"].includes(style.content)) continue;
+      judge(style, `${kit.describe(el)}${pseudo}`);
+    }
   }
   for (const [family, where] of offStack) findings.push(`text renders in "${family}", not a --face-* stack (${where.join(", ")})`);
   // Every face a stylesheet declares: a token family, from that family's vendored files only (no local(), no other file).
@@ -368,25 +416,37 @@ export const STEP_MS = 1_000;
 
 /**
  * THE JUDGE'S DECLARED LIMITS — what a green judgement does NOT claim, each
- * in one sentence. Every report the judge makes prints this table (judge.ts
- * `site`, proof.ts, the capture walk's --judge-only), so no limit is a silent
- * gap. What the judge can detect but cannot judge is not listed here: the
- * judgeable row refuses it (a worker, a closed shadow root, a window the page
- * opens, a delayed scheduler.postTask).
+ * with the reason it is a limit. Every report the judge makes prints this
+ * table (judge.ts `site`, proof.ts, the capture walk's --judge-only), so no
+ * limit is a silent gap. What the judge can detect but cannot judge is not
+ * listed here: the judgeable row refuses it (a worker or worklet, a closed
+ * shadow root, a window the page opens, a delayed scheduler.postTask).
+ *
+ * The judgement is calibrated for OUR OWN pages making MISTAKES — a family
+ * typed where a token belongs, a colour that misses a theme, a rule that only
+ * bites on hover, in print or after a delay — not for a page built to hide
+ * from it (the last row says so).
  */
-export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string }>[] = [
-  { id: "between-steps", limit: `a change that appears and is undone within one step (${String(STEP_MS)} ms of page time) of a page's future is not seen` },
-  { id: "past-the-future", limit: `work a page schedules later than ${String(FUTURE_MS)} ms of page time into its future is not run` },
-  { id: "animation-keyframes", limit: "a CSS animation or transition is judged where it stands at each judgement and at its end, not at every keyframe between" },
+export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string; why: string }>[] = [
+  { id: "between-steps", limit: `a change that appears and is undone within one step (${String(STEP_MS)} ms of page time) of a page's future is not seen`, why: "the future is judged after each step; a state that comes and goes between two judgements is never on screen when one is made" },
+  { id: "past-the-future", limit: `work a page schedules later than ${String(FUTURE_MS)} ms of page time into its future is not run`, why: "the future must end for a judgement to end: a page that polls schedules work forever" },
+  { id: "real-time-loops", limit: "work driven by the browser's own task queues in wall time — a MessageChannel or postMessage loop, a chain on network or idle callbacks the clock does not fake — is judged only as far as it got by each judgement", why: "the page clock fakes timers, intervals and animation frames, not the task queues; running those forward needs the browser's virtual time, which cannot be handed back to real time (the capture walk needs real time between views)" },
+  { id: "infinite-animations", limit: "an infinite CSS or Web animation is judged where it stands at each judgement, not at every point of its cycle", why: "it has no end to finish to" },
+  { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement); a keyframe off the tokens only between those moments is not seen", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
+  { id: "forced-states-together", limit: "hover, active and focus are forced on every element at once (focus only where an element can take it), not one element at a time", why: "one forced pass shows any rule those states turn on; combinations that cannot occur together may also be judged" },
+  { id: "hostile-pages", limit: "a page written to hide from the judgement — one that takes a removed frame's setters, or stops the Content-Security-Policy violation event before the judge's listener — can evade it", why: "the judge's threat model is our own pages making mistakes; it records in the page, where such a page can interfere" },
 ];
 
 /**
- * THE FRAMES NOT JUDGED, each declared with its reason: a frame whose element
- * carries the attribute is skipped with everything inside it. Every other
- * frame is judged by every page row.
+ * THE FRAMES NOT JUDGED, each declared with its reason and the surfaces it
+ * applies to. A frame is skipped, with everything inside it, only when its
+ * element carries the attribute AND the browser gave it an opaque origin (it
+ * is sandboxed without allow-same-origin): the attribute names which frame,
+ * the browser enforces what it is. A same-origin frame claiming the attribute
+ * is judged like any other.
  */
-export const FRAMES_NOT_JUDGED: readonly Readonly<{ attribute: string; value: string; why: string }>[] = [
-  { attribute: "data-artifact", value: "frame", why: "a user artifact (ArtifactFrame.svelte): the user's own document, in its own sandbox; its fonts and marks are the user's, not the cockpit's" },
+export const FRAMES_NOT_JUDGED: readonly Readonly<{ surfaces: readonly Surface[]; attribute: string; value: string; why: string }>[] = [
+  { surfaces: ["cockpit"], attribute: "data-artifact", value: "frame", why: "a user artifact (ArtifactFrame.svelte): the user's own document, in an opaque-origin sandbox; its fonts and marks are the user's, not the cockpit's" },
 ];
 
 /** THE TABLE. */
@@ -394,19 +454,19 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "brand-mark",
-    holds: "Every rendered brand mark, in any frame or open shadow root, draws exactly the declared parts, each in its token's value, opaque, unfiltered, visible, unclipped and unmasked, and has a size.",
+    holds: "Every rendered brand mark, in any frame or open shadow root, draws exactly the declared parts, each in the token owner's value of its token for the theme it wears, opaque, unfiltered, visible, unclipped and unmasked, and has a size.",
     surfaces: ["cockpit"],
     pending: { site: "the site's layout draws a mark of its own (another geometry, painted with currentColor) until DESIGN generates it from brand-mark.ts (#201); DESIGN adds \"site\" here when it does" },
-    input: () => ({ parts: markParts(), selector: MARK_SELECTOR }),
+    input: () => ({ parts: markParts(), selector: MARK_SELECTOR, themes: markThemes() }),
     judge: judgeMark as PageRule["judge"],
   },
   {
     kind: "page",
     id: "font-families",
-    holds: "Every element that renders text (open shadow roots included) computes exactly a --face-* token stack; every font face is a token family loaded from its vendored files; every canvas font, in any frame, is exactly a --face-* stack.",
+    holds: "Every text that renders (a text node with a box, a form control's value, generated content; open shadow roots included) computes exactly one of the token owner's --face-* stacks, in every state including hover and focus; every font face is a token family loaded from its vendored files; every canvas font, in any frame, is exactly a --face-* stack.",
     surfaces: ["cockpit"],
     pending: { site: "the site declares its own --sans/--mono stacks until it wears the token owner (DESIGN, #201); DESIGN adds \"site\" here when it does" },
-    input: () => ({ faceTokens: FACE_TOKENS, faces: VENDORED_FACES }),
+    input: () => ({ stacks: faceStacks(), faces: VENDORED_FACES }),
     judge: judgeFonts as PageRule["judge"],
   },
   {
@@ -432,7 +492,7 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "judgeable",
-    holds: "Everything the page runs is within the judgement's reach: no worker (dedicated or shared), no closed shadow root, no window the page opens, no scheduler.postTask with a delay (the page's clock does not run it); every frame outside FRAMES_NOT_JUDGED is judged.",
+    holds: "Everything the page runs is within the judgement's reach: no worker (dedicated or shared) or worklet, no closed shadow root, no window the page opens, no scheduler.postTask with a delay (the page's clock does not run it); every frame outside FRAMES_NOT_JUDGED is judged.",
     surfaces: ["cockpit", "site"],
     input: () => ({}),
     judge: judgeJudgeable as PageRule["judge"],

