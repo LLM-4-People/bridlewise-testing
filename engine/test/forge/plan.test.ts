@@ -212,6 +212,8 @@ function wholeGithub(): FakeGithub {
     if (query.includes("createProjectV2Field(")) { project.fields.push({ id: `F_${String(project.fields.length)}`, name: String(variables.name), dataType: String(variables.dataType), ...(options === undefined ? {} : { options }) }); return { status: 200, body: { data: {} } }; }
     return { status: 200, body: { errors: [{ type: "UNPROCESSABLE", message: "unexpected query" }] } };
   });
+  // Every context the declarations require has reported on the trunk's main.
+  fake.reportChecks(ORG, REPO, SETTINGS.p0RequiredChecks.map((check) => check.context));
   return fake;
 }
 
@@ -251,6 +253,8 @@ function movingFixture() {
   fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [{ name: "trunk", source_type: "Repository", target: "branch", enforcement: "active", bypass_actors: [], conditions: TRUNK_REFS, rules: [{ type: "deletion" }, review, status] }], "id", { source_type: "Repository" });
   fake.collection(`/orgs/${ORG}/rulesets`, [], "id", { source_type: "Organization" });
   fake.route("GET", /^\/repos\/[^/]+\/[^/]+\/properties\/values$/u, () => ({ status: 200, body: [{ property_name: "kind", value: live.kind }] }));
+  // The context the baseline requires has reported on the trunk's main (a check nobody runs is never required).
+  fake.reportChecks(ORG, REPO, ["CI"]);
   const objects: ForgeObject[] = [
     object("custom-property-values", "kind", { kind: "trunk" }),
     object("org-ruleset", "baseline", { name: "baseline", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "deletion" }, review, status],
@@ -259,6 +263,28 @@ function movingFixture() {
   ];
   return { fake, objects, live };
 }
+
+test("a required check is added only once it has reported on main: an unreported one refuses the plan by name, and nothing is written", async () => {
+  const { fake, objects } = movingFixture();
+  const context = contextOf(fake);
+  // The baseline would also require "Commit records", which has never reported on the trunk's main ("CI" has).
+  const withRecords = objects.map((declared) => declared.kind !== "org-ruleset" ? declared : {
+    ...declared,
+    desired: { ...(declared.desired as Record<string, unknown>), rules: ((declared.desired as { rules: { type: string; parameters?: Record<string, unknown> }[] }).rules).map((rule) => rule.type !== "required_status_checks" ? rule
+      : { ...rule, parameters: { ...rule.parameters, required_status_checks: [...(rule.parameters!.required_status_checks as unknown[]), { context: "Commit records", integration_id: 15368 }] } }) },
+  });
+  const refused = entry(await forgePlan(context, withRecords, []), "org-ruleset", "baseline");
+  assert.equal(refused.action, "refused");
+  assert.equal(refused.code, "forge_required_check_unreported");
+  assert.match(refused.message ?? "", /"Commit records"/u);
+  assert.doesNotMatch(refused.message ?? "", /"CI"/u, "a context that reported is not named");
+  const written = fake.requests.filter((request) => request.method !== "GET").length;
+  await assert.rejects(forgeApply(context, withRecords, []), (error: unknown) => isForgeError(error, "forge_plan_incomplete"));
+  assert.equal(fake.requests.filter((request) => request.method !== "GET").length, written, "nothing was written");
+  // Once it has reported on main, the same declaration plans.
+  fake.reportChecks(ORG, REPO, ["CI", "Commit records"]);
+  assert.equal(entry(await forgePlan(context, withRecords, []), "org-ruleset", "baseline").action, "create");
+});
 
 test("barrier 1, tighten first: the baseline is created and read back BEFORE the repository rules move out; a move needs no acknowledgement", async () => {
   const { fake, objects } = movingFixture();

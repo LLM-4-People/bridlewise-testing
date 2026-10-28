@@ -87,6 +87,12 @@ export type FakeGithub = Readonly<{
   userToken: (principal: string) => string;
   installApp: (input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
   pendingConversion: (code: string, input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
+  /**
+   * The status-check contexts that reported on `repository`'s default branch
+   * (`main`): its latest commit's check runs answer them. A repository with
+   * none answers an empty list, as GitHub does for a commit nothing ran on.
+   */
+  reportChecks: (owner: string, repository: string, contexts: readonly string[]) => void;
   /** The principal a request's token belongs to (undefined when unknown). */
   principalOf: (request: FakeRequest) => string | undefined;
 }>;
@@ -117,6 +123,8 @@ export function fakeGithub(): FakeGithub {
   const conversions = new Map<string, FakeApp>();
   const tokenPolicy = { lifetimeMs: 3600_000 };
   const rate = { limit: 5000, remaining: 5000, resetEpochSeconds: Math.floor(Date.now() / 1000) + 3600 };
+  /** The contexts that reported on each repository's default branch, by `owner/name`. */
+  const reportedChecks = new Map<string, readonly string[]>();
   let nextId = 1000;
 
   function newApp(input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>): FakeApp & { publicKey: KeyObject } {
@@ -218,6 +226,13 @@ export function fakeGithub(): FakeGithub {
   }
 
   function builtIn(request: FakeRequest): FakeAnswer | undefined {
+    const head = /^\/repos\/([^/]+)\/([^/]+)\/commits\/main\/(check-runs|statuses)$/u.exec(request.path);
+    if (request.method === "GET" && head !== null) {
+      const contexts = reportedChecks.get(`${head[1]!}/${head[2]!}`) ?? [];
+      return head[3] === "check-runs"
+        ? json(200, { total_count: contexts.length, check_runs: contexts.map((name, index) => ({ id: index + 1, name, status: "completed", conclusion: "success" })) })
+        : json(200, []);
+    }
     const conversion = /^\/app-manifests\/([^/]+)\/conversions$/u.exec(request.path);
     if (request.method === "POST" && conversion !== null) {
       const app = conversions.get(conversion[1]!);
@@ -321,6 +336,12 @@ export function fakeGithub(): FakeGithub {
       const app = newApp(input);
       conversions.set(code, app);
       return app;
+    },
+    reportChecks: (owner, repository, contexts) => {
+      const path = `/repos/${owner}/${repository}`;
+      // The repository answers its default branch (merged into what a test stored there).
+      objects.set(path, { ...(objects.get(path) as Record<string, unknown> | undefined), default_branch: "main" });
+      reportedChecks.set(`${owner}/${repository}`, [...contexts]);
     },
     principalOf: (request: FakeRequest) => tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "")?.principal,
   });

@@ -32,6 +32,7 @@ const FORGE_CODES = deepFreeze({
   forge_not_configured: { class: "input", remedy: "Declare the `forge` section in engine/bridlewise.config.json (its schema is `forge-config.ts`)." },
   forge_usage: { class: "input", remedy: "Run `harness forge apps manifests [--check]` or `harness forge apps create`." },
   forge_declaration_invalid: { class: "input", remedy: "Fix the declaration's owner (the forge section, the App registry, the community sources or the tree) so the generated configuration is whole: the message names what is missing or doubled." },
+  forge_required_check_unreported: { class: "refused", remedy: "The ruleset would require a status check that has never reported on the repository's default branch, so every pull request would wait for it forever: land the workflow (or App) that reports it, let it report on main, then apply again." },
   forge_reference_unresolved: { class: "refused", remedy: "The object names an App, installation, team or user GitHub does not have yet: create it first (Session 1 for the Apps; `forge apply` creates the teams), then plan again." },
   forge_loosening_unacknowledged: { class: "refused", remedy: "Review each weakening the plan lists, then pass `--accept-loosening <kind:scope:key>` for each one you accept; the acknowledgement is recorded in the apply's receipt." },
   forge_tighten_unverified: { class: "integrity", remedy: "The org baseline did not read back as declared after it was applied, so nothing was loosened: run `harness forge plan` to see what differs, and investigate before applying again." },
