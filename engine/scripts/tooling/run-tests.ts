@@ -50,7 +50,7 @@ import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { configuredRuntimeAdmission, withAdmittedNodeRuntime } from "../../src/runtime/admitted-node-runtime.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { reportLauncherStop, watchLauncher } from "./launcher-watch.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { buildTestProcessSupervisor, testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../../src/filesystem/temporary-root.ts";
 
 export type WorkerExecutionOptions = Readonly<{
@@ -234,6 +234,11 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     const treeAtStart = readMeasuredTree(fileURLToPath(new URL("../../", import.meta.url)));
     // NO TEST WRITES THE LIVE HARNESS FOLDER (round 13, R3-1): its identity, as a configuration bootstrap compares it,
     // before the first test and after the last; a change fails the run, named (a concurrent gate would have failed on it).
+    // The native supervisor every worker runs under is BUILT HERE, before the
+    // snapshot below: built by the first caller in mid-run, it wrote into the
+    // live harness folder and a concurrent configuration bootstrap refused an
+    // unrelated commit (#293, #132). Every later caller only resolves it.
+    buildTestProcessSupervisor();
     const harnessAtStart = harnessFolderIdentity(root);
     // NOR MOVES THE REPOSITORY (round 14): the checkout's HEAD and the branch it names, before and after; a test whose
     // git command fell through to the real checkout (a commit, a reset, a checkout) is named and fails the run.

@@ -8,8 +8,9 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
@@ -296,4 +297,17 @@ test("startDetached: a background run's stderr lands in the open log its caller 
   assert.equal(readFileSync(first.path, "utf8"), "the first run's head\nthe first run's tail\n", "the running run's log is whole: never truncated, no hole");
   assert.equal(readFileSync(second.path, "utf8"), "the second", "each run its own log only");
   for (const { path } of [first, second]) assert.equal(statSync(path).mode & 0o777, 0o600);
+});
+
+test("the supervisor is RESOLVED, never built, by a run's callers: absent is a typed refusal naming the build, and nothing is written (#293)", async () => {
+  // A copy of the build owner in a folder with no build/: resolving there
+  // must refuse by name and must not run make (which would write build/).
+  const folder = createTempDir("supervisor-resolve-");
+  copyFileSync(new URL("../../guardian/build.ts", import.meta.url), join(folder, "build.ts"));
+  const copied = await import(pathToFileURL(join(folder, "build.ts")).href) as { testProcessSupervisorBinary: () => string };
+  assert.throws(() => copied.testProcessSupervisorBinary(), (error: unknown) =>
+    (error as { code?: string }).code === "test_process_supervisor_absent" && /make -C engine\/guardian all/u.test((error as Error).message));
+  assert.equal(existsSync(join(folder, "build")), false, "resolving the supervisor built something");
+  // Control: the live checkout's supervisor was built before this run.
+  assert.ok(statSync(testProcessSupervisorBinary()).isFile());
 });

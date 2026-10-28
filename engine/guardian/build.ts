@@ -36,14 +36,15 @@ const binPath = join(guardianDir, 'build', 'harness-landlock-guardian');
 
 /**
  * The native test-process supervisor (`engine/src/process/supervised-run.ts`
- * runs every test run under it), built by the existing native build owner —
- * make performs its normal incremental dependency check; no interpreter,
- * bespoke artifact cache or runtime addon — and its path returned. A build
- * that fails THROWS, typed (`code: test_process_supervisor_build_failed`, with
- * the compiler's own words): a run that cannot be supervised does not start.
+ * runs every test run under it), BUILT BEFORE A RUN by the one native build
+ * owner — make performs its normal incremental dependency check — and its
+ * path returned: `make all`, the checkout setup's `test-supervisor` command,
+ * and the engine suite's runner before it snapshots the harness folder. A
+ * build that fails THROWS, typed (`code: test_process_supervisor_build_failed`,
+ * with the compiler's own words): a run that cannot be supervised does not
+ * start.
  */
-export function testProcessSupervisorBinary(): string {
-  const binary = join(guardianDir, 'build', 'test-process-supervisor');
+export function buildTestProcessSupervisor(): string {
   const result = spawnSync('make', ['--no-print-directory', '-C', guardianDir, 'test_process_supervisor'], {
     encoding: 'utf8',
   });
@@ -52,12 +53,32 @@ export function testProcessSupervisorBinary(): string {
       code: 'test_process_supervisor_build_failed',
     });
   }
+  return testProcessSupervisorBinary();
+}
+
+/**
+ * The built supervisor's path — RESOLVED, never built. Building it here wrote
+ * into the live harness folder in the middle of a test run (on a runner where
+ * `make all` had not built it, the first caller compiled
+ * `guardian/build/test-process-supervisor`), and every configuration
+ * bootstrap that overlapped it was refused (`config_parent_changed`): the
+ * real commit guard a test drives refused unrelated commits (#293, #132).
+ * Absent, it is a typed refusal naming the build, never a build.
+ */
+export function testProcessSupervisorBinary(): string {
+  const binary = join(guardianDir, 'build', 'test-process-supervisor');
+  if (!existsSync(binary) || !statSync(binary).isFile()) {
+    throw Object.assign(new Error(
+      `The native test supervisor is not built at ${binary}: build it before the run ` +
+        '(`make -C engine/guardian all`, the checkout setup, or `node engine/guardian/build.ts --test-process-supervisor`)',
+    ), { code: 'test_process_supervisor_absent' });
+  }
   return binary;
 }
 
 function main(): void {
   if (process.argv[2] === '--test-process-supervisor') {
-    console.log(testProcessSupervisorBinary());
+    console.log(buildTestProcessSupervisor());
     return;
   }
 
