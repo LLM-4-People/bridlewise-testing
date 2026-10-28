@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "7e82b44111814774093cc81575d2e3b6bce0f5426b14926691f9caa8ae7d4dfa",
+      sourceSha256: "31a23514e96cbbeb8980d5b2e4293fbcc0020f65fe0b2b4aa922626d5d051f78",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -2659,9 +2659,10 @@ const ROOT_POLICY_VALUE = {
        * THE BUDGETS JUDGED IN THE SAME JUDGEMENT (UR-24): a budget gate of a
        * ledger whose breach persists from the target passes only while an
        * open task row names the budget (its config key) and this change's
-       * SLOTTED value is no higher than the target's LOWEST recorded value
-       * (the row field named here). A new breach, a worse one, an unowned or
-       * an unslotted one fails. Any other budget gate fails outright.
+       * value is no higher than the target's LOWEST recorded value (the row
+       * field named here), whatever ran beside either run (NO-LOAD-BLOCK). A
+       * new breach, a worse one or an unowned one fails. Any other budget
+       * gate fails outright.
        */
       budgets: {
         engine: { "cpu-per-test-file": { budget: "testExecution.integrationSuiteCpuBudget", field: "cpuMsPerTestFile" } },

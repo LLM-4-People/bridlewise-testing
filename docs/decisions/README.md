@@ -109,11 +109,11 @@ check` reports it stale): change a decision's file, never its row.
 | [REQUIRES](REQUIRES-a-gate-runs-after-what-it-judges.md) | A gate runs after the steps that produce what it judges | coordinator | done |
 | [TEST-CPU-CLASSES](TEST-CPU-CLASSES-per-test-limits-are-cpu-work.md) | Per-test limits are CPU-work classes plus one hang backstop | coordinator | done |
 | [TEST-EFF](TEST-EFF-the-test-efficiency-decisions.md) | The test-efficiency decisions (covers Q-TXL1, Q-TXL2, Q-TXL3, Q-TXL4) | user | pending (TEST-10X) |
-| [UD-AUDIT-NO-FORGIVENESS](UD-AUDIT-NO-FORGIVENESS-no-rerun-forgiveness-no-ambient-allowance.md) | No rerun forgiveness, no ambient-load allowance | user | partial (AMBIENT-ALLOWANCE-REMOVE) |
+| [UD-AUDIT-NO-FORGIVENESS](UD-AUDIT-NO-FORGIVENESS-no-rerun-forgiveness-no-ambient-allowance.md) | No rerun forgiveness, no ambient-load allowance | user | done |
 | [UD-CORE-NO-BYPASS](UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md) | A module cannot bypass core | user | pending (CORE-NO-BYPASS) |
 | [UD-LOG-NEVER-DISABLED](UD-LOG-NEVER-DISABLED-warn-and-error-always-reported.md) | Logging is never disabled | user | done |
 | [UI-CPU](UI-CPU-browser-gates-judged-in-cpu-work.md) | Browser speed gates are judged in CPU work | user | pending (UI-CPU) |
-| [UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md) | A budget breach joins the one judgement | coordinator | partial (AMBIENT-ALLOWANCE-REMOVE) |
+| [UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md) | A budget breach joins the one judgement | coordinator | done |
 
 ## Earlier engine decisions (coordinator)
 

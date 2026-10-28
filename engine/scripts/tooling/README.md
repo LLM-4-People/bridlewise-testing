@@ -184,3 +184,11 @@ collection error, a hook) is its own `<file>::<module>` row. Arguments are
 strict (an unknown flag or a malformed selector is a refusal). It is the
 qualification receipt diff between a writer's candidate and the previous
 qualified rows (`diffRunFailures`, `failureDigest`, `src/shared/run-history.ts`).
+
+## The roadmap feed
+
+`roadmap-feed.ts --at <commit> --repository-url https://github.com/<owner>/<repo> [--out <file>]`
+writes `roadmap.json` (`bridlewise-roadmap-feed/v1`), the one data feed the
+public roadmap renders, computed in the projector's sealed realm from that
+commit and its items' first-parent history (`src/workflow/forge/projector/roadmap-feed.ts`).
+The roadmap at any commit is this command at that commit.

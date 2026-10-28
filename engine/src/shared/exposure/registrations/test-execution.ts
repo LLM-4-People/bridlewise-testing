@@ -249,38 +249,6 @@ export function registerTestExecutionExposure(): void {
     },
   });
   registerSignal({
-    id: "testExecution.webSuiteAmbientInflationSlope",
-    module: "testExecution",
-    name: "CPU inflation paid per unit of sustained ambient load",
-    description:
-      "How much of a run's recorded CPU cost the box's sustained ambient load explains, per recorded 5-minute load unit per CPU — the measured envelope every judgement line scales by, so a clean run at a busy ambient judges clean and nothing anywhere waits for a quiet box. Shown read-only: the slope is the gate's own measured calibration (the ledger's recorded busy-vs-quiet pairs), and a settings write that steepened it would loosen what a green run means.",
-    type: "string",
-    value: () => {
-      const slope = readBudgetNumber(`${BUDGET_PATH}.ambientInflationSlopePerCpu`);
-      if (slope !== undefined) {
-        return `the gate pays ${(slope * 100).toFixed(1)}% more allowance per unit of recorded 5-minute ambient load per CPU`;
-      }
-      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
-        ? NOT_DECLARED
-        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
-    },
-  });
-  registerSignal({
-    id: "testExecution.webSuiteAmbientInflationCap",
-    module: "testExecution",
-    name: "Bound on the ambient allowance the gate may pay",
-    description:
-      "The largest fraction of the baseline the ambient-inflation allowance may ever expand a judgement line by, so the gate's teeth hold at every ambient: a regression beyond the capped line fails at any load the box is under. Shown read-only: the cap is the gate's own bound, and a settings write that raised it would let a busy box hide a regression.",
-    type: "string",
-    value: () => {
-      const cap = readBudgetNumber(`${BUDGET_PATH}.ambientInflationCapFraction`);
-      if (cap !== undefined) return `the ambient allowance is capped at ${(cap * 100).toFixed(1)}% of the baseline`;
-      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
-        ? NOT_DECLARED
-        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
-    },
-  });
-  registerSignal({
     id: "testExecution.webTestFileCostShareMax",
     module: "testExecution",
     name: "Worker-time share one web-suite test file may take",
