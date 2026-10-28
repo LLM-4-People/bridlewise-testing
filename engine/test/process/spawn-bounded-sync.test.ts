@@ -29,5 +29,9 @@ test("spawnBoundedSync: the hang backstop ends a run that is still going, and th
   const run = spawnBoundedSync("/bin/sh", ["-c", "exec sleep 30"], bounds, { encoding: "utf8" });
   const code = (run.error as NodeJS.ErrnoException | undefined)?.code;
   assert.equal(code, "ETIMEDOUT");
-  assert.match(boundedEnding({ status: run.status, signal: run.signal, ...(code === undefined ? {} : { errorCode: code }) }, bounds), /^HUNG: .* hang backstop/u);
+  assert.equal(run.signal, "SIGKILL");
+  assert.equal(
+    boundedEnding({ status: run.status, signal: run.signal, ...(code === undefined ? {} : { errorCode: code }) }, bounds),
+    "HUNG: it was still running at the 0.2 s hang backstop (wall) and was killed with SIGKILL",
+  );
 });
