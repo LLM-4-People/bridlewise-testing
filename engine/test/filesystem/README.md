@@ -10,6 +10,7 @@ The `engine/test/filesystem/` folder of the development surface.
 - `file-lock.test.ts` — the one file lock: a forced two-breaker interleaving of one dead holder ends with one holder, a live holder is never broken however old, an unreadable lock is honoured then broken, a dead breaker's `.break` is cleared, every break and timeout is audited; the guard that no other module names or hand-breaks a lock file.
 - `file-mode.test.ts` — the one mode owner: an already-settled file gets no fchmod (counted in a child) and keeps its ctime, another mode is settled with one call, the descriptor form compares before it changes, a link at the path is refused, and the live configuration settles as "already" (#293).
 - `temporary-root.test.ts` — the temp root's headroom is measured (bytes and inodes as shares) and a low share of either warns.
+- `mount-self-bind.test.ts` — the one mount reader's self-bind rule, on planted tables: a directory bound onto its own path is not a mountpoint; another subtree, a foreign filesystem, a mount nested under a self-bind and a mismatched source or type still are (decision TEST-CONFINEMENT-SELF-BIND).
 
 ## The subfolders
 
