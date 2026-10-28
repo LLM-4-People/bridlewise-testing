@@ -292,6 +292,33 @@ test("executeInventoryTestRun: every test file's process is BOUNDED BY CPU WORK 
   assert.equal(said("\"clean\""), "[]");
 });
 
+test("executeInventoryTestRun: the per-test bounds live in the test file's own process only — a worker thread or child node the test starts with the inherited options never reports as a test file of its own (the accounting stays whole)", () => {
+  const root = makeRoot("engine-bounds-scope");
+  const worker = 'import { parentPort } from "node:worker_threads"; parentPort.postMessage("done");\n';
+  const child = 'process.stdout.write(JSON.stringify({ child: true }) + "\\n");\n';
+  const source = [
+    'import test from "node:test";',
+    'import assert from "node:assert/strict";',
+    'import { Worker } from "node:worker_threads";',
+    'import { execFileSync } from "node:child_process";',
+    'test("a worker thread inherits the options and runs", async () => {',
+    '  const worker = new Worker(new URL("./helper-worker.mjs", import.meta.url));',
+    '  assert.equal(await new Promise((resolve) => worker.once("message", resolve)), "done");',
+    '  await worker.terminate();',
+    '});',
+    'test("a child node with the parent\'s options prints only its own output", () => {',
+    '  const out = execFileSync(process.execPath, [...process.execArgv, new URL("./helper-child.mjs", import.meta.url).pathname], { encoding: "utf8" });',
+    '  assert.deepEqual(JSON.parse(out), { child: true });',
+    '});',
+  ].join("\n");
+  writeTestFile(root, "test/helper-worker.mjs", worker);
+  writeTestFile(root, "test/helper-child.mjs", child);
+  const out = runExecutorSubprocess(root, [{ path: "test/scoped.test.ts", source }], false);
+  assert.equal(out.passed, true, JSON.stringify({ reasons: out.reasons, failures: out.failureDetails }));
+  assert.equal(out.counts.discovered, 2);
+  assert.ok(!out.reasons.some((reason) => /unknown|lifecycle/u.test(reason)), JSON.stringify(out.reasons));
+});
+
 test("executeInventoryTestRun: a file that never EXITS after its cancelled test is killed at the stall bound, and the run FAILS", () => {
   // Measured before the watchdog: a file whose cancelled test left a server
   // listening held the engine run for two hours — the per-test budget fired,
@@ -457,6 +484,24 @@ test("createInventoryTestAccountant: expectedSummaryCount=2 flags excess summari
   accountant.observe({ type: "test:summary", data: { success: true, counts: { tests: 0, failed: 0, passed: 0, cancelled: 0, skipped: 0, todo: 0 } } });
   const result = accountant.complete();
   assert.ok(result.unknownTests.some((e) => e.includes("excess-global-summary")));
+});
+
+test("createInventoryTestAccountant: an unknown file that reports several summaries is ONE sorted unknown entry, so the run fails with its reason instead of refusing its own accounting", () => {
+  const root = makeRoot("acct-unknown-repeat");
+  writeTestFile(root, "test/a.test.ts", PASSING_SOURCE);
+  const inventory = buildInventory(root, ["test/a.test.ts"]);
+  const accountant = createInventoryTestAccountant(root, inventory, { expectedSummaryCount: 1 });
+  accountant.observe({ type: "test:enqueue", data: { file: join(root, "test/a.test.ts"), name: "pass" } });
+  accountant.observe({ type: "test:pass", data: { file: join(root, "test/a.test.ts"), name: "pass" } });
+  // A worker thread that imported node:test reports a summary of its own, once per worker.
+  for (const worker of ["test/z-worker.ts", "test/b-worker.ts", "test/z-worker.ts", "test/z-worker.ts"]) {
+    accountant.observe({ type: "test:summary", data: { file: join(root, worker), success: true, counts: { tests: 0, failed: 0, passed: 0, cancelled: 0, skipped: 0, todo: 0 } } });
+  }
+  accountant.observe({ type: "test:summary", data: { success: true, counts: { tests: 1, failed: 0, passed: 1, cancelled: 0, skipped: 0, todo: 0 } } });
+  const result = accountant.complete();
+  assert.deepEqual(result.unknownTests, [...new Set(result.unknownTests)].toSorted(), "a sorted set");
+  assert.equal(result.unknownTests.filter((entry) => entry.includes("z-worker")).length, 1, "the repeated worker is one entry");
+  assert.equal(result.passed, false, "an unknown file fails the run, by its reason");
 });
 
 test("classifyTestConcurrency integration: inventory-test-run uses classifier not hardcoded false", () => {

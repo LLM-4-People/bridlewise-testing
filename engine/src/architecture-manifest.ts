@@ -5800,7 +5800,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-tooling-engine-test-bounds", path: "scripts/tooling/engine-test-bounds.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 3, namesSha256: "cdd70df0caa9cde44b18e35cf158aa3c110b48467ce18b5a6d85af333469f483" },
-      dependencies: ["node:path","node:test","node:timers","scripts/tooling/test-cpu-class.ts"],
+      dependencies: ["node:path","node:test","node:timers","node:worker_threads","scripts/tooling/test-cpu-class.ts"],
     }),
   ],
 });

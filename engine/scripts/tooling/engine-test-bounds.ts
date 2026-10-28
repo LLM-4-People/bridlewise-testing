@@ -30,11 +30,17 @@
  */
 import timers from "node:timers";
 import { relative, sep } from "node:path";
+import { isMainThread } from "node:worker_threads";
 
 import { installTestCpuJudgement, type TestCpuClasses } from "./test-cpu-class.ts";
 
-/** What a test file's process is bounded by. `cpuClasses` is null for a run that does not judge CPU (coverage instruments every line). */
-export type EngineTestBounds = Readonly<{ hangBackstopMs: number; cpuClasses: TestCpuClasses | null; repositoryRoot: string }>;
+/**
+ * What a test file's process is bounded by. `cpuClasses` is null for a run
+ * that does not judge CPU (coverage instruments every line). `files` are the
+ * test files the run dispatches (absolute): only a process whose main module
+ * is one of them installs anything.
+ */
+export type EngineTestBounds = Readonly<{ hangBackstopMs: number; cpuClasses: TestCpuClasses | null; repositoryRoot: string; files: readonly string[] }>;
 
 /** The refusal of a per-test wall bound, naming it. */
 function wallBoundRefusal(delay: unknown, backstopMs: number): string {
@@ -49,6 +55,14 @@ function wallBoundRefusal(delay: unknown, backstopMs: number): string {
  * test of the file runs under.
  */
 export async function installEngineTestBounds(bounds: EngineTestBounds): Promise<void> {
+  // ONLY THE TEST FILE'S OWN PROCESS. The preload rides `process.execArgv`
+  // into everything a test starts the usual way — a worker thread, a child
+  // node it spawns with the parent's options — and node:test, once imported
+  // there, makes that thread or process report as a test file of its own
+  // (measured: timeline-concurrency's worker threads arrived as unknown
+  // files and the run's accounting refused itself). Such a thread or
+  // process is the test's own work, already bounded by its test.
+  if (!isMainThread || !bounds.files.includes(process.argv[1] ?? "")) return;
   let armed = 0;
   const real = timers.setTimeout;
   timers.setTimeout = function engineBoundTimer(this: unknown, ...args: Parameters<typeof timers.setTimeout>) {

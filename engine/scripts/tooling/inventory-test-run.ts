@@ -249,8 +249,8 @@ type TestPhaseDispatch = Readonly<{
   concurrency: boolean | number;
   isolation?: "process";
   coverage: boolean;
-  /** REQUIRED: every test file's process gets the hang backstop and the CPU classes (engine-test-bounds.ts). */
-  bounds: EngineTestBounds;
+  /** REQUIRED: every test file's process gets the hang backstop and the CPU classes (engine-test-bounds.ts); the phase's files are added at dispatch. */
+  bounds: Omit<EngineTestBounds, "files">;
   /** REQUIRED like the timeout: the stall bound and the RUN's ceiling instant (see `engineSuiteWatchdog`). */
   watchdog: Readonly<{ stallTimeoutMs: number; ceilingAt: number }>;
 }>;
@@ -290,7 +290,7 @@ async function* runTestPhase(cwd: string, phase: TestPhaseDispatch): AsyncGenera
       // backstop (engine-test-bounds.ts, loaded FIRST: it must wrap the timers
       // before node:test loads), and connects only to this machine
       // (network-under-test.ts).
-      execArgv: [engineTestBoundsImport(phase.bounds), networkGuardImport()],
+      execArgv: [engineTestBoundsImport({ ...phase.bounds, files: phase.files.map((file) => resolve(cwd, file)) }), networkGuardImport()],
       concurrency: phase.concurrency,
       ...(phase.isolation !== undefined ? { isolation: phase.isolation } : {}),
       coverage: phase.coverage,
@@ -322,7 +322,7 @@ export async function executeInventoryTestRun(
   // The default lives here rather than at the callers, because two of the
   // three callers (`scripts/coverage.ts`, `scripts/planned-node-test-evidence.ts`)
   // pass no options at all and would otherwise still run without a budget.
-  const bounds: EngineTestBounds = deepFreeze({
+  const bounds: Omit<EngineTestBounds, "files"> = deepFreeze({
     hangBackstopMs: options.testHangBackstopMs ?? DEFAULT_TEST_HANG_BACKSTOP_MS,
     cpuClasses: coverage ? null : options.testCpuClasses ?? DEFAULT_TEST_CPU_CLASSES,
     repositoryRoot: resolve(root, ".."),
@@ -750,7 +750,11 @@ export function createInventoryTestAccountant(
       }
       reclassifiedUnknown.push(pending.label);
     }
-    const allUnknownTests = [...unknownTests, ...reclassifiedUnknown];
+    // ONE ENTRY PER UNKNOWN, SORTED: the receipt holds the set (its validator
+    // refuses a repeat). A worker or child that reported a summary of its own
+    // several times used to make the run refuse its own accounting with no
+    // result at all, instead of failing it with the reason named.
+    const allUnknownTests = [...new Set([...unknownTests, ...reclassifiedUnknown])].toSorted();
     // A gated entry never produced an event, so it is folded in here rather
     // than observed: discovered (it was expected and accounted for) and
     // skipped (its assertions did not execute). Both counts move, so the
