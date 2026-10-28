@@ -1,9 +1,9 @@
 /**
- * THE HOLD OF THE ONE INSTRUMENT LOCK THIS PROCESS OWNS — the one fact the
- * native supervisor's spawn needs (`supervised-run.ts`): every supervisor a
- * holder starts is adopted into the lock's record, so a holder killed
- * outright leaves the lock held until that supervisor — which ends only after
- * its whole process tree is gone — has ended too (src/process/instrument-lock.ts).
+ * THE ADMITTED RUN THIS PROCESS OWNS — the one fact the native supervisor's
+ * spawn needs (`supervised-run.ts`): every supervisor an owner starts is
+ * adopted into the run's record, so an owner killed outright leaves the
+ * record live until that supervisor — which ends only after its whole
+ * process tree is gone — has ended too (src/process/instrument-lock.ts).
  * Kept apart from the lock's owner so the supervisor imports a registry, not
  * the lock's placement and keep-out machinery.
  */
