@@ -29,7 +29,7 @@
  * refusals (`rendered_*`) for a run that cannot judge at all.
  */
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -71,23 +71,26 @@ type Entry = Readonly<{ kind: string; value: string; counts: Promise<boolean> }>
 type Journal = { entries: Entry[] };
 const journals = new WeakMap<Page, Journal>();
 const sessions = new WeakMap<Page, CDPSession>();
+/** The surface each instrumented context judges (a frame exclusion is declared per surface). */
+const surfaces = new WeakMap<BrowserContext, Surface>();
 
 function record(page: Page, frame: Frame | null, kind: unknown, value: unknown): void {
   const journal = journals.get(page);
   if (journal === undefined) return; // a window the walk did not open: reported when it opens (instrumentContext)
   const known = kind === "canvas-font" || kind === "csp" || kind === "unjudgeable";
-  const counts = frame === null ? Promise.resolve(true) : excluded(frame).then((skip) => !skip, () => true);
+  const surface = surfaces.get(page.context());
+  const counts = frame === null || surface === undefined ? Promise.resolve(true) : excluded(frame, surface).then((skip) => !skip, () => true);
   journal.entries.push({ kind: known ? kind : "unjudgeable", value: known ? String(value) : `an unknown record ${String(kind)}: ${String(value)}`, counts });
 }
 
 /** What `page` recorded that counts, as the rows read it. */
-async function recordedOf(page: Page, journal: Journal): Promise<Recorded> {
+async function recordedOf(page: Page, journal: Journal, closed: readonly string[]): Promise<Recorded> {
   const counted = new Map<string, Set<string>>([["canvas-font", new Set()], ["csp", new Set()], ["unjudgeable", new Set()]]);
   for (const entry of journal.entries) if (await entry.counts) counted.get(entry.kind)?.add(entry.value);
   return {
     canvasFonts: [...counted.get("canvas-font")!],
     cspViolations: [...counted.get("csp")!],
-    unjudgeable: [...counted.get("unjudgeable")!, ...(await unreachable(page))],
+    unjudgeable: [...counted.get("unjudgeable")!, ...closed],
   };
 }
 
@@ -146,6 +149,15 @@ function instrumentFrame(binding: string): void {
       return postTask.call(this, callback, options);
     };
   }
+  // A worklet (paint, audio) runs its module where no frame instrument reaches: refused as it is added.
+  const worklet = (scope.Worklet as { prototype: Record<string, unknown> } | undefined)?.prototype;
+  const addModule = worklet?.addModule as ((this: object, ...args: unknown[]) => unknown) | undefined;
+  if (worklet !== undefined && typeof addModule === "function") {
+    worklet.addModule = function (this: object, ...args: unknown[]): unknown {
+      send("unjudgeable", `a worklet module (${String(args[0])}): what it paints or plays is out of the judgement's reach`);
+      return addModule.apply(this, args);
+    };
+  }
   const Shared = scope.SharedWorker as (new (...args: unknown[]) => object) | undefined;
   if (typeof Shared === "function") {
     scope.SharedWorker = function (...args: unknown[]): object {
@@ -172,6 +184,13 @@ const opening = new WeakMap<BrowserContext, number>();
  * itself is reported: only pages opened by `openPage` are judged.
  */
 export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void): Promise<void> {
+  // NO WALL-CLOCK LIMIT on anything a judgement waits for — a navigation, an action, a wait — set here, once, for
+  // every judged context: under host load a slow page is still a page, and Playwright's 30 s defaults would fail
+  // it. A long wait logs its progress (`navigate`, `ready`); a true hang is bounded by the run's own backstop
+  // (the instrument lock's supervisor, the CI job's timeout), never by a guess at how long a page may take.
+  context.setDefaultTimeout(0);
+  context.setDefaultNavigationTimeout(0);
+  surfaces.set(context, surface);
   await context.clock.install();
   await context.exposeBinding(BINDING, ({ page, frame }: { page: Page; frame: Frame }, kind: unknown, value: unknown) => record(page, frame, kind, value));
   await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)});` });
@@ -246,6 +265,19 @@ export async function openPage(context: BrowserContext): Promise<Page> {
   return page;
 }
 
+/** Opens `url` in `page` and waits for its load event, with no time limit; a long load logs what it is waiting on. */
+export async function navigate(page: Page, url: string): Promise<void> {
+  const started = Date.now();
+  const liveness = setInterval(() => {
+    process.stderr.write(`[rendered] loading ${url} for ${String(Math.round((Date.now() - started) / 1000))} s: ${String(inFlight.get(page) ?? 0)} requests in flight (${[...(openUrls.get(page) ?? [])].slice(-3).join(", ")})\n`);
+  }, 10_000);
+  try {
+    await page.goto(url, { waitUntil: "load" });
+  } finally {
+    clearInterval(liveness);
+  }
+}
+
 /** Waits, by events, until `page` has no request in flight; a long wait is logged (never judged by its length). */
 function idle(page: Page): Promise<void> {
   if ((inFlight.get(page) ?? 0) === 0) return Promise.resolve();
@@ -266,28 +298,34 @@ function idle(page: Page): Promise<void> {
 export async function ready(page: Page): Promise<void> {
   if (!journals.has(page)) throw new RenderedRefusal("rendered_not_instrumented", "the page was not opened by openPage in a context instrumentContext prepared");
   await idle(page);
-  for (const frame of await judgedFrames(page)) await frame.evaluate(() => document.fonts.ready.then(() => undefined)).catch(() => undefined);
+  for (const frame of page.frames()) if (!frame.isDetached()) await frame.evaluate(() => document.fonts.ready.then(() => undefined)).catch(() => undefined);
   await idle(page);
 }
 
-/** Whether `frame`, or a frame it sits in, is one rules.ts declares not judged. */
-async function excluded(frame: Frame): Promise<boolean> {
+/**
+ * Whether `frame`, or a frame it sits in, is one rules.ts declares not judged
+ * on `surface`: its element carries the declared attribute AND the browser
+ * gave the frame an opaque origin (a sandbox without allow-same-origin).
+ */
+async function excluded(frame: Frame, surface: Surface): Promise<boolean> {
+  const declared = FRAMES_NOT_JUDGED.filter((d) => d.surfaces.includes(surface));
+  if (declared.length === 0) return false;
   for (let at: Frame | null = frame; at?.parentFrame() != null; at = at.parentFrame()) {
     const element = await at.frameElement();
-    const hit = await element.evaluate((el, declared) => declared.some((d) => (el as Element).getAttribute(d.attribute) === d.value), FRAMES_NOT_JUDGED);
+    const named = await element.evaluate((el, rows) => rows.some((d) => (el as Element).getAttribute(d.attribute) === d.value), declared);
     await element.dispose();
-    if (hit) return true;
+    if (named && (await at.evaluate(() => self.origin)) === "null") return true;
   }
   return false;
 }
 
-/** Every frame of `page` the rows run in: all of them, but a detached one and those FRAMES_NOT_JUDGED declares. */
-async function judgedFrames(page: Page): Promise<readonly Frame[]> {
+/** Every frame of `page` the rows run in on `surface`: all of them, but a detached one and those FRAMES_NOT_JUDGED declares. */
+async function judgedFrames(page: Page, surface: Surface): Promise<readonly Frame[]> {
   const frames: Frame[] = [];
   for (const frame of page.frames()) {
     if (frame.isDetached()) continue;
     try {
-      if (await excluded(frame)) continue;
+      if (await excluded(frame, surface)) continue;
     } catch (error) {
       if (frame.isDetached()) continue;
       throw error;
@@ -297,20 +335,34 @@ async function judgedFrames(page: Page): Promise<readonly Frame[]> {
   return frames;
 }
 
-type DomNode = { nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
+type DomNode = { nodeId: number; nodeType: number; nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
 
-/** What the page holds out of the rows' reach, read from the browser's own tree (CDP, piercing every root and frame): each closed shadow root. */
-async function unreachable(page: Page): Promise<readonly string[]> {
-  const cdp = sessions.get(page)!;
-  const { root } = (await cdp.send("DOM.getDocument", { depth: -1, pierce: true })) as { root: DomNode };
-  await cdp.send("DOM.disable");
+/** The browser's own tree of `page`, piercing every shadow root and frame (CDP). */
+async function domTree(page: Page): Promise<DomNode> {
+  return ((await sessions.get(page)!.send("DOM.getDocument", { depth: -1, pierce: true })) as { root: DomNode }).root;
+}
+
+/** Whether a node of the tree is a frame FRAMES_NOT_JUDGED declares on `surface`: the attribute, and a sandbox without allow-same-origin. */
+function declaredFrame(node: DomNode, surface: Surface): boolean {
+  if (node.contentDocument === undefined) return false;
+  const attributes = new Map<string, string>();
+  for (let i = 0; i + 1 < (node.attributes ?? []).length; i += 2) attributes.set(node.attributes![i]!, node.attributes![i + 1]!);
+  const sandbox = attributes.get("sandbox");
+  return sandbox !== undefined && !sandbox.split(/\s+/u).includes("allow-same-origin") &&
+    FRAMES_NOT_JUDGED.some((d) => d.surfaces.includes(surface) && attributes.get(d.attribute) === d.value);
+}
+
+/** What `page` holds out of the rows' reach, read from the browser's own tree: each closed shadow root. */
+async function unreachable(page: Page, surface: Surface): Promise<readonly string[]> {
+  const root = await domTree(page);
+  await sessions.get(page)!.send("DOM.disable");
+  return closedRootsIn(root, surface);
+}
+
+function closedRootsIn(root: DomNode, surface: Surface): readonly string[] {
   const found: string[] = [];
-  const declared = (node: DomNode): boolean => {
-    const attributes = node.attributes ?? [];
-    return FRAMES_NOT_JUDGED.some((d) => attributes.some((name, i) => i % 2 === 0 && name === d.attribute && attributes[i + 1] === d.value));
-  };
   const walk = (node: DomNode): void => {
-    if (node.contentDocument !== undefined && declared(node)) return;
+    if (declaredFrame(node, surface)) return;
     for (const shadow of node.shadowRoots ?? []) {
       if (shadow.shadowRootType === "closed") found.push(`a closed shadow root on <${node.localName ?? node.nodeName.toLowerCase()}>: what it renders cannot be judged`);
       else if (shadow.shadowRootType === "open") walk(shadow);
@@ -340,12 +392,12 @@ function runnerOf(rule: PageRule): (args: unknown) => string[] {
  * the view `page` shows now, in every judged frame; each finding names its
  * rule (and its frame, when it is not the page's own).
  */
-export async function judgePage(page: Page, surface: Surface, rules: readonly PageRule[] = pageRules(surface)): Promise<readonly string[]> {
+export async function judgePage(page: Page, surface: Surface, rules: readonly PageRule[] = pageRules(surface), closed?: readonly string[]): Promise<readonly string[]> {
   const journal = journals.get(page);
   if (journal === undefined) throw new RenderedRefusal("rendered_not_instrumented", "the page was not opened by openPage in a context instrumentContext prepared");
-  const recorded = await recordedOf(page, journal);
+  const recorded = await recordedOf(page, journal, closed ?? (await unreachable(page, surface)));
   const findings: string[] = [];
-  for (const frame of await judgedFrames(page)) {
+  for (const frame of await judgedFrames(page, surface)) {
     const top = frame === page.mainFrame();
     const missing = await frame.evaluate(() => {
       const scope = globalThis as unknown as { __renderedInstrumented?: boolean; __renderedUninstrumented?: string };
@@ -381,7 +433,47 @@ export async function judgeStates(page: Page, surface: Surface, restore: RenderR
     await page.emulateMedia({ media: restore.media, reducedMotion: restore.reducedMotion, colorScheme: restore.colorScheme });
     await ready(page);
   }
+  for (const finding of await judgeForcedStates(page, surface, rules)) findings.push(`(hover, active and focus forced) ${finding}`);
   return findings;
+}
+
+/** The elements that can take focus (the others are forced into hover, active and focus-within only). */
+const FOCUSABLE = new Set(["a", "area", "button", "details", "iframe", "input", "select", "summary", "textarea"]);
+
+/**
+ * The rows once more with the states a pointer and a keyboard put elements
+ * in — :hover, :active and :focus-within on every element, :focus and
+ * :focus-visible on every one that can take focus — forced by the browser
+ * itself (CDP CSS.forcePseudoState), all at once, then released.
+ */
+async function judgeForcedStates(page: Page, surface: Surface, rules?: readonly PageRule[]): Promise<readonly string[]> {
+  const cdp = sessions.get(page)!;
+  await cdp.send("DOM.enable");
+  await cdp.send("CSS.enable");
+  try {
+    const root = await domTree(page);
+    const forced: { nodeId: number; classes: string[] }[] = [];
+    const walk = (node: DomNode): void => {
+      if (declaredFrame(node, surface)) return;
+      if (node.nodeType === 1) {
+        const attributes = node.attributes ?? [];
+        const focusable = FOCUSABLE.has(node.localName ?? "") || attributes.some((name, i) => i % 2 === 0 && (name === "tabindex" || name === "contenteditable"));
+        forced.push({ nodeId: node.nodeId, classes: focusable ? ["hover", "active", "focus", "focus-visible", "focus-within"] : ["hover", "active", "focus-within"] });
+      }
+      for (const shadow of node.shadowRoots ?? []) if (shadow.shadowRootType === "open") walk(shadow);
+      for (const child of node.children ?? []) walk(child);
+      if (node.contentDocument !== undefined) walk(node.contentDocument);
+    };
+    walk(root);
+    await Promise.all(forced.map(({ nodeId, classes }) => cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: classes })));
+    await ready(page);
+    const findings = await judgePage(page, surface, rules, closedRootsIn(root, surface));
+    await Promise.all(forced.map(({ nodeId }) => cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] }).catch(() => undefined)));
+    return findings;
+  } finally {
+    await cdp.send("CSS.disable");
+    await cdp.send("DOM.disable");
+  }
 }
 
 /**
@@ -400,10 +492,15 @@ export async function judgeFuture(page: Page, surface: Surface, rules?: readonly
     await ready(page);
     note(`at +${String(at / 1000)} s`, await judgePage(page, surface, rules));
   }
-  for (const frame of await judgedFrames(page)) {
+  for (const frame of await judgedFrames(page, surface)) {
     await frame.evaluate(() => {
-      for (const animation of document.getAnimations()) {
-        if (Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))) animation.finish();
+      // The document's animations and each open shadow root's (document.getAnimations() does not reach into one).
+      const scopes: (Document | ShadowRoot)[] = [document];
+      for (let i = 0; i < scopes.length; i += 1) for (const el of scopes[i]!.querySelectorAll("*")) if (el.shadowRoot !== null) scopes.push(el.shadowRoot);
+      for (const scope of scopes) {
+        for (const animation of scope.getAnimations()) {
+          if (Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))) animation.finish();
+        }
       }
     });
   }
@@ -432,12 +529,18 @@ const TYPES: Readonly<Record<string, string>> = Object.freeze({
   ".txt": "text/plain; charset=utf-8", ".xml": "application/xml", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json",
 });
 
-/** A static server for a built site under its base path, on a free loopback port. */
-export async function serveSite(siteRoot: string, baseurl: string): Promise<{ server: Server; origin: string }> {
+/**
+ * A static server for a built site under its base path, on a free loopback
+ * port. `served` answers chosen paths itself (the proof's slow but steady
+ * resource); every other path is a file of the site.
+ */
+export async function serveSite(siteRoot: string, baseurl: string, served: Readonly<Record<string, (response: ServerResponse) => void>> = {}): Promise<{ server: Server; origin: string }> {
   const root = resolve(siteRoot);
   const base = baseurl.replace(/\/+$/u, "");
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url ?? "/", "http://site").pathname);
+    const own = served[path];
+    if (own !== undefined) { own(response); return; }
     if (!path.startsWith(`${base}/`) && path !== base) { response.writeHead(404).end(); return; }
     let file = resolve(join(root, path.slice(base.length)));
     if (file !== root && !file.startsWith(`${root}${sep}`)) { response.writeHead(403).end(); return; }
@@ -482,7 +585,7 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
     const page = await openPage(context);
     for (const path of pages) {
       current = path;
-      await page.goto(`${origin}${path}`, { waitUntil: "load" });
+      await navigate(page, `${origin}${path}`);
       for (const finding of await judgeStates(page, "site", siteRestore())) findings.add(`${path} ${finding}`);
       for (const finding of await judgeFuture(page, "site")) findings.add(`${path} ${finding}`);
     }

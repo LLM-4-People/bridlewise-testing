@@ -10,13 +10,15 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { type ServerResponse } from "node:http";
 import { join } from "node:path";
 
 import { parseArgs } from "node:util";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { instrumentContext, judgeFuture, judgeStates, launchBrowser, openPage, serveSite, siteRestore } from "./judge.ts";
+import { instrumentContext, judgeFuture, judgeStates, launchBrowser, navigate, openPage, serveSite, siteRestore } from "./judge.ts";
+import { tokenValues } from "../token-owner.ts";
 import { CONTENT_SECURITY_POLICY, JUDGE_LIMITS, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
@@ -33,12 +35,22 @@ function markSvg(): string {
   ].join("\n");
 }
 
-/** The clean page: the token stacks, a brand mark painted from its tokens, text in the stacks. */
+/** The tokens the clean page wears, each with the token owner's own value (scripts/token-owner.ts): the face stacks and the mark's colours. */
+const MARK_TOKENS = [...new Set([BRAND_MARK.tile, BRAND_MARK.rein.ink, ...BRAND_MARK.lines.map((line) => line.ink), BRAND_MARK.beam.ink])];
+const OWNER = tokenValues("carbon", ["--face-sans", "--face-mono", ...MARK_TOKENS]);
+const LOGBOOK = tokenValues("logbook", MARK_TOKENS);
+const declarations = (values: Readonly<Record<string, string>>): string => Object.entries(values).map(([name, value]) => `${name}: ${value};`).join(" ");
+/** The owner's sans stack, its first family, and its mono stack, as a canvas font names them. */
+const SANS_FAMILY = OWNER["--face-sans"]!.split(",")[0]!.trim().replace(/^"|"$/gu, "");
+const canvasFont = (token: "--face-sans" | "--face-mono"): string => `12px ${OWNER[token]!}`;
+
+/** The clean page: the owner's token values, a brand mark painted from its tokens, text in the stacks. */
 const CLEAN = `<!doctype html><html><head><meta charset="utf-8"><title>clean</title>
 <style>
-:root { --face-sans: "Proof Sans", sans-serif; --face-mono: "Proof Mono", monospace; --ground-0: #101216; --ink-1: #e8ebef; --ink-2: #a6adb8; --beam: #8fd3ff; }
+:root { ${declarations(OWNER)} }
 body { font-family: var(--face-sans); }
 :where(code, kbd, samp, pre) { font-family: var(--face-mono); }
+button, input, textarea, select { font: inherit; }
 .brand svg { width: 32px; height: 32px; display: block; }
 .brand path { fill: none; }
 </style><!--PLANT-HEAD--></head>
@@ -54,6 +66,22 @@ const inWorker = (body: string): string => `<script>new Worker(URL.createObjectU
 /** A script that runs `body` once `delay` ms of page time have passed. */
 const later = (delay: number, body: string): string => `<script>setTimeout(() => { ${body} }, ${delay})</script>`;
 const GEORGIA_RULE = 'document.styleSheets[0].insertRule("#prose { font-family: Georgia }", 0)';
+
+/** The proof's slow but steady stylesheet: a comment line every STEADY_EVERY_MS for STEADY_FOR_MS, then a rule that changes nothing. */
+const STEADY_PATH = "/proof/steady.css";
+const STEADY_FOR_MS = 35_000;
+const STEADY_EVERY_MS = 500;
+function steady(response: ServerResponse): void {
+  response.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+  let sent = 0;
+  const tick = setInterval(() => {
+    sent += STEADY_EVERY_MS;
+    if (sent < STEADY_FOR_MS) { response.write(`/* ${String(sent)} ms */\n`); return; }
+    clearInterval(tick);
+    response.end("#prose { font-family: var(--face-sans); }\n");
+  }, STEADY_EVERY_MS);
+  response.on("close", () => clearInterval(tick));
+}
 
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
@@ -71,7 +99,7 @@ const PLANTS: readonly Plant[] = [
   { name: "a family set through the CSSOM", body: '<script>document.styleSheets[0].insertRule("#prose { font-family: Georgia }", 0)</script>', rule: "font-families" },
   { name: "a remote stylesheet whose URL has no .css", head: '<link rel="stylesheet" href="https://cdn.example.invalid/type?family=Inter">', rule: "same-origin" },
   { name: "a remote font through @import", head: '<style>@import url("https://fonts.example.invalid/face");</style>', rule: "same-origin" },
-  { name: "a remote font face", head: '<style>@font-face { font-family: "Proof Sans"; src: url("https://fonts.example.invalid/proof.woff2") } </style>', rule: "same-origin" },
+  { name: "a remote font face", head: `<style>@font-face { font-family: "${SANS_FAMILY}"; src: url("https://fonts.example.invalid/proof.woff2") } </style>`, rule: "same-origin" },
   { name: "a remote script", head: '<script src="https://cdn.example.invalid/loader.js"></script>', rule: "same-origin" },
   { name: "a canvas font set by assignment", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px Georgia"</script>', rule: "font-families" },
   { name: "a canvas font set by a bracketed key", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d")["font"] = "bold 14px Georgia"</script>', rule: "font-families" },
@@ -106,14 +134,30 @@ const PLANTS: readonly Plant[] = [
   { name: "a change a delayed scheduler.postTask makes", body: `<script>scheduler.postTask(() => { ${GEORGIA_RULE}; }, { delay: 7000 })</script>`, rule: "judgeable" },
   { name: "a delayed postTask called through the prototype", body: "<script>Scheduler.prototype.postTask.call(scheduler, () => {}, { delay: 1 })</script>", rule: "judgeable" },
   // Faces: bound to the token owner's vendored files, whoever declares them.
-  { name: "a token family redefined to a local face", head: '<style>@font-face { font-family: "Proof Sans"; src: local("DejaVu Serif"), local("Liberation Serif") }</style>', rule: "font-families" },
+  { name: "a token family redefined to a local face", head: `<style>@font-face { font-family: "${SANS_FAMILY}"; src: local("DejaVu Serif"), local("Liberation Serif") }</style>`, rule: "font-families" },
   { name: "a face of another family from a local font", head: '<style>@font-face { font-family: "Shadow Serif"; src: local("DejaVu Serif") }</style>', rule: "font-families" },
   { name: "a face a script makes and never uses", body: "<script>const f = new FontFace(\"Evil\", \"local('DejaVu Serif')\"); document.fonts.add(f); f.load().catch(() => {})</script>", rule: "font-families" },
-  { name: "a token family a script makes from another face", body: "<script>const f = new FontFace(\"Proof Sans\", \"local('DejaVu Serif')\"); document.fonts.add(f); f.load().catch(() => {})</script>", rule: "font-families" },
+  { name: "a token family a script makes from another face", body: `<script>const f = new FontFace(${JSON.stringify(SANS_FAMILY)}, "local('DejaVu Serif')"); document.fonts.add(f); f.load().catch(() => {})</script>`, rule: "font-families" },
   // A canvas font is exactly one stack, like an element's.
   { name: "a canvas given only the browser's monospace", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px monospace"</script>', rule: "font-families" },
   { name: "a canvas given only the browser's sans-serif", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px sans-serif"</script>', rule: "font-families" },
-  { name: "a canvas given a mix of the two stacks", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px monospace, \'Proof Sans\'"</script>', rule: "font-families" },
+  { name: "a canvas given a mix of the two stacks", body: `<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = ${JSON.stringify(`12px monospace, "${SANS_FAMILY}"`)}</script>`, rule: "font-families" },
+  // The owner's values, not the page's: a token redefined anywhere renders what the owner did not declare.
+  { name: "a face token redefined at :root", head: "<style>:root { --face-sans: Georgia }</style>", rule: "font-families" },
+  { name: "a frame that redefines the face tokens", body: `<iframe srcdoc="<style>:root { --face-sans: Georgia; --face-mono: Georgia } p { font-family: var(--face-sans) }</style><p>framed text</p>"></iframe>`, rule: "font-families" },
+  { name: "the beam's token redefined on the mark", head: "<style>.brand { --beam: var(--ground-0) }</style>", rule: "brand-mark" },
+  { name: "the Logbook theme worn with Carbon's colours", body: '<script>document.documentElement.setAttribute("data-cockpit-theme", "light")</script>', rule: "brand-mark" },
+  // Text wherever it renders.
+  { name: "text in a display:contents element", head: "<style>#prose { display: contents; font-family: Georgia }</style>", rule: "font-families" },
+  { name: "a form control's value", body: '<input value="typed" style="font-family: Georgia">', rule: "font-families" },
+  { name: "generated ::before content", head: '<style>#prose::before { content: "→ "; font-family: Georgia }</style>', rule: "font-families" },
+  { name: "a finite animation in a shadow root", body: `<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = "<style>@keyframes late { to { font-family: Georgia } } p { animation: late 1ms 6s forwards }</style><p>shadow text</p>"</script>`, rule: "font-families" },
+  // The states a pointer and a keyboard put elements in.
+  { name: "a family only on hover", head: "<style>#prose:hover { font-family: Georgia }</style>", rule: "font-families" },
+  { name: "a family only on keyboard focus", head: "<style>#go:focus-visible { font-family: Georgia }</style>", body: '<button id="go">go</button>', rule: "font-families" },
+  { name: "the beam hidden on hover of the mark", head: "<style>.brand:hover circle { opacity: 0 }</style>", rule: "brand-mark" },
+  { name: "a same-origin frame claiming the artifact attribute", body: `<iframe data-artifact="frame" srcdoc="<p style='font-family: Georgia'>not a user artifact</p>"></iframe>`, rule: "font-families" },
+  { name: "a paint worklet", body: `<script>CSS.paintWorklet.addModule(URL.createObjectURL(new Blob(["registerPaint('x', class { paint() {} })"], { type: "text/javascript" })))</script>`, rule: "judgeable" },
   { name: "text drawn in a canvas's default font", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").fillText("x", 0, 10)</script>', rule: "font-families" },
   { name: "the Content-Security-Policy meta tag missing", rule: "csp-meta", only: ["csp-meta"] },
   { name: "a loosened Content-Security-Policy", head: cspMeta(`${CONTENT_SECURITY_POLICY.replace("'self'", "'self' 'unsafe-inline'")}`), rule: "csp-meta", only: ["csp-meta"] },
@@ -123,11 +167,15 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  // Longer than any default wall limit (Playwright's is 30 s), arriving a little at a time: a slow page is still a page.
+  { name: "a page whose stylesheet loads slowly but steadily, for longer than 30 s", head: `<link rel="stylesheet" href="${STEADY_PATH.slice("/proof/".length)}">`, rule: "font-families" },
   { name: "a scheduler.postTask with no delay", body: '<script>scheduler.postTask(() => { document.getElementById("prose").textContent = "posted"; })</script>', rule: "judgeable" },
   { name: "an interval that only changes text", body: '<script>let n = 0; setInterval(() => { document.getElementById("prose").textContent = `tick ${++n}`; }, 500)</script>', rule: "font-families" },
-  { name: "a frame the declared exclusion skips", body: `<iframe data-artifact="frame" srcdoc="<p style='font-family: Georgia'>a user's artifact</p><canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
-  { name: "a canvas drawing text in a token stack", body: '<canvas id="c"></canvas><script>const x = document.getElementById("c").getContext("2d"); x.font = "12px \'Proof Sans\', sans-serif"; x.fillText("x", 0, 10)</script>', rule: "font-families" },
-  { name: "a canvas given a token family", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = "12px \'Proof Mono\', monospace"</script>', rule: "font-families" },
+  { name: "an opaque-origin artifact frame the declared exclusion skips", body: `<iframe data-artifact="frame" sandbox="allow-scripts" srcdoc="<p style='font-family: Georgia'>a user's artifact</p><canvas id=c></canvas><script>document.getElementById('c').getContext('2d').font = '12px Georgia'</script>"></iframe>`, rule: "font-families" },
+  { name: "a canvas drawing text in a token stack", body: `<canvas id="c"></canvas><script>const x = document.getElementById("c").getContext("2d"); x.font = ${JSON.stringify(canvasFont("--face-sans"))}; x.fillText("x", 0, 10)</script>`, rule: "font-families" },
+  { name: "the Logbook theme worn with its own colours", head: `<style>:root[data-cockpit-theme="light"] { ${declarations(LOGBOOK)} }</style>`, body: '<script>document.documentElement.setAttribute("data-cockpit-theme", "light")</script>', rule: "brand-mark" },
+  { name: "a focusable control in the stacks", body: '<button id="go">go</button><input value="typed">', rule: "font-families" },
+  { name: "a canvas given a token family", body: `<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = ${JSON.stringify(canvasFont("--face-mono"))}</script>`, rule: "font-families" },
   { name: "the exact policy, spaced differently", head: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },
 ];
 
@@ -142,7 +190,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
     CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
       only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
-    const { server, origin } = await serveSite(dir, "/proof");
+    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady });
     const browser = await launchBrowser(executable);
     try {
       // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
@@ -153,7 +201,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
         const requests: string[] = [];
         await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding));
         const view = await openPage(context);
-        await view.goto(`${origin}/proof/${file}`, { waitUntil: "load" });
+        await navigate(view, `${origin}/proof/${file}`);
         const selected = rows(only);
         const findings = [...(await judgeStates(view, "cockpit", siteRestore(), selected, states)), ...(await judgeFuture(view, "cockpit", selected)), ...(selected === undefined ? requests : [])];
         await context.close();
