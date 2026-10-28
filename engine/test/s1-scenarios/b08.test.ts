@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { buildCandidateManifest, CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../../scripts/tooling/candidate-manifest.ts";
+import { buildCandidateManifest, CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../../scripts/verification/candidate-manifest.ts";
 import { analyzeStaticSource, verifyS1Structure } from "../../scripts/tooling/s1-verification.ts";
 import { buildTestInventory, discoverTestNames, recoverTestInventoryTransaction, testInventoryEntryIdentity, testInventoryIdentity, writeTestInventoryTransaction } from "../../scripts/test-inventory.ts";
 import { createTestReceipt, createTestResultReceipt, validateTestReceipt } from "../../scripts/tooling/test-receipt.ts";
