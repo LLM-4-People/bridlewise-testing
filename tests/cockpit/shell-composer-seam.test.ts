@@ -31,6 +31,7 @@ vi.mock("../../src/cockpit/shell/outlets.ts", () => ({
 import Cockpit from "../../src/cockpit/Cockpit.svelte";
 import DeskLineFixture from "./fixtures/DeskLineFixture.svelte";
 import type { ShellApi } from "../../src/cockpit/shell/contract.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -53,13 +54,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 function capturedShell(): ShellApi {
   const shell = (globalThis as unknown as { __seamShell?: ShellApi }).__seamShell;
@@ -81,7 +75,7 @@ describe("shell composer seams + desk-line slot", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector('[data-testid="seam-probe"]') !== null,
     );
   });

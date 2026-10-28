@@ -63,7 +63,9 @@ export async function main(): Promise<void> {
         "argument, node --test discovers the whole tree — including non-test " +
         "`.mjs` scripts under verification/ — and fails on them.\n",
     );
-    process.exit(1);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
+    process.exitCode = 1;
+    return;
   }
   // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): a run of the
   // configured number of test files or more (the guards: a few hundred) is
@@ -91,9 +93,10 @@ export async function main(): Promise<void> {
   lock.release();
   if (run.ending !== "exited") {
     process.stderr.write(`[test-guards] node --test ended by ${run.ending}${run.signal === null ? "" : ` (${run.signal})`}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
-  process.exit(run.exitCode);
+  process.exitCode = run.exitCode;
 }
 
 if (isEntryPoint(import.meta.url)) {

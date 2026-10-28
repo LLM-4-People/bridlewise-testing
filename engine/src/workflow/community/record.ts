@@ -19,7 +19,7 @@ import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
 import { HarnessError } from "../../kernel/errors.ts";
 import { TRACKER_BOARD } from "../../kernel/verification-paths.ts";
-import { DATE, readEntries, syncTrackerBoard, TRACKER_ITEM_SCHEMA, trackerItems } from "../failure-owners.ts";
+import { isTrackerDate, readEntries, syncTrackerBoard, trackerItemSchema, trackerItems } from "../failure-owners.ts";
 import { publishBranch, type ForgePullRequest, type ForgeTarget, type WorkspaceForge } from "../workspace-forge.ts";
 import type { IntakeRecord } from "./issue-ops.ts";
 
@@ -40,9 +40,9 @@ function fenced(text: string): string {
 
 /** The item file's text for `record`, opened (and, closed, closed) on the given `YYYY-MM-DD` dates. */
 export function intakeItemText(record: IntakeRecord, dates: Readonly<{ opened: string; closed: string }>): string {
-  if (!DATE.test(dates.opened) || !DATE.test(dates.closed)) refuse("community_record_invalid", "the record's dates must be YYYY-MM-DD");
+  if (!isTrackerDate(dates.opened) || !isTrackerDate(dates.closed)) refuse("community_record_invalid", "the record's dates must be YYYY-MM-DD");
   const fields: [string, string | null][] = [
-    ["schema", TRACKER_ITEM_SCHEMA],
+    ["schema", trackerItemSchema()],
     // A record, never a site page: its text reaches the site only through the tracker's escaping renderers.
     ["published", "false"],
     ["id", record.id],

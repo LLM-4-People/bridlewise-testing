@@ -17,14 +17,6 @@ consumer imports one implementation.
 - `module-owners.json` — the data the resolver reads: which module owns
   which concern, as data so the merge is declarative.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/shared/workflow/`.
-
-- `e2e-runner.mjs` is consumed by nothing yet.
-- `manifest-schema.mjs` is consumed by nothing yet.
-- `module-owners.mjs` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

@@ -105,7 +105,7 @@ import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { extractErrorMessage, HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
-import { configuredGitIdentity, directoryGitEnvironment, repositoryToplevel } from "../../src/git/repository-ownership.ts";
+import { directoryGitEnvironment, repositoryToplevel } from "../../src/git/repository-ownership.ts";
 import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy, workingCopyDifferences } from "../../src/git/working-copy.ts";
 import { assertIndexAtBaseline, recordIndexBaseline } from "../../src/git/index-baseline.ts";
 import { assertSameFilesystem, checkoutCommandRunner, configuredCheckoutCommandRunner, engineRelativePath, owedSetup, prepareCheckout, rerunChangedSetup, type CheckoutCommandRunner, type CheckoutStep, type ConvergenceReport } from "../../src/workflow/checkout-setup.ts";
@@ -180,8 +180,8 @@ function git(cwd: string, argv: readonly string[]): string {
  * the generated outputs and the pinned build outputs their pins describe.
  * Refresh never overwrites them; copy-back writes only them.
  */
-function candidateAuthoredPaths(target: string): readonly string[] {
-  return [...generatedOutputPaths(target), ...buildOutputPaths()];
+function candidateAuthoredPaths(): readonly string[] {
+  return [...generatedOutputPaths(), ...buildOutputPaths()];
 }
 
 /** Where the candidate records the source's authored bytes it last saw (in its own git dir). */
@@ -214,7 +214,7 @@ function writeBase(target: string, base: CandidateBase): void {
  * changed, so `treeSince` moves to now; otherwise it is kept.
  */
 function recordBase(source: string, target: string, treeChanged: boolean, from?: string): void {
-  const authored = Object.fromEntries(candidateAuthoredPaths(target).map((path) => [path, sourceDigest(join(source, path))]));
+  const authored = Object.fromEntries(candidateAuthoredPaths().map((path) => [path, sourceDigest(join(source, path))]));
   const previous = existsSync(basePath(target)) ? readBase(target) : undefined;
   const kept = from ?? previous?.from;
   writeBase(target, {
@@ -262,11 +262,11 @@ function readBase(target: string): CandidateBase {
  */
 function untouchedAuthoredPaths(source: string, target: string): ReadonlySet<string> {
   const { authored } = readBase(target);
-  return new Set(candidateAuthoredPaths(target).filter((path) => (authored[path] ?? null) === sourceDigest(join(source, path))));
+  return new Set(candidateAuthoredPaths().filter((path) => (authored[path] ?? null) === sourceDigest(join(source, path))));
 }
 
 function stageGeneratedOutputs(target: string): void {
-  stageInCopy(target, [...generatedOutputPaths(target)]);
+  stageInCopy(target, [...generatedOutputPaths()]);
 }
 
 /**
@@ -351,15 +351,15 @@ async function run(options: Options): Promise<unknown> {
       // The source's hooks run in the candidate too (exit 1 = no hooksPath set).
       const hooksPath = sourceConfig(source, "core.hooksPath");
       if (hooksPath !== null) git(target, ["config", "core.hooksPath", hooksPath]);
-      // The source's git IDENTITY too (as git resolves it there: the local,
-      // global or system value), so a snapshot or a commit in the candidate
-      // is attributed as the source's would be — never git's refusal, never
-      // an invented author. A source without one is stated in the result.
-      const identity = configuredGitIdentity(source);
-      if (identity !== null) {
-        git(target, ["config", "user.name", identity.name]);
-        git(target, ["config", "user.email", identity.email]);
-      }
+      // A candidate is an agent's checkout: it commits as the project's agent
+      // identity, from the one declared source — never the source's or the
+      // host's user.name/user.email — and says it is an agent's, so the
+      // commit-msg hook refuses any other identity here
+      // (scripts/verification/sign-off.ts).
+      const { agent, agentCheckoutKey } = ROOT_POLICY.workflow.commitIdentity;
+      git(target, ["config", "user.name", agent.name]);
+      git(target, ["config", "user.email", agent.email]);
+      git(target, ["config", agentCheckoutKey, "true"]);
       const { document } = loadPinnedConfigSnapshot();
       const isolation = document.workspaceIsolation;
       if (isolation === undefined) throw new InputError("workspaceIsolation is not configured; it declares the checkout setup", "candidate_setup_unconfigured");
@@ -369,7 +369,7 @@ async function run(options: Options): Promise<unknown> {
         throw new HarnessError(`candidate setup failed: ${canonicalJson(setup)}`, "candidate_setup_failed");
       }
       const convergence = options.sync ? converge(target, engineRelative, options.prune) : "skipped";
-      return { target, head: copy.head, files: copy.paths.length, hooksPath, identity: identity ?? "none (the source has no git identity: commits in the candidate will be refused by git)", setup, convergence, indexBaseline };
+      return { target, head: copy.head, files: copy.paths.length, hooksPath, identity: agent, setup, convergence, indexBaseline };
     }
     case "refresh": {
       refuseSnapshotCandidate(target, "refresh");
@@ -402,7 +402,7 @@ async function run(options: Options): Promise<unknown> {
  * see the header for the refusals. Returns what it wrote and the check.
  */
 function copyBack(source: string, target: string, engineRelative: string): Readonly<{ written: readonly string[]; check: string; ledgers: Readonly<Record<string, number | string>> }> {
-  const authored = new Set(candidateAuthoredPaths(target));
+  const authored = new Set(candidateAuthoredPaths());
   // The candidate must describe the source as it is NOW: any other
   // difference means the source moved since the candidate took it (or the
   // candidate was edited directly) — its outputs are not the source's.

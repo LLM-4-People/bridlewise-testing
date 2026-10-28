@@ -128,24 +128,6 @@ folder owns what they are told and who may do what.
   `limit`. Events are read from the file GitHub writes, never from a command
   line. `.github/workflows/community.yml` runs the bots.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/workflow/community/`.
-
-- `categories.ts` is consumed by `engine/src/workflow/community/community-cli.ts`.
-- `commands.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/community/issue-ops.ts`.
-- `community-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `community-config.ts` is consumed by `engine/src/workflow/community/commands.ts`, `engine/src/workflow/community/executor.ts`, `engine/src/workflow/community/issue-ops.ts`.
-- `credit.ts` is consumed by `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/welcome.ts`.
-- `executor.ts` is consumed by `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/welcome.ts`.
-- `health-files.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `issue-ops.ts` is consumed by `engine/src/workflow/community/executor.ts`, `engine/src/workflow/community/record.ts`.
-- `moderation.ts` is consumed by `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/health-files.ts`.
-- `record.ts` is consumed by `engine/src/workflow/community/community-cli.ts`.
-- `replies.ts` is consumed by `engine/src/workflow/community/executor.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/community/issue-ops.ts`, `engine/src/workflow/community/welcome.ts`.
-- `sources.ts` is consumed by `engine/src/workflow/community/categories.ts`, `engine/src/workflow/community/commands.ts`, `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/executor.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/community/issue-ops.ts` and 7 more.
-- `welcome.ts` is consumed by `engine/src/workflow/community/community-cli.ts`.
-
-<!-- /consumers:generated -->

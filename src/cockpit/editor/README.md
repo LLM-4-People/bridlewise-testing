@@ -17,19 +17,6 @@ The editor room: the project's files and what you can do with them — buffer, t
 - `FileTree.svelte` — THE FOLDER STRUCTURE — the left half of the room.
 - `TextEditor.svelte` — THE TEXT AREA — where an edit actually happens.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/editor/`.
-
-- `buffer.ts` is consumed by `src/cockpit/editor/feed.ts`, `src/cockpit/editor/save.ts`, `src/cockpit/rooms/EditorRoom.svelte`.
-- `destructive.ts` is consumed by `src/cockpit/editor/DeleteConfirm.svelte`, `src/cockpit/editor/FilePane.svelte`, `src/cockpit/rooms/EditorRoom.svelte`.
-- `editor-config.ts` is consumed by `src/cockpit/editor/DeleteConfirm.svelte`, `src/cockpit/editor/buffer.ts`, `src/cockpit/editor/destructive.ts`, `src/cockpit/editor/feed.ts`, `src/cockpit/editor/file-kind.ts`, `src/cockpit/rooms/EditorRoom.svelte`.
-- `feed.ts` is consumed by `src/cockpit/editor/FilePane.svelte`, `src/cockpit/rooms/EditorRoom.svelte`.
-- `file-kind.ts` is consumed by `src/cockpit/editor/FilePane.svelte`, `src/cockpit/editor/FileTree.svelte`, `src/cockpit/editor/feed.ts`, `src/cockpit/render/ToolOutput.svelte`, `src/cockpit/rooms/EditorRoom.svelte`.
-- `open-request.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/flow/PathChip.svelte`, `src/cockpit/rooms/EditorRoom.svelte`.
-- `save.ts` is consumed by `src/cockpit/rooms/EditorRoom.svelte`.
-- `tree.ts` is consumed by `src/cockpit/editor/FileTree.svelte`, `src/cockpit/editor/feed.ts`, `src/cockpit/rooms/EditorRoom.svelte`.
-
-<!-- /consumers:generated -->

@@ -308,9 +308,10 @@ async function runCli(): Promise<number> {
 // Run only when invoked directly as a script.
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  runCli().then((code) => process.exit(code)).catch((error) => {
+  // The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
+  runCli().then((code) => { process.exitCode = code; }).catch((error: unknown) => {
     process.stderr.write(`genesis crashed: ${safeError(error).message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   });
 }
 

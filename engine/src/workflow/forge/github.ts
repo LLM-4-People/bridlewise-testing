@@ -153,6 +153,15 @@ function errorBodyOf(text: string): ErrorBody {
   };
 }
 
+/** GitHub's own words from a refusal's facts, for its warning log line (its message and validation errors; no secret). */
+function githubWords(refusal: ForgeError): Readonly<Record<string, string>> {
+  const facts = refusal.facts as Readonly<{ message?: unknown; errors?: unknown }>;
+  return {
+    githubMessage: typeof facts.message === "string" ? facts.message : "",
+    githubErrors: Array.isArray(facts.errors) ? facts.errors.join("; ") : "",
+  };
+}
+
 /**
  * THE ONE CLASSIFICATION of a refused GitHub answer (non-2xx, non-304) into a
  * forge code with its facts. Pure: the status, the headers, the body text and
@@ -163,7 +172,10 @@ export function classifyGithubAnswer(status: number, headers: Headers, bodyText:
   const rate = rateFactsOf(headers);
   const retryAfter = numberHeader(headers, "retry-after");
   const base = { status, path, method, message: body.message, ...(body.documentationUrl === undefined ? {} : { documentationUrl: body.documentationUrl }), ...(body.errors.length === 0 ? {} : { errors: body.errors }) };
-  const raise = (code: ForgeCode, text: string, extra: Readonly<Record<string, string | number>> = {}): ForgeError => new ForgeError(code, `${method} ${path}: ${text}`, { ...base, ...extra });
+  // GitHub's own words (its message and each validation error: resource, field, code) carry no secret, and an operator
+  // needs them to know WHICH field was refused: they are in the error's text, not only its facts.
+  const said = body.message === "" && body.errors.length === 0 ? "" : ` GitHub: ${JSON.stringify(body.message)}${body.errors.length === 0 ? "" : ` errors: ${body.errors.join("; ")}`}.`;
+  const raise = (code: ForgeCode, text: string, extra: Readonly<Record<string, string | number>> = {}): ForgeError => new ForgeError(code, `${method} ${path}: ${text}${said}`, { ...base, ...extra });
   if (status === 401) return raise("github_unauthorized", "GitHub refused the credential.");
   if (status === 403 || status === 429) {
     if (rate.remaining === 0) return raise("github_rate_limited", "the primary rate limit is spent.", rate.resetAt === undefined ? {} : { resetAt: rate.resetAt });
@@ -268,7 +280,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
       const text = await readBody(response, lifetime.signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY);
       if (response.status < 200 || response.status >= 300) {
         const refusal = classifyGithubAnswer(response.status, response.headers, text, method, path);
-        debugLog(FORGE_LOG_CATEGORY, "warn", refusal.forgeCode, () => ({ principal: credential.principal, method, path, status: response.status, requestId: requestId ?? "" }));
+        debugLog(FORGE_LOG_CATEGORY, "warn", refusal.forgeCode, () => ({ principal: credential.principal, method, path, status: response.status, requestId: requestId ?? "", ...githubWords(refusal) }));
         throw refusal;
       }
       const data = parseBody(text, method, path);

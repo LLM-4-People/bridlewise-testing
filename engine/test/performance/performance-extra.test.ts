@@ -153,7 +153,7 @@ test("extra: function manifest with empty exclusions has 100% coverage", () => {
   const modules: ArchitectureModule[] = [
     { id: "m1", path: "src/m1.ts", realm: "shared", layer: "domain", owner: "o1",
       allowedDependencyLayers: ["domain"], compositionRoot: false, executionBoundary: "pure" as const,
-      dependencies: [], publicApi: { exportCount: 1, namesSha256: "a" }, ports: { requires: [], provides: [] },
+      ports: { requires: [], provides: [] },
       effects: [], configPaths: [], stateOwners: [], projectionOwners: [],
       authorityFamilies: [], authorityIdentifiers: [], responsibilities: ["m1"] },
   ];
@@ -170,7 +170,7 @@ test("extra: function manifest with all excluded has 0% coverage", () => {
   const modules: ArchitectureModule[] = [
     { id: "m1", path: "src/m1.ts", realm: "shared", layer: "domain", owner: "o1",
       allowedDependencyLayers: ["domain"], compositionRoot: false, executionBoundary: "pure" as const,
-      dependencies: [], publicApi: { exportCount: 1, namesSha256: "a" }, ports: { requires: [], provides: [] },
+      ports: { requires: [], provides: [] },
       effects: [], configPaths: [], stateOwners: [], projectionOwners: [],
       authorityFamilies: [], authorityIdentifiers: [], responsibilities: ["m1"] },
   ];
