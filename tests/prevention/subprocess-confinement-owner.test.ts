@@ -1999,7 +1999,7 @@ describe("D4. the prose asserts nothing the code refutes", () => {
     // would have been to weaken the scratch derivation.
     const roots = [
       "/tmp/some-project",
-      "/home/someone/work/repo",
+      "/home/user/work/repo",
       "/srv/app",
       "/var/tmp/checkout",
       "/opt/checkout",

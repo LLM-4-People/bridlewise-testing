@@ -969,7 +969,7 @@ describe("K. absent vs empty — the verdict is pure, the shell maps it to exit 
     return { status: result.status ?? -1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
   };
 
-  test("an absent run id exits 1 with one honest stderr line; an empty scope exits 0 with the honest dump", { timeout: 60_000 }, () => {
+  test("an absent run id exits 1 with one honest stderr line; an empty scope exits 0 with the honest dump", () => {
     const absent = runCli(["run", "run-does-not-exist"]);
     expect(absent.status, `stderr: ${absent.stderr}`).toBe(1);
     expect(absent.stderr).toContain(`no run with id run-does-not-exist in the ledger`);
@@ -985,7 +985,7 @@ describe("K. absent vs empty — the verdict is pure, the shell maps it to exit 
     expect(ok.stdout).toContain("arguments failed schema validation");
   });
 
-  test("an invalid event type exits 1 naming the vocabulary; a chat resolves through the web db; absent scopes exit 1", { timeout: 120_000 }, () => {
+  test("an invalid event type exits 1 naming the vocabulary; a chat resolves through the web db; absent scopes exit 1", () => {
     const invalid = runCli(["tail", "3", "--event-type", "resourc"]);
     expect(invalid.status).toBe(1);
     expect(invalid.stderr).toContain("unknown event type 'resourc'");
@@ -1017,7 +1017,7 @@ describe("K. absent vs empty — the verdict is pure, the shell maps it to exit 
     expect(absentSession.stderr).toContain("no runs for session no-such-session in the ledger");
   });
 
-  test("nothing to diagnose is an ANSWER, not an error — doctor's honest none keeps exit 0", { timeout: 60_000 }, () => {
+  test("nothing to diagnose is an ANSWER, not an error — doctor's honest none keeps exit 0", () => {
     // The none verdict that exits 0 is the NO-SCOPE one (or a matched scope
     // with nothing failing — but then the verdict is newest-run). An empty
     // LEDGER with no scope given is the clean case.
@@ -1030,7 +1030,7 @@ describe("K. absent vs empty — the verdict is pure, the shell maps it to exit 
     expect(result.stdout ?? "").toContain("doctor — no runs in the ledger, nothing to diagnose");
   });
 
-  test("runs and doctor answer over the fixture and --schema prints a parseable contract", { timeout: 60_000 }, () => {
+  test("runs and doctor answer over the fixture and --schema prints a parseable contract", () => {
     const runs = runCli(["runs", "--failed"]);
     expect(runs.status, `stderr: ${runs.stderr}`).toBe(0);
     expect(runs.stdout).toContain(RUN);
@@ -1185,7 +1185,7 @@ describe("M. --schema — the printed contract matches every command's real --js
     expect(schema.exitCodes["1"]).toContain("absent");
   });
 
-  test("the anatomy command's json top-level keys are the declared contract (the census shapes stay with their owner)", { timeout: 60_000 }, async () => {
+  test("the anatomy command's json top-level keys are the declared contract (the census shapes stay with their owner)", async () => {
     // The anatomy payload is composed by the shell from the census and
     // registry owners; its top-level shape is the CLI's contract, so the
     // real command is the honest witness. The per-process and per-component

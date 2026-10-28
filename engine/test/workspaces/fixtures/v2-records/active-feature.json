@@ -1,0 +1,41 @@
+{
+  "abortReason": null,
+  "agentName": "state-evidence",
+  "changedPaths": [],
+  "conflictReport": null,
+  "history": [
+    {
+      "at": "2026-10-21T20:55:44.899Z",
+      "from": "admitted",
+      "reason": "workspace created",
+      "to": "active"
+    }
+  ],
+  "lease": {
+    "agentName": "state-evidence",
+    "baseSha": "e20e308d5e753c64f2ea59d9b4d99e26afd61159",
+    "branch": "agent/state-evidence/91b35ff7de50",
+    "expiresAt": "2026-10-22T20:54:18.925Z",
+    "generation": 1,
+    "heartbeatAt": "2026-10-21T20:54:18.925Z",
+    "issuedAt": "2026-10-21T20:54:18.925Z",
+    "kind": "feature",
+    "nonce": "91b35ff7de50",
+    "overlay": null,
+    "schemaVersion": "bridlewise-workspace/v2",
+    "targetBranch": "testing",
+    "workspaceId": "state-evidence-91b35ff7de50",
+    "worktreePath": "/home/user/bridlewise-wt/state-evidence-91b35ff7de50",
+    "writeSet": [
+      ".gitignore",
+      "docs/findings/state-cleanup-2026-10-21"
+    ],
+    "writeSetIdentity": "cf5c501c64af678e9a2c812fa79ad8470380a13260ddb7e69c2c0b7d3d5ad617"
+  },
+  "mergeReceipt": null,
+  "revision": 2,
+  "schemaVersion": "bridlewise-workspace/v2",
+  "state": "active",
+  "validationReport": null,
+  "workspaceId": "state-evidence-91b35ff7de50"
+}

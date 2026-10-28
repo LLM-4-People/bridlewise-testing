@@ -9,4 +9,4 @@ whether the failure reproduces from a fresh clone. Do not include credentials,
 private paths, the raw corpus, or personal data.
 
 The current work lanes are on the [task board](TASKS.md). The milestone exit
-criteria are on the [roadmap](https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/).
+criteria are on the [roadmap](../floor/roadmap.md).

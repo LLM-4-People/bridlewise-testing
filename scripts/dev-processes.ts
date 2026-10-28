@@ -10,6 +10,7 @@
  * process-census.ts` `livePidfilePids`) reads the same records.
  */
 import { existsSync, readdirSync, rmSync } from "node:fs";
+import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -118,4 +119,28 @@ export async function stopDevOrchestrator(root: string = DEV_REPOSITORY_ROOT): P
  */
 export function portListeners(ports: readonly number[]): readonly PortListener[] {
   return processesListeningOn(ports).filter(({ pid }) => pid !== process.pid);
+}
+
+/** How long a local port probe waits for an answer before it calls the port free. */
+const PORT_PROBE_TIMEOUT_MS = 400;
+
+/**
+ * Whether something answers a TCP connect on the loopback `port`: the one
+ * local port probe (the dev orchestrator's precheck and the cockpit capture
+ * both ask it). It carries no request and no credential; a refused or
+ * unanswered connection is a free port. It complements `portListeners`,
+ * which names a listener procfs can see.
+ */
+export function portAnswers(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port }, () => {
+      socket.end();
+      resolve(true);
+    });
+    socket.on("error", () => resolve(false));
+    socket.setTimeout(PORT_PROBE_TIMEOUT_MS, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
 }

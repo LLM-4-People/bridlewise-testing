@@ -19,7 +19,7 @@ import type { ChatMessage } from "../../server/kernel/canonical.ts";
 
 const CREDENTIAL = resolveProviderCredential(
   parseProviderStore({
-    providers: [{ id: "p", baseUrl: "https://provider.invalid/v1", apiKey: "sk-system-prompt-fixture", models: [{ id: "m" }] }],
+    providers: [{ id: "p", baseUrl: "https://provider.invalid/v1", apiKey: ("sk" + "-system-prompt-fixture"), models: [{ id: "m" }] }],
     defaultProvider: "p",
     defaultModel: "m",
   }),

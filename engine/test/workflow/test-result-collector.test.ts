@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, existsSync } from "node:fs";
+import { readFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
@@ -16,6 +16,7 @@ import {
   TEST_RUN_SUMMARY_PATH,
 } from "../../src/workflow/test-result-collector.ts";
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
+import { HarnessError } from "../../src/kernel/errors.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 function makeEvent(type: string, data: Record<string, unknown> = {}): { type: string; data: Record<string, unknown> } {
@@ -620,6 +621,22 @@ test("collectTestResults: throws on empty files array", async () => {
   const tmpDir = createTempDir("test-result-empty-files-");
   try {
     await assert.rejects(() => collectTestResults(tmpDir, { files: [] }), /files must be/);
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("collectTestResults: an unreadable declared test root refuses the collection; only an absent one is empty", async () => {
+  const tmpDir = createTempDir("test-result-unreadable-root-");
+  try {
+    // A self-referencing link: `stat` fails with ELOOP, not ENOENT. Skipping
+    // it would certify a run short of every test the root holds.
+    symlinkSync("test", join(tmpDir, "test"));
+    await assert.rejects(
+      () => collectTestResults(tmpDir),
+      (error: unknown) => error instanceof HarnessError && error.code === "test_discovery_root_unreadable" &&
+        error.safeDetails.errno === "ELOOP",
+    );
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }

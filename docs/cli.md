@@ -87,6 +87,7 @@ Use it to confirm the config is pinned and hashed, not to claim that a run is sa
 | `harness benchmark` | Run performance benchmarks | Writes benchmark results |
 | `harness eval` | Run evaluation scenarios | Writes results |
 | `harness flake` | Inspect or reproduce flaky-test evidence | Varies |
+| `harness community categories` | Audit the repository's Discussion categories against `docs/community/intake.json`: each live category exists with its name, answerability and description, a planned one that now exists is flagged to flip, an undeclared one is named. Token in `GH_TOKEN`; drift exits 1 | No |
 | `harness extension list` | List registered extensions | No |
 
 Examples:
@@ -144,7 +145,7 @@ These verbs are for maintainers of the development floor. They assume the privat
 | `npm run db-key -- …` | Relocate, scan, forget, or rekey the database encryption key |
 | `npm run db-backup -- …` | Back up the database and its key material, or restore them, with verification |
 | `node scripts/trace.ts …` | Inspect the run ledger: `run`, `trace`, `tail`, `runs`, `doctor`, `anatomy` |
-| `node scripts/check-secrets.mjs` | Scan tracked files for credential shapes and internal paths |
+| `node scripts/check-secrets.mjs` | Scan tracked files with the engine's one secret catalogue (`engine/src/privacy/secret-signals.ts`): credential shapes and publication-privacy rules, each finding named by its row id |
 | `node scripts/generate-pwa-icons.mjs` | Regenerate the PWA icons |
 | `npm --prefix engine run build:bundle` | Build the guardian payload with esbuild |
 | `make -C engine/guardian all test` | Build and test the Landlock guardian |

@@ -56,6 +56,57 @@ release with:
 
 A release is not a production endorsement. The notes must repeat the developer-preview warning.
 
+## Cockpit captures
+
+The release screenshots and the GIF of a run come from one command, never
+from a hand-driven browser:
+
+```bash
+make -C engine/guardian all                # the copy needs the confinement binary
+npx playwright install chromium ffmpeg     # Playwright's Chromium and its ffmpeg
+npm run capture:cockpit                    # node --experimental-strip-types scripts/capture/cockpit.ts
+```
+
+It writes `.bridlewise/capture/<commit>/` (ignored: raw images never enter
+git): one PNG per view, theme and viewport, `fixture-run.webm`,
+`fixture-run.gif`, `text/` (each capture's visible text) and `manifest.json`.
+`--out <dir>` writes elsewhere; `--demo-root <dir>` moves the demo repository.
+Ports 5173 and 5174 must be free: the capture starts its own app and refuses
+(`ports_busy`) rather than touch a server it did not start.
+
+What a run guarantees:
+
+- **The captured commit, isolated.** The app runs from `git archive HEAD` in a
+  scratch folder, with every byte of state (XDG homes, keys, evidence, both
+  databases) inside it, started and stopped through `scripts/sd.mjs` in that
+  copy. The scratch folder and the demo repository are removed afterwards.
+- **No model is called.** `HARNESS_WEB_LLM_FIXTURES=1` streams the product's
+  fixture events; the saved provider is a placeholder (`fixture.invalid`).
+  Every capture of the run, and the GIF, carries the label "fixture replay —
+  no model was called".
+- **Nothing volatile is published as if it were measured.** The browser clock
+  is fixed; the server's clock is not (it has no fixed-clock variable), so the
+  values it stamps (times, ages, dates, run ids) and the run's throughput
+  figures (ttft, tok/s, token counts, durations, event counts) and the four
+  instrument readings that move while the harness runs are replaced by a
+  bracketed label such as `[time]`, and the capture says so. A value that
+  still changes under the camera fails the run: each view is shot twice a
+  second apart and must be byte-identical (a failing view leaves its later
+  shot in `unstill/`, and no manifest is written).
+- **No host identity.** The demo repository lives under
+  `/tmp/bridlewise-capture`; a capture whose text (what is visible inside the
+  image) holds a home path or the host user name fails the run.
+- **A record of what was made.** `manifest.json` names the commit, the recipe
+  hash (the capture scripts plus every plan input), the Chromium and
+  Playwright versions, and each image's sha256 and masked labels.
+
+What it does not guarantee: the same bytes on another host while the IBM Plex
+fonts are not vendored (`public/fonts/` absent: text renders in the host's
+fallback font, and the manifest says so), and a byte-identical GIF (a video's
+frame timing is not deterministic; the PNGs are the comparable output). The
+sequence, masks and manifest are unit-tested in
+`tests/unit/capture-cockpit-plan.test.ts`.
+
 ## Install from a checkout
 
 ```bash

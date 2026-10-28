@@ -666,6 +666,53 @@ if mount_probe unshare -rm; then
 elif mount_probe sudo -n unshare -m; then
   UNSHARE="sudo -n unshare -m"
 fi
+echo "=== test 37: network refused — socket(AF_INET) and socket(AF_UNIX) -> EACCES ==="
+sed '1a "network": "refused",' "$WORK/spec.json" > "$WORK/spec-net.json"
+run_cap "$BIN" apply --spec "$WORK/spec-net.json" --exec "$TP" socket inet || true
+assert_contains "network refused: an inet socket -> EACCES" "EACCES" "$OUT"
+run_cap "$BIN" apply --spec "$WORK/spec-net.json" --exec "$TP" socket unix || true
+assert_contains "network refused: a unix socket -> EACCES" "EACCES" "$OUT"
+echo "=== test 38: network not governed (no field) — socket(AF_INET) -> OK (the control) ==="
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socket inet || true
+assert_contains "network not governed: an inet socket -> OK" "OK" "$OUT"
+echo "=== test 39 (hostile): network with any value but \"refused\" -> exit 2 ==="
+sed '1a "network": "open",' "$WORK/spec.json" > "$WORK/spec-net-bad.json"
+run_cap "$BIN" apply --spec "$WORK/spec-net-bad.json" --exec "$TP" socket inet || true
+assert_exit "network: \"open\" -> exit 2" "2"
+echo "=== test 40: cpu_seconds — a spinning payload is ended by the kernel, by CPU work ==="
+sed '1a "cpu_seconds": 1,' "$WORK/spec.json" > "$WORK/spec-cpu.json"
+run_cap "$BIN" apply --spec "$WORK/spec-cpu.json" --exec "$TP" spin - || true
+# SIGXCPU (24) or SIGKILL (9) ends it: a shell reports 128 + the signal.
+if [[ "$RC" == "152" || "$RC" == "137" ]]; then pass "cpu_seconds: the spin ended by signal (exit=$RC)"; else fail "cpu_seconds: the spin was not ended by its CPU ceiling (exit=$RC)"; fi
+echo "=== test 41 (hostile): cpu_seconds out of range -> exit 2 ==="
+sed '1a "cpu_seconds": 0,' "$WORK/spec.json" > "$WORK/spec-cpu-bad.json"
+run_cap "$BIN" apply --spec "$WORK/spec-cpu-bad.json" --exec "$TP" socket inet || true
+assert_exit "cpu_seconds: 0 -> exit 2" "2"
+
+echo "=== test 42: signals refused — a signal to any other process is EPERM (seccomp, every kernel); not governed, the control reaches it ==="
+sleep 60 & OUTSIDE=$!
+sed '1a "signals": "refused",' "$WORK/spec.json" > "$WORK/spec-signals.json"
+run_cap "$BIN" apply --spec "$WORK/spec-signals.json" --exec "$TP" signal "$OUTSIDE" || true
+if [[ "$OUT" == *"EPERM"* ]] && kill -0 "$OUTSIDE" 2>/dev/null; then pass "signals refused: SIGTERM to an outside process -> EPERM, and it lives"; else fail "signals refused: the signal was not refused (out=$OUT, rc=$RC)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" signal "$OUTSIDE" || true
+sleep 0.2
+if [[ "$OUT" == *"OK"* ]] && ! kill -0 "$OUTSIDE" 2>/dev/null; then pass "not governed (control): the same signal reaches it"; else fail "control: the signal did not reach the outside process (out=$OUT)"; fi
+kill "$OUTSIDE" 2>/dev/null || true; wait "$OUTSIDE" 2>/dev/null || true
+echo "=== test 43 (hostile): signals with any value but \"refused\" -> exit 2 ==="
+sed '1a "signals": "scoped",' "$WORK/spec.json" > "$WORK/spec-signals-bad.json"
+run_cap "$BIN" apply --spec "$WORK/spec-signals-bad.json" --exec "$TP" socket inet || true
+assert_exit "signals: \"scoped\" -> exit 2" "2"
+echo "=== test 44: memory_bytes — an allocation past RLIMIT_AS fails; one under it succeeds ==="
+sed '1a "memory_bytes": 134217728,' "$WORK/spec.json" > "$WORK/spec-mem.json"
+run_cap "$BIN" apply --spec "$WORK/spec-mem.json" --exec "$TP" alloc 512 || true
+if [[ "$OUT" == *"ENOMEM"* ]]; then pass "memory_bytes: 512 MiB past a 128 MiB ceiling -> ENOMEM"; else fail "memory_bytes: the allocation was not refused (out=$OUT, rc=$RC)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec-mem.json" --exec "$TP" alloc 16 || true
+if [[ "$OUT" == *"OK"* ]]; then pass "memory_bytes: 16 MiB under the ceiling -> OK"; else fail "memory_bytes: a small allocation failed (out=$OUT)"; fi
+echo "=== test 45 (hostile): memory_bytes out of range -> exit 2 ==="
+sed '1a "memory_bytes": 1024,' "$WORK/spec.json" > "$WORK/spec-mem-bad.json"
+run_cap "$BIN" apply --spec "$WORK/spec-mem-bad.json" --exec "$TP" socket inet || true
+assert_exit "memory_bytes: 1024 -> exit 2" "2"
+
 if [ -n "$UNSHARE" ]; then
   ALIAS="$WORK/alias"; mkdir -p "$ALIAS"
   cat > "$WORK/spec-alias-under.json" <<EOF

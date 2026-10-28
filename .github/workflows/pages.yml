@@ -3,30 +3,30 @@ name: Docs site
 on:
   push:
     branches: [main]
+  pull_request:
+  merge_group:
   workflow_dispatch:
     inputs:
-      product_ref:
-        description: Product docs revision to mirror
+      supersede_published:
+        description: "Only to recover a refused deploy (runbook P6): the exact commit the live site was built from, as the refusal names it, or 'unknown'"
         required: false
-        default: main
+        default: ""
         type: string
 
 permissions:
   contents: read
 
-concurrency:
-  # Deployments are serialised, and every pending one waits its turn: the
-  # default single-slot queue would cancel a pending main deployment.
-  group: pages
-  queue: max
-  cancel-in-progress: false
-
 jobs:
   build:
-    name: Build docs and floor
+    name: Build the site
     if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # A pull request's build replaces its previous one; every other build is
+    # its own run, so a main build is never cancelled.
+    concurrency:
+      group: pages-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     permissions:
       contents: read
       pages: read
@@ -34,16 +34,9 @@ jobs:
       security-events: read
       vulnerability-alerts: read
     steps:
-      - name: Check out testing floor
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Check out product docs
-        id: product
+      - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: LLM-4-People/bridlewise
-          ref: ${{ inputs.product_ref || 'main' }}
-          path: product
           persist-credentials: false
 
       - name: Set up Node 24
@@ -51,48 +44,49 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # The builder reads the site configuration with the repository's one
+      # YAML reader (the yaml package).
+      - name: Install web dependencies
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
       - name: Configure Pages
         id: pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
-      - name: Assemble the mirror and floor
-        run: |
-          node scripts/assemble-floor-site.mjs \
-            --product product/docs \
-            --testing . \
-            --out .site \
-            --baseurl "${{ steps.pages.outputs.base_path }}"
+      # Released docs snapshots (`<dir>/<version>/`) are downloaded and
+      # verified here once releases exist (the release train, P4.2); until
+      # then the folder is empty and the site lists no versions.
+      - name: Collect the released docs snapshots
+        run: mkdir -p "$RUNNER_TEMP/versions"
 
-      - name: Install the engine (the floor reads GitHub through the forge port)
+      - name: Install the engine (the builder and the floor read through the forge port)
         run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
 
       - name: Enforce the self-protection config mode
         run: chmod 600 engine/bridlewise.config.json
 
+      - name: Build the site source
+        env:
+          BASEURL: ${{ steps.pages.outputs.base_path }}
+        run: node scripts/build-site.mjs source --out .site --baseurl "$BASEURL" --versions "$RUNNER_TEMP/versions"
+
+      # The builder wrote the floor data offline; this refreshes the live status.
       - name: Generate floor data
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          node scripts/build-floor-data.mjs \
-            --testing . \
-            --product product \
-            --out .site/floor/data
+        run: node scripts/build-floor-data.mjs --root . --out .site/floor/data
 
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:
           source: ./.site
           destination: ./_site
-          build_revision: ${{ steps.product.outputs.commit }}
+          build_revision: ${{ github.sha }}
 
-      - name: Check the built site has no broken internal links
-        run: |
-          node scripts/floor/site-links.mjs \
-            --site _site \
-            --baseurl "${{ steps.pages.outputs.base_path }}"
-
-      - name: Check design coverage
-        run: node scripts/floor/design-coverage.mjs --site _site
+      - name: Merge the snapshots and check links and design
+        env:
+          BASEURL: ${{ steps.pages.outputs.base_path }}
+        run: node scripts/build-site.mjs finish --site _site --baseurl "$BASEURL" --versions "$RUNNER_TEMP/versions"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
@@ -100,13 +94,45 @@ jobs:
           path: ./_site
           include-hidden-files: true
 
-  deploy:
-    name: Deploy to GitHub Pages
-    if: github.event.repository.visibility == 'public'
+  # A recorded override of a refused deploy order (scripts/floor/deploy-order.mjs)
+  # waits for the pages-override environment's reviewer.
+  approve-override:
+    name: Approve the deploy-order override
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.supersede_published != ''
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    environment:
+      name: pages-override
+    steps:
+      - name: Record the approved override
+        env:
+          SUPERSEDE: ${{ inputs.supersede_published }}
+        run: echo "::notice title=Pages deploy-order override::approved to replace the site published from $SUPERSEDE"
+
+  deploy:
+    name: Deploy to GitHub Pages
+    # Only main deploys: a pull request or a merge-queue build checks the site
+    # and stops at the artifact. An override deploys only once approved.
+    if: >-
+      always() && needs.build.result == 'success'
+      && (needs.approve-override.result == 'success' || needs.approve-override.result == 'skipped')
+      && github.event.repository.visibility == 'public'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && github.ref == 'refs/heads/main'
+    needs: [build, approve-override]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # Deployments are serialised, and every pending one waits its turn: the
+    # default single-slot queue would cancel a pending main deployment.
+    concurrency:
+      group: pages-deploy
+      queue: max
+      cancel-in-progress: false
     permissions:
+      contents: read
+      deployments: read
       pages: write
       id-token: write
       actions: read
@@ -114,6 +140,32 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install the engine (the check reads GitHub through the forge port)
+        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      # Builds finish out of commit order; a site built from an older commit
+      # never replaces a newer one (scripts/floor/deploy-order.mjs).
+      - name: Check the deploy order
+        id: order
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUPERSEDE: ${{ inputs.supersede_published }}
+        run: node scripts/floor/deploy-order.mjs --sha "$GITHUB_SHA" --supersede "$SUPERSEDE"
+
       - name: Deploy
         id: deployment
+        if: steps.order.outputs.deploy == 'true'
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

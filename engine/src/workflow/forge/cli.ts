@@ -21,14 +21,14 @@
  * on stderr. The `forge` section of `bridlewise.config.json` is required
  * (`forge_not_configured` otherwise).
  */
-import { admitHarnessKeyHome } from "../../filesystem/self-protection/key-home.ts";
+import { admitHarnessKeyHome, type AdmittedKeyHome } from "../../filesystem/self-protection/key-home.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { guarded } from "../../process/fault-policy.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { readIntake } from "../community/sources.ts";
 import { trackedTop } from "../evidence-store.ts";
 import { FORGE_APP_ROLES, FORGE_APPS } from "./app-registry.ts";
-import { serveAppsPage } from "./apps-page.ts";
+import { serveAppsPage, type AppsPage, type AppsPageOptions } from "./apps-page.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 import { environmentCredential, memoryCredential } from "./credentials.ts";
@@ -37,18 +37,35 @@ import { forgeEndpoint, trunkRepository, type ForgeSettings } from "./forge-conf
 import { forgeFileSources, syncForgeFiles } from "./generated-files.ts";
 import { githubClient } from "./github.ts";
 import { forgeApply, forgePlan } from "./plan.ts";
-import { maintainerCli } from "./maintainer-cli.ts";
+import { maintainerCli, type MaintainerCli } from "./maintainer-cli.ts";
 import type { ForgeCredential, ForgeEndpoint } from "./port.ts";
 
 /**
- * What the settings verbs reach: the forge section and the endpoint it
- * names. In production that is this checkout's configured section; the
- * CLI-level test passes its own section and a fake GitHub's endpoint, and
- * drives the very same verbs.
+ * What every `harness forge` verb reaches: the forge section, the endpoint
+ * it names, the key home (where the Apps page stores keys, and whose
+ * custody signs for the host Apps), and the maintainer's `gh`. In
+ * production these are this checkout's configured section, its key home and
+ * the real `gh`. The CLI-level tests pass a test section, a fake GitHub's
+ * endpoint, a key home and a `gh` of their own, and drive the very same
+ * verbs. ONE parameter object for every verb: no verb reads the
+ * configuration, the key home or `gh` past it.
  */
-export type ForgeCliWiring = Readonly<{ settings: () => ForgeSettings; endpoint: (settings: ForgeSettings) => ForgeEndpoint }>;
+export type ForgeCliWiring = Readonly<{
+  settings: () => ForgeSettings;
+  endpoint: (settings: ForgeSettings) => ForgeEndpoint;
+  keyHome: () => AdmittedKeyHome;
+  maintainerCli: (settings: ForgeSettings) => MaintainerCli;
+  /** The Apps page server (production: `serveAppsPage`; a test records what it was given). */
+  appsPage: (options: AppsPageOptions) => Promise<AppsPage>;
+}>;
 
-const CONFIGURED: ForgeCliWiring = Object.freeze({ settings: configuredForge, endpoint: forgeEndpoint });
+const CONFIGURED: ForgeCliWiring = Object.freeze({
+  settings: configuredForge,
+  endpoint: forgeEndpoint,
+  keyHome: () => admitHarnessKeyHome([]),
+  maintainerCli: (settings: ForgeSettings) => maintainerCli(settings.webUrl, settings.maintainerCli),
+  appsPage: serveAppsPage,
+});
 
 const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
 
@@ -57,19 +74,19 @@ function usage(): never {
 }
 
 /** `harness forge apps manifests [--check]`. */
-function appsManifests(root: string, rest: readonly string[]): CommandAnswer {
+function appsManifests(root: string, rest: readonly string[], wiring: ForgeCliWiring): CommandAnswer {
   if (rest.some((argument) => argument !== "--check")) usage();
   const write = !rest.includes("--check");
   const top = trackedTop(root);
-  const report = syncForgeFiles(top, forgeFileSources(top, configuredForge()), write);
+  const report = syncForgeFiles(top, forgeFileSources(top, wiring.settings()), write);
   return { result: wrapResult("forge", deepFreeze({ verb: "apps manifests", ...report }), { status: report.converged ? "pass" : "fail" }) };
 }
 
 /** `harness forge apps create`: preflight, then the page until Done. */
-async function appsCreate(root: string, rest: readonly string[], onProgress: (line: string) => void): Promise<CommandAnswer> {
+async function appsCreate(root: string, rest: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring): Promise<CommandAnswer> {
   if (rest.length > 0) usage();
-  const settings = configuredForge();
-  const cli = maintainerCli(settings.webUrl, settings.maintainerCli);
+  const settings = wiring.settings();
+  const cli = wiring.maintainerCli(settings);
   const ready = await cli.ready();
   if (!ready.ready) throw new ForgeError("forge_maintainer_cli_failed", `The maintainer's gh is not ready: ${ready.reason}.`, {});
   const trunk = `${settings.organization}/${trunkRepository(settings).name}`;
@@ -80,7 +97,7 @@ async function appsCreate(root: string, rest: readonly string[], onProgress: (li
     }
   }
   const { discussionCategories } = readIntake(trackedTop(root));
-  const page = await serveAppsPage({ settings, endpoint: forgeEndpoint(settings), keyHome: admitHarnessKeyHome([]), cli, port: settings.appsPage.port, discussionCategories });
+  const page = await wiring.appsPage({ settings, endpoint: wiring.endpoint(settings), keyHome: wiring.keyHome(), cli, port: settings.appsPage.port, discussionCategories });
   onProgress(`Open ${page.url} in your browser (Session 1). The address carries a one-time token: it is printed here only, and the page answers nothing without it. The page stays up until you press Done there.`);
   const summary = await page.done;
   return { result: wrapResult("forge", deepFreeze({ verb: "apps create", ...summary }), { status: summary.pending.length === 0 ? "pass" : "fail" }) };
@@ -152,8 +169,8 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
 /** The `harness forge` dispatch. */
 export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring = CONFIGURED): Promise<CommandAnswer> {
   const [group, verb, ...rest] = argv;
-  if (group === "apps" && verb === "manifests") return appsManifests(root, rest);
-  if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress);
+  if (group === "apps" && verb === "manifests") return appsManifests(root, rest, wiring);
+  if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress, wiring);
   if (group === "plan" || group === "apply" || group === "audit") return settingsVerb(root, group, argv.slice(1), onProgress, wiring);
   return usage();
 }

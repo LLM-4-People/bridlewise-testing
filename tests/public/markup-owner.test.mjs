@@ -9,6 +9,7 @@ import {
   decodeHtmlEntities,
   escapeHtml,
   escapeMarkdownTableCell,
+  escapeMarkdownText,
   htmlWithout,
   stripTags,
 } from "../../shared/markup.ts";
@@ -522,6 +523,14 @@ test("decodeHtmlEntities decodes once, never twice (alert 98)", () => {
   assert.equal(decodeHtmlEntities("a&amp;b &quot;q&quot; &#39;s&apos; &lt;&gt;"), `a&b "q" 's' <>`);
   assert.equal(decodeHtmlEntities("&#60;&#x3C;&#X3c;"), "<<<");
   assert.equal(decodeHtmlEntities("&nbsp; &unknown; &amp &#0; &#xD800; &#1114112;"), "&nbsp; &unknown; &amp &#0; &#xD800; &#1114112;");
+});
+
+test("escapeMarkdownText leaves no Markdown or HTML syntax in plain text, in one pass", () => {
+  assert.equal(escapeMarkdownText("<script>alert(1)</script>"), "&lt;script&gt;alert\\(1\\)&lt;/script&gt;");
+  assert.equal(escapeMarkdownText("[x](javascript:alert(1)) **b** `c`"), "\\[x\\]\\(javascript\\:alert\\(1\\)\\) \\*\\*b\\*\\* \\`c\\`");
+  assert.equal(escapeMarkdownText("# head\r\nnext\nline"), "\\# head next line", "a line break stays in its block");
+  assert.equal(escapeMarkdownText("&lt; and \\"), "&amp;lt; and \\\\", "an entity and a backslash are escaped once, never read again");
+  assert.equal(escapeMarkdownText("Plain words 42"), "Plain words 42", "a near-miss: plain text is untouched");
 });
 
 test("escapeMarkdownTableCell escapes the backslash with the pipe (alert 97)", () => {

@@ -56,14 +56,20 @@ ships into the client bundle or the server runtime.
 
 - `harness-root/` — the integration merge and bootstrap tooling at the
   harness root.
+- `capture/` — the deterministic cockpit capture (`npm run capture:cockpit`):
+  `cockpit.ts` runs the committed tree in an isolated copy with the fixture
+  model stream and writes the release screenshots, one GIF of the run and a
+  manifest; `cockpit-plan.ts` is its pure plan (sequence, masks, manifest)
+  and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
+  states what it guarantees.
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
   through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
-  blocks: it renders them from the page's `ROADMAP-PLAN` block, the open rows
-  of `docs/trackers/TASKS.md`, and the non-proofs in
-  `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
+  blocks: it renders them from the tracker items (`docs/trackers/items/`,
+  states computed by `engine/src/workflow/tracker-status.ts`), the decision
+  records, and the non-proofs in `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
   `npm run docs:roadmap -- --check` is the read-only form, and
   `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
 

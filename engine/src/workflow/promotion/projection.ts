@@ -9,10 +9,11 @@
  * walked; an import into it is a refusal); a path the entry points reach is
  * in; an included path or prefix is in; a companion (e.g. a `README.md`) is
  * in when its folder holds a projected path; everything else is out (deny by
- * default). The profile's overlay folder (`boundary.overlay`) adds the
- * target-only files (documents and recipes, never a module): each ships at
- * its path without the folder prefix, obeys the profile's excludes at that
- * path, and may not name a path the projection already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
+ * default). The profile's overlay (`boundary.overlay`) adds the target-only
+ * files: each file of its folder ships at its path without the folder prefix,
+ * must be one of its declared kinds (from the fixed `OVERLAY_KINDS`, without case), obeys the
+ * profile's excludes at that path, and may not name a path the projection
+ * already carries. It runs over any {@link TreeReader}: a commit (the plan) or the
  * source's working tree (the source-side boundary guard).
  *
  * {@link planPromotion} adds the derived files (`transforms.ts`), writes the
@@ -40,8 +41,8 @@ import { GITLINK_MODE, SYMLINK_MODE, commitTreeReader, gitOutput, writeBlob, wri
 import { generatedOutputPathsOf, isGenerationOnlyChange } from "../hash-binding-registry.ts";
 import { directoryOf, isWalkableModule, normalizeRepositoryPath, packageNameOf, reachabilityChain, reachabilityClosure, type PathAlias, type Reachability } from "../reachability.ts";
 import { PromotionError, mostSevereCode, type PromotionCode } from "./codes.ts";
-import { excludedBy, pathMatchesEntry, profileCommandNames, type LoadedPromotionProfile, type PromotionProfile } from "./profile.ts";
-import { deriveLockfile, deriveManifest, type LockfileRun, type ManifestExplanation } from "./transforms.ts";
+import { excludedBy, isOfOverlayKind, pathMatchesEntry, profileCommandNames, type LoadedPromotionProfile, type PromotionProfile } from "./profile.ts";
+import { deriveLockfile, deriveMakefile, deriveManifest, type LockfileRun, type MakefileExplanation, type ManifestExplanation } from "./transforms.ts";
 import { profileHistory, type TrailerLine } from "./trailers.ts";
 
 /** Why a path is, or is not, projected. */
@@ -66,7 +67,7 @@ export type Classification = Readonly<{
 }>;
 
 /** The one reason a target path ships for (`projected`, or the overlay), or `undefined` when it does not. */
-export function shippedReason(classification: Classification, path: string): PathReason | undefined {
+function shippedReason(classification: Classification, path: string): PathReason | undefined {
   const overlay = classification.overlaid.get(path);
   return overlay === undefined ? classification.projected.get(path) : { rule: "overlay", detail: overlay };
 }
@@ -214,12 +215,13 @@ export function classifyTree(reader: TreeReader, profile: PromotionProfile): Cla
   }
   const overlaid = new Map<string, string>();
   const { overlay } = profile.boundary;
-  for (const path of overlay === null ? [] : paths.filter((candidate) => candidate.startsWith(overlay))) {
-    const target = path.slice(overlay!.length);
+  const declaredKind = (basename: string): boolean => overlay!.kinds.some((kind) => isOfOverlayKind(basename, kind));
+  for (const path of overlay === null ? [] : paths.filter((candidate) => candidate.startsWith(overlay.folder))) {
+    const target = path.slice(overlay!.folder.length);
     const mode = reader.entry(path)?.mode;
     const excluded = excludedBy(profile, target);
     if (excluded !== null) refusals.push(refusal("promotion_overlay_invalid", `${path} would ship at ${target}, which the profile excludes (by ${excluded}): the overlay obeys the boundary like every source path`, { overlay: path, target }));
-    else if (isWalkableModule(path)) refusals.push(refusal("promotion_overlay_invalid", `${path} is a module: the overlay ships target-only documents and recipes, never code the import walk would not judge (ship code from the source tree)`, { overlay: path, target }));
+    else if (!declaredKind(path.slice(path.lastIndexOf("/") + 1))) refusals.push(refusal("promotion_overlay_invalid", `${path} is not a kind the overlay declares (${overlay!.kinds.join(", ")}): the overlay ships only its declared kinds of target-only files`, { overlay: path, target }));
     else if (projected.has(target)) refusals.push(refusal("promotion_overlay_invalid", `${path} overlays ${target}, which the projection already carries (${describe(projected.get(target))}): a path ships for one reason`, { overlay: path, target }));
     else if (mode === SYMLINK_MODE || mode === GITLINK_MODE) refusals.push(refusal("promotion_overlay_invalid", `${path} is a ${mode === SYMLINK_MODE ? "symbolic link" : "gitlink"}: the overlay ships files only (a link would change its meaning at ${target})`, { overlay: path, target }));
     else overlaid.set(target, path);
@@ -227,15 +229,28 @@ export function classifyTree(reader: TreeReader, profile: PromotionProfile): Cla
   return deepFreeze({ projected, notProjected, reachability, importedPackages, overlaid, refusals: deepFreeze(refusals) });
 }
 
-/** The derived manifests of a classification: each package-manifest transform the tree holds (no command runs). */
-export function deriveManifests(
+/** Why a derived file reads as it does: a manifest's or a Makefile's explanation. */
+export type TransformExplanation = ManifestExplanation | MakefileExplanation;
+
+/** The pure derivations of a classification: each package-manifest and makefile transform the tree holds (no command runs). */
+export function derivePureTransforms(
   reader: TreeReader,
   profile: PromotionProfile,
   classification: Classification,
-): Readonly<{ texts: ReadonlyMap<string, string>; explanations: readonly ManifestExplanation[]; refusals: readonly Refusal[] }> {
+): Readonly<{ texts: ReadonlyMap<string, string>; explanations: readonly TransformExplanation[]; refusals: readonly Refusal[] }> {
   const texts = new Map<string, string>();
-  const explanations: ManifestExplanation[] = [];
+  const explanations: TransformExplanation[] = [];
   const refusals: Refusal[] = [];
+  for (const transform of profile.transforms) {
+    if (transform.kind !== "makefile" || reader.text(transform.path) === null) continue;
+    try {
+      const derived = deriveMakefile(reader.text(transform.path)!, transform.targets, transform.path);
+      texts.set(transform.path, derived.text);
+      explanations.push(derived.explanation);
+    } catch (error) {
+      refusals.push(refusalOf(error));
+    }
+  }
   const tsconfigs = [...classification.projected.keys()].filter((path) => TSCONFIG.test(path));
   const manifests = [...classification.projected.keys()].filter((path) => MANIFEST.test(path));
   for (const transform of profile.transforms) {
@@ -284,14 +299,14 @@ type ManifestLockPackages = Readonly<Record<string, Readonly<Record<string, unkn
 export function projectionAdvisories(
   reader: TreeReader,
   classification: Classification,
-  manifestTexts: ReadonlyMap<string, string>,
+  derivedTexts: ReadonlyMap<string, string>,
   addedSinceLastPromotion: readonly string[],
 ): readonly Readonly<{ kind: string; path: string; detail: string }>[] {
   const found: { kind: string; path: string; detail: string }[] = [];
   for (const path of addedSinceLastPromotion) {
     if (classification.notProjected.get(path)?.rule === "unreachable") found.push({ kind: "new_unprojected_paths", path, detail: "added on the source since the last promotion and not projected (deny by default): reach it from an entry point or include it if it ships" });
   }
-  const derivedScripts = new Map([...manifestTexts].map(([path, text]) => [path, new Set(Object.keys((JSON.parse(text) as { scripts?: object }).scripts ?? {}))]));
+  const derivedScripts = new Map([...derivedTexts].filter(([path]) => classification.projected.get(path)?.detail === "package-manifest").map(([path, text]) => [path, new Set(Object.keys((JSON.parse(text) as { scripts?: object }).scripts ?? {}))]));
   const shipped = shippedSources(classification);
   const manifests = [...derivedScripts.keys()];
   const documents = [...shipped.keys()].filter((path) => path.endsWith(".md"));
@@ -306,7 +321,7 @@ export function projectionAdvisories(
   }
   const tree = new Set(reader.paths());
   for (const path of makefiles) {
-    for (const word of (reader.text(shipped.get(path)!) ?? "").split(/\s+/u)) {
+    for (const word of (derivedTexts.get(path) ?? reader.text(shipped.get(path)!) ?? "").split(/\s+/u)) {
       if (!word.includes("/") || word.includes("$(")) continue;
       const target = normalizeRepositoryPath(directoryOf(path), word.replace(/^[|:]+|[|:]+$/gu, ""));
       if (tree.has(target) && !shipped.has(target)) found.push({ kind: "dangling_recipe_path", path, detail: `names ${target}, which the projection does not carry` });
@@ -387,7 +402,7 @@ export type PromotionPlan = Readonly<{
   projection: Readonly<{ tree: string; paths: number; underived: readonly string[] }>;
   summary: Readonly<{ added: number; modified: number; deleted: number; derived: number; generated: number }>;
   paths: Readonly<{ added: readonly PlannedPath[]; modified: readonly PlannedPath[]; deleted: readonly PlannedPath[] }>;
-  transforms: readonly ManifestExplanation[];
+  transforms: readonly TransformExplanation[];
   targetEdits: readonly string[];
   targetEditsPatch: string | null;
   refusals: readonly Refusal[];
@@ -420,7 +435,7 @@ function describe(reason: PathReason | undefined): string {
 export type SourceProjection = Readonly<{
   reader: TreeReader;
   classification: Classification;
-  manifests: ReturnType<typeof deriveManifests>;
+  derivations: ReturnType<typeof derivePureTransforms>;
   /** This profile's promotion (and rollback) commits on the target's first-parent line (newest first). */
   promotions: readonly TrailerLine[];
   lastPromoted: Readonly<{ commit: string | null; source: string | null; bootstrap: boolean }>;
@@ -439,16 +454,16 @@ export function projectSource(repository: GitRepository, loaded: LoadedPromotion
   const classified = Date.now();
   const classification = classifyTree(reader, profile);
   const classifyMs = Date.now() - classified;
-  const manifests = deriveManifests(reader, profile, classification);
+  const derivations = derivePureTransforms(reader, profile, classification);
   const addedOnSource = lastPromoted.source === null ? reader.paths() : changedPaths(repository, lastPromoted.source, source, "A");
-  return deepFreeze({ reader, classification, manifests, promotions, lastPromoted, advisories: projectionAdvisories(reader, classification, manifests.texts, addedOnSource), classifyMs });
+  return deepFreeze({ reader, classification, derivations, promotions, lastPromoted, advisories: projectionAdvisories(reader, classification, derivations.texts, addedOnSource), classifyMs });
 }
 
 export async function planPromotion(input: PromotionPlanInput): Promise<PromotionPlan> {
   const started = Date.now();
   const { profile } = input.loaded;
   const { repository } = input;
-  const { reader, classification, manifests, promotions, lastPromoted, advisories: advised, classifyMs } = projectSource(repository, input.loaded, input.source, input.target);
+  const { reader, classification, derivations, promotions, lastPromoted, advisories: advised, classifyMs } = projectSource(repository, input.loaded, input.source, input.target);
   const last = promotions[0] ?? null;
   // Every input the plan is a function of: the commits, the profile, the
   // registry commands it runs (their argv decide the derived lockfiles) and
@@ -456,8 +471,8 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
   const commands = Object.fromEntries([...commandsRun(input.commands, profileCommandNames(profile))].sort().map((name) => [name, input.commands[name] ?? null]));
   const planId = sha256(canonicalJson({ source: input.source, target: input.target, profile: input.loaded.blob, commands, promoter: promoterDigest() }));
   const profileInfo = deepFreeze({ name: profile.name, blob: input.loaded.blob, path: input.loaded.path });
-  const refusals: Refusal[] = [...classification.refusals, ...manifests.refusals];
-  const derived = new Map(manifests.texts);
+  const refusals: Refusal[] = [...classification.refusals, ...derivations.refusals];
+  const derived = new Map(derivations.texts);
   const underived: string[] = [];
   for (const transform of profile.transforms) {
     if (transform.kind !== "lockfile" || reader.text(transform.path) === null) continue;
@@ -563,7 +578,7 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
       generated: [...entries.keys()].filter((path) => generated.has(path)).length,
     },
     paths: { added, modified, deleted },
-    transforms: manifests.explanations,
+    transforms: derivations.explanations,
     targetEdits,
     targetEditsPatch,
     refusals,
