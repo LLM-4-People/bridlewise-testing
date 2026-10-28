@@ -68,7 +68,7 @@ function burn(ms: number): void {
 }
 
 describe("the judgement", () => {
-  const classes: TestCpuClasses = { defaultCeilingMs: 50, classes: [{ name: "heavy", ceilingMs: 5_000, files: [HERE] }] };
+  const classes: TestCpuClasses = { defaultCeilingMs: 50, headroomFactor: 2, classes: [{ name: "heavy", measuredCpuMs: 2_500, files: [HERE] }] };
 
   test("work past the default ceiling FAILS, naming the work, the class and where it is declared", () => {
     const { error, reading } = judged(classes, "tests/unit/somewhere-else.test.ts", () => burn(150));
@@ -107,7 +107,7 @@ describe("the judgement", () => {
     const readings = new Map<string, number>();
     installTestCpuJudgement<{ name: string }>(
       { beforeEach: (hook) => { before = hook; }, afterEach: (hook) => { after = hook; } },
-      { defaultCeilingMs: 60_000, classes: [] },
+      { defaultCeilingMs: 60_000, headroomFactor: 2, classes: [] },
       () => "tests/unit/somewhere.test.ts",
       (context, reading) => { readings.set(context.name, reading.cpuMs); },
     );
@@ -132,15 +132,16 @@ describe("the judgement", () => {
     expect(() => after!({ name: "never opened" })).toThrow(/no beforeEach reading for its test/u);
   });
 
-  test("a file in no class is judged by the default; a declared file by its class", () => {
+  test("a file in no class is judged by the default; a declared file by its class, whose ceiling is its MEASURED work times the one headroom factor", () => {
     expect(cpuClassOf(classes, HERE)).toEqual({ name: "heavy", ceilingMs: 5_000 });
+    expect(cpuClassOf({ ...classes, headroomFactor: 1.5 }, HERE)).toEqual({ name: "heavy", ceilingMs: 3_750 });
     expect(cpuClassOf(classes, "tests/unit/x.test.ts")).toEqual({ name: "default", ceilingMs: 50 });
   });
 
   test("a class naming a file the repository does not hold is refused", () => {
     expect(deadClassFiles(classes, REPOSITORY_ROOT)).toBeNull();
     const gone = `tests/unit/gone-${Math.random().toString(36).slice(2)}.test.ts`;
-    expect(deadClassFiles({ defaultCeilingMs: 1, classes: [{ name: "heavy", ceilingMs: 2, files: [gone] }] }, REPOSITORY_ROOT)).toContain(`heavy: ${gone}`);
+    expect(deadClassFiles({ defaultCeilingMs: 1, headroomFactor: 2, classes: [{ name: "heavy", measuredCpuMs: 2, files: [gone] }] }, REPOSITORY_ROOT)).toContain(`heavy: ${gone}`);
   });
 });
 

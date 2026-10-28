@@ -283,7 +283,7 @@ test("executeInventoryTestRun: every test file's process is BOUNDED BY CPU WORK 
   const classPath = relative(resolve(root, ".."), join(root, file)).split(sep).join("/");
   const out = runExecutorSubprocess(root, [{ path: file, source: bounded }], false, undefined, {
     testHangBackstopMs: 600_000,
-    testCpuClasses: { defaultCeilingMs: 100_000, classes: [{ name: "planted", ceilingMs: 150, files: [classPath] }] },
+    testCpuClasses: { defaultCeilingMs: 100_000, headroomFactor: 2, classes: [{ name: "planted", measuredCpuMs: 75, files: [classPath] }] },
   });
   const said = (name: string): string => JSON.stringify(out.receiptDetails.filter((detail) => JSON.stringify(detail).includes(name)));
   assert.equal(out.passed, false);
@@ -338,7 +338,7 @@ test("engine test bounds: NESTED and CONCURRENT t.test subtests are each measure
     '  await Promise.all([t.test("one", () => pause(6)), t.test("two", () => pause(3)), t.test("three", () => {})]);',
     '});',
   ].join("\n"));
-  const preload = engineTestBoundsImport({ hangBackstopMs: 600_000, cpuClasses: { defaultCeilingMs: 60_000, classes: [] }, repositoryRoot: root, files: [file] });
+  const preload = engineTestBoundsImport({ hangBackstopMs: 600_000, cpuClasses: { defaultCeilingMs: 60_000, headroomFactor: 2, classes: [] }, repositoryRoot: root, files: [file] });
   const driver = [
     'import { run } from "node:test";',
     'const [file, preload] = process.argv.slice(2);',

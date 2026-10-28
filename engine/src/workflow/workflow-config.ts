@@ -237,8 +237,8 @@ export const DEFAULT_S1_FILESYSTEM_CACHE_DIRECTORY = "harness-s1-cache" as const
 // WALL cap these replace (`runtimeBudgetMs`, 120 s) failed tests that pass
 // alone under full-suite contention (NO-LOAD-BLOCK row G-05).
 export const DEFAULT_TEST_HANG_BACKSTOP_MS = 600_000 as const;
-export const DEFAULT_TEST_CPU_CLASSES: Readonly<{ defaultCeilingMs: number; classes: readonly Readonly<{ name: string; ceilingMs: number; files: readonly string[] }>[] }> =
-  Object.freeze({ defaultCeilingMs: 60_000, classes: Object.freeze([]) });
+export const DEFAULT_TEST_CPU_CLASSES: Readonly<{ defaultCeilingMs: number; headroomFactor: number; classes: readonly Readonly<{ name: string; measuredCpuMs: number; files: readonly string[] }>[] }> =
+  Object.freeze({ defaultCeilingMs: 60_000, headroomFactor: 2, classes: Object.freeze([]) });
 
 // The ENGINE suite's watchdog (overridable via testExecution.engineSuiteWatchdog;
 // enforced in scripts/tooling/inventory-test-run.ts): a phase that reports no

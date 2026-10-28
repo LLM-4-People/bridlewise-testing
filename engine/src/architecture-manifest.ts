@@ -5635,7 +5635,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-runtime-entry-point", path: "src/runtime/entry-point.ts", realm: "shared", layer: "infrastructure",
-      owner: "runtime-infrastructure", publicApi: { exportCount: 1, namesSha256: "01d7cf3d8bfb10347411a4baaf5e1738e22562aa79476ad2e221acc56eb48bca" },
+      owner: "runtime-infrastructure", publicApi: { exportCount: 2, namesSha256: "c839ae1a0c44d75139b7cabfdfc24db511edd06465bfe95ba4fb95a2a9caaf4f" },
       dependencies: ["node:fs","node:path","node:url"],
     }),
     moduleContract({
@@ -5700,7 +5700,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-tooling-test-cpu-class", path: "scripts/tooling/test-cpu-class.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 7, namesSha256: "7a3b9fec2768fec7581f8ca4a890b9f67c7cf947787ee68b74ee9b3640368714" },
+      owner: "verification", publicApi: { exportCount: 8, namesSha256: "b62928db1ac79eb1b95ebb061b8ceb2da9285ea1ae4b93d358a2604017784f52" },
       dependencies: ["node:fs","node:path","src/shared/run-cpu.ts"],
     }),
     moduleContract({
@@ -5817,7 +5817,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-tooling-engine-test-bounds", path: "scripts/tooling/engine-test-bounds.ts", realm: "builder", layer: "verification",
       owner: "verification", publicApi: { exportCount: 3, namesSha256: "cdd70df0caa9cde44b18e35cf158aa3c110b48467ce18b5a6d85af333469f483" },
-      dependencies: ["node:path","node:test","node:timers","node:worker_threads","scripts/tooling/test-cpu-class.ts"],
+      dependencies: ["node:path","node:test","node:timers","node:worker_threads","scripts/tooling/test-cpu-class.ts","src/runtime/entry-point.ts"],
     }),
   ],
 });

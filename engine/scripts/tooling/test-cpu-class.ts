@@ -57,7 +57,16 @@ export const TEST_CPU_CLASSES_SITE = "testExecution.testCpuClasses in engine/bri
  */
 export function cpuClassOf(classes: TestCpuClasses, file: string): Readonly<{ name: string; ceilingMs: number }> {
   const declared = classes.classes.find((one) => one.files.includes(file));
-  return declared === undefined ? { name: "default", ceilingMs: classes.defaultCeilingMs } : { name: declared.name, ceilingMs: declared.ceilingMs };
+  return declared === undefined ? { name: "default", ceilingMs: classes.defaultCeilingMs } : { name: declared.name, ceilingMs: classCeilingMs(classes, declared) };
+}
+
+/**
+ * THE ONE DERIVATION of a class's ceiling: what its tests were measured to
+ * do, times the one declared headroom. A class never carries a ceiling of
+ * its own, so no ceiling is a number someone picked for one test.
+ */
+export function classCeilingMs(classes: TestCpuClasses, declared: TestCpuClasses["classes"][number]): number {
+  return Math.ceil(declared.measuredCpuMs * classes.headroomFactor);
 }
 
 /**

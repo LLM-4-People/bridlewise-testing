@@ -378,6 +378,18 @@ export function registerTestExecutionExposure(): void {
     },
   });
   registerSignal({
+    id: "testExecution.testCpuHeadroom",
+    module: "testExecution",
+    name: "Headroom over a measured CPU class",
+    description:
+      "A CPU class records the most CPU work one of its tests was measured to do; its ceiling is that measurement times this factor, because CPU work still varies with the runner's processor. Shown read-only.",
+    type: "string",
+    value: () => {
+      const factor = readBudgetNumber("testExecution.testCpuClasses.headroomFactor");
+      return factor === undefined ? NOT_DECLARED : `a class's ceiling is ${String(factor)} times the CPU work it was measured to do`;
+    },
+  });
+  registerSignal({
     id: "testExecution.testCpuClasses",
     module: "testExecution",
     name: "Test files with their own CPU-work ceiling",
@@ -386,10 +398,12 @@ export function registerTestExecutionExposure(): void {
     type: "string",
     value: () => {
       const classes = readConfigCustomization("testExecution.testCpuClasses.classes");
-      if (!Array.isArray(classes)) return NOT_DECLARED;
+      const headroom = readBudgetNumber("testExecution.testCpuClasses.headroomFactor");
+      if (!Array.isArray(classes) || headroom === undefined) return NOT_DECLARED;
       if (classes.length === 0) return "no class: every test file has the default ceiling";
-      return (classes as { name: string; ceilingMs: number; files: string[] }[])
-        .map((one) => `${one.name} (${one.ceilingMs / 1000} s): ${one.files.join(", ")}`).join("; ");
+      // The ceiling is DERIVED (measured × headroom), as the judgement derives it.
+      return (classes as { name: string; measuredCpuMs: number; files: string[] }[])
+        .map((one) => `${one.name} (measured ${one.measuredCpuMs / 1000} s, ceiling ${Math.ceil(one.measuredCpuMs * headroom) / 1000} s): ${one.files.join(", ")}`).join("; ");
     },
   });
   registerSignal({

@@ -32,6 +32,7 @@ import timers from "node:timers";
 import { relative, sep } from "node:path";
 import { isMainThread } from "node:worker_threads";
 
+import { isEntryPointAmong } from "../../src/runtime/entry-point.ts";
 import { installTestCpuJudgement, type TestCpuClasses } from "./test-cpu-class.ts";
 
 /**
@@ -62,7 +63,7 @@ export async function installEngineTestBounds(bounds: EngineTestBounds): Promise
   // (measured: timeline-concurrency's worker threads arrived as unknown
   // files and the run's accounting refused itself). Such a thread or
   // process is the test's own work, already bounded by its test.
-  if (!isMainThread || !bounds.files.includes(process.argv[1] ?? "")) return;
+  if (!isMainThread || !isEntryPointAmong(bounds.files)) return;
   let armed = 0;
   const real = timers.setTimeout;
   timers.setTimeout = function engineBoundTimer(this: unknown, ...args: Parameters<typeof timers.setTimeout>) {

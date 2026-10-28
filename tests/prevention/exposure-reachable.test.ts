@@ -1324,6 +1324,7 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.instrumentLockWholeInstruments", "testExecution.instrumentLock.wholeInstruments"],
       ["testExecution.flakeReproductionShims", "testExecution.flakeReproduction.deterministicShims"],
       ["testExecution.testCpuDefaultCeiling", "testExecution.testCpuClasses.defaultCeilingMs"],
+      ["testExecution.testCpuHeadroom", "testExecution.testCpuClasses.headroomFactor"],
       ["testExecution.testCpuClasses", "testExecution.testCpuClasses.classes"],
       ["testExecution.testHangBackstop", "testExecution.testHangBackstopMs"],
     ];

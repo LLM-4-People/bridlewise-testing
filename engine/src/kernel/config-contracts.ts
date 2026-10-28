@@ -1344,14 +1344,20 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // host makes a test WAIT for a core, it does not make it do more work. The
   // ceiling is its file's class (`classes`, each naming the repository paths
   // of the files it holds), else `defaultCeilingMs`. A file sits in at most
-  // one class. Wall time survives only as `testHangBackstopMs`: an async hang
+  // one class. A class records what was MEASURED (`measuredCpuMs`, the most
+  // CPU work one of its tests did on a hosted runner), never a hand-picked
+  // ceiling: its ceiling is that measurement times the one declared
+  // `headroomFactor`, derived in one place (engine/scripts/tooling/
+  // test-cpu-class.ts `cpuClassOf`), because CPU work still varies with the
+  // runner's processor model. Wall time survives only as `testHangBackstopMs`: an async hang
   // ends there, classified `hung`, and is never retried. It sits below each
   // suite's stall bound, so a hung test is named before its run is killed.
   const testCpuClassesSchema = z.strictObject({
     defaultCeilingMs: z.number().int().positive().max(3_600_000),
+    headroomFactor: z.number().min(1).max(10),
     classes: z.array(z.strictObject({
       name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
-      ceilingMs: z.number().int().positive().max(3_600_000),
+      measuredCpuMs: z.number().int().positive().max(3_600_000),
       files: z.array(z.string().min(1)).min(1),
     })),
   }).refine((declared) => new Set(declared.classes.map((one) => one.name)).size === declared.classes.length, {

@@ -145,6 +145,6 @@ test("WIRING: every process that runs tests is guarded — the engine worker (af
   const source = (path: string): string => readFileSync(path, "utf8");
   const worker = source(join(ENGINE_ROOT, "scripts", "tooling", "test-worker.ts"));
   assert.ok(worker.search(/\brefuseRemoteNetworkUnderTest\(\);/u) > worker.search(/armCheckoutUnderTest\(/u) && worker.search(/armCheckoutUnderTest\(/u) >= 0, "the engine test worker arms the checkout write door but does not guard itself after it");
-  assert.match(source(join(ENGINE_ROOT, "scripts", "tooling", "inventory-test-run.ts")), /execArgv: \[engineTestBoundsImport\(\{ \.\.\.phase\.bounds, files: [^\n]+ \}\), networkGuardImport\(\)\]/u, "the engine test files' processes are not started with the guard preloaded");
+  assert.match(source(join(ENGINE_ROOT, "scripts", "tooling", "inventory-test-run.ts")), /execArgv: \[engineTestBoundsImport\(\{ \.\.\.phase\.bounds, files: phase\.files\.map\(\(file\) => resolve\(cwd, file\)\) \}\), networkGuardImport\(\)\]/u, "the engine test files' processes are not started with the guard preloaded");
   assert.match(source(join(ENGINE_ROOT, "..", "tests", "setup", "test-setup.ts")), /^refuseRemoteNetworkUnderTest\(\);$/mu, "the web setup file does not guard its worker");
 });
