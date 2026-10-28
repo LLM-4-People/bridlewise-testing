@@ -70,7 +70,7 @@ import { ROOT_POLICY } from "../engine/src/kernel/root-policy.ts";
 import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { supervisedCommandOutcome, finalizeQualifiedRun, qualificationInvocation, qualificationTerminal, runForInvocation, QUALIFICATION_INVOCATION_ENV, WEB_RUN_HISTORY_PATH } from "../engine/src/shared/run-history.ts";
 import { readMeasuredTree } from "../engine/src/shared/tree-identity.ts";
-import { asLockDoor, enforceTestRunLock, testFileCountOfArgs } from "../engine/scripts/tooling/test-run-lock.ts";
+import { enforceTestRunLock, testFileCountOfArgs } from "../engine/scripts/tooling/test-run-lock.ts";
 import { resolve } from "node:path";
 
 const projectDir = process.cwd();
@@ -258,6 +258,7 @@ async function main(): Promise<void> {
   const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../engine/", import.meta.url)));
   if (keptOut !== undefined) {
     process.stderr.write(`[run-tests] REFUSED (temporary_root_kept_out) — ${keptOut}\n`);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
     process.exitCode = 1;
     return;
   }
@@ -273,50 +274,48 @@ async function main(): Promise<void> {
       `[run-tests] ${String(strays.length)} orphaned vitest process(es) of this project are still running (not stopped: this run did not start them): ${strays.join(", ")}\n`,
     );
   }
-  // THE HOST'S ONE INSTRUMENT LOCK (engine/src/process/instrument-lock.ts):
-  // the whole web suite (or any run of the configured number of files) waits
-  // for it, saying who holds it; a targeted run of fewer files takes nothing.
-  // vitest's own global setup then runs inside this hold, and the supervisor
-  // that runs vitest is adopted into it.
-  const instrumentLock = await enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
-  // The run's verdict is the exit code, set before the lock is released; the
-  // process then drains (never `process.exit()`, which can deadlock at
-  // shutdown: Node #54918, #351).
-  try {
-    const invocationId = qualificationInvocation(process.env);
-    const tree = readMeasuredTree(projectDir);
-    const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
-      killOnInterrupt: true, stopWhenLauncherExits: true,
-      environment: { ...process.env, [QUALIFICATION_INVOCATION_ENV]: invocationId },
-    });
-    process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);
-    const completion = supervisedCommandOutcome(run.terminal, "web test command");
-    if (completion.kind !== "pass") process.stderr.write(`[run-tests] ${completion.message}\n`);
-    process.exitCode = completion.kind === "pass" ? run.exitCode : 1;
-    const history = resolve(projectDir, WEB_RUN_HISTORY_PATH);
-    // A focused/cold run legitimately has no numeric row. A workspace suite
-    // gate refuses that absence; this wrapper never fabricates a measurement.
-    if (runForInvocation(history, invocationId) !== undefined) {
-      if (tree === null || readMeasuredTree(projectDir) !== tree) {
-        process.stderr.write("[run-tests] current qualification tree changed or is unreadable\n");
-        process.exitCode = 1;
-        return;
-      }
-      try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, run.terminal, run.ending)); }
-      catch {
-        process.stderr.write("[run-tests] current qualification finalization refused\n");
-        process.exitCode = 1;
-      }
+  // HEAVY-RUN ADMISSION (engine/src/process/instrument-lock.ts): the whole web
+  // suite (or any run of the configured number of files) is admitted at once,
+  // and this process enters the run's caps (its cgroup scope and CPU-time
+  // limit), so vitest and every worker are born under them; nothing waits for
+  // another run. A targeted run of fewer files records nothing. vitest's own
+  // global setup borrows this run, and the supervisor that runs vitest is
+  // adopted into its record.
+  const instrumentLock = enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
+  const invocationId = qualificationInvocation(process.env);
+  const tree = readMeasuredTree(projectDir);
+  const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
+    killOnInterrupt: true, stopWhenLauncherExits: true,
+    environment: { ...process.env, [QUALIFICATION_INVOCATION_ENV]: invocationId },
+  });
+  process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);
+  const completion = supervisedCommandOutcome(run.terminal, "web test command");
+  if (completion.kind !== "pass") process.stderr.write(`[run-tests] ${completion.message}\n`);
+  const history = resolve(projectDir, WEB_RUN_HISTORY_PATH);
+  // A focused/cold run legitimately has no numeric row. A workspace suite
+  // gate refuses that absence; this wrapper never fabricates a measurement.
+  if (runForInvocation(history, invocationId) !== undefined) {
+    if (tree === null || readMeasuredTree(projectDir) !== tree) {
+      process.stderr.write("[run-tests] current qualification tree changed or is unreadable\n");
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
     }
-  } finally {
-    instrumentLock.release();
+    try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, run.terminal, run.ending)); }
+    catch {
+      process.stderr.write("[run-tests] current qualification finalization refused\n");
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
+    }
   }
+  instrumentLock.release();
+  process.exitCode = completion.kind === "pass" ? run.exitCode : 1;
 }
 
 // Only run when invoked as a script, so the tests above can import the
 // stray finder without launching a suite.
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  const interrupted = await asLockDoor(main);
-  if (interrupted !== null) process.exitCode = interrupted;
+  await main();
 }

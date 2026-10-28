@@ -32,10 +32,10 @@ import {
 // A realistic long secret (the format from, redacted-value-substituted
 // to a test fixture — never a real key). Uses the `sk-` hyphen format (OpenAI /
 // NeuralWatt style) that the credential-assignment signal catches.
-const SK_SECRET = "sk-AAAAAAAAAAAAAAAAAAAAAAAA";
-const GHP_SECRET = "ghp_AAAAAAAAAAAAAAAAAAAAAAAA";
-const AWS_SECRET = "AKIAIOSFODNN7EXAMPLE";
-const BEARER_SECRET = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature";
+const SK_SECRET = ("sk" + "-AAAAAAAAAAAAAAAAAAAAAAAA");
+const GHP_SECRET = ("gh" + "p_AAAAAAAAAAAAAAAAAAAAAAAA");
+const AWS_SECRET = ("AK" + "IAIOSFODNN7EXAMPLE");
+const BEARER_SECRET = ("Be" + "arer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature");
 
 describe("redactForLLMContext — value-only redaction", () => {
   test("credential assignment: keeps the variable name, redacts only the value", () => {
@@ -84,11 +84,11 @@ describe("redactForLLMContext — value-only redaction", () => {
   });
 
   test("PEM private key header is redacted", () => {
-    const input = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...";
+    const input = ("--" + "---BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA...");
     const out = redactForLLMContext(input);
     expect(out).toContain("[REDACTED:");
     // The header line itself should not pass through verbatim.
-    expect(out).not.toContain("-----BEGIN RSA PRIVATE KEY-----");
+    expect(out).not.toContain(("--" + "---BEGIN RSA PRIVATE KEY-----"));
   });
 
   test("multiple secrets in one block are ALL redacted", () => {

@@ -28,8 +28,9 @@
  * is never overwritten (`branch_moved_by_another_writer`), with ONE exception,
  * a crashed round: a forge head whose commits are, one for one, twins of the
  * local commits (the same trees) is adopted. Then each new local commit of
- * the workspace's branch is re-made on the forge through the Git Data API, in
- * topological order:
+ * the workspace's branch (beyond the trunk and, for a STACKED workspace, its
+ * parent's published head, whose signed twins are already there) is re-made
+ * on the forge through the Git Data API, in topological order:
  *   1. `createBlob` for each blob the commit's tree diff (against its first
  *      parent) adds or changes, once per round — the answered id must be the
  *      local blob id (`workspace_publish_object_mismatch`);
@@ -108,10 +109,14 @@ export type WorkspaceForge = Readonly<{
    * A COMPARE-AND-SWAP of the branch: created at `sha` only while absent
    * (`previous: null`: `POST /git/refs`), else moved to `sha` only while it is
    * at `previous` (GraphQL `updateRefs` with `beforeOid` — REST `PATCH
-   * /git/refs` has no compare-and-swap and is never used). Answers whether it
-   * applied; a branch found elsewhere is `applied: false`, never an overwrite.
+   * /git/refs` has no compare-and-swap and is never used). `forwardOnly`
+   * also refuses a move to a commit that does not descend from `previous`
+   * (`force: false`): the product branch only ever moves forward, while a
+   * workspace's twin head may be rebased. Answers whether it applied; a branch
+   * found elsewhere is `applied: false`, never an overwrite. The caller reads
+   * the branch back: an answer is not a move.
    */
-  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>>;
+  setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null; forwardOnly: boolean }>): Promise<Readonly<{ applied: boolean }>>;
   /** The open pull request whose head is `branch`, or null. */
   findPullRequest(branch: string): Promise<ForgePullRequest | null>;
   /** Opens a DRAFT pull request `head` → `base`. */
@@ -133,6 +138,14 @@ export type WorkspaceForge = Readonly<{
    */
   enqueue(number: number, request: Readonly<{ expectedHeadSha: string }>): Promise<ForgeEnqueueAnswer>;
 }>;
+
+/**
+ * The Git Data part of the port: what re-making a commit on the forge and
+ * moving a branch need. The workspace's publication and the product's
+ * (`forge/publish/product.ts`) both take it; its one GitHub adapter is
+ * `githubWorkspaceForge` (`workspace-forge-github.ts`).
+ */
+export type GitDataForge = Pick<WorkspaceForge, "createBlob" | "createTree" | "createCommit" | "branchHead" | "setBranch">;
 
 /** Where a workspace lands on the forge: its target's upstream. */
 export type ForgeTarget = Readonly<{
@@ -200,6 +213,13 @@ export type PublishRequest = Readonly<{
   branch: string;
   /** Where this workspace last left the forge branch (its last round's head), or null before its first round. */
   expectedHead: string | null;
+  /**
+   * A STACKED workspace's base: the head its parent published (already on the
+   * forge, signed). Its commits are never re-made: only what the branch holds
+   * beyond it (and beyond the trunk) is this workspace's round. Null for a
+   * workspace on the trunk itself.
+   */
+  stackBase: string | null;
   fetchMs: number;
 }>;
 
@@ -272,6 +292,38 @@ function isTwinOfLocal(repository: GitRepository, remoteHead: string, head: stri
 }
 
 /**
+ * THE ONE RE-MAKE of a local commit on the forge (the workspace's rounds and
+ * the product's publication): the blobs its tree adds or changes against its
+ * first parent are uploaded (once per `uploaded`; each answered id must be
+ * the local blob id), its tree is built on the first parent's tree (the
+ * answered tree must be the local one), and the commit is made with the
+ * local message plus `Co-authored-by` naming the local author, and with
+ * the parents `parentOf` maps (a published twin, or the same id). The port's
+ * request carries no author, committer or signature, so the forge signs it;
+ * an unsigned answer is `workspace_publish_unverified`, a mismatch
+ * `workspace_publish_object_mismatch`.
+ */
+export async function remakeCommit(forge: GitDataForge, repository: GitRepository, sha: string, parentOf: (parent: string) => string, uploaded: Set<string>): Promise<ForgeCommit> {
+  const commit = readCommit(repository, sha);
+  const firstParent = commit.parents[0];
+  if (firstParent === undefined) fail("workspace_publish_root_commit", `commit ${sha} has no parent: a re-made commit carries its first parent's tree forward`, { commit: sha });
+  const entries = treeDelta(repository, firstParent, sha);
+  for (const entry of entries) {
+    if (entry.sha === null || entry.mode === "160000" || uploaded.has(entry.sha)) continue;
+    const answered = await forge.createBlob(gitOutput(repository, ["cat-file", "blob", entry.sha]).stdout);
+    if (answered !== entry.sha) fail("workspace_publish_object_mismatch", `the forge stored ${entry.path} of ${sha} as the blob ${answered}, not ${entry.sha}`, { commit: sha });
+    uploaded.add(entry.sha);
+  }
+  const baseTree = text(repository, ["rev-parse", `${firstParent}^{tree}`]).trim();
+  const tree = entries.length === 0 ? baseTree : await forge.createTree({ baseTree, entries });
+  if (tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge built the tree ${tree} for ${sha}, whose tree is ${commit.tree}`, { commit: sha });
+  const made = await forge.createCommit({ message: twinMessage(repository, commit), tree, parents: commit.parents.map(parentOf) });
+  if (made.tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge's commit ${made.sha} holds the tree ${made.tree}, not ${commit.tree}`, { commit: sha });
+  if (!made.verified) fail("workspace_publish_unverified", `the forge did not sign the commit ${made.sha} (${made.verificationReason}): a published commit must be Verified (required_signatures)`, { commit: sha, twin: made.sha });
+  return made;
+}
+
+/**
  * Publishes the workspace branch's new commits as signed twins (see the
  * header) and answers the round. A branch with no commit beyond the trunk is
  * refused (`workspace_publish_empty`: the forge opens no pull request without
@@ -280,28 +332,30 @@ function isTwinOfLocal(repository: GitRepository, remoteHead: string, head: stri
  * a crashed round's twins, which are adopted.
  */
 export async function publishBranch(request: PublishRequest): Promise<PublishedRound> {
-  const { forge, repository, git, target, branch, expectedHead } = request;
+  const { forge, repository, git, target, branch, expectedHead, stackBase } = request;
   const root = repository.root;
   const moved = (current: string | null): never => fail("branch_moved_by_another_writer",
     `${branch} on ${target.remote} is at ${current ?? "(absent)"}, not where this workspace left it (${expectedHead ?? "absent"}): another writer pushed to it, and its work is never overwritten — integrate it locally (fetch and rebase onto it), or take the pull request over by hand`,
     { branch, current: current ?? "", expected: expectedHead ?? "" });
   const remoteHead = await forge.branchHead(branch);
   fetchForgeBranches(git, root, target.remote, remoteHead === null ? [target.trunk] : [target.trunk, branch], request.fetchMs);
+  // What is already on the forge: the trunk and, for a stacked workspace, its parent's published head.
   const trunkRef = remoteTrackingRef(target.remote, target.trunk);
+  const onForge = [trunkRef, ...(stackBase === null ? [] : [stackBase])];
   if (remoteHead !== null && git.revParse(root, remoteTrackingRef(target.remote, branch), request.fetchMs) !== remoteHead) {
     fail("workspace_publish_remote_moved", `${branch} moved on ${target.remote} while it was read: publish again`, { branch });
   }
   const head = git.revParse(root, "HEAD", request.fetchMs);
   const headTree = git.revParse(root, `${head}^{tree}`, request.fetchMs);
   if (remoteHead !== expectedHead) {
-    if (remoteHead === null || !isTwinOfLocal(repository, remoteHead, head, [trunkRef, ...(expectedHead === null ? [] : [expectedHead])])) return moved(remoteHead);
+    if (remoteHead === null || !isTwinOfLocal(repository, remoteHead, head, [...onForge, ...(expectedHead === null ? [] : [expectedHead])])) return moved(remoteHead);
     // A crashed round: the forge already holds this workspace's twins. Adopt them.
     const adopted = git.updateRef(root, `refs/heads/${branch}`, remoteHead, head, request.fetchMs);
     if (adopted.refusal !== null) fail("workspace_publish_local_moved", `${branch} moved locally while a crashed round was adopted (${adopted.refusal})`, { branch });
     return deepFreeze({ head: remoteHead, tree: headTree, commits: deepFreeze([]), blobs: 0 });
   }
   if (head === remoteHead) return deepFreeze({ head, tree: headTree, commits: deepFreeze([]), blobs: 0 });
-  const listed = commitsBeyond(repository, head, [trunkRef, ...(remoteHead === null ? [] : [remoteHead])]);
+  const listed = commitsBeyond(repository, head, [...onForge, ...(remoteHead === null ? [] : [remoteHead])]);
   if (listed.length === 0) {
     fail("workspace_publish_empty", `${branch} holds no commit beyond ${target.remote}/${target.trunk}: commit the round's work first`, { branch });
   }
@@ -310,27 +364,12 @@ export async function publishBranch(request: PublishRequest): Promise<PublishedR
   const uploaded = new Set<string>();
   const published: { local: string; twin: string }[] = [];
   for (const sha of listed) {
-    const commit = readCommit(repository, sha);
-    const firstParent = commit.parents[0];
-    if (firstParent === undefined) fail("workspace_publish_root_commit", `commit ${sha} has no parent: a workspace branch forks from its trunk`, { commit: sha });
-    const entries = treeDelta(repository, firstParent, sha);
-    for (const entry of entries) {
-      if (entry.sha === null || entry.mode === "160000" || uploaded.has(entry.sha)) continue;
-      const answered = await forge.createBlob(gitOutput(repository, ["cat-file", "blob", entry.sha]).stdout);
-      if (answered !== entry.sha) fail("workspace_publish_object_mismatch", `the forge stored ${entry.path} of ${sha} as the blob ${answered}, not ${entry.sha}`, { commit: sha });
-      uploaded.add(entry.sha);
-    }
-    const baseTree = git.revParse(root, `${firstParent}^{tree}`, request.fetchMs);
-    const tree = entries.length === 0 ? baseTree : await forge.createTree({ baseTree, entries });
-    if (tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge built the tree ${tree} for ${sha}, whose tree is ${commit.tree}`, { commit: sha });
-    const made = await forge.createCommit({ message: twinMessage(repository, commit), tree, parents: commit.parents.map((parent) => twins.get(parent) ?? parent) });
-    if (made.tree !== commit.tree) fail("workspace_publish_object_mismatch", `the forge's commit ${made.sha} holds the tree ${made.tree}, not ${commit.tree}`, { commit: sha });
-    if (!made.verified) fail("workspace_publish_unverified", `the forge did not sign the commit ${made.sha} (${made.verificationReason}): an agent's commit must be Verified (required_signatures)`, { commit: sha, twin: made.sha });
+    const made = await remakeCommit(forge, repository, sha, (parent) => twins.get(parent) ?? parent, uploaded);
     twins.set(sha, made.sha);
     published.push({ local: sha, twin: made.sha });
   }
   const twinHead = twins.get(head)!;
-  const set = await forge.setBranch({ branch, sha: twinHead, previous: remoteHead });
+  const set = await forge.setBranch({ branch, sha: twinHead, previous: remoteHead, forwardOnly: false });
   if (!set.applied) return moved(await forge.branchHead(branch));
   // Read back: the forge's own answer, then the fetched ref.
   const readBack = await forge.branchHead(branch);

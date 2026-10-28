@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "area:engine",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "area:engine",
+    "color": "1d76db",
+    "description": "The engine: the domain half of the harness"
+  }
+}

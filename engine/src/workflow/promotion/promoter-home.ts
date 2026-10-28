@@ -43,6 +43,7 @@ import { resolveRevision } from "../../git/tree-reader.ts";
 import { WorktreeGitError, type WorktreeGitPort } from "../../git/worktree-port.ts";
 import { auditEvent } from "../../shared/debug/debug-system.ts";
 import { superviseCommand } from "../../process/supervised-run.ts";
+import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
 import { generatedOutputPaths } from "../hash-binding-registry.ts";
 import { applyCheckoutFiles, checkoutCommandRunner, engineRelativePath, rerunChangedSetup, type CheckoutCommand, type CheckoutCommandRunner } from "../checkout-setup.ts";
 import { landingGitFailure, runLandingPhase } from "../tree-landing.ts";
@@ -221,6 +222,21 @@ export async function runInPromoterHome(
   }, request.auto !== true);
 }
 
+/**
+ * THE ENVIRONMENT OF THE HOME'S CHILD: S's committed engine, code this
+ * process did not write and cannot vouch for, so it inherits NO credential.
+ * Its environment is the one projection (`projectEnvironment`) through
+ * `COMMAND_ENVIRONMENT`: programs, locale, home and the proxy without its
+ * userinfo. A token, a key, the harness's own `HARNESS_*` namespace and every
+ * other variable are dropped. The only addition is the variable that names
+ * it the home's child. A publication the child makes reaches its remote
+ * through the user's own git configuration under HOME, never through a token
+ * this process held.
+ */
+export function promoterHomeEnvironment(environment: NodeJS.ProcessEnv, homeEngine: string): Readonly<Record<string, string>> {
+  return deepFreeze({ ...projectEnvironment(environment, COMMAND_ENVIRONMENT), [ROOT_POLICY.workflow.promotion.promoterHomeEnvironmentVariable]: homeEngine });
+}
+
 /** {@link runInPromoterHome} under the home's lock: prepare (a landing phase: logged, its git steps typed), then the supervised child. */
 async function homeRun(
   context: PromotionContext,
@@ -234,7 +250,6 @@ async function homeRun(
   const facts = { profile: profile.name, source: context.source, home: placement.home };
   const prepared = await runLandingPhase("promoter-home", facts, () => prepareHome(context, git, placement, runner));
   const homeEngine = join(placement.home, placement.engineRelative);
-  const variable = ROOT_POLICY.workflow.promotion.promoterHomeEnvironmentVariable;
   auditEvent("promotion.promoterHome", { ...facts, reason: placement.reason, setup: prepared });
   // Under the ONE process owner: the child and everything it starts end with it, at its worst case or on an interrupt.
   const chunks: Buffer[] = [];
@@ -245,7 +260,7 @@ async function homeRun(
     hardCeilingMs: applyCeilingMs(context, runner, generatedOutputPaths(placement.home).size),
     killGraceMs: runner.killGraceMs,
     cwd: context.top,
-    env: { ...process.env, [variable]: homeEngine },
+    env: promoterHomeEnvironment(process.env, homeEngine),
     onStdout: (chunk) => chunks.push(chunk),
     onStderr: (chunk) => process.stderr.write(chunk),
     killOnInterrupt: true,

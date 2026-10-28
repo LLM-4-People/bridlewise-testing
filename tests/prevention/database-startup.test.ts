@@ -24,7 +24,7 @@ test("reader count admission precedes key, database and worker acquisition while
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toEqual({ invalid: 7, workers: 2, joined: true });
-}, 40_000);
+});
 
 test("concurrent web migrations re-read the registry only after acquiring the write transaction", () => {
   const dir = createTempDir("web-migration-startup-");
@@ -40,7 +40,7 @@ test("concurrent web migrations re-read the registry only after acquiring the wr
     finally{clearTimeout(timer);children.forEach(c=>{if(c.child.exitCode===null)c.child.kill('SIGKILL');});await Promise.allSettled(children.map(c=>c.joined));}
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 40_000);
+});
 
 for (const fault of ["reader-open", "before-ready-exit", "ready-writer-exit", "running-writer-exit"] as const) {
   test(`threaded startup joins every acquired worker after ${fault}`, () => {
@@ -85,7 +85,7 @@ for (const fault of ["reader-open", "before-ready-exit", "ready-writer-exit", "r
     const receipt = JSON.parse(result.stdout.trim().split("\n").at(-1)!) as { live: number; workers: number };
     // The supervised writer's replacement is the fourth thread (C4).
     expect(receipt.live).toBe(0); expect(receipt.workers).toBe(fault === "running-writer-exit" ? 4 : 3);
-  }, 40_000);
+  });
 }
 
 test("transactions after a joined close refuse without posting to a terminated worker", () => {
@@ -98,7 +98,7 @@ test("transactions after a joined close refuse without posting to a terminated w
     try{const outcome=await Promise.race([backend.transaction([]).then(()=>({ok:true}),e=>({code:e.code})),new Promise(resolve=>{timer=setTimeout(()=>resolve({timeout:true}),1000);})]);console.log(JSON.stringify(outcome));assert.deepEqual(outcome,{code:'db_closed'});}finally{clearTimeout(timer);await backend.close();}
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 40_000);
+});
 
 test("an uncloneable later write cannot release reads past an earlier native write", () => {
   const dir = createTempDir("db-write-frontier-");
@@ -121,4 +121,4 @@ test("an uncloneable later write cannot release reads past an earlier native wri
     }finally{clearTimeout(watchdog);Atomics.store(gate,0,1);Atomics.notify(gate,0);await Promise.allSettled([first,second,read]);await backend.close();await Promise.allSettled(captured.map(w=>w.terminate()));}
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 40_000);
+});

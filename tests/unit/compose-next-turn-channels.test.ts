@@ -104,7 +104,7 @@ beforeAll(async () => {
   chatId = chat.id;
   srv.db.createMessage({ chat_id: chatId, role: "user", content: "what is in this project?", run_id: "seed" }, user.userId);
   srv.db.createMessage({ chat_id: chatId, role: "assistant", content: "let me look.", run_id: "seed" }, user.userId);
-}, 60_000);
+});
 
 afterAll(async () => {
   if (srv) await srv.stop();

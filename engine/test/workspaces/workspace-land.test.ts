@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import test from "node:test";
 
+import { deepFreeze } from "../../src/kernel/integrity.ts";
+import { OLDER_WORKSPACE_SCHEMA_VERSIONS } from "../../src/workflow/workspace-contracts.ts";
 import { WorkspaceConflictError } from "../../src/workflow/workspace-manager.ts";
+import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import type { WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
 import {
   commitFile,
@@ -13,6 +16,7 @@ import {
   makeTestConfig,
   mkWorkspaceTempDir,
   rawGit,
+  registryOf,
 } from "./workspace-test-support.ts";
 
 /**
@@ -138,6 +142,30 @@ test("GUARD the pull request's state: a pull request closed on the forge is refu
   await assert.rejects(() => manager.land(workspaceId), throwsCode("workspace_pull_request_closed"));
   assert.equal(fixture.enqueues(), 0);
   assert.ok(!fixture.states().includes("merging"));
+});
+
+test("GUARD the pull request's base: a pull request whose base was changed away from the trunk is refused by land and by ready — a merge into another branch is no land", async () => {
+  const fixture = await readyFixture("ws-land-base");
+  const { manager, forge, workspaceId } = fixture;
+  forge.pulls.get(1)!.base = "side";
+  await assert.rejects(() => manager.land(workspaceId), throwsCode("workspace_pull_request_base_mismatch"));
+  await assert.rejects(() => manager.ready(workspaceId), throwsCode("workspace_pull_request_base_mismatch"));
+  assert.equal(fixture.enqueues(), 0);
+  assert.ok(!fixture.states().includes("merging"));
+});
+
+test("GUARD a landed workspace answers only its OWN version's land receipt: a record holding an older version's receipt is never answered as this version's", async () => {
+  const fixture = await readyFixture("ws-land-receipt-version");
+  const { root, manager, forge, workspaceId } = fixture;
+  fixture.onWait(() => {
+    forge.runQueue(1);
+  });
+  const receipt = await manager.land(workspaceId);
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
+  const landed = store.load(workspaceId)!;
+  const [olderVersion] = OLDER_WORKSPACE_SCHEMA_VERSIONS;
+  store.save(deepFreeze({ ...landed, mergeReceipt: { ...receipt, schemaVersion: olderVersion } }) as typeof landed);
+  await assert.rejects(() => manager.land(workspaceId), throwsCode("workspace_land_precondition_failed"), "an older receipt is not this version's answer");
 });
 
 test("a pull request already queued at the published head (another tool queued it) is waited on, never queued twice", async () => {

@@ -82,6 +82,7 @@ The folder lives at `engine/scripts/verification/`.
 - `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.
 - `commit-trailers.ts` is consumed by `engine/scripts/verification/lesson-trailers.ts`, `engine/scripts/verification/sign-off.ts`.
 - `consumer-plants.ts` is consumed by nothing yet.
+- `corpus-root.ts` is consumed by `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/verification/corpus.ts`.
 - `corpus.ts` is consumed by nothing yet.
 - `decision-index.ts` is consumed by nothing yet.
 - `declared-universe.ts` is consumed by nothing yet.
@@ -98,7 +99,7 @@ The folder lives at `engine/scripts/verification/`.
 - `ratchet-baselines.ts` is consumed by nothing yet.
 - `ratchet.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
 - `required-fixture-roots.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.
-- `safe-repository-reader.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/artifact-admission.ts` and 2 more.
+- `safe-repository-reader.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/artifact-admission.ts` and 3 more.
 - `shipped-hooks.ts` is consumed by nothing yet.
 - `sign-off.ts` is consumed by `engine/scripts/commit-guard.ts`.
 - `slice-declarations.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`.

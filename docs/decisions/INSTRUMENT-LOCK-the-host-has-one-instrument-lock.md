@@ -3,7 +3,8 @@ id: INSTRUMENT-LOCK
 date: 2026-10-08
 by: coordinator
 group: process
-status: in-force
+status: superseded
+superseded_by: NO-LOAD-BLOCK
 implementation: done
 acted_in: [engine/src/process/instrument-lock.ts, engine/src/filesystem/file-lock.ts, engine/src/workflow/slot-cli.ts, engine/scripts/tooling/test-run-lock.ts, tests/setup/concurrency-lock.ts, engine/src/kernel/config-contracts.ts]
 amended_by: [NO-LOAD-BLOCK]
@@ -90,6 +91,18 @@ waits on, or fails because of, host CPU load. Once every judged measurement is
 load-independent (CPU work, not wall time: [Q-TX2](Q-TX2-budgets-count-cpu-work.md),
 [UI-CPU](UI-CPU-browser-gates-judged-in-cpu-work.md)), the one instrument lock
 gives way to concurrent runs under per-run caps; landings are never queued
-behind lab runs. Until that lands, the lock described above is still what the
-code does: heavy runs take it and wait for it, and this section is the
-decided change, not a built one (NO-LOAD-BLOCK is `pending`, route TEST-10X).
+behind lab runs.
+
+**Built, and this decision superseded (2026-10-22).** No heavy run waits for
+another. `src/process/instrument-lock.ts` admits every heavy run AT ONCE and
+records it in a run registry beside the configured path (shown, never waited
+on); the admitting process moves into a cgroup v2 scope of the run's own
+(`testExecution.instrumentLock.perRun`: memory ceiling and CPU weight) and
+under the harness's CPU-time limit (`src/process/subprocess-bounds.ts`), so
+everything the run starts is born under both. A host that cannot make the scope
+refuses the run (`per_run_caps_unavailable`); there is no uncapped mode. The
+wait, its poll interval and its signal handling are deleted. What stays of
+this decision: the registry's place and the one definition of heavy; the
+supervising door, adoption and borrowing; the stamp, until the measurement
+half retires it (audit A-04, A-07). Exclusivity survives only for the
+merge-ref update and single-writer database files.

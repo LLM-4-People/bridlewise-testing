@@ -13,9 +13,10 @@
  *   App's commit is GitHub's to sign: `verification`), `GET …/git/ref/heads/…`;
  * - the branch move as a COMPARE-AND-SWAP: a create is `POST …/git/refs`
  *   (refused while the ref exists); a move is GraphQL `updateRefs` with
- *   `beforeOid` (REST `PATCH …/git/refs` has no compare-and-swap and is never
- *   used); a refused move is read back, so "moved elsewhere" is an answer, not
- *   an error;
+ *   `beforeOid`, forced only when the caller allows a move that is not a
+ *   fast-forward (`forwardOnly: false`; REST `PATCH …/git/refs` has no
+ *   compare-and-swap and is never used); a refused move is read back, so
+ *   "moved elsewhere" is an answer, not an error;
  * - the pull request: REST to open (`draft: true`), regenerate, comment and
  *   close; GraphQL to leave and return to draft; and ONE GraphQL read of its
  *   whole state (head, base, draft, open/closed/merged, the merge commit, and
@@ -50,8 +51,8 @@ const PULL_REQUEST_QUERY = `query($owner: String!, $name: String!, $number: Int!
 
 const REPOSITORY_ID_QUERY = `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } }`;
 
-const UPDATE_REF_MUTATION = `mutation($repositoryId: ID!, $name: GitRefname!, $after: GitObjectID!, $before: GitObjectID!) {
-  updateRefs(input: { repositoryId: $repositoryId, refUpdates: [{ name: $name, afterOid: $after, beforeOid: $before, force: true }] }) { clientMutationId }
+const UPDATE_REF_MUTATION = `mutation($repositoryId: ID!, $name: GitRefname!, $after: GitObjectID!, $before: GitObjectID!, $force: Boolean!) {
+  updateRefs(input: { repositoryId: $repositoryId, refUpdates: [{ name: $name, afterOid: $after, beforeOid: $before, force: $force }] }) { clientMutationId }
 }`;
 
 const READY_MUTATION = `mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }`;
@@ -136,13 +137,13 @@ export function githubWorkspaceForge(client: ForgeClient, repository: GithubWork
       });
     },
     branchHead,
-    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null }>): Promise<Readonly<{ applied: boolean }>> {
+    async setBranch(request: Readonly<{ branch: string; sha: string; previous: string | null; forwardOnly: boolean }>): Promise<Readonly<{ applied: boolean }>> {
       try {
         if (request.previous === null) {
           await client.rest({ method: "POST", path: `${base}/git/refs`, body: { ref: headRef(request.branch), sha: request.sha } });
         } else {
           repositoryId ??= text((await client.graphql<{ repository?: { id?: unknown } | null }>(REPOSITORY_ID_QUERY, { owner: repository.owner, name: repository.name })).repository?.id, "repository.id");
-          await client.graphql(UPDATE_REF_MUTATION, { repositoryId, name: headRef(request.branch), after: request.sha, before: request.previous });
+          await client.graphql(UPDATE_REF_MUTATION, { repositoryId, name: headRef(request.branch), after: request.sha, before: request.previous, force: !request.forwardOnly });
         }
         return Object.freeze({ applied: true });
       } catch (error) {

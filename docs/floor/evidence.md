@@ -33,13 +33,11 @@ npm run test:public
 Expected:
 
 ```text
-secret scan: clean (201 synthetic fixture reference(s) allowlisted)
-ℹ tests 28
-ℹ pass 28
+secret scan: clean
 ℹ fail 0
 ```
 
-The typechecks exit 0 with no diagnostics. The allowlist count moves with the fixtures.
+The typechecks exit 0 with no diagnostics. The secret scan exempts no path: a test assembles any credential it needs at runtime.
 
 What this proves: the launcher is executable, the version command answers, `harness` without a verb is a typed refusal, `preflight` reports `harnessReady: false`, the secret scanner passes and fails on its own test plants, the shipped docs and community files exist, canonical JSON is stable, and a provider-shaped key is redacted before display.
 
@@ -231,7 +229,7 @@ npm run perf:profile
 ./node_modules/.bin/vitest run tests/performance/regression.test.ts
 ```
 
-Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"` and `treeIdentity.headSha` `2caada8f8272c987378e3f7484cb76fb21349577` with `dirty: false`, generated at 11:25:03Z. The report and its run record are gitignored and were not published. The conditions are the idle-host contract in [the test map](../testing.md#the-performance-profile-idle-host-contract).
+Result: the profile passed 3 of 3 tests and the regression gate passed 36 of 36. The report carried `instrumentLock: "held"` and `treeIdentity.headSha` `2caada8f8272c987378e3f7484cb76fb21349577` with `dirty: false`, generated at 11:25:03Z. The report and its run record are gitignored and were not published. The conditions are the idle-host contract in [the test map](../testing.md#the-performance-profile-any-host-contract).
 
 Measured against the configured budgets: page LCP 2144ms (1500), worst long task 199ms (100), tab switches 81.6 to 148.2ms (200), chat-input typing 23.49ms mean (60), isolated API maximum 2032ms on `GET /api/schema/ui/values` (250), long-chat (1000 messages) render 5100ms (2000), long-session DOM growth 549 nodes (1500), viewport LCP 852 to 1220ms (2000). The LCP, worst-long-task, API and long-chat budgets are red. The supported shard set does not judge them, and this page does not call the profile a pass.
 

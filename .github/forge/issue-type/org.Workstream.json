@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Workstream",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Workstream",
+    "color": "purple",
+    "description": "A body of work with sub-issues (a tracker workstream)",
+    "is_enabled": true
+  }
+}

@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   parsePathPolicySourceManifest,
+  readPathPolicySource,
 } from "../scripts/generation/repository-path-unicode.ts";
 import {
   createPlannedNodeTestCorpusBinding,
@@ -346,7 +347,7 @@ test("[RPA-O005] generator is byte-preserving and physical authority remains una
 test("[RPA-O006] Git exact ordinary range and harness strict extension stay distinct", () => {
   const git = PATH_POLICY_SOURCE_AUTHORITY.sourceSets.git;
   const pathSource = git.sources.find((source) => source.upstreamPath === "path.c")!;
-  const upstream = readFileSync(pathSource.path, "utf8");
+  const upstream = readPathPolicySource(".", pathSource).toString("utf8");
   assert.match(upstream, /name\[7\] >= '1' && name\[7\] <= '4'/u);
 
   const policy = repositoryPathPublic.REPOSITORY_PATH_GIT_SYMLINK_ALIAS_POLICY;

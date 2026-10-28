@@ -43,7 +43,8 @@ import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import { bootstrapProcess } from "../src/runtime/cli-debug.ts";
 import { ownedChild, terminate } from "../src/process/process-facts.ts";
 import { loadPinnedConfigSnapshotIfPresent } from "../src/kernel/config.ts";
-import { boundedEnding, cpuLimitedInvocation, SUBPROCESS_BOUNDS, type SubprocessBounds } from "../src/workflow/subprocess-bounds.ts";
+import { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from "../src/process/subprocess-bounds.ts";
+import { SUBPROCESS_BOUNDS } from "../src/workflow/workflow-config.ts";
 import { applyCheckoutFiles, engineRelativePath, installedDependencyLinks } from "../src/workflow/checkout-setup.ts";
 import { buildOutputPaths } from "../src/workflow/hash-binding-registry.ts";
 import { parseHarnessCommandResult } from "../src/workflow/command-result.ts";
@@ -394,7 +395,7 @@ function hookIntegrityProblems(repositoryRoot: string): readonly string[] {
 }
 
 // --- bounded typecheck leg (extracted and driven by engine/test/prevention/commit-compile-door.test.ts) ---
-// Bounded like every harness subprocess (src/workflow/subprocess-bounds.ts):
+// Bounded like every harness subprocess (src/process/subprocess-bounds.ts):
 // by its CPU WORK per process and one very large hang backstop, never by a
 // wall limit a loaded host runs out (it was the harness typecheck timeout,
 // 120 s; NO-LOAD-BLOCK A-17).

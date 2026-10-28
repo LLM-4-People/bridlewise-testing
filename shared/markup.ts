@@ -59,13 +59,16 @@ export function escapeHtml(text: string): string {
  * Anything else (an unknown name, a reference without `;`) stays as written.
  */
 export function decodeHtmlEntities(text: string): string {
-  return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/gu, (whole, decimal, hex, name) => {
-    if (decimal !== undefined || hex !== undefined) {
-      const code = decimal !== undefined ? Number.parseInt(decimal, 10) : Number.parseInt(hex, 16);
-      return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : whole;
-    }
-    return NAMED_ENTITIES[name] ?? whole;
-  });
+  return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/gu, (whole, decimal, hex, name) => referenceValue(whole, decimal, hex, name));
+}
+
+/** One character reference's character, or the reference as written when it names none. */
+function referenceValue(whole: string, decimal: string | undefined, hex: string | undefined, name: string | undefined): string {
+  if (decimal !== undefined || hex !== undefined) {
+    const code = decimal !== undefined ? Number.parseInt(decimal, 10) : Number.parseInt(hex!, 16);
+    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : whole;
+  }
+  return NAMED_ENTITIES[name!] ?? whole;
 }
 
 /**
@@ -78,6 +81,55 @@ export function decodeHtmlEntities(text: string): string {
  */
 export function escapeMarkdownText(text: string): string {
   return text.replace(/[&<>"']|[\\`*_{}[\]()#+\-.!|~:]|\r\n|[\r\n]/gu, (match) => HTML_ESCAPES[match] ?? (match.endsWith("\n") || match === "\r" ? " " : `\\${match}`));
+}
+
+/**
+ * Liquid's delimiters as character references. Every site page with front
+ * matter is rendered by Liquid before Markdown, and kramdown reads `{: …}` as
+ * an attribute list: a brace written as a reference is shown, never run.
+ */
+const LIQUID_ESCAPES: Readonly<Record<string, string>> = Object.freeze({
+  "{": "&#123;",
+  "}": "&#125;",
+});
+
+/**
+ * Plain text placed in a SITE page's Markdown (a page the site's Liquid and
+ * kramdown render): {@link escapeMarkdownText}, with Liquid's braces written
+ * as character references, so no `{{ … }}`, `{% … %}` or `{: … }` survives.
+ * ONE pass; a line break becomes a space.
+ */
+export function escapeSiteText(text: string): string {
+  return text.replace(/[&<>"'{}]|[\\`*_[\]()#+\-.!|~:]|\r\n|[\r\n]/gu, (match) => HTML_ESCAPES[match] ?? LIQUID_ESCAPES[match] ?? (match.endsWith("\n") || match === "\r" ? " " : `\\${match}`));
+}
+
+/**
+ * Text placed inside an HTML element of a site page (code): {@link escapeHtml},
+ * with Liquid's braces and the table-cell pipe as character references (so
+ * the element can stand in a Markdown table cell). ONE pass.
+ */
+export function escapeSiteHtml(text: string): string {
+  return text.replace(/[&<>"'{}|]/gu, (character) => HTML_ESCAPES[character] ?? LIQUID_ESCAPES[character] ?? (character === "|" ? "&#124;" : character));
+}
+
+/**
+ * The text {@link escapeSiteText} or {@link escapeSiteHtml} wrote, read back
+ * (a reader of a generated page, such as the task board's owner names): a
+ * backslash escape of ASCII punctuation and a character reference each become
+ * their character, in ONE pass, so no reference is decoded twice.
+ */
+export function decodeSiteText(text: string): string {
+  return text.replace(/\\([!-/:-@[-`{-~])|&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/gu, (whole, escaped, decimal, hex, name) => escaped ?? referenceValue(whole, decimal, hex, name));
+}
+
+/**
+ * Plain text placed in a GitHub issue or comment: {@link escapeMarkdownText},
+ * and an `@` followed by a word joiner (U+2060), so no `@name` or
+ * `@org/team` in the text mentions anyone. ONE pass; a line break becomes a
+ * space.
+ */
+export function escapeGithubText(text: string): string {
+  return text.replace(/[&<>"']|[\\`*_{}[\]()#+\-.!|~:]|@|\r\n|[\r\n]/gu, (match) => HTML_ESCAPES[match] ?? (match === "@" ? "@\u2060" : match.endsWith("\n") || match === "\r" ? " " : `\\${match}`));
 }
 
 /** One Markdown table cell: a backslash and a pipe are escaped, in one pass. */
