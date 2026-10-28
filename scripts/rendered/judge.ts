@@ -118,14 +118,25 @@ function instrumentFrame(binding: string): void {
   // judge stops counting while it changes the viewport and the media itself
   // (judgeStates) and counts again through the page's future (judgeFuture):
   // a judge resizing a page is not the page shifting.
-  const shift = { value: 0, counting: true };
+  const shift = { value: 0, counting: true, set: (on: boolean): void => { void on; } };
   scope.__renderedShift = shift;
   try {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[]) {
-        if (shift.counting && !entry.hadRecentInput) shift.value += entry.value;
+    const add = (entries: readonly PerformanceEntry[]): void => {
+      // Every shift while counting: the only input a judged page receives is
+      // the judge's own (forced states, done while the count is off), so the
+      // browser's hadRecentInput would hide the page's next shift, not a reader's.
+      for (const entry of entries as unknown as readonly { value: number }[]) {
+        if (shift.counting) shift.value += entry.value;
       }
-    }).observe({ type: "layout-shift", buffered: true });
+    };
+    const observer = new PerformanceObserver((list) => add(list.getEntries()));
+    observer.observe({ type: "layout-shift", buffered: true });
+    // Entries are delivered late; before the count is switched, the ones
+    // already made are taken now, so each lands on the side it happened on.
+    shift.set = (on: boolean): void => {
+      add(observer.takeRecords());
+      shift.counting = on;
+    };
   } catch { /* a frame without the Layout Instability API records no shift */ }
   const sent = new Set<string>();
   const send = (kind: string, value: string): void => {
@@ -443,8 +454,7 @@ async function countShifts(page: Page, counting: boolean): Promise<void> {
   for (const frame of page.frames()) {
     if (frame.isDetached()) continue;
     await frame.evaluate((on) => {
-      const shift = (globalThis as unknown as { __renderedShift?: { counting: boolean } }).__renderedShift;
-      if (shift !== undefined) shift.counting = on;
+      (globalThis as unknown as { __renderedShift?: { set: (on: boolean) => void } }).__renderedShift?.set(on);
     }, counting).catch(() => undefined);
   }
 }
