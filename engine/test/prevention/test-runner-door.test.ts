@@ -46,7 +46,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { boundedTestFiles, testFilesNamed } from "../../scripts/tooling/test-guards.ts";
+import { doorRun } from "../../scripts/tooling/test-guards.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
@@ -221,18 +221,33 @@ test("the subset door runs its test files under the SUITE'S OWN bounds: a per-te
   assert.match(run.stdout, /cpu-work \d+ ms; wall \d+ ms \(recorded, not judged\)/u, "the suite's CPU judgement read the test");
 });
 
-test("the subset door's files: a file as given and a glob's matches, flags skipped; a FOLDER is refused typed (node 24 does not expand one), and a run naming NO file is refused before node could discover files of its own", () => {
+test("the subset door hands node EXACTLY the files it bounds: a file as given and a glob's matches, each flag a known boolean or --name=value; a folder, an unmatched pattern, a space-form flag value and a run naming no file are each refused typed", () => {
   const dir = createTempDir("subset-door-files-");
   mkdirSync(join(dir, "nested"));
   for (const name of ["a.test.ts", "nested/b.test.mjs", "nested/helper.ts"]) writeFileSync(join(dir, name), "");
-  assert.deepEqual(testFilesNamed([join(dir, "a.test.ts"), "--test-name-pattern=x"], dir), [join(dir, "a.test.ts")]);
-  assert.deepEqual(testFilesNamed(["nested/*.mjs"], dir), [join(dir, "nested", "b.test.mjs")]);
-  assert.throws(() => testFilesNamed([dir], ROOT), (error: unknown) => (error as { code?: string }).code === "test_guards_folder_argument");
-  assert.throws(() => boundedTestFiles(["--test-name-pattern=x"], dir), (error: unknown) => (error as { code?: string }).code === "test_guards_no_test_file");
-  // Driven through the door: flags only is refused, and node --test never ran.
+  assert.deepEqual(doorRun([join(dir, "a.test.ts"), "--test-name-pattern=x", "--test-only"], dir), { flags: ["--test-name-pattern=x", "--test-only"], files: [join(dir, "a.test.ts")] });
+  assert.deepEqual(doorRun(["nested/*.mjs"], dir).files, [join(dir, "nested", "b.test.mjs")]);
+  const refused = (args: readonly string[]): string | undefined => {
+    try {
+      doorRun(args, dir);
+      return undefined;
+    } catch (error) {
+      return (error as { code?: string }).code;
+    }
+  };
+  assert.equal(refused([dir]), "test_guards_folder_argument");
+  assert.equal(refused(["nothing/*.test.ts"]), "test_guards_pattern_unmatched");
+  assert.equal(refused(["--import", "nested/helper.ts", "a.test.ts"]), "test_guards_flag_value");
+  assert.equal(refused(["--test-name-pattern=x"]), "test_guards_no_test_file");
+});
+
+test("THE SPACE-FORM HOLE (review of #626): `--import ./noop.mjs` from a folder holding test files is refused before node runs — node would read the value as the flag's and discover every test there unbounded", () => {
+  const dir = createTempDir("subset-door-space-form-");
+  writeFileSync(join(dir, "noop.mjs"), "");
+  writeFileSync(join(dir, "discovered.test.mjs"), 'import test from "node:test"; test("discovered", () => { console.log("RAN-UNBOUNDED"); });\n');
   const { NODE_TEST_CONTEXT: _ownContext, ...env } = process.env;
-  const run = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/tooling/test-guards.ts", "--test-name-pattern=x"], { cwd: ROOT, encoding: "utf8", env, timeout: DEFAULT_TEST_HANG_BACKSTOP_MS });
-  assert.equal(run.status, 1, run.stdout.slice(-400));
-  assert.ok(run.stderr.includes("requires an explicit test file or pattern"), run.stderr.slice(-400));
-  assert.equal(run.stdout, "", "node --test never ran, so it discovered nothing unbounded");
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", join(ROOT, "scripts", "tooling", "test-guards.ts"), "--import", "./noop.mjs"], { cwd: dir, encoding: "utf8", env, timeout: DEFAULT_TEST_HANG_BACKSTOP_MS });
+  assert.equal(run.status, 1, `${run.stdout.slice(-400)}${run.stderr.slice(-400)}`);
+  assert.ok(run.stderr.includes("write a flag's value in the same argument"), run.stderr.slice(-400));
+  assert.ok(!run.stdout.includes("RAN-UNBOUNDED"), "a discovered test ran outside the bounds");
 });

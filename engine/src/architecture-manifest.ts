@@ -4505,7 +4505,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-test-guards", path: "scripts/tooling/test-guards.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 3, namesSha256: "da457a4bd2115df62d711642e356a176cc3b9f077e8a310d20ca66a18a894a69" },
+      owner: "verification", publicApi: { exportCount: 2, namesSha256: "e995dce330c946cda84828eda70814c3181d4f14b85274c493d624336c12a345" },
       dependencies: ["guardian/build.ts","node:fs","node:path","node:url","scripts/tooling/engine-test-bounds.ts","scripts/tooling/test-run-lock.ts","src/kernel/errors.ts","src/process/supervised-run.ts","src/runtime/cli-debug.ts","src/workflow/test-result-collector.ts","test/support/test-key-home.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
       effects: ["child-process"],
