@@ -259,7 +259,7 @@ function holdsAddress(bytes: Buffer, address: string): boolean {
   const target = folded(address);
   return folded(bytes.toString("utf8")).includes(target) || folded(bytes.toString("latin1")).includes(target)
     || bytes.includes(Buffer.from(address, "utf16le")) || bytes.includes(Buffer.from(address, "utf16le").swap16())
-    || folded(bytes.toString("utf8")).includes(target.replace("@", "%40"));
+    || folded(bytes.toString("utf8")).includes(target.replaceAll("@", "%40"));
 }
 
 /** A source with one base commit by the fixture identity. */
@@ -365,7 +365,7 @@ test("THE ADDRESS MAPPING is applied by the importer itself in its one rewrite, 
   const cases: readonly (readonly [string, string, () => string])[] = [
     ["P0 the author", UNALLOWED_ADDRESS, () => authoredSource(UNALLOWED_ADDRESS)],
     ["P10 a UTF-16LE file (stripped whole)", UNALLOWED_ADDRESS, () => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, "contacts.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`owner = ${UNALLOWED_ADDRESS}\r\n`, "utf16le")])); git(s, "add", "."); git(s, "commit", "-q", "-m", "utf16"); return s; }],
-    ["P11 RFC 2047 and percent-encoded in a message", UNALLOWED_ADDRESS, () => { const s = authoredSource(UNALLOWED_ADDRESS); commitMessage(s, `change\n\nreported as =?UTF-8?Q?${UNALLOWED_ADDRESS.replace("@", "=40")}?= and ${UNALLOWED_ADDRESS.replace("@", "%40")}\n`); return s; }],
+    ["P11 RFC 2047 and percent-encoded in a message", UNALLOWED_ADDRESS, () => { const s = authoredSource(UNALLOWED_ADDRESS); commitMessage(s, `change\n\nreported as =?UTF-8?Q?${UNALLOWED_ADDRESS.replaceAll("@", "=40")}?= and ${UNALLOWED_ADDRESS.replaceAll("@", "%40")}\n`); return s; }],
     ["P13 a non-ASCII address, upper case, in a file", NON_ASCII_ADDRESS, () => { const s = authoredSource(NON_ASCII_ADDRESS); write(s, "MAINTAINERS", `maintainer ${NON_ASCII_ADDRESS.toUpperCase()}\n`); git(s, "add", "."); git(s, "commit", "-q", "-m", "maintainers"); return s; }],
     ["P13b a non-ASCII address in a binary blob (stripped whole)", NON_ASCII_ADDRESS, () => { const s = authoredSource(NON_ASCII_ADDRESS); write(s, "bin.dat", Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(` ${NON_ASCII_ADDRESS}\n`, "utf8")])); git(s, "add", "."); git(s, "commit", "-q", "-m", "binary"); return s; }],
     ["P17 a non-ASCII trailer in upper case", NON_ASCII_ADDRESS, () => authoredSource(NON_ASCII_ADDRESS, `base\n\nSigned-off-by: Jose <${NON_ASCII_ADDRESS.toUpperCase()}>`)],

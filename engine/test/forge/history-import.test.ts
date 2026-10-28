@@ -317,13 +317,13 @@ test("re-scan to zero: a catalogue hit, a name hit or an undisposed oracle findi
 });
 
 test("the receipt: locations are recorded without a path, and a receipt with an absolute or home path or a catalogue hit is refused", () => {
-  assert.equal(recordedLocation("/home/someone/repos/coordination.git"), "local:coordination.git");
+  assert.equal(recordedLocation("/home/user/repos/coordination.git"), "local:coordination.git");
   assert.equal(recordedLocation("C:\\work\\lab\\"), "local:lab");
   assert.equal(recordedLocation("file:///srv/git/archive.git"), "local:archive.git");
   assert.equal(recordedLocation("https://github.com/LLM-4-People/bridlewise-archive.git"), "https://github.com/LLM-4-People/bridlewise-archive.git");
   const clean = { source: "local:src", target: "https://github.com/o/r.git", refMap: [{ source: "refs/heads/home/x", target: "refs/heads/home/x" }], tools: { git: "git version 2.47.3" } };
   assert.equal(receiptRefusal(clean), undefined);
-  for (const [field, value] of [["source", "/home/someone/src"], ["target", "~/archive.git"], ["source", "D:\\repos\\x"], ["source", "file:///x"], ["note", "copied from /home/someone/x"]] as const) {
+  for (const [field, value] of [["source", "/home/user/src"], ["target", "~/archive.git"], ["source", "D:\\repos\\x"], ["source", "file:///x"], ["note", "copied from /home/user/x"]] as const) {
     assert.match(receiptRefusal({ ...clean, [field]: value }) ?? "", new RegExp(`\\$\\.${field} is an absolute or home path`), `${field}: ${value}`);
   }
   assert.ok((receiptRefusal({ ...clean, note: `token = ${GITHUB_TOKEN}` }) ?? "").includes(`catalogue hit (${GITHUB})`));
@@ -589,9 +589,9 @@ test("THE ADDRESS GATE, its parts: every address shape is found (plain, percent-
     `refs/heads/${UNALLOWED_ADDRESS}/topic`,
   ];
   for (const text of shapes) assert.deepEqual(addressSpans(text).map((span) => foldAddress(span.address)), [UNALLOWED_ADDRESS], JSON.stringify(text));
-  const percent = addressSpans(`see ${UNALLOWED_ADDRESS.replace("@", "%40")} here`);
-  assert.deepEqual(percent.map((span) => [span.form, span.address, span.spelling]), [["percent", UNALLOWED_ADDRESS, UNALLOWED_ADDRESS.replace("@", "%40")]]);
-  const encodedWord = `=?UTF-8?Q?${UNALLOWED_ADDRESS.replace("@", "=40")}?=`;
+  const percent = addressSpans(`see ${UNALLOWED_ADDRESS.replaceAll("@", "%40")} here`);
+  assert.deepEqual(percent.map((span) => [span.form, span.address, span.spelling]), [["percent", UNALLOWED_ADDRESS, UNALLOWED_ADDRESS.replaceAll("@", "%40")]]);
+  const encodedWord = `=?UTF-8?Q?${UNALLOWED_ADDRESS.replaceAll("@", "=40")}?=`;
   assert.deepEqual(addressSpans(`reported as ${encodedWord}`).map((span) => [span.form, span.address, span.spelling]), [["rfc2047", UNALLOWED_ADDRESS, encodedWord]]);
   const base64Word = `=?utf-8?B?${Buffer.from(NON_ASCII_ADDRESS, "utf8").toString("base64")}?=`;
   assert.deepEqual(addressSpans(base64Word).map((span) => span.address), [NON_ASCII_ADDRESS]);

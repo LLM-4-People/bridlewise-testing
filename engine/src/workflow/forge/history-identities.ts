@@ -130,7 +130,8 @@ export type IdentityMapEntry = Readonly<{ line: number; properName: string | nul
 /** The ONE declared identity mapping, read and validated: its entries and its digest (recorded). */
 export type IdentityMap = Readonly<{ entries: readonly IdentityMapEntry[]; sha256: string }>;
 
-const MAILMAP_LINE = /^([^<#]*?)\s*<([^<>\s]+)>(?:\s*([^<#]*?)\s*<([^<>\s]+)>)?\s*(?:#.*)?$/u;
+/** A mailmap line (its comment already cut): a name and an address, optionally followed by a commit name and a commit address. */
+const MAILMAP_LINE = /^([^<#]*?)\s*<([^<>\s]+)>(?:\s*([^<#]*?)\s*<([^<>\s]+)>)?\s*$/u;
 
 /**
  * The mapping at `path`, in git's mailmap forms (`Proper Name <proper> Commit
@@ -146,8 +147,10 @@ export function readIdentityMap(path: string, publicTree: string): IdentityMap {
   const text = readFileSync(realpathSync(path), "utf8");
   const entries: IdentityMapEntry[] = [];
   text.split("\n").forEach((raw, index) => {
-    const line = raw.trim();
-    if (line.length === 0 || line.startsWith("#")) return;
+    // A comment runs from `#` to the end of the line (cut by index: no unbounded pattern).
+    const hash = raw.indexOf("#");
+    const line = (hash < 0 ? raw : raw.slice(0, hash)).trim();
+    if (line.length === 0) return;
     const parsed = MAILMAP_LINE.exec(line);
     const invalid = (): never => {
       throw new ForgeError("history_import_identity_map_invalid", `line ${String(index + 1)} of the identity mapping is not a mailmap line of address-shaped addresses (Proper Name <proper> Commit Name <commit>, or a shorter form)`, { line: index + 1 });
