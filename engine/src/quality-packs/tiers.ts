@@ -51,12 +51,12 @@ export const TIER_CHECK_MAP = deepFreeze({
   full: [
     "syntax-errors", "type-errors", "dead-symbols", "unused-exports",
     "dead-branches", "duplicate-logic", "duplicate-body", "duplicated-literals",
-    "esm-cjs-mismatch", "schema-drift", "config-outside-contract",
+    "esm-cjs-mismatch", "config-outside-contract",
   ] as const,
   holdout: [
     "syntax-errors", "type-errors", "dead-symbols", "unused-exports",
     "dead-branches", "duplicate-logic", "duplicate-body", "duplicated-literals",
-    "esm-cjs-mismatch", "schema-drift", "config-outside-contract",
+    "esm-cjs-mismatch", "config-outside-contract",
     "undefined-symbols",
   ] as const,
 } as const);

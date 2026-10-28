@@ -11,12 +11,6 @@ The module's layers live one level down:
 - `application/` — admit-handoff + compile-assignment-contract.
 - `domain/` — handoff-contracts + handoff-protocol-authority.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/modules/tasks-agents/`.
-
-- `index.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

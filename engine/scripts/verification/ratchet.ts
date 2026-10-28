@@ -171,24 +171,57 @@ export function ratchetFailure(baselinePath: string, verdict: RatchetVerdict): s
 }
 
 /**
- * Every ratchet baseline a tree holds (`HEAD`'s, or the index's), keyed by its
+ * Every ratchet baseline a tree holds (a commit's, or the index's), keyed by its
  * id. One that names no id is not a baseline any reader can find (a staged
  * one is refused by {@link stagedRatchetGrowth}; every baseline HEAD holds
  * carries its id).
  */
-function baselinesIn(repositoryRoot: string, tree: "HEAD" | "index"): ReadonlyMap<string, RatchetBaseline> {
+function baselinesIn(repositoryRoot: string, tree: string): ReadonlyMap<string, RatchetBaseline> {
   assertRepository(repositoryRoot);
-  const args = tree === "HEAD" ? ["grep", "-l", "-z", "--fixed-strings", RATCHET_SCHEMA, "HEAD", "--", "*.json"] : ["grep", "--cached", "-l", "-z", "--fixed-strings", RATCHET_SCHEMA, "--", "*.json"];
+  const args = tree === "index" ? ["grep", "--cached", "-l", "-z", "--fixed-strings", RATCHET_SCHEMA, "--", "*.json"] : ["grep", "-l", "-z", "--fixed-strings", RATCHET_SCHEMA, tree, "--", "*.json"];
   const listed = spawnSync("git", args, { cwd: repositoryRoot, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
   const baselines = new Map<string, RatchetBaseline>();
   for (const entry of (listed.status === 0 ? listed.stdout : "").split("\0").filter((listedPath) => listedPath.length > 0)) {
-    const spec = tree === "HEAD" ? entry : `:${entry}`;
+    // `git grep <commit>` names each match `<commit>:<path>`; the index's are bare paths.
+    const spec = tree === "index" ? `:${entry}` : entry;
     const text = gitBlob(repositoryRoot, spec);
     if (text === undefined || !declaresRatchetBaseline(text)) continue;
     const baseline = parseRatchetBaseline(text, spec);
     if (baseline.id !== undefined) baselines.set(baseline.id, baseline);
   }
   return baselines;
+}
+
+/** A commit's baselines by id, and the entries of every one the judged tree no longer holds (pooled: a move or a rename hides nothing). */
+type CommittedBaselines = Readonly<{ byId: ReadonlyMap<string, RatchetBaseline>; retired: RatchetBaseline | undefined }>;
+
+function committedBaselines(repositoryRoot: string, commit: string, judged: ReadonlyMap<string, RatchetBaseline>): CommittedBaselines {
+  const byId = baselinesIn(repositoryRoot, commit);
+  const retired = [...byId].filter(([key]) => !judged.has(key)).flatMap(([, gone]) => gone.entries);
+  return { byId, retired: retired.length === 0 ? undefined : Object.freeze({ schema: RATCHET_SCHEMA, entries: Object.freeze(retired) }) };
+}
+
+/** THE one growth judgement, keyed by finding id: `baseline` against the committed baseline of its id, else every retired one. */
+function grownAgainst(baseline: RatchetBaseline, committed: CommittedBaselines): readonly string[] {
+  return ratchetGrowth(baseline, (baseline.id === undefined ? undefined : committed.byId.get(baseline.id)) ?? committed.retired);
+}
+
+/**
+ * Every ratchet baseline `HEAD` holds that grew against `base` — the required
+ * check's question, the SAME judgement the commit guard asks of a staged
+ * baseline against HEAD ({@link stagedRatchetGrowth}): by id, a moved or
+ * renamed baseline judged against every retired one. A base this clone does
+ * not hold is refused, never read as "no baseline there".
+ */
+export function ratchetGrowthSince(repositoryRoot: string, base: string): readonly Readonly<{ id: string; grown: readonly string[] }>[] {
+  const known = spawnSync("git", ["cat-file", "-e", `${base}^{commit}`], { cwd: repositoryRoot, encoding: "utf8" });
+  if (known.status !== 0) throw new InputError(`the base ${base} is not in this clone: fetch it before judging growth`, "ratchet_base_unknown");
+  const current = baselinesIn(repositoryRoot, "HEAD");
+  const committed = committedBaselines(repositoryRoot, base, current);
+  return [...current].flatMap(([id, baseline]) => {
+    const grown = grownAgainst(baseline, committed);
+    return grown.length === 0 ? [] : [{ id, grown }];
+  });
 }
 
 /**
@@ -209,20 +242,15 @@ function baselinesIn(repositoryRoot: string, tree: "HEAD" | "index"): ReadonlyMa
  */
 export function stagedRatchetGrowth(repositoryRoot: string, stagedPaths: readonly string[]): readonly Readonly<{ path: string; grown: readonly string[] }>[] {
   const grownBaselines: { path: string; grown: readonly string[] }[] = [];
-  let committed: Readonly<{ head: ReadonlyMap<string, RatchetBaseline>; retired: RatchetBaseline | undefined }> | undefined;
+  let committed: CommittedBaselines | undefined;
   for (const path of stagedPaths) {
     if (!path.endsWith(".json")) continue;
     const staged = gitBlob(repositoryRoot, `:${path}`);
     if (staged === undefined || !declaresRatchetBaseline(staged)) continue;
     const baseline = parseRatchetBaseline(staged, `the staged ${path}`);
     if (baseline.id === undefined) throw new InputError(`the staged ${path} names no id: a baseline carries its registry id (harness sync writes it)`, "ratchet_baseline_invalid");
-    committed ??= (() => {
-      const head = baselinesIn(repositoryRoot, "HEAD");
-      const index = baselinesIn(repositoryRoot, "index");
-      const retired = [...head].filter(([key]) => !index.has(key)).flatMap(([, gone]) => gone.entries);
-      return { head, retired: retired.length === 0 ? undefined : Object.freeze({ schema: RATCHET_SCHEMA, entries: Object.freeze(retired) }) };
-    })();
-    const grown = ratchetGrowth(baseline, committed.head.get(baseline.id) ?? committed.retired);
+    committed ??= committedBaselines(repositoryRoot, "HEAD", baselinesIn(repositoryRoot, "index"));
+    const grown = grownAgainst(baseline, committed);
     if (grown.length > 0) grownBaselines.push({ path, grown });
   }
   return grownBaselines;

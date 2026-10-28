@@ -8,10 +8,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { AGENT_CHECKOUT_KEY, AGENT_IDENTITY, committerIdentity, isAgentAccount, isAgentCheckout, messageSignOffProblem, unsignedCommits } from "../../scripts/verification/sign-off.ts";
+import { committerIdentity, isAgentAccount, isAgentCheckout, messageSignOffProblem, unsignedCommits } from "../../scripts/verification/sign-off.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { TEST_GIT_IDENTITY, testGitIdentityEnvironment } from "../support/test-git-identity.ts";
+
+/** The agent-checkout marker key, from its one source (the root policy). */
+const AGENT_CHECKOUT_KEY = ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey;
 
 const SIGNED = `Signed-off-by: ${TEST_GIT_IDENTITY.name} <${TEST_GIT_IDENTITY.email}>`;
 
@@ -281,7 +284,7 @@ test("agent checkout: a commit made in a checkout the harness made for an agent 
 // human outside contributor keeps the ordinary DCO.
 // ---------------------------------------------------------------------------
 
-const AGENT = AGENT_IDENTITY;
+const AGENT = ROOT_POLICY.workflow.commitIdentity.agent;
 const PERSONAL = { name: "A Person", email: "person@example.invalid" } as const;
 const signedBy = (...identities: readonly { name: string; email: string }[]): string =>
   `feat: a change\n\n${identities.map((identity) => `Signed-off-by: ${identity.name} <${identity.email}>`).join("\n")}\n`;

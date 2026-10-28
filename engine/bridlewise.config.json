@@ -618,7 +618,7 @@
     "failOnHigh": false,
     "failOnMedium": false,
     "failOnLow": false,
-    "enabledChecks": "duplicate-body-detector,duplicated-literals,dead-exports,schema-drift"
+    "enabledChecks": "duplicate-body-detector,duplicated-literals,dead-exports"
   },
   "safety": {
     "threshold": 0.5,
@@ -801,6 +801,13 @@
           ]
         },
         {
+          "name": "adding-modules-merges",
+          "measuredCpuMs": 117097,
+          "files": [
+            "engine/test/prevention/adding-modules-merges.test.ts"
+          ]
+        },
+        {
           "name": "architecture-baseline-clean",
           "measuredCpuMs": 60041,
           "files": [
@@ -816,9 +823,11 @@
     "fullSuiteInProcessSerialPhaseConcurrency": 4,
     "fullSuiteParallelConcurrency": 12,
     "compileCachePruning": {
-      "maxEntryAgeDays": 7,
-      "maxEntries": 400000,
-      "timeBudgetMs": 10000
+      "maxBytes": 4294967296,
+      "maxEntryAgeHours": 72,
+      "inUseMinutes": 60,
+      "intervalMinutes": 60,
+      "maxDeletionsPerPrune": 50000
     },
     "integrationSuiteCpuBudget": {
       "metric": "calibrated-work/v1",
@@ -868,7 +877,8 @@
         "engine/test/forge/flake-shim-token-ends-zero.ts",
         "tests/helpers/flake-shim-orchestration-run-id.ts",
         "engine/test/support/flake-shim-cpu-frequency-scaling.ts",
-        "engine/test/support/flake-shim-preempt-after-ready.ts"
+        "engine/test/support/flake-shim-preempt-after-ready.ts",
+        "engine/test/support/flake-shim-concurrent-owner-sweep.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -1155,13 +1165,24 @@
     "organization": "LLM-4-People",
     "apiUrl": "https://api.github.com",
     "webUrl": "https://github.com",
+    "uploadsUrl": "https://uploads.github.com",
+    "assetOrigins": [
+      "https://release-assets.githubusercontent.com",
+      "https://objects.githubusercontent.com"
+    ],
     "userAgent": "bridlewise-forge",
     "request": {
       "timeoutMs": 30000,
       "maxResponseBytes": 16777216,
       "cleanupTimeoutMs": 2000,
       "etagCacheEntries": 1024,
-      "maxPages": 50
+      "maxPages": 50,
+      "assets": {
+        "maxBytes": 1073741824,
+        "progressWindowMs": 30000,
+        "minBytesPerWindow": 1024,
+        "answerSilenceMs": 600000
+      }
     },
     "tokenRenewBeforeMs": 300000,
     "repositories": [

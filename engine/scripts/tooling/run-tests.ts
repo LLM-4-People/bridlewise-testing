@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execPath } from "node:process";
 
-import { enableSharedCompileCache, pruneCompileCacheRoot, scanCompileCache } from "./compile-cache.ts";
+import { enableSharedCompileCache, scanCompileCache } from "./compile-cache.ts";
 import { runRecordedCommand } from "./recorded-command.ts";
 import {
   beginRecordedExecution,
@@ -116,8 +116,14 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     releaseInstrumentLock?.();
     return { operation, exitCode };
   };
+  // OUTSIDE the try: a refused config document is a refusal of the run, never
+  // a caught-and-reported runner failure (config-refusal-propagates.test.ts).
+  const compileCachePruning = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url))).compileCachePruning;
   try {
-    enableSharedCompileCache();
+    // The enabler bounds the cache (testExecution.compileCachePruning), BEFORE
+    // `beginMeasuredRun` takes the CPU baseline and the start-stamp, so the
+    // prune's cost and its deletions stay outside the measured window.
+    enableSharedCompileCache(compileCachePruning);
     process.stderr.write(`${temporaryRootPreflightLine("run-tests", temporaryRootHeadroom())}\n`);
     const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../../", import.meta.url)));
     if (keptOut !== undefined) {
@@ -395,10 +401,9 @@ export interface MeasuredRunBegin {
   readonly runStartMs: number;
 }
 
-/** The three order-bearing steps, injectable so a test can OBSERVE the order
+/** The order-bearing steps, injectable so a test can OBSERVE the order
  *  rather than trust the comment that used to be the only guarantee. */
 export interface MeasuredRunBeginSteps {
-  readonly pruneCache: (root: string) => void;
   readonly readCpuBaseline: () => RunCpu | null;
   readonly measureCalibration: () => CalibrationReading | null;
   readonly stampStart: () => number;
@@ -407,13 +412,14 @@ export interface MeasuredRunBeginSteps {
 /**
  * Take every pre-run measurement, IN THE ORDER THE MECHANISM REQUIRES.
  *
- * THE CACHE PRUNE RUNS FIRST — before the run's start-stamp AND before the
- * CPU baseline, and both orderings are load-bearing:
- *   - taken before the start-stamp, the prune can only ever delete entries
- *     whose mtime predates it, so the end-of-run warmth walk
- *     (mtime >= start) cannot be fabricated or eroded by it;
- *   - taken before `cpuBefore`, the prune's own filesystem cost never
- *     inflates the judged CPU figure.
+ * THE CACHE PRUNE HAS ALREADY RUN — the compile-cache enabler bounds the
+ * cache when `runCli` enables it, before this function (held by test), and
+ * both orderings stay load-bearing:
+ *   - before the start-stamp, the prune can only ever delete entries last
+ *     used before it, so the end-of-run warmth walk (mtime >= start) cannot
+ *     be fabricated or eroded by it;
+ *   - before `cpuBefore`, the prune's own filesystem cost never inflates the
+ *     judged CPU figure.
  * The calibration runs BEFORE `cpuBefore`, so its own CPU never sits inside
  * the window the suite's cost is measured over; the head sha and the ambient
  * load are sampled AT RUN START (the load average is a decaying one-minute
@@ -431,13 +437,11 @@ export interface MeasuredRunBeginSteps {
 export function beginMeasuredRun(
   root: string,
   steps: MeasuredRunBeginSteps = {
-    pruneCache: pruneCompileCacheIfDeclared,
     readCpuBaseline: readRunCpu,
     measureCalibration,
     stampStart: Date.now,
   },
 ): MeasuredRunBegin {
-  steps.pruneCache(root);
   // BEFORE the CPU baseline: the calibration's own CPU must not sit inside
   // the window the suite's cost is measured over.
   const calibrationBefore = steps.measureCalibration();
@@ -459,34 +463,6 @@ export function beginMeasuredRun(
     ambientLoad15PerCpu: ambient.perCpu?.load15 ?? null,
     runStartMs,
   };
-}
-
-function pruneCompileCacheIfDeclared(root: string): void {
-  // The config read stays OUTSIDE the catch: a refused document is a refusal
-  // of the run, not a skipped prune (config-refusal-propagates.test.ts).
-  const policy = readTestExecutionConfig(root).compileCachePruning;
-  try {
-    if (policy === undefined) {
-      process.stdout.write(
-        "[compile-cache] no pruning policy declared (testExecution.compileCachePruning in " +
-          "bridlewise.config.json) — the shared V8 compile cache grows unbounded. Declare " +
-          "{ maxEntryAgeDays, maxEntries, timeBudgetMs } to bound it; nothing is guessed.\n",
-      );
-      return;
-    }
-    const result = pruneCompileCacheRoot(policy);
-    process.stdout.write(
-      `[compile-cache] prune: ${String(result.prunedEntries)} of ` +
-        `${String(result.scannedEntries)} entries removed in ${String(result.tookMs)}ms ` +
-        `(policy: keep newest ${String(policy.maxEntries)}/dir within ` +
-        `${String(policy.maxEntryAgeDays)}d)` +
-        `${result.timeBudgetExhausted ? " — TIME BUDGET EXHAUSTED, the next run continues the trim" : ""}\n`,
-    );
-  } catch (error) {
-    process.stdout.write(
-      `[compile-cache] prune skipped: ${extractErrorMessage(error)}\n`,
-    );
-  }
 }
 
 /**
@@ -845,7 +821,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   prunedPaths: readonly string[];
 }> {
   const { join } = await import("node:path");
-  const { createTestSurfaceDispositionManifest, isQualifiedCanonicalNodeTestSource, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage } = await import("../verification/test-surface.ts");
+  const { createTestSurfaceDispositionManifest, defaultDispositionEntry, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage, serializeTestSurfaceDispositionManifest } = await import("../../src/kernel/test-surface-manifest.ts");
   const { ROOT_POLICY } = await import("../../src/kernel/root-policy.ts");
   const { listUntrackedRecognizableTestPaths, listRecognizableTestPaths } = await import("../test-inventory.ts");
 
@@ -880,8 +856,9 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   const recognizablePaths = listRecognizableTestPaths(root);
   const recognizableSet = new Set(recognizablePaths);
 
+  // A qualified Node test source is canonical without an entry: only a source outside the qualified patterns needs one.
   const missingPaths = recognizablePaths
-    .filter((path) => !registeredPaths.has(path))
+    .filter((path) => !registeredPaths.has(path) && defaultDispositionEntry(path) === undefined)
     .sort();
   const stalePaths = [...registeredPaths]
     .filter((path) => !recognizableSet.has(path))
@@ -927,7 +904,8 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       `${unnamed.slice(0, 10).join(", ")}${unnamed.length > 10 ? ", …" : ""}. ` +
       `If a directory moved, move the pattern in root-policy.ts with it. If these files were deleted on ` +
       `purpose, name each deletion: node src/cli.ts harness sync ${unnamed.slice(0, 10).map((path) => `--prune ${path}`).join(" ")}` +
-      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags).`,
+      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags), and name each in the deleting ` +
+      `commit's own Test-deleted: <path> trailer (scripts/verification/test-deletions.ts).`,
       "test_surface_prune_refused",
     );
   }
@@ -944,16 +922,6 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       // unreachable; guard for exhaustiveness.
       throw new Error(`auto-add encountered a non-recognizable path: ${path}`);
     }
-    if (language === "javascript-typescript" && isQualifiedCanonicalNodeTestSource(path)) {
-      return {
-        path,
-        language,
-        disposition: "canonical-node-test" as const,
-        rationale: "Auto-registered by npm test auto-heal.",
-        evidenceLinks: [] as string[],
-        blocksFullRepositoryClaim: false,
-      };
-    }
     return {
       path,
       language,
@@ -968,7 +936,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
 
   const newEntries = [...keptEntries, ...addedEntries];
   const regenerated = createTestSurfaceDispositionManifest(newEntries);
-  const written = atomicWriteFile(manifestPath, JSON.stringify(regenerated, null, 2) + "\n");
+  const written = atomicWriteFile(manifestPath, serializeTestSurfaceDispositionManifest(regenerated));
   if (!written.success) {
     throw new HarnessError(`Failed to write the disposition manifest ${manifestPath}: ${written.reason ?? "unknown error"}`, "disposition_manifest_write_failed");
   }

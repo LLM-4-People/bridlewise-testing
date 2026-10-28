@@ -5,13 +5,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { buildCandidateManifest, buildCandidateManifestDetailed } from "../scripts/tooling/candidate-manifest.ts";
+import { buildCandidateManifest, buildCandidateManifestDetailed } from "../scripts/verification/candidate-manifest.ts";
 import {
   candidateFormatForBytes,
   candidateFormatErrorViolations,
   candidatePathRejectedWithoutContentRead,
 } from "../scripts/verification/candidate-format.ts";
-import { buildArtifactAdmissionManifest } from "../scripts/tooling/verification/artifact-admission.ts";
+import { artifactRecordOf, buildArtifactAdmissionManifest } from "../scripts/tooling/verification/artifact-admission.ts";
 import { verifyGovernedTypeScriptSource } from "../scripts/tooling/verification/governed-source.ts";
 import {
   reconstructOriginalBytes,
@@ -671,12 +671,12 @@ test("the canonical artifact inventory is current: a fresh build over this tree'
     root: access,
     previousManifest: parsed,
   }));
-  assert.equal(canonicalJsonLines(built), committed, "the committed inventory must equal a fresh build over the governed roots");
+  assert.equal(canonicalJsonLines(artifactRecordOf(built)), committed, "the committed record must equal the record of a fresh build over the governed roots");
   assert.equal(built.policyHash, canonicalHash(ROOT_POLICY.artifactGovernance), "the inventory carries the canonical policy hash, not a stale one");
   assert.ok(built.entries.length > 0, "the inventory must cover the governed roots (an empty population certifies nothing)");
   assert.equal(built.entries.length, new Set(built.entries.map((entry) => entry.path)).size, "every artifact is inventoried once");
-  // THE GATE IS NOT VACUOUS: changing one governed byte makes the owner's build
-  // disagree with the committed document, so the freshness arm has a subject.
-  const first = built.entries[0]!;
-  assert.match(first.integrity.sha256, /^[0-9a-f]{64}$/u);
+  // The record commits no digest of a mechanically captured artifact (an edit rewrites nothing, #221): the integrity is
+  // derived, and an AUTHORED origin carries the exact bytes it is for.
+  assert.match(built.entries[0]!.integrity.sha256, /^[0-9a-f]{64}$/u);
+  assert.ok((parsed as { artifacts: { integrity?: unknown }[] }).artifacts.some((artifact) => artifact.integrity !== undefined), "the authored origins are recorded with their bytes");
 });

@@ -11,7 +11,8 @@
  * URL that carries the original scheme and host in its path, so the handler
  * sees the ORIGINAL url (`https://a.test/v1/responses?…`) and a test can keep
  * routing on host names. The handler is called like `fetch` was: `(url,
- * init)` with `init.method`, `init.headers` (a `Headers`), `init.body` (text)
+ * init)` with `init.method`, `init.headers` (a `Headers`), `init.body` (text),
+ * `init.bytes` (the same body's raw bytes, for a binary upload)
  * and `init.signal` (aborted when the client goes away before the answer
  * ends). It returns a `Response` (streamed back as it is read) or throws —
  * a throw drops the connection, which the client sees as a network failure.
@@ -26,7 +27,7 @@ import type { TestContext } from "node:test";
 
 import { closeOutboundConnections } from "../../src/shared/outbound-http.ts";
 
-export type UpstreamRequest = Readonly<{ method: string; headers: Headers; body: string | undefined; signal: AbortSignal }>;
+export type UpstreamRequest = Readonly<{ method: string; headers: Headers; body: string | undefined; bytes: Uint8Array | undefined; signal: AbortSignal }>;
 export type UpstreamHandler = (url: string, init: UpstreamRequest) => unknown;
 
 /** The path segment that marks a mapped remote: `/_/<scheme>/<host>/…`. */
@@ -44,7 +45,18 @@ function originalUrl(request: IncomingMessage, origin: string): string {
   return `${segments[2]}://${segments[3]}/${segments.slice(4).join("/")}`;
 }
 
+/** While set, every request body waits unread (the receiver not reading: the sender's socket fills and blocks). */
+let held: Promise<void> | undefined;
+
+/** Hold every request body unread until the returned release is called. */
+export function holdRequestBodies(): () => void {
+  let release: () => void = () => undefined;
+  held = new Promise<void>((resolve) => { release = resolve; });
+  return () => { held = undefined; release(); };
+}
+
 async function answer(request: IncomingMessage, response: ServerResponse, origin: string): Promise<void> {
+  if (held !== undefined) await held;
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(chunk as Buffer);
   const abort = new AbortController();
@@ -55,6 +67,8 @@ async function answer(request: IncomingMessage, response: ServerResponse, origin
     method: request.method ?? "GET",
     headers,
     body: chunks.length === 0 ? undefined : Buffer.concat(chunks).toString("utf8"),
+    // The raw bytes too: a binary upload is read as bytes, never as text.
+    bytes: chunks.length === 0 ? undefined : new Uint8Array(Buffer.concat(chunks)),
     signal: abort.signal,
   });
   received.push(init);
@@ -78,15 +92,41 @@ async function answer(request: IncomingMessage, response: ServerResponse, origin
   response.end();
 }
 
+/** Requests whose answer is still running, and how many connections the upstream has seen close. */
+const answering = new Set<Promise<void>>();
+let closedConnections = 0;
+
 const server = createServer((request, response) => {
-  answer(request, response, origin).catch(() => {
+  const answered = answer(request, response, origin).catch(() => {
     // A handler that throws (or a body that errors) drops the connection:
     // the client sees what a failing network gives it.
     response.destroy();
     request.socket.destroy();
   });
+  answering.add(answered);
+  void answered.finally(() => answering.delete(answered));
 });
-server.on("connection", (socket) => socket.unref());
+server.on("connection", (socket) => { socket.unref(); socket.once("close", () => { closedConnections += 1; }); });
+
+/** How many connections to the upstream have closed so far (a mark for {@link connectionsSettled}). */
+export function connectionsClosed(): number {
+  return closedConnections;
+}
+
+/**
+ * WHAT THE SERVER SAW, SETTLED: resolves once a connection has closed since
+ * `mark` (a {@link connectionsClosed} reading) and no answer is still
+ * running, so every byte that reached the server has been handled (a handler
+ * ran, or the read failed). Waits on event-loop turns, not a clock, and
+ * rejects after `turns` of them (a connection that never closes is a red).
+ */
+export async function connectionsSettled(mark: number, turns = 200_000): Promise<void> {
+  for (let turn = 0; turn < turns; turn += 1) {
+    if (closedConnections > mark && answering.size === 0) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`the upstream did not settle: ${String(closedConnections - mark)} connection(s) closed since the mark, ${String(answering.size)} answer(s) running`);
+}
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 server.unref();
 

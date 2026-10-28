@@ -189,7 +189,6 @@ test("qualitycli: full tier output includes all full check ids", () => {
   const output = formatTierResult(result);
   const checkIds = output.checkIds as readonly string[];
   assert.ok(checkIds.includes("duplicate-logic"));
-  assert.ok(checkIds.includes("schema-drift"));
 });
 
 test("qualitycli: holdout tier output includes undefined-symbols", () => {

@@ -16,8 +16,8 @@ export const PLANNED_NODE_TEST_SOURCE_AUTHORITY = deepFreeze({
     evidenceExecutor: {
       role: "evidence-executor",
       path: "scripts/tooling/planned-node-test-evidence.ts",
-      byteLength: 22_783,
-      sha256: "5907ea37a5bc81bdc9dbcebe847cb664c33c62cf9fd79ec57a1be9d9c59c7f83",
+      byteLength: 22_797,
+      sha256: "7a46367c35f4a714973a449021bccd115000956eb396684e5ef7b909731472f1",
     },
   },
   suites: {

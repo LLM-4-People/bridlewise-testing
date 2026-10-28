@@ -122,7 +122,7 @@ function executorHelper(
     `const inventory = buildTestInventory(root, { dispositionManifest: manifest });\n` +
     `const accounting = await executeInventoryTestRun(root, inventory, opts);\n` +
     `const { createTestReceipt, createTestResultReceipt, parseTestResultReceiptValue } = await import(${JSON.stringify(resolve(process.cwd(), "scripts/tooling/test-receipt.ts"))});\n` +
-    `const { CANDIDATE_MANIFEST_SCHEMA_VERSION } = await import(${JSON.stringify(resolve(process.cwd(), "scripts/tooling/candidate-manifest.ts"))});\n` +
+    `const { CANDIDATE_MANIFEST_SCHEMA_VERSION } = await import(${JSON.stringify(resolve(process.cwd(), "scripts/verification/candidate-manifest.ts"))});\n` +
     // Synthetic candidate identity belongs only to this receipt fixture.
     `const candidate = { manifestSchemaVersion: CANDIDATE_MANIFEST_SCHEMA_VERSION, formatPolicyRevision: "candidate-format/v1", semanticTreeHash: "0".repeat(64), formatVerificationHash: "1".repeat(64) };\n` +
     `const receipt = createTestReceipt(candidate, inventory, accounting.discoveredIds, accounting.passedIds, accounting.counts, accounting.gatedTestIds, accounting.loadCrashCount, accounting.abortedFileCount);\n` +

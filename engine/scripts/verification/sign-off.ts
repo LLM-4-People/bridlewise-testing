@@ -79,10 +79,10 @@ export type Identity = Readonly<{ name: string; email: string }>;
 type Trailer = Readonly<{ key: string; value: string }>;
 
 /** The project's identity for agent commits, and the accounts that open agent pull requests (the one declared source). */
-export const AGENT_IDENTITY: Identity = ROOT_POLICY.workflow.commitIdentity.agent;
+const AGENT_IDENTITY: Identity = ROOT_POLICY.workflow.commitIdentity.agent;
 const AGENT_ACCOUNTS: readonly string[] = ROOT_POLICY.workflow.commitIdentity.agentAccounts;
 /** The git config key a harness-made agent checkout carries (the one declared source). */
-export const AGENT_CHECKOUT_KEY: string = ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey;
+const AGENT_CHECKOUT_KEY: string = ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey;
 
 const domainOf = (email: string): string => email.slice(email.lastIndexOf("@") + 1).toLowerCase();
 
