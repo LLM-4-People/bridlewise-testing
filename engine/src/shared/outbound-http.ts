@@ -115,7 +115,6 @@
  */
 
 import { guarded } from "../process/fault-policy.ts";
-import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { lookup } from "node:dns/promises";
@@ -127,8 +126,9 @@ import type { Dispatcher } from "undici";
 
 import { HarnessError, SecurityError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
+import { SHA256_HEX_REGEX, sha256Stream } from "../kernel/integrity.ts";
 import { debugLog } from "./debug/debug-system.ts";
-import { deadline } from "./abort-signals.ts";
+import { deadline, progressDeadline } from "./abort-signals.ts";
 import { PROXY_VARIABLES } from "../process/environment-projection.ts";
 import { processUnderTest } from "../filesystem/checkout-write-door.ts";
 import { liveHostConsented } from "../process/live-network.ts";
@@ -948,21 +948,45 @@ export type OutboundStreamBody = Readonly<{ chunks: AsyncIterable<Uint8Array>; s
 /** A request body: text, or a streamed binary body. */
 export type OutboundBody = string | OutboundStreamBody;
 
-const SHA256_HEX = /^[0-9a-f]{64}$/u;
-
-/** The streamed body's chunks, held to its declared size and digest as they leave. */
+/**
+ * The streamed body's chunks, held to its declared size and digest BEFORE
+ * the body completes: the chunk that reaches the declared size leaves only
+ * once the digest of every byte holds and the stream has nothing after it.
+ * Every refusal therefore cuts the request short of its `Content-Length`,
+ * and the server never receives a complete body other than the declared one.
+ */
 async function* verifiedChunks(body: OutboundStreamBody, origin: string, logCategory: string): AsyncGenerator<Uint8Array> {
-  const digest = createHash("sha256");
+  const digest = sha256Stream();
+  const chunks = body.chunks[Symbol.asyncIterator]();
+  const longer = (): never => refuse(logCategory, `The request body to ${origin} is longer than the ${String(body.size)} bytes it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size });
+  const digestHolds = (): void => {
+    const actual = digest.digest();
+    if (actual !== body.sha256) refuse(logCategory, `The request body to ${origin} does not hash to the SHA-256 it declared, so it was cut before it completed.`, "outbound_body_integrity_failed", { origin, declared: body.sha256, actual });
+  };
   let sent = 0;
-  for await (const chunk of body.chunks) {
-    sent += chunk.byteLength;
-    if (sent > body.size) refuse(logCategory, `The request body to ${origin} is longer than the ${String(body.size)} bytes it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size });
-    digest.update(chunk);
-    yield chunk;
+  try {
+    while (true) {
+      const next = await chunks.next();
+      if (next.done === true) {
+        if (sent !== body.size) refuse(logCategory, `The request body to ${origin} is ${String(sent)} bytes, not the ${String(body.size)} it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size, sent });
+        digestHolds(); // an empty declared body: nothing left, and its digest is still the declared one
+        return;
+      }
+      sent += next.value.byteLength;
+      if (sent > body.size) longer();
+      digest.update(next.value);
+      if (sent === body.size) {
+        // The completing chunk: held until the digest holds and nothing follows it (an empty chunk carries no byte).
+        digestHolds();
+        for (let after = await chunks.next(); after.done !== true; after = await chunks.next()) if (after.value.byteLength > 0) longer();
+        yield next.value;
+        return;
+      }
+      yield next.value;
+    }
+  } finally {
+    await chunks.return?.();
   }
-  if (sent !== body.size) refuse(logCategory, `The request body to ${origin} is ${String(sent)} bytes, not the ${String(body.size)} it declared, so it was cut before it completed.`, "outbound_body_size_mismatch", { origin, declared: body.size, sent });
-  const actual = digest.digest("hex");
-  if (actual !== body.sha256) refuse(logCategory, `The request body to ${origin} does not hash to the SHA-256 it declared, so it was cut before it completed.`, "outbound_body_integrity_failed", { origin, declared: body.sha256, actual });
 }
 
 /** Send one request on the door's own dispatcher and answer the platform `Response` shape. */
@@ -972,7 +996,7 @@ async function send(prepared: PreparedOutboundRequest, route: Route, body: Outbo
   prepared.headers.forEach((value, name) => { headers[name] = value; });
   let wire: string | Readable | undefined;
   if (typeof body === "object") {
-    if (!Number.isSafeInteger(body.size) || body.size < 0 || !SHA256_HEX.test(body.sha256)) {
+    if (!Number.isSafeInteger(body.size) || body.size < 0 || !SHA256_HEX_REGEX.test(body.sha256)) {
       refuse(prepared.logCategory, `A streamed request body to ${url.origin} must declare a byte size and a lower-case hex SHA-256, so nothing was sent.`, "outbound_body_declaration_invalid", { origin: url.origin });
     }
     headers["content-length"] = String(body.size);
@@ -1053,8 +1077,8 @@ export async function openOutboundWebSocket(request: OutboundWebSocketRequest): 
   }) as unknown as WebSocket;
 }
 
-/** A request lifetime: the caller's cancellation plus a REQUIRED timeout (the one owner, re-exported for the door's callers). */
-export { deadline as outboundDeadline };
+/** A request lifetime: the caller's cancellation plus a REQUIRED timeout, or a progress bound for a transfer (the one owner, re-exported for the door's callers). */
+export { deadline as outboundDeadline, progressDeadline as outboundProgressDeadline };
 
 function tooLarge(): OutboundHttpError {
   countOutboundRefusal("outbound_body_too_large");
@@ -1062,8 +1086,15 @@ function tooLarge(): OutboundHttpError {
 }
 
 /** Decode a response body stream as UTF-8 text chunks, bounded by `maxBytes`. */
-export async function* decodeReadableStream(body: ReadableStream<Uint8Array>, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): AsyncGenerator<string> {
-  const reader = body.getReader(), decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
+/**
+ * THE ONE BOUNDED BODY READER: a body's chunks, under the caller's signal
+ * (an abort cancels the read), bounded by `maxBytes` (a chunk that would
+ * pass the bound is never yielded: `outbound_body_too_large`), and always
+ * cancelled and released at the end. The text reader and the binary reader
+ * are this, with decoding or a sink and a digest on top.
+ */
+async function* boundedChunks(body: ReadableStream<Uint8Array>, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): AsyncGenerator<Uint8Array> {
+  const reader = body.getReader();
   let bytes = 0;
   const abort = guarded("outbound.body.abort", (): void => { void cancelBody(() => reader.cancel(signal.reason), cleanupTimeoutMs, logCategory); });
   signal.addEventListener("abort", abort, { once: true });
@@ -1072,15 +1103,23 @@ export async function* decodeReadableStream(body: ReadableStream<Uint8Array>, si
       signal.throwIfAborted();
       const { done, value } = await reader.read();
       signal.throwIfAborted();
-      if (done) { const end = decoder.decode(); if (end) yield end; return; }
+      if (done) return;
       bytes += value.byteLength;
       if (bytes > maxBytes) throw tooLarge();
-      const text = decoder.decode(value, { stream: true }); if (text) yield text;
+      yield value;
     }
   } finally {
     signal.removeEventListener("abort", abort);
     await cancelBody(() => reader.cancel(), cleanupTimeoutMs, logCategory); reader.releaseLock();
   }
+}
+
+export async function* decodeReadableStream(body: ReadableStream<Uint8Array>, signal: AbortSignal, maxBytes: number, cleanupTimeoutMs: number, logCategory: string): AsyncGenerator<string> {
+  const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
+  for await (const value of boundedChunks(body, signal, maxBytes, cleanupTimeoutMs, logCategory)) {
+    const text = decoder.decode(value, { stream: true }); if (text) yield text;
+  }
+  const end = decoder.decode(); if (end) yield end;
 }
 
 /** Read a whole response body as text, bounded by `maxBytes` (a leading BOM is dropped). */
@@ -1107,29 +1146,16 @@ export async function readBodyBytes(response: Response, options: Readonly<{
   signal: AbortSignal; maxBytes: number; cleanupTimeoutMs: number; logCategory: string; sha256?: string | undefined;
   sink: (chunk: Uint8Array) => void | Promise<void>;
 }>): Promise<Readonly<{ bytes: number; sha256: string }>> {
-  const digest = createHash("sha256");
+  const digest = sha256Stream();
   let bytes = 0;
   if (response.body !== null) {
-    const reader = response.body.getReader();
-    const abort = guarded("outbound.body.abort", (): void => { void cancelBody(() => reader.cancel(options.signal.reason), options.cleanupTimeoutMs, options.logCategory); });
-    options.signal.addEventListener("abort", abort, { once: true });
-    try {
-      while (true) {
-        options.signal.throwIfAborted();
-        const { done, value } = await reader.read();
-        options.signal.throwIfAborted();
-        if (done) break;
-        bytes += value.byteLength;
-        if (bytes > options.maxBytes) throw tooLarge();
-        digest.update(value);
-        await options.sink(value);
-      }
-    } finally {
-      options.signal.removeEventListener("abort", abort);
-      await cancelBody(() => reader.cancel(), options.cleanupTimeoutMs, options.logCategory); reader.releaseLock();
+    for await (const chunk of boundedChunks(response.body, options.signal, options.maxBytes, options.cleanupTimeoutMs, options.logCategory)) {
+      bytes += chunk.byteLength;
+      digest.update(chunk);
+      await options.sink(chunk);
     }
   }
-  const actual = digest.digest("hex");
+  const actual = digest.digest();
   if (options.sha256 !== undefined && actual !== options.sha256) {
     refuse(options.logCategory, "The response body does not hash to the SHA-256 the caller declared.", "outbound_body_integrity_failed", { declared: options.sha256, actual, bytes });
   }

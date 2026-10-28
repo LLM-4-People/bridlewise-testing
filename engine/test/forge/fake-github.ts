@@ -99,6 +99,8 @@ export type FakeGithub = Readonly<{
   principalOf: (request: FakeRequest) => string | undefined;
   /** The release assets uploaded (or planted), by id. */
   assets: Map<number, FakeAsset>;
+  /** Answer the asset host's requests with `handler` (a raw `Response` for a body that trickles or stalls); `undefined` restores the stored assets. */
+  onAssetHost: (handler: ((request: FakeRequest) => FakeAnswer | Response) | undefined) => void;
 }>;
 
 function json(status: number, body: unknown, headers: Readonly<Record<string, string>> = {}): FakeAnswer {
@@ -130,6 +132,7 @@ export function fakeGithub(): FakeGithub {
   const assets = new Map<number, FakeAsset>();
   /** The signed asset URLs handed out, each to one asset. */
   const signed = new Map<string, number>();
+  let assetHost: ((request: FakeRequest) => FakeAnswer | Response) | undefined;
   let nextId = 1000;
 
   /** The uploads host and the asset host (`null` when the request is the API's). */
@@ -310,8 +313,11 @@ export function fakeGithub(): FakeGithub {
     try { body = init.body === undefined ? undefined : JSON.parse(init.body); } catch { body = init.body; }
     const request: FakeRequest = Object.freeze({ method: init.method, host: parsed.host, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body, bytes: init.bytes });
     requests.push(request);
-    const answer = ((): FakeAnswer => {
-      if (request.host === new URL(FAKE_ASSETS_ORIGIN).host) return assetHosts(request)!;
+    const answer = ((): FakeAnswer | Response => {
+      if (request.host === new URL(FAKE_ASSETS_ORIGIN).host) {
+        if (assetHost === undefined) return assetHosts(request)!;
+        return assetHost(request);
+      }
       if (request.headers.get("x-github-api-version") !== GITHUB_API_VERSION) return json(400, { message: "Unsupported API version" });
       const refusalIndex = refusals.findIndex((entry) => (entry.method === undefined || entry.method === request.method) && (entry.path === undefined || entry.path.test(request.path)));
       if (refusalIndex !== -1) {
@@ -335,6 +341,7 @@ export function fakeGithub(): FakeGithub {
       if (!tokens.has(token ?? "")) return json(401, { message: "A JSON web token is not a token for this endpoint" });
       return store(request);
     })();
+    if (answer instanceof Response) return answer;
     const final = counted(answer, answer.status !== 304);
     if (final.raw !== undefined) return new Response(Buffer.from(final.raw), { status: final.status, headers: { ...final.headers } });
     const hasBody = final.body !== undefined && final.status !== 204 && final.status !== 304;
@@ -344,7 +351,7 @@ export function fakeGithub(): FakeGithub {
   return Object.freeze({
     apiUrl,
     endpoint: (overrides: Partial<ForgeEndpoint> = {}) => Object.freeze({
-      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assetOrigins: [address(FAKE_ASSETS_ORIGIN)], maxAssetBytes: 1_048_576,
+      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assets: { origins: [address(FAKE_ASSETS_ORIGIN)], maxBytes: 1_048_576, stallMs: 60_000, hangBackstopMs: 7_200_000 },
       allowPrivateAddress: true, timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64,
       userAgent: "bridlewise-forge-test", ...overrides,
     }),
@@ -367,6 +374,7 @@ export function fakeGithub(): FakeGithub {
     },
     installApp: (input) => newApp(input),
     assets,
+    onAssetHost: (handler) => { assetHost = handler; },
     pendingConversion: (code, input) => {
       const app = newApp(input);
       conversions.set(code, app);

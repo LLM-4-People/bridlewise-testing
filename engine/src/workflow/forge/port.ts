@@ -94,10 +94,12 @@ export type ForgeEndpoint = Readonly<{
   apiUrl: string;
   /** `https://uploads.github.com`: where a release asset is uploaded (a loopback `http:` URL only for a test server). */
   uploadsUrl: string;
-  /** The origins a release-asset download may be redirected to (GitHub's signed asset hosts). */
-  assetOrigins: readonly string[];
-  /** The largest release asset uploaded or downloaded. */
-  maxAssetBytes: number;
+  /**
+   * Release assets: the origins a download may be redirected to (GitHub's
+   * signed asset hosts), the largest asset, and the transfer's progress
+   * bounds (a stall, and the one wall bound, a hang backstop).
+   */
+  assets: Readonly<{ origins: readonly string[]; maxBytes: number; stallMs: number; hangBackstopMs: number }>;
   /** May a request reach a loopback or private address? (false for GitHub; true only for a local test server). */
   allowPrivateAddress: boolean;
   /** Each request's lifetime. */
@@ -153,6 +155,15 @@ export type ForgeDownloadRequest = Readonly<{
   signal?: AbortSignal | undefined;
 }>;
 
+/** A download to a file: the asset at `destination`, published only once verified (no partial file, ever). */
+export type ForgeDownloadToFileRequest = Readonly<{
+  path: string;
+  query?: ForgeQuery | undefined;
+  sha256: string;
+  destination: string;
+  signal?: AbortSignal | undefined;
+}>;
+
 /** What a download read: its size and its (verified) SHA-256. */
 export type ForgeDownloadAnswer = Readonly<{ bytes: number; sha256: string }>;
 
@@ -166,8 +177,10 @@ export type ForgeClient = Readonly<{
   graphql: <T = unknown>(query: string, variables?: Readonly<Record<string, unknown>>, signal?: AbortSignal) => Promise<T>;
   /** A raw-body upload to the uploads host; answers the parsed record, whose `digest` must be the one sent. */
   upload: <T = unknown>(request: ForgeUploadRequest) => Promise<ForgeResponse<T>>;
-  /** A raw-body asset download, streamed and checksum-verified; a redirect is followed only to `endpoint.assetOrigins`, without the credential. */
+  /** A raw-body asset download, streamed and checksum-verified; one redirect is followed, only to `endpoint.assets.origins` and without the credential. */
   download: (request: ForgeDownloadRequest) => Promise<ForgeDownloadAnswer>;
+  /** THE download to a file: {@link download} into a private temporary file beside `destination`, renamed over it only once verified. */
+  downloadToFile: (request: ForgeDownloadToFileRequest) => Promise<ForgeDownloadAnswer>;
 }>;
 
 export type { ForgeError };

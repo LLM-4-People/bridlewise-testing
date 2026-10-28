@@ -52,8 +52,19 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     etagCacheEntries: z.number().int().min(1).max(100_000),
     /** The most pages one list read follows (a longer list is refused, never truncated). */
     maxPages: z.number().int().min(1).max(1_000),
-    /** The largest release asset uploaded or downloaded (GitHub's own limit is 2 GiB). */
-    maxAssetBytes: z.number().int().min(1_024).max(2_147_483_648),
+    /**
+     * A release asset's transfer (an upload or a download). It is bounded by
+     * size and by PROGRESS, never by a total wall time: a large asset on a
+     * loaded host is slow work, not a failure.
+     */
+    assets: z.strictObject({
+      /** The largest asset uploaded or downloaded (GitHub's own limit is 2 GiB). */
+      maxBytes: z.number().int().min(1_024).max(2_147_483_648),
+      /** No byte moved either way for this long: the transfer is stalled (`forge_asset_stalled`). */
+      stallMs: z.number().int().min(1_000).max(600_000),
+      /** The one wall bound: a transfer still going at this point is hung, not slow. */
+      hangBackstopMs: z.number().int().min(60_000).max(86_400_000),
+    }).refine((assets) => assets.stallMs < assets.hangBackstopMs, { message: "stallMs must be below hangBackstopMs (a stall bound the backstop always pre-empts never fires)", path: ["stallMs"] }),
   }),
   /** An installation token is minted again this long before it expires. */
   tokenRenewBeforeMs: z.number().int().min(0).max(3_000_000),
@@ -205,8 +216,12 @@ export function forgeEndpoint(settings: ForgeSettings): ForgeEndpoint {
   return deepFreeze({
     apiUrl: settings.apiUrl.replace(/\/$/u, ""),
     uploadsUrl: settings.uploadsUrl.replace(/\/$/u, ""),
-    assetOrigins: settings.assetOrigins.map((origin) => origin.replace(/\/$/u, "")),
-    maxAssetBytes: settings.request.maxAssetBytes,
+    assets: {
+      origins: settings.assetOrigins.map((origin) => origin.replace(/\/$/u, "")),
+      maxBytes: settings.request.assets.maxBytes,
+      stallMs: settings.request.assets.stallMs,
+      hangBackstopMs: settings.request.assets.hangBackstopMs,
+    },
     allowPrivateAddress: false,
     timeoutMs: settings.request.timeoutMs,
     maxResponseBytes: settings.request.maxResponseBytes,

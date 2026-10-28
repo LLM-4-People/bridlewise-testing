@@ -57,3 +57,36 @@ export function deadline(parent: AbortSignal | undefined, timeoutMs: number, rea
   const signal = parent === undefined ? controller.signal : AbortSignal.any([parent, controller.signal]);
   return Object.freeze({ signal, expired: () => controller.signal.aborted, clear: () => clearTimeout(timer) });
 }
+
+/** A lifetime bounded by PROGRESS: {@link Deadline}, plus the call that says work moved. */
+export type ProgressDeadline = Deadline & Readonly<{
+  /** Work moved (bytes went out or came in): the stall bound starts over. */
+  progress: () => void;
+}>;
+
+/**
+ * THE ONE PROGRESS-BOUNDED LIFETIME, for work whose size has no fair wall
+ * cap (a transfer of a large file, on a host that may be loaded). It ends
+ * when NOTHING MOVES for `stallMs` (`stalled` is the abort reason), or at
+ * `hangBackstopMs` (`hung`), the one wall bound left. That bound is very
+ * large and ends a hang, never slow work. Slow work that keeps moving is
+ * never cut. Built on {@link deadline}, which is the backstop.
+ */
+export function progressDeadline(
+  parent: AbortSignal | undefined,
+  bounds: Readonly<{ stallMs: number; hangBackstopMs: number }>,
+  reasons: Readonly<{ stalled: () => unknown; hung: () => unknown }>,
+): ProgressDeadline {
+  const backstop = deadline(parent, bounds.hangBackstopMs, reasons.hung);
+  const stall = new AbortController();
+  const stalled = guarded("abort.stall", () => stall.abort(reasons.stalled()));
+  // Re-armed, not `refresh()`ed: one plain timer per arming, which every clock (a test's mocked one too) honours.
+  let timer = setTimeout(stalled, bounds.stallMs);
+  const signal = AbortSignal.any([backstop.signal, stall.signal]);
+  return Object.freeze({
+    signal,
+    expired: () => backstop.expired() || stall.signal.aborted,
+    progress: () => { if (signal.aborted) return; clearTimeout(timer); timer = setTimeout(stalled, bounds.stallMs); },
+    clear: () => { clearTimeout(timer); backstop.clear(); },
+  });
+}

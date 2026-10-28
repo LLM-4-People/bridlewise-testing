@@ -2652,7 +2652,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "shared-abort-signals", path: "src/shared/abort-signals.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 6, namesSha256: "58420e7e0205abe10fa6aaec299a908f30e3c8f7a8d1c493b3360625af0c1fa8" },
+      owner: "shared-abort-signals", publicApi: { exportCount: 8, namesSha256: "5f54c1b113b5e4a195a987ff1dd1a38c74c39c03b18f23d0b356da572c8c9b2b" },
       dependencies: ["src/process/fault-policy.ts"],
     }),
     moduleContract({
@@ -4566,7 +4566,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-filesystem-atomic-write", path: "src/filesystem/atomic-write.ts", realm: "shared", layer: "domain",
-      owner: "filesystem-infrastructure", publicApi: { exportCount: 6, namesSha256: "cf86f1b5dbbe57c114312577a8470a6f06f30fbbdcb0e454e9fc402e15a3293e" },
+      owner: "filesystem-infrastructure", publicApi: { exportCount: 7, namesSha256: "f1377fb062c951d9b435831c638cdeeeb7c65e6f4ac3a425ba73c0b9a32b9f7c" },
       dependencies: ["node:fs","node:path","src/filesystem/checkout-write-door.ts","src/filesystem/path-identity.ts","src/filesystem/private-state.ts","src/kernel/errors.ts","src/kernel/root-policy.ts","src/shared/best-effort.ts"],
     }),
     moduleContract({
@@ -4640,7 +4640,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-kernel-integrity", path: "src/kernel/integrity.ts", realm: "shared", layer: "trusted-kernel",
-      owner: "architecture", publicApi: { exportCount: 19, namesSha256: "4345a2fe74eb63b97a03849f21a79cf22e24095d5a1dcb141897247e5cbb91c6" },
+      owner: "architecture", publicApi: { exportCount: 21, namesSha256: "3cc9ab39bea958d81a32250c0e3054e28067028fd66f5d6b50ec05f25f1698b4" },
       dependencies: ["node:crypto","src/kernel/errors.ts","src/kernel/product-identity.ts","zod"],
     }),
     moduleContract({
@@ -5053,8 +5053,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-shared-outbound-http", path: "src/shared/outbound-http.ts", realm: "shared", layer: "domain",
-      owner: "shared-abort-signals", publicApi: { exportCount: 31, namesSha256: "d1e790caec3d9c10f71fa0382ef9289e06ac74bfe523090b6fd50d7a10040eec" },
-      dependencies: ["node:crypto","node:dns/promises","node:module","node:net","node:perf_hooks","node:stream","src/filesystem/checkout-write-door.ts","src/kernel/errors.ts","src/kernel/root-policy.ts","src/process/environment-projection.ts","src/process/fault-policy.ts","src/process/live-network.ts","src/shared/abort-signals.ts","src/shared/debug/debug-system.ts","src/shared/outbound-policy.ts","undici","undici/lib/core/symbols"],
+      owner: "shared-abort-signals", publicApi: { exportCount: 32, namesSha256: "a6df60c6774293c31bc9e1e0d533253faae296cd4b3ddb3faa2d669b4c25ddc2" },
+      dependencies: ["node:dns/promises","node:module","node:net","node:perf_hooks","node:stream","src/filesystem/checkout-write-door.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/environment-projection.ts","src/process/fault-policy.ts","src/process/live-network.ts","src/shared/abort-signals.ts","src/shared/debug/debug-system.ts","src/shared/outbound-policy.ts","undici","undici/lib/core/symbols"],
     }),
     moduleContract({
       id: "src-filesystem-journaled-commit", path: "src/filesystem/journaled-commit.ts", realm: "shared", layer: "domain",
@@ -5621,11 +5621,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-github", path: "src/workflow/forge/github.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "b5b6be2ad85258cabbfa1594c36f36177e99cde5b7381547f1abdcb977fb33a9" },
-      dependencies: ["src/kernel/contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/privacy/data-policy.ts","src/shared/debug/debug-system.ts","src/shared/outbound-http.ts","src/workflow/forge/codes.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/port.ts"],
+      dependencies: ["src/filesystem/atomic-write.ts","src/kernel/contracts.ts","src/kernel/errors.ts","src/kernel/integrity.ts","src/kernel/json-integrity.ts","src/privacy/data-policy.ts","src/shared/debug/debug-system.ts","src/shared/outbound-http.ts","src/workflow/forge/codes.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/port.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-port", path: "src/workflow/forge/port.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 16, namesSha256: "8517958ada154eb153370d13c2d6c695eb9d12322d55a91632a26b37b61385e2" },
+      owner: "verification-workflow", publicApi: { exportCount: 17, namesSha256: "03d72a9fc3951dfe8a40c6c1da94bb8ced575256dbb68c5d2c2a9694a5c60182" },
       dependencies: [],
     }),
     moduleContract({

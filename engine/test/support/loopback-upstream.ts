@@ -81,15 +81,41 @@ async function answer(request: IncomingMessage, response: ServerResponse, origin
   response.end();
 }
 
+/** Requests whose answer is still running, and how many connections the upstream has seen close. */
+const answering = new Set<Promise<void>>();
+let closedConnections = 0;
+
 const server = createServer((request, response) => {
-  answer(request, response, origin).catch(() => {
+  const answered = answer(request, response, origin).catch(() => {
     // A handler that throws (or a body that errors) drops the connection:
     // the client sees what a failing network gives it.
     response.destroy();
     request.socket.destroy();
   });
+  answering.add(answered);
+  void answered.finally(() => answering.delete(answered));
 });
-server.on("connection", (socket) => socket.unref());
+server.on("connection", (socket) => { socket.unref(); socket.once("close", () => { closedConnections += 1; }); });
+
+/** How many connections to the upstream have closed so far (a mark for {@link connectionsSettled}). */
+export function connectionsClosed(): number {
+  return closedConnections;
+}
+
+/**
+ * WHAT THE SERVER SAW, SETTLED: resolves once a connection has closed since
+ * `mark` (a {@link connectionsClosed} reading) and no answer is still
+ * running, so every byte that reached the server has been handled (a handler
+ * ran, or the read failed). Waits on event-loop turns, not a clock, and
+ * rejects after `turns` of them (a connection that never closes is a red).
+ */
+export async function connectionsSettled(mark: number, turns = 200_000): Promise<void> {
+  for (let turn = 0; turn < turns; turn += 1) {
+    if (closedConnections > mark && answering.size === 0) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`the upstream did not settle: ${String(closedConnections - mark)} connection(s) closed since the mark, ${String(answering.size)} answer(s) running`);
+}
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 server.unref();
 

@@ -1077,7 +1077,11 @@
       "cleanupTimeoutMs": 2000,
       "etagCacheEntries": 1024,
       "maxPages": 50,
-      "maxAssetBytes": 1073741824
+      "assets": {
+        "maxBytes": 1073741824,
+        "stallMs": 60000,
+        "hangBackstopMs": 7200000
+      }
     },
     "tokenRenewBeforeMs": 300000,
     "repositories": [

@@ -18,6 +18,13 @@ upstream, so every test drives the real outbound door and transport.
 - `declarations.test.ts` — the declarations (every object once, in apply order, the plan's unavailable fields, the registry's references, the stage's flip, a form type outside the registry refused), the allowed actions, Dependabot's breadth over the tracked lockfiles, CODEOWNERS routing, and the comparison.
 - `forge-settings.ts` — the forge section and the generated files' sources the forge tests use (a fixture, not a test file), independent of the repository's own configuration.
 - `plan.test.ts` — plan, apply and audit against the fake GitHub: every action (create, update, unchanged, refused, unmanaged, retire), the tighten-first barriers (the baseline written and read back before rules move out; a read-back that fails stops the apply; a weakening only with its acknowledgement), a partial plan never applied, one object's refusal kept to it, a budget refusal stopping the run, unavailable fields never written, and the whole declaration set applied and converged to zero drift, idempotently.
+- `release-assets.test.ts` — the release assets' raw bodies against the fake GitHub (#400):
+  - an upload streams to the uploads host and GitHub's recorded digest must match;
+  - a body breaking its declared size or SHA-256 is cut before it completes, at every size and chunking, and once the server has seen the connection end nothing was handled or stored;
+  - a download follows one redirect, only to an asset origin and without the credential (another origin, a look-alike and a chain are refused);
+  - the bytes are held to the caller's SHA-256, and the sink never sees a byte past the bound;
+  - `downloadToFile` publishes only verified bytes (no partial file, no temporary sibling, an existing file untouched);
+  - a transfer that stops moving ends at the stall bound, and one that keeps moving is never cut (the mocked clock).
 - `proving/` — the proving-ground scenarios on real GitHub (P1.11, P3.8), run by `proving/run.ts`, never by the offline suites (see its README).
 - `proving-ground-api.ts` — the proving ground's rules on any forge client, shared by the scenarios and their offline tests (not a test file): the repository's identity (the one `provingGround` repository, never the trunk), the seed, the read-only configuration check, a deleted branch (404 only), a commit's verification, and the verdict rules of V-6, V-14 and V-15.
 - `proving-ground-api.test.ts` — those rules against the fake GitHub, each red under mutation.

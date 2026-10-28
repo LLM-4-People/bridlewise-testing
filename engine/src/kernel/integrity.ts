@@ -25,6 +25,15 @@ export function sha256(bytes: string | Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+/** An incremental SHA-256: bytes fed as they stream past, the hex digest once at the end (a body too large to hold). */
+export type Sha256Stream = Readonly<{ update: (chunk: Uint8Array) => void; digest: () => string }>;
+
+/** A fresh {@link Sha256Stream}: the same digest {@link sha256} gives the concatenated chunks. */
+export function sha256Stream(): Sha256Stream {
+  const hash = createHash("sha256");
+  return Object.freeze({ update: (chunk: Uint8Array) => { hash.update(chunk); }, digest: () => hash.digest("hex") });
+}
+
 /**
  * Raw 32-byte SHA-256 digest. Use when a caller needs the raw hash bytes
  * (for example sharding an id by its first byte) instead of the hex string
