@@ -21,6 +21,8 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+
 import { GENERATOR_INPUTS_BEYOND_ENGINE, harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
 import { stageInCopy } from "../../src/git/working-copy.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
@@ -32,7 +34,7 @@ const DELETED = "test/shared-memory/shared-memory.test.ts";
 test("a generator test's repository copy carries every path an arm declares it needs, derived from the arms' own declarations", () => {
   // The forge arm refuses without its community sources, its workflows and every lockfile root (it read them since #123, and
   // a hand-listed population went red): the population is DERIVED from GENERATOR_INPUTS_BEYOND_ENGINE, never listed.
-  for (const path of ["docs/community/intake.json", "docs/community/roles.json", ".github/workflows/ci.yml", "package-lock.json", ".github/CODEOWNERS", "CONTRIBUTING.md", "engine/src/cli.ts", "shared/markup.ts"]) {
+  for (const path of ["docs/community/intake.json", "docs/community/roles.json", ".github/workflows/ci.yml", "package-lock.json", ".github/CODEOWNERS", "CONTRIBUTING.md", "engine/src/cli.ts", "shared/markup.ts", VERIFICATION_PATHS.architectureJudgeBaseline]) {
     assert.equal(engineGeneratorPopulation(path), true, path);
   }
   // Near misses: the web tree no generator reads stays out.
@@ -40,7 +42,7 @@ test("a generator test's repository copy carries every path an arm declares it n
   // Every arm that declares inputs is honoured: each declared path of each arm is in the population.
   for (const [arm, input] of Object.entries(GENERATOR_INPUTS_BEYOND_ENGINE)) {
     if (input === null) continue;
-    assert.ok(["docs/community/intake.json", ".github/workflows/ci.yml", "package-lock.json", "CONTRIBUTING.md"].some((path) => input(path) && engineGeneratorPopulation(path)), arm);
+    assert.ok(["docs/community/intake.json", ".github/workflows/ci.yml", "package-lock.json", "CONTRIBUTING.md", VERIFICATION_PATHS.architectureJudgeBaseline].some((path) => input(path) && engineGeneratorPopulation(path)), arm);
   }
 });
 
