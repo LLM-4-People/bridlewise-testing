@@ -11,6 +11,7 @@ import { dirname } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { HarnessError } from "../../src/kernel/errors.ts";
 import { authorise, COMMANDS, commandRegistryViolations, commandTable, parseCommandLine } from "../../src/workflow/community/commands.ts";
 import { decide, untrusted, type CommentEvent, type DecisionFacts, type RecordView } from "../../src/workflow/community/issue-ops.ts";
 import { readReplyTemplates, renderReply, replyMarker, replyTemplateViolations, REPLY_SLOTS } from "../../src/workflow/community/replies.ts";
@@ -43,8 +44,10 @@ function facts(permission: PermissionLevel = "triage", records: readonly RecordV
   return { roles, intake, permission, records };
 }
 
-test("a command is the first non-blank line only; quoted, mid-text and path-like lines are not commands", () => {
-  assert.deepEqual(parseCommandLine("\n  /accept P2 M1  \nthanks"), { kind: "command", command: { name: "accept", args: ["P2", "M1"] } });
+test("a command is the comment's first line, starting it; quoted, mid-text and path-like lines are not commands", () => {
+  assert.deepEqual(parseCommandLine("/accept P2 M1  \nthanks"), { kind: "command", command: { name: "accept", args: ["P2", "M1"] } });
+  assert.deepEqual(parseCommandLine("\n  /accept P2 M1"), { kind: "none" }, "a command starts the comment, as the workflow's prefilter asks");
+  assert.deepEqual(parseCommandLine(`/accept ${"x".repeat(600)}`), { kind: "none" }, "an overlong line is no command");
   assert.deepEqual(parseCommandLine("> /accept P2 M1"), { kind: "none" });
   assert.deepEqual(parseCommandLine("please /accept"), { kind: "none" });
   assert.deepEqual(parseCommandLine("/home/me/file.ts fails"), { kind: "none" });
@@ -106,8 +109,8 @@ test("/decline and /duplicate answer closed records; the reason is neutralised",
   const record = declined.kind === "answer" && declined.action?.kind === "record" ? declined.action.record : undefined;
   assert.deepEqual([record?.type, record?.state, record?.resolution], ["Intake", "closed", "not-planned"]);
   assert.ok(declined.kind === "answer" && declined.reply.key === "declined");
-  const reason = declined.kind === "answer" && declined.reply.key === "declined" ? declined.reply.slots.reason : "";
-  assert.doesNotMatch(reason, /@maintainers|<!--/u);
+  const rendered = declined.kind === "answer" ? renderReply(templates, { ...declined.reply, slots: { ...declined.reply.slots, pull: "https://github.com/o/r/pull/9" } } as never, "77") : "";
+  assert.ok(!rendered.includes("@maintainers") && !rendered.slice(rendered.indexOf("\n")).includes("<!--"), "the rendered reason pings no one and fakes no marker");
   const bare = decide(event("/decline"), facts());
   assert.ok(bare.kind === "answer" && bare.action === null && bare.reply.key === "refused-usage");
 
@@ -131,7 +134,8 @@ test("/status reads the records: this issue's, a named one, an intake, an unknow
   const unknown = decide(event("/status NOPE"), facts("read"));
   assert.ok(unknown.kind === "answer" && unknown.reply.key === "status-unknown");
   const bad = decide(event("/status @someone"), facts("read"));
-  assert.ok(bad.kind === "answer" && bad.reply.key === "refused-usage" && !bad.reply.slots.why.includes("@someone"));
+  assert.ok(bad.kind === "answer" && bad.reply.key === "refused-usage");
+  assert.ok(!renderReply(templates, bad.reply, "7").includes("@someone"), "the echoed word pings no one once rendered");
 });
 
 test("/explain is the door's on a pull request; /help lists the registry; an unknown command says so", () => {
@@ -145,13 +149,26 @@ test("/explain is the door's on a pull request; /help lists the registry; an unk
   assert.deepEqual(decide(event("thanks!"), facts("read")), { kind: "none" });
 });
 
-test("typed text is neutralised by the markup owner's GitHub escape: one bounded line, no mention, no markup, no marker", () => {
-  const safe = untrusted("hi @all\n<!-- bridlewise:reply=1 --> `code` **bold**");
-  assert.ok(safe.includes("@\u2060all"), "a mention pings no one");
-  assert.doesNotMatch(safe, /<!--|<|\n|(?<!\\)`|(?<!\\)\*/u, "no marker, no tag, one line, every Markdown character escaped");
-  assert.ok(untrusted("x".repeat(400)).length <= 301 * 2, "bounded before it is escaped");
+test("every reply slot is escaped when rendered: a reporter's title in /status pings no one and carries no link or HTML", () => {
+  const planted = "Crash on save cc @amberflag48 see [here](https://evil.example) <img src=x> **now**";
+  const records: RecordView[] = [{ ...RECORDS[0]!, title: planted }];
+  const status = decide(event("/status", { number: 12 }), facts("read", records));
+  assert.ok(status.kind === "answer" && status.reply.key === "status");
+  const text = renderReply(templates, status.reply, "7");
+  const body = text.slice(text.indexOf("\n") + 1);
+  assert.ok(body.includes("@\u2060amberflag48"), "the mention is broken by a word joiner");
+  assert.doesNotMatch(body, /@amberflag48|<img|\]\(https/u, "no mention, no tag, no link");
+  assert.ok(body.includes("\\*\\*now\\*\\*"), "the title's emphasis is escaped");
+  assert.equal(untrusted("x".repeat(400)).length, 301, "typed text is one bounded line");
+  assert.throws(() => renderReply(templates, { key: "explain", slots: { check: "c", verdict: "v", title: "t", summary: "s", url: "javascript:alert(1)" } }, "8"), (error: unknown) => error instanceof HarnessError && error.code === "community_reply_invalid", "a URL slot must be a GitHub URL");
 });
 
+test("/accept refuses a title the tracker could not read back as plain YAML, with a reply, never a silent failure", () => {
+  for (const title of ["[flaky]: record-links fails", "yes", "#3 broken", "a".repeat(200)]) {
+    const refused = decide(event("/accept P2 M1", { title }), facts());
+    assert.ok(refused.kind === "answer" && refused.action === null && refused.reply.key === "refused-usage" && /title/u.test(refused.reply.slots.why), title);
+  }
+});
 test("the reply templates agree with their keys, and a reply carries its marker", () => {
   assert.deepEqual(replyTemplateViolations(templates), []);
   const extra = new Map(templates);
@@ -165,7 +182,7 @@ test("the reply templates agree with their keys, and a reply carries its marker"
   ]);
   for (const key of Object.keys(REPLY_SLOTS) as (keyof typeof REPLY_SLOTS)[]) {
     const slots = Object.fromEntries(REPLY_SLOTS[key].map((slot) => [slot, `<${slot}>`]));
-    const text = renderReply(templates, { key, slots } as never, "99");
+    const text = renderReply(templates, { key, slots: Object.fromEntries(Object.entries(slots).map(([slot, value]) => [slot, ["pull", "url"].includes(slot) ? "https://github.com/o/r/pull/1" : value])) } as never, "99");
     assert.ok(text.startsWith(`${replyMarker("99")}\n`), key);
     assert.doesNotMatch(text, /\{\{/u, `${key} fills every slot`);
   }

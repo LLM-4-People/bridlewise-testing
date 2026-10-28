@@ -18,7 +18,10 @@ import { z } from "zod";
 
 import { HarnessError } from "../../kernel/errors.ts";
 import { readTrackerItems } from "../failure-owners.ts";
+import { FORGE_APPS } from "../forge/app-registry.ts";
+import { isForgeError } from "../forge/codes.ts";
 import type { ForgeClient } from "../forge/port.ts";
+import { COMMUNITY_LIMITS } from "./community-config.ts";
 import { decide, type CommandAction, type CommentEvent, type Decision, type IntakeRecord } from "./issue-ops.ts";
 import { readReplyTemplates, renderReply, replyMarker, type Reply } from "./replies.ts";
 import { PERMISSION_LEVELS, readIntake, readRoles, type PermissionLevel } from "./sources.ts";
@@ -109,17 +112,45 @@ export async function upsertReply(executor: CommunityExecutor, number: number, a
 }
 
 /** `/explain`'s reply: the door's check run on the pull request's head, or that it has none yet. */
+/**
+ * The door App's id, resolved from its registry slug (`GET /apps/{slug}`, which
+ * an installation token may read), and owned by the organisation: a check run
+ * is the door's only when this App posted it. Unresolved, or owned elsewhere:
+ * `community_door_unresolved` (a typed refusal, never a guess by name).
+ */
+async function doorAppId(executor: CommunityExecutor): Promise<number> {
+  const slug = FORGE_APPS.door.name;
+  let answer: Readonly<{ id?: unknown; owner?: { login?: unknown } | null }>;
+  try {
+    answer = (await executor.client.rest<{ id?: unknown; owner?: { login?: unknown } | null }>({ method: "GET", path: `/apps/${encodeURIComponent(slug)}` })).data;
+  } catch (error) {
+    if (!isForgeError(error, "github_not_found")) throw error;
+    throw new HarnessError(`the door App ${slug} does not exist or this token cannot see it`, "community_door_unresolved", false, { slug });
+  }
+  if (typeof answer.id !== "number" || typeof answer.owner?.login !== "string" || answer.owner.login.toLowerCase() !== executor.owner.toLowerCase()) {
+    throw new HarnessError(`the App ${slug} is not owned by ${executor.owner}: its check runs are not the door's`, "community_door_unresolved", false, { slug });
+  }
+  return answer.id;
+}
+
+/**
+ * `/explain`'s reply: the door's check run on the pull request's head (the
+ * door App's own, matched by its App id — a same-named check from any other
+ * App or workflow is never the door's), or that it has none yet. Its title and
+ * summary are escaped like every slot.
+ */
 async function explainReply(executor: CommunityExecutor, number: number): Promise<Reply> {
   const pull = await executor.client.rest<{ head?: { sha?: unknown } }>({ method: "GET", path: `${repoPath(executor)}/pulls/${String(number)}` });
   const sha = pull.data.head?.sha;
   if (typeof sha !== "string") throw new HarnessError(`pull request #${String(number)} answered no head commit`, "community_pull_unreadable");
-  const runs = await executor.client.rest<{ check_runs?: readonly { conclusion?: string | null; status?: string; html_url?: string; output?: { title?: string | null; summary?: string | null } }[] }>({
+  const appId = await doorAppId(executor);
+  const runs = await executor.client.rest<{ check_runs?: readonly { app?: { id?: unknown } | null; conclusion?: string | null; status?: string; html_url?: string; output?: { title?: string | null; summary?: string | null } }[] }>({
     method: "GET",
     path: `${repoPath(executor)}/commits/${sha}/check-runs`,
-    query: { check_name: DOOR_CHECK_NAME },
+    query: { check_name: DOOR_CHECK_NAME, app_id: appId },
   });
-  const run = runs.data.check_runs?.[0];
-  if (run === undefined) return { key: "explain-unavailable", slots: { sha: sha.slice(0, 12), check: DOOR_CHECK_NAME } };
+  const run = runs.data.check_runs?.find((candidate) => candidate.app?.id === appId);
+  if (run === undefined) return { key: "explain-unavailable", slots: { sha: sha.slice(0, COMMUNITY_LIMITS.shortShaLength), check: DOOR_CHECK_NAME } };
   return {
     key: "explain",
     slots: {
@@ -161,7 +192,7 @@ export async function handleCommentEvent(executor: CommunityExecutor, payload: u
     if (landing === undefined) {
       throw new HarnessError(`/${decision.command} adds a record through a pull request, and no record landing is configured: nothing was posted`, "community_record_landing_unavailable", false, { command: decision.command });
     }
-    const pull = await landing(decision.action.record, `/${decision.command}`, { opened: issue.created_at.slice(0, 10), closed: comment.created_at.slice(0, 10) });
+    const pull = await landing(decision.action.record, `/${decision.command}`, { opened: issue.created_at.slice(0, COMMUNITY_LIMITS.isoDayLength), closed: comment.created_at.slice(0, COMMUNITY_LIMITS.isoDayLength) });
     reply = { ...reply, slots: { ...reply.slots, pull: pull.url } } as typeof reply;
   }
   const answers = String(event.commentId);

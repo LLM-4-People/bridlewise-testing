@@ -7,8 +7,8 @@
  *   harness community comment --event <path> --remote <name>   # an issue_comment event: IssueOps
  *   harness community issue --event <path>           # an issues event: the newcomer's welcome
  *   harness community welcome-pulls                  # every newcomer's open pull request (scheduled)
- *   harness community thank --commit <sha>           # a commit that landed on main: its first-time authors thanked
- *   harness community credit --range <a>..<b> [--before <a>]   # the contributors of a range (release notes, the site)
+ *   harness community thank --before <sha> --after <sha>   # a push to main: every first-time author it landed thanked
+ *   harness community credit --range <a>..<b> [--before <a>..<b>]   # contributors of a range, by login (release notes, the site)
  *   harness community spam-signal --interactions <path> --as-of <iso>
  *   harness community limit --apply <limit> --expiry <expiry> | --remove   # the maintainer's action
  *
@@ -23,7 +23,6 @@
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
-import { gitOutput } from "../../git/tree-reader.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../../git/worktree-port.ts";
 import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
@@ -39,17 +38,20 @@ import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { remoteUrlOf } from "../workspace-forge.ts";
 import { githubWorkspaceForge } from "../workspace-forge-github.ts";
 import { categoryDrift, liveCategories } from "./categories.ts";
-import { contributorsOf, releaseCredit, type CreditCommit } from "./credit.ts";
+import { contributorsOf, landedCommits, releaseCredit } from "./credit.ts";
 import { handleCommentEvent, type CommunityExecutor, type RecordLanding } from "./executor.ts";
 import { applyInteractionLimit, INTERACTION_EXPIRIES, INTERACTION_LIMITS, readModeration, spamSignal, type Interaction, type InteractionExpiry, type InteractionLimit } from "./moderation.ts";
 import { landIntakeRecord } from "./record.ts";
 import { readIntake } from "./sources.ts";
-import { thankLandedCommit, welcomeIssue, welcomeOpenPullRequests } from "./welcome.ts";
+import { thankLandedRange, welcomeIssue, welcomeOpenPullRequests } from "./welcome.ts";
+
+const SHA = /^[0-9a-f]{40}$/u;
+const RANGE = /^[A-Za-z0-9._/-]{1,200}\.\.[A-Za-z0-9._/-]{1,200}$/u;
 
 /** The variable the maintainer's action and the audits read their token from. */
 const MAINTAINER_TOKEN_VARIABLE = "GH_TOKEN";
 
-const USAGE = "harness community takes: categories | comment --event <path> --remote <name> | issue --event <path> | welcome-pulls | thank --commit <sha> | credit --range <a>..<b> [--before <a>] | spam-signal --interactions <path> --as-of <iso> | limit (--apply <limit> --expiry <expiry> | --remove)";
+const USAGE = "harness community takes: categories | comment --event <path> --remote <name> | issue --event <path> | welcome-pulls | thank --before <sha> --after <sha> | credit --range <a>..<b> [--before <a>..<b>] | spam-signal --interactions <path> --as-of <iso> | limit (--apply <limit> --expiry <expiry> | --remove)";
 
 function usage(why: string): never {
   throw new InputError(`${why}. ${USAGE}`, "community_usage");
@@ -101,17 +103,6 @@ function recordLanding(executor: CommunityExecutor, remote: string): RecordLandi
   };
 }
 
-/** The commits of `range` (oldest first), as credit reads them. */
-function commitsOf(repositoryRoot: string, range: string): readonly CreditCommit[] {
-  if (!/^[A-Za-z0-9._/~^-]+(?:\.\.[A-Za-z0-9._/~^-]+)?$/u.test(range)) usage(`${range} is not a revision range`);
-  const repository = configuredGitRepository(loadPinnedConfigSnapshot().document, repositoryRoot);
-  const log = gitOutput(repository, ["log", "--reverse", "--no-merges", "--format=%H%x1f%an%x1f%ae%x1f%B%x1e", range, "--"]).stdout.toString("utf8");
-  return log.split("\x1e").map((entry) => entry.replace(/^\n/u, "")).filter((entry) => entry.length > 0).map((entry) => {
-    const [sha, authorName, authorEmail, message] = entry.split("\x1f");
-    return deepFreeze({ sha: sha!, authorName: authorName!, authorEmail: authorEmail!, message: message ?? "" });
-  });
-}
-
 /** Run one `harness community` verb (see the header). */
 export async function runCommunityCli(root: string, argv: readonly string[]): Promise<CommandAnswer> {
   const [verb, ...rest] = argv;
@@ -120,7 +111,7 @@ export async function runCommunityCli(root: string, argv: readonly string[]): Pr
     ({ values } = parseArgs({
       args: rest,
       options: {
-        event: { type: "string" }, remote: { type: "string" }, commit: { type: "string" }, range: { type: "string" }, before: { type: "string" },
+        event: { type: "string" }, remote: { type: "string" }, after: { type: "string" }, range: { type: "string" }, before: { type: "string" },
         interactions: { type: "string" }, "as-of": { type: "string" }, apply: { type: "string" }, expiry: { type: "string" }, remove: { type: "boolean" },
       },
       strict: true,
@@ -129,7 +120,7 @@ export async function runCommunityCli(root: string, argv: readonly string[]): Pr
     return usage((error as Error).message);
   }
   const text = (name: string): string | undefined => (typeof values[name] === "string" ? values[name] : undefined);
-  const event = text("event"), remote = text("remote"), commit = text("commit"), range = text("range"), before = text("before");
+  const event = text("event"), remote = text("remote"), range = text("range"), before = text("before"), after = text("after");
   const interactionsPath = text("interactions"), asOf = text("as-of"), apply = text("apply"), expiry = text("expiry");
   const repositoryRoot = trackedTop(root);
   switch (verb) {
@@ -160,17 +151,22 @@ export async function runCommunityCli(root: string, argv: readonly string[]): Pr
       return { result: wrapResult("community", deepFreeze({ verb, outcomes })) };
     }
     case "thank": {
-      if (commit === undefined || !/^[0-9a-f]{40}$/u.test(commit)) usage("thank needs --commit <40-hex sha>");
-      const outcomes = await thankLandedCommit(publisherExecutor(repositoryRoot), commit);
+      if (before === undefined || after === undefined || !SHA.test(before) || !SHA.test(after)) usage("thank needs --before <40-hex sha> --after <40-hex sha> (a push's range)");
+      const outcomes = await thankLandedRange(publisherExecutor(repositoryRoot), before, after, configuredForge().request.maxPages);
       return { result: wrapResult("community", deepFreeze({ verb, outcomes })) };
     }
     case "credit": {
-      if (range === undefined) usage("credit needs --range");
-      const release = commitsOf(repositoryRoot, range);
-      const credit = before === undefined
-        ? { all: contributorsOf(release), newcomers: [] }
-        : releaseCredit(commitsOf(repositoryRoot, before), release);
-      return { result: wrapResult("community", deepFreeze({ verb, range: range, ...credit })) };
+      // By GitHub login, never email (credit.ts): the range is read from GitHub, which knows each author's login.
+      if (range === undefined || !RANGE.test(range) || (before !== undefined && !RANGE.test(before))) usage("credit needs --range <base>..<head> [--before <base>..<head>]");
+      const settings = configuredForge();
+      const client = configuredForgeClient(environmentCredential("community:credit", MAINTAINER_TOKEN_VARIABLE));
+      const commitsOf = async (spec: string) => {
+        const [base, head] = spec.split("..");
+        return landedCommits(client, settings.organization, trunkRepository(settings).name, base!, head!, settings.request.maxPages);
+      };
+      const release = await commitsOf(range);
+      const credit = before === undefined ? { all: contributorsOf(release), newcomers: [] } : releaseCredit(await commitsOf(before), release);
+      return { result: wrapResult("community", deepFreeze({ verb, range, ...credit })) };
     }
     case "spam-signal": {
       if (interactionsPath === undefined || asOf === undefined) usage("spam-signal needs --interactions and --as-of");

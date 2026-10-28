@@ -18,6 +18,7 @@
 import { z } from "zod";
 
 import { HarnessError } from "../../kernel/errors.ts";
+import { landedCommits } from "./credit.ts";
 import { upsertReply, type CommunityExecutor } from "./executor.ts";
 import { readReplyTemplates, renderReply, type Reply } from "./replies.ts";
 
@@ -100,15 +101,24 @@ export async function welcomeOpenPullRequests(executor: CommunityExecutor, maxPa
 }
 
 /**
- * Thank every first-time author whose pull request landed as `sha` (the
- * `push` to the trunk): the merged pull requests GitHub associates with the
- * commit, each thanked by {@link thankFirstLanding}.
+ * Thank every first-time author whose pull request landed in the push from
+ * `before` to `after` (every commit of the range, not only its head: a merge
+ * queue can land several pull requests in one push). A new branch (`before`
+ * all zeros) is judged by `after` alone. Each pull request GitHub associates
+ * with a commit it merged as is thanked by {@link thankFirstLanding}, once.
  */
-export async function thankLandedCommit(executor: CommunityExecutor, sha: string): Promise<readonly WelcomeOutcome[]> {
-  const pulls = await executor.client.rest<readonly { number?: unknown; merge_commit_sha?: unknown }[]>({ method: "GET", path: `/repos/${executor.owner}/${executor.repository}/commits/${sha}/pulls` });
-  const landed = pulls.data.filter((pull) => pull.merge_commit_sha === sha && typeof pull.number === "number").map((pull) => pull.number as number);
+export async function thankLandedRange(executor: CommunityExecutor, before: string, after: string, maxPages: number): Promise<readonly WelcomeOutcome[]> {
+  const shas = /^0+$/u.test(before) ? [after] : (await landedCommits(executor.client, executor.owner, executor.repository, before, after, maxPages)).map((commit) => commit.sha);
+  const thanked = new Set<number>();
   const outcomes: WelcomeOutcome[] = [];
-  for (const number of landed) outcomes.push(await thankFirstLanding(executor, number));
+  for (const sha of shas) {
+    const pulls = await executor.client.rest<readonly { number?: unknown; merge_commit_sha?: unknown }[]>({ method: "GET", path: `/repos/${executor.owner}/${executor.repository}/commits/${sha}/pulls` });
+    for (const pull of pulls.data) {
+      if (pull.merge_commit_sha !== sha || typeof pull.number !== "number" || thanked.has(pull.number)) continue;
+      thanked.add(pull.number);
+      outcomes.push(await thankFirstLanding(executor, pull.number));
+    }
+  }
   return outcomes;
 }
 

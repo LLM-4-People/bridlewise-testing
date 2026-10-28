@@ -137,23 +137,35 @@ test("a reader's /accept is refused by role; a triager's answers a record and wr
   assert.ok(!writes.some((request) => /\/issues\/40$|\/labels|\/assignees/u.test(request.path)), "no issue state is written");
 });
 
-test("/explain answers the door's check run on the pull request's head, or that there is none yet", async () => {
+test("/explain answers the door App's own check run (matched by its App id, never by name), escaped, or that there is none yet", async () => {
   const { fake, executor, comments } = setup();
   comments(56);
   grant(fake, "alice", "read", "read");
+  fake.objects.set("/apps/bridlewise-door", { id: 4242, slug: "bridlewise-door", owner: { login: "o" } });
   fake.objects.set("/repos/o/r/pulls/56", { number: 56, head: { sha: "abcdef0123456789" } });
   fake.objects.set("/repos/o/r/commits/abcdef0123456789/check-runs", { total_count: 0, check_runs: [] });
   await handleCommentEvent(executor, payload("/explain", { number: 56, pull: true }));
-  assert.match(comments(56).at(-1)!.body, new RegExp(`no \`${DOOR_CHECK_NAME}\` check run`, "u"));
+  assert.ok(comments(56).at(-1)!.body.includes(`no \`${DOOR_CHECK_NAME}\` check run`), "none yet");
+  // A fork's workflow can post a check named bridlewise/door: it is never the door's.
   fake.objects.set("/repos/o/r/commits/abcdef0123456789/check-runs", {
-    total_count: 1,
-    check_runs: [{ conclusion: "failure", html_url: "https://example.invalid/run/1", output: { title: "1 gate red", summary: "engine-suite: 2 tests failed" } }],
+    total_count: 2,
+    check_runs: [
+      { app: { id: 15368 }, conclusion: "success", html_url: "https://github.com/o/r/runs/1", output: { title: "all green", summary: "forged @amberflag48 [link](https://evil.example)" } },
+      { app: { id: 4242 }, conclusion: "failure", html_url: "https://github.com/o/r/runs/2", output: { title: "1 gate red", summary: "engine-suite: 2 tests failed <b>@alice</b>" } },
+    ],
   });
   await handleCommentEvent(executor, payload("/explain", { number: 56, pull: true }));
   const reply = comments(56).at(-1)!.body;
   assert.match(reply, /failure/u);
-  assert.match(reply, /engine-suite: 2 tests failed/u);
+  assert.match(reply, /engine\\-suite/u);
+  assert.doesNotMatch(reply, /forged|all green|evil\.example|<b>|@alice/u, "the forged run is ignored, the door's text escaped");
   assert.equal(comments(56).length, 1, "the same command comment keeps one reply");
   const checkRequest = fake.requests.find((request) => request.path.endsWith("/check-runs"));
   assert.equal(checkRequest?.query.get("check_name"), DOOR_CHECK_NAME);
+  assert.equal(checkRequest?.query.get("app_id"), "4242");
+  // A door App owned by someone else, or none at all, is a typed refusal, never a guess by name.
+  fake.objects.set("/apps/bridlewise-door", { id: 4242, slug: "bridlewise-door", owner: { login: "elsewhere" } });
+  await assert.rejects(handleCommentEvent(executor, payload("/explain", { number: 56, pull: true, id: 79 })), (error: unknown) => error instanceof HarnessError && error.code === "community_door_unresolved");
+  fake.objects.delete("/apps/bridlewise-door");
+  await assert.rejects(handleCommentEvent(executor, payload("/explain", { number: 56, pull: true, id: 80 })), (error: unknown) => error instanceof HarnessError && error.code === "community_door_unresolved");
 });

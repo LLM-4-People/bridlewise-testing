@@ -11,6 +11,7 @@
  * Every refusal is a typed answer the reply renders, never a silent ignore of a
  * command someone typed.
  */
+import { COMMUNITY_LIMITS } from "./community-config.ts";
 import { PERMISSION_LEVELS, roleForPermission, type CommunityRoles, type PermissionLevel } from "./sources.ts";
 
 /** Where a command may be typed. */
@@ -52,20 +53,26 @@ export type ParsedCommand = Readonly<{ name: CommandName; args: readonly string[
 /** What a comment's first line says: no command, a known one, or a word that names no command. */
 export type CommandLine = Readonly<{ kind: "none" }> | Readonly<{ kind: "command"; command: ParsedCommand }> | Readonly<{ kind: "unknown"; word: string }>;
 
-const COMMAND_LINE = /^\/([a-z][a-z-]*)(?:[ \t]+(.*))?$/u;
+/** A command word, then its arguments, on one bounded line (no unbounded run: the line is capped before it is matched). */
+const COMMAND_LINE = /^\/([a-z][a-z-]{0,31})(?:[ \t]([^\r\n]{0,500}))?$/u;
 
 /**
- * The command a comment carries: its FIRST non-blank line, and only when that
- * line starts with `/`. A command quoted (`> /accept`), fenced or mid-text is
- * no command, so quoting someone never re-runs what they typed.
+ * The command a comment carries: its FIRST line, and only when the comment
+ * STARTS with `/` (the workflow's prefilter asks GitHub the same question, so
+ * a comment that is no command costs no job). A command quoted (`> /accept`),
+ * fenced, indented or mid-text is no command, so quoting someone never
+ * re-runs what they typed.
  */
 export function parseCommandLine(body: string): CommandLine {
-  const first = body.split(/\r?\n/u).find((line) => line.trim().length > 0)?.trim() ?? "";
+  if (!body.startsWith("/")) return Object.freeze({ kind: "none" });
+  const end = body.search(/\r?\n/u);
+  const first = (end < 0 ? body : body.slice(0, end)).trimEnd();
+  if (first.length > COMMUNITY_LIMITS.commandLineMaxLength) return Object.freeze({ kind: "none" });
   const match = COMMAND_LINE.exec(first);
   if (match === null) return Object.freeze({ kind: "none" });
   const word = match[1]!;
   if (!Object.hasOwn(COMMANDS, word)) return Object.freeze({ kind: "unknown", word });
-  const args = (match[2] ?? "").split(/\s+/u).filter((arg) => arg.length > 0);
+  const args = (match[2] ?? "").split(/[ \t]+/u).filter((arg) => arg.length > 0);
   return Object.freeze({ kind: "command", command: Object.freeze({ name: word as CommandName, args: Object.freeze(args) }) });
 }
 

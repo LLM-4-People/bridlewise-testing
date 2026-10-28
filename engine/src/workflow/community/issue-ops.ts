@@ -11,10 +11,12 @@
  *   - `/explain`: the door's explanation of a pull request's verdict, which
  *     the executor reads from the door's check run.
  *
- * Every value a person typed reaches a reply only through {@link untrusted}:
- * no mention pings anyone, and no text can fake a bot marker.
+ * Every value a person typed is one bounded line ({@link untrusted}), and
+ * every reply slot is escaped by the markup owner when the reply is rendered
+ * (`replies.ts`): no mention pings anyone, and no text can fake a bot marker.
  */
-import { escapeGithubText } from "../../../../shared/markup.ts";
+import { yamlPlain } from "../failure-owners.ts";
+import { COMMUNITY_LIMITS } from "./community-config.ts";
 import { COMMANDS, authorise, commandTable, parseCommandLine, type CommandName, type CommandTarget } from "./commands.ts";
 import type { Reply } from "./replies.ts";
 import { type CommunityIntake, type CommunityRoles, type IssueForm, type PermissionLevel } from "./sources.ts";
@@ -90,16 +92,15 @@ const PULL_PENDING = "(the record's pull request)";
 const RECORD_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
 const ISSUE_REF = /^#([1-9]\d*)$/u;
 const MILESTONE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
-const MAX_TYPED = 300;
-
 /**
- * A value a person typed, made safe to quote in a bot reply: one line,
- * bounded, no `@` mention that pings, and no `<!--` that could fake a marker.
+ * A value a person typed, as one bounded line. It is never trusted as markup:
+ * the reply renderer escapes every slot (`replies.ts`), so here it is only
+ * folded and bounded.
  */
 export function untrusted(text: string): string {
   const line = text.replace(/\s+/gu, " ").trim();
-  // The one markup owner's GitHub escape: no Markdown, no HTML (so no marker), no `@` that mentions anyone.
-  return escapeGithubText(line.length > MAX_TYPED ? `${line.slice(0, MAX_TYPED)}…` : line);
+  const limit = COMMUNITY_LIMITS.typedTextMaxLength;
+  return line.length > limit ? `${line.slice(0, limit)}…` : line;
 }
 
 /** How the tracker names issue `n` in a record's `gh` field. */
@@ -131,14 +132,14 @@ function parseFormBody(form: IssueForm, body: string): ReadonlyMap<string, strin
     const section = sections.get(field.label);
     if (section === undefined && field.required) return null;
     // A field with `render` comes back fenced (```text … ```): its answer is the fence's content.
-    const value = section === undefined ? undefined : /^(`{3,})[^\n]*\n([\s\S]*?)\n?\1$/u.exec(section)?.[2] ?? section;
+    const value = section === undefined ? undefined : /^(`{3,16})[^\n]{0,64}\n([\s\S]{0,65536}?)\n?\1$/u.exec(section)?.[2] ?? section;
     answers.set(field.id, value === undefined || value === "_No response_" || value.trim().length === 0 ? null : value);
   }
   return answers;
 }
 
 /** The intake form `body` answers (the first form whose required headings it carries), with its answers. */
-export function intakeFormOf(intake: CommunityIntake, body: string): Readonly<{ form: IssueForm; answers: ReadonlyMap<string, string | null> }> | null {
+function intakeFormOf(intake: CommunityIntake, body: string): Readonly<{ form: IssueForm; answers: ReadonlyMap<string, string | null> }> | null {
   for (const form of intake.issueForms) {
     const answers = parseFormBody(form, body);
     if (answers !== null) return Object.freeze({ form, answers });
@@ -204,7 +205,13 @@ function decideIntake(name: "accept" | "decline" | "duplicate", event: CommentEv
   const existing = recordOf(event, facts);
   if (existing !== undefined) return usage(name, `this issue is already the record ${existing.id}`);
   const id = intakeRecordId(event.number);
-  const base = { id, title: event.title.trim().length > 0 ? event.title.trim() : id, gh: issueRef(event.number), body: intakeBody(event, facts) };
+  // The record's title is the issue's, as one line; one the tracker could not read back as plain YAML text is
+  // refused here, with a reply that says how to fix it (never a silent rewrite, never a failure no one sees).
+  const title = event.title.replace(/\s+/gu, " ").trim();
+  if (title.length > COMMUNITY_LIMITS.recordTitleMaxLength) return usage(name, `the issue title is longer than ${String(COMMUNITY_LIMITS.recordTitleMaxLength)} characters; shorten it and run ${COMMANDS[name].usage.split(" ")[0]!} again`);
+  const notPlain = title.length === 0 ? null : yamlPlain(title);
+  if (notPlain !== null) return usage(name, `the issue title cannot be a record's title (${notPlain}); edit the title and run ${COMMANDS[name].usage.split(" ")[0]!} again`);
+  const base = { id, title: title.length > 0 ? title : id, gh: issueRef(event.number), body: intakeBody(event, facts) };
   if (name === "accept") {
     const [severity, milestone, parent, ...rest] = args;
     if (severity === undefined || !SEVERITIES.includes(severity)) return usage(name, "the first argument is the severity, P0 to P3");

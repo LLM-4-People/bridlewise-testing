@@ -26,7 +26,9 @@ permissions:
 jobs:
   comment:
     name: Answer a command
-    if: github.event_name == 'issue_comment' && github.event.comment.user.type != 'Bot'
+    # Only a comment that starts with a command reaches a runner, a publisher token or a deployment (the harness
+    # asks the same question first: a command starts the comment).
+    if: github.event_name == 'issue_comment' && github.event.comment.user.type != 'Bot' && startsWith(github.event.comment.body, '/')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: publish
@@ -134,7 +136,6 @@ jobs:
           app-id: ${{ vars.PUBLISHER_APP_CLIENT_ID }}
           private-key: ${{ secrets.PUBLISHER_APP_KEY }}
           permission-pull-requests: write
-          permission-issues: write
 
       - name: Welcome
         working-directory: engine
@@ -172,10 +173,11 @@ jobs:
           app-id: ${{ vars.PUBLISHER_APP_CLIENT_ID }}
           private-key: ${{ secrets.PUBLISHER_APP_KEY }}
           permission-pull-requests: write
-          permission-issues: write
 
-      - name: Thank
+      - name: Thank every first landing of the push
         working-directory: engine
         env:
           BRIDLEWISE_PUBLISHER_TOKEN: ${{ steps.token.outputs.token }}
-        run: node src/cli.ts harness community thank --commit "$GITHUB_SHA" --text
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: node src/cli.ts harness community thank --before "$PUSH_BEFORE" --after "$PUSH_AFTER" --text

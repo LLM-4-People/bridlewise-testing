@@ -15,11 +15,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
-import { contributorsOf, creditedBy, releaseCredit, type CreditCommit } from "../../src/workflow/community/credit.ts";
+import { contributorsOf, landedCommits, releaseCredit, type CreditCommit } from "../../src/workflow/community/credit.ts";
 import type { CommunityExecutor } from "../../src/workflow/community/executor.ts";
 import { applyInteractionLimit, lockDue, MODERATION_PATH, readModeration, spamSignal, type Interaction } from "../../src/workflow/community/moderation.ts";
 import { replyMarker } from "../../src/workflow/community/replies.ts";
-import { greetingFor, thankFirstLanding, thankLandedCommit, welcomeIssue, welcomeOpenPullRequests, welcomeReply } from "../../src/workflow/community/welcome.ts";
+import { greetingFor, thankFirstLanding, thankLandedRange, welcomeIssue, welcomeOpenPullRequests, welcomeReply } from "../../src/workflow/community/welcome.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { fakeGithub, type FakeGithub } from "../forge/fake-github.ts";
@@ -120,34 +120,50 @@ test("a first landed pull request is thanked once; a later one, an unmerged one 
   assert.deepEqual(await thankFirstLanding(executor, 73), { kind: "ignored", why: "not their first landed pull request" });
 });
 
-test("a landed commit thanks each first-time author of the pull requests GitHub associates with it", async () => {
+test("a push thanks the first-time authors of every pull request it landed, each once; a new branch is judged by its head", async () => {
   const { executor, comments, searches, fake } = setup();
-  const sha = "a".repeat(40);
-  fake.objects.set(`/repos/o/r/commits/${sha}/pulls`, [{ number: 80, merge_commit_sha: sha }, { number: 81, merge_commit_sha: "b".repeat(40) }]);
+  const [before, middle, after] = ["1".repeat(40), "2".repeat(40), "3".repeat(40)];
+  fake.objects.set(`/repos/o/r/compare/${before}...${after}`, { commits: [{ sha: middle, author: null, commit: { message: "m" } }, { sha: after, author: null, commit: { message: "m" } }] });
+  fake.objects.set(`/repos/o/r/commits/${middle}/pulls`, [{ number: 80, merge_commit_sha: middle }]);
+  fake.objects.set(`/repos/o/r/commits/${after}/pulls`, [{ number: 81, merge_commit_sha: after }, { number: 80, merge_commit_sha: middle }]);
   fake.objects.set("/repos/o/r/pulls/80", { number: 80, merged: true, user: { login: "fresh", type: "User" } });
+  fake.objects.set("/repos/o/r/pulls/81", { number: 81, merged: true, user: { login: "other", type: "User" } });
   comments(80);
+  comments(81);
   searches.set("author:fresh is:pr is:merged", 1);
-  const outcomes = await thankLandedCommit(executor, sha);
-  assert.deepEqual(outcomes.map((outcome) => outcome.kind === "welcomed" && outcome.number), [80], "only the pull request that landed as this commit");
-  assert.ok(comments(80)[0]!.body.startsWith(replyMarker("thanks-80")));
+  searches.set("author:other is:pr is:merged", 1);
+  const outcomes = await thankLandedRange(executor, before, after, 5);
+  assert.deepEqual(outcomes.map((outcome) => outcome.kind === "welcomed" && outcome.number), [80, 81], "every pull request of the range, once");
+  const created = "0".repeat(40);
+  fake.objects.set(`/repos/o/r/commits/${after}/pulls`, [{ number: 81, merge_commit_sha: after }]);
+  const fromNewBranch = await thankLandedRange(executor, created, after, 5);
+  assert.deepEqual(fromNewBranch.map((outcome) => outcome.kind === "welcomed" && outcome.number), [81]);
 });
 
-test("credit: authors and co-authors by email, the tooling never, newcomers per release", () => {
+test("credit is by GitHub login, never by email: co-authors by their noreply login or name, the tooling never, newcomers per release", async () => {
   const commits: CreditCommit[] = [
-    { sha: "a1", authorName: "Ada", authorEmail: "ada@example.invalid", message: "feat: x" },
-    { sha: "a2", authorName: "bridlewise-agent[bot]", authorEmail: "1+bridlewise-agent[bot]@users.noreply.github.com", message: "feat: y\n\nCo-authored-by: Grace <GRACE@example.invalid>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>" },
-    { sha: "a3", authorName: "Ada Lovelace", authorEmail: "Ada@example.invalid", message: "fix: z\n\nCo-authored-by: Ada <ada@example.invalid>" },
-    { sha: "a4", authorName: "Harness", authorEmail: "agents@example.invalid", message: "chore" },
+    { sha: "a1", authorLogin: "ada", authorName: "Ada", message: "feat: x" },
+    { sha: "a2", authorLogin: "bridlewise-agent[bot]", authorName: "bridlewise-agent[bot]", message: "feat: y\n\nCo-authored-by: Grace <123+grace@users.noreply.github.com>\nCo-authored-by: Linus <linus@example.invalid>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>" },
+    { sha: "a3", authorLogin: "Ada", authorName: "Ada Lovelace", message: "fix: z\n\nCo-authored-by: Ada <ada@example.invalid>" },
+    { sha: "a4", authorLogin: "harness-agent", authorName: "Harness", message: "chore" },
   ];
-  assert.deepEqual(creditedBy(commits[2]!).map((person) => person.email), ["Ada@example.invalid"], "a person is credited once per commit");
-  const people = contributorsOf(commits, new Set(["AGENTS@example.invalid"]));
-  assert.deepEqual(people.map((person) => [person.name, person.email, person.commits]), [
-    ["Ada Lovelace", "ada@example.invalid", ["a1", "a3"]],
-    ["Grace", "grace@example.invalid", ["a2"]],
+  const people = contributorsOf(commits, new Set(["harness-agent"]));
+  assert.deepEqual(people.map((person) => [person.login, person.name, person.commits]), [
+    ["ada", "Ada Lovelace", ["a1", "a3"]],
+    ["grace", "Grace", ["a2"]],
+    [null, "Linus", ["a2"]],
+    [null, "Ada", ["a3"]],
   ]);
-  const release = releaseCredit(commits.slice(0, 1), commits.slice(1), new Set(["agents@example.invalid"]));
-  assert.deepEqual(release.all.map((person) => person.email), ["grace@example.invalid", "ada@example.invalid"]);
-  assert.deepEqual(release.newcomers.map((person) => person.email), ["grace@example.invalid"]);
+  assert.doesNotMatch(JSON.stringify(people), /@/u, "no email in anything credit answers");
+  const release = releaseCredit(commits.slice(0, 1), commits.slice(1), new Set(["harness-agent"]));
+  assert.deepEqual(release.newcomers.map((person) => person.login ?? person.name), ["grace", "Linus", "Ada"]);
+  assert.doesNotMatch(JSON.stringify(release), /@/u);
+  // The commits come from GitHub with each author's login.
+  const { fake, executor } = setup();
+  fake.objects.set("/repos/o/r/compare/base...head", { commits: [{ sha: "c1", author: { login: "ada" }, commit: { author: { name: "Ada", email: "ada@example.invalid" }, message: "x" } }, { sha: "c2", author: null, commit: { author: { name: "Nobody" }, message: "y" } }] });
+  const read = await landedCommits(executor.client, "o", "r", "base", "head", 5);
+  assert.deepEqual(read, [{ sha: "c1", authorLogin: "ada", authorName: "Ada", message: "x" }, { sha: "c2", authorLogin: null, authorName: "Nobody", message: "y" }]);
+  assert.doesNotMatch(JSON.stringify(read), /@/u, "the email GitHub answered is never kept");
 });
 
 test("moderation: the spam signal follows its mode and window, a lock falls due on the declared day, a limit is the maintainer's", async () => {

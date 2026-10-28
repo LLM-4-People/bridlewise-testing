@@ -19,27 +19,17 @@ import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
 import { HarnessError } from "../../kernel/errors.ts";
 import { TRACKER_BOARD } from "../../kernel/verification-paths.ts";
-import { readEntries, syncTrackerBoard, TRACKER_ITEM_SCHEMA, trackerItems } from "../failure-owners.ts";
+import { DATE, readEntries, syncTrackerBoard, TRACKER_ITEM_SCHEMA, trackerItems } from "../failure-owners.ts";
 import { publishBranch, type ForgePullRequest, type ForgeTarget, type WorkspaceForge } from "../workspace-forge.ts";
 import type { IntakeRecord } from "./issue-ops.ts";
 
 /** The lane every intake record joins: the public floor's open work. */
 const INTAKE_LANE = "floor";
-const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
 function refuse(code: string, message: string, details: Readonly<Record<string, string | number | boolean>> = {}): never {
   throw new HarnessError(message, code, false, details);
 }
 
-/**
- * A title a person typed, as a plain YAML scalar the tracker accepts: one
- * line, no leading indicator, no `: ` or ` #`, bounded.
- */
-export function plainTitle(text: string, fallback: string): string {
-  const folded = text.replace(/\s+/gu, " ").replace(/: /gu, " - ").replace(/ #/gu, " ").replace(/^[-?:,[\]{}#&*!|>'"%@`\s]+/u, "").trim();
-  const bounded = folded.length > 120 ? folded.slice(0, 120).trimEnd() : folded;
-  return bounded.length > 0 ? bounded : fallback;
-}
 
 /** `text` inside a fence no line of it can close, so a person's Markdown is kept verbatim and never read as links. */
 function fenced(text: string): string {
@@ -57,7 +47,7 @@ export function intakeItemText(record: IntakeRecord, dates: Readonly<{ opened: s
     ["published", "false"],
     ["id", record.id],
     ["type", record.type],
-    ["title", plainTitle(record.title, record.id)],
+    ["title", record.title],
     ["state", record.state],
     ["resolution", record.state === "closed" ? (record.resolution ?? "completed") : null],
     ["lane", INTAKE_LANE],

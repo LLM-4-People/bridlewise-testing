@@ -23,11 +23,8 @@ test("an unknown verb, or a verb missing its arguments, is the typed usage refus
   }
 });
 
-test("credit answers the contributors of a range of this repository (HEAD: a shallow checkout holds it too)", async () => {
-  const answer = await runCommunityCli(ENGINE, ["credit", "--range", "HEAD"]);
-  const result = answer.result.result as { verb: string; all: readonly { email: string; commits: readonly string[] }[]; newcomers: readonly unknown[] };
-  assert.equal(result.verb, "credit");
-  assert.ok(result.all.length >= 1);
-  assert.ok(result.all.every((person) => !/\[bot\]/u.test(person.email) && person.commits.length >= 1));
-  assert.deepEqual(result.newcomers, []);
+test("credit reads its range from GitHub by login: a malformed range is refused before any request", async () => {
+  for (const argv of [["credit", "--range", "HEAD"], ["credit", "--range", "a..b", "--before", "nope"], ["thank", "--before", "1".repeat(40)], ["thank", "--before", "x", "--after", "2".repeat(40)]]) {
+    await assert.rejects(runCommunityCli(ENGINE, argv), usage, JSON.stringify(argv));
+  }
 });

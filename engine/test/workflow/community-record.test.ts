@@ -17,14 +17,14 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { readTrackerItems } from "../../src/workflow/failure-owners.ts";
 import type { IntakeRecord } from "../../src/workflow/community/issue-ops.ts";
-import { intakeItemText, itemPath, landIntakeRecord, plainTitle, recordBranch, writeIntakeRecord } from "../../src/workflow/community/record.ts";
+import { intakeItemText, itemPath, landIntakeRecord, recordBranch, writeIntakeRecord } from "../../src/workflow/community/record.ts";
 import { forgeAt, initTempRepo, rawGit } from "../workspaces/workspace-test-support.ts";
 
 const REPOSITORY = dirname(fileURLToPath(new URL("../../", import.meta.url)));
 const DATES = { opened: "2026-10-21", closed: "2026-10-22" };
 
 const ACCEPTED: IntakeRecord = {
-  id: "ISSUE-40", type: "Flake", title: "[flaky]: record-links #3 fails", state: "open", resolution: null,
+  id: "ISSUE-40", type: "Flake", title: "Flaky record-links test 3 fails", state: "open", resolution: null,
   severity: "P2", milestone: "M1", parent: null, gh: "issue-40",
   body: "Reported in #40 through the Flake report form; the report is the issue's own text.",
 };
@@ -41,12 +41,6 @@ function trackerRepository(prefix: string): Readonly<{ root: string; bare: strin
   return { root, bare };
 }
 
-test("a typed title becomes a plain YAML scalar", () => {
-  assert.equal(plainTitle("[flaky]: record-links #3 fails", "X"), "flaky] - record-links 3 fails");
-  assert.equal(plainTitle("  - * ", "ISSUE-1"), "ISSUE-1");
-  assert.equal(plainTitle("a".repeat(200), "X").length, 120);
-});
-
 test("the item is the tracker's format: the reader accepts it, the reported text is fenced, the board is regenerated", () => {
   const { root } = trackerRepository("community-record-write");
   const text = intakeItemText(ACCEPTED, DATES);
@@ -59,11 +53,11 @@ test("the item is the tracker's format: the reader accepts it, the reported text
   assert.equal(item?.gh, "issue-40");
   assert.equal(item?.lane, "floor");
   // The board renders the item escaped (the tracker's one escaping renderer).
-  assert.ok(readFileSync(join(root, TRACKER_BOARD.path), "utf8").includes("**flaky\\] \\- record\\-links 3 fails** — Reported in \\#40"));
+  assert.ok(readFileSync(join(root, TRACKER_BOARD.path), "utf8").includes("**Flaky record\\-links test 3 fails** — Reported in \\#40"));
   assert.throws(() => writeIntakeRecord(root, ACCEPTED, DATES), (error: unknown) => error instanceof HarnessError && error.code === "community_record_exists");
 
   const declined = intakeItemText({ ...ACCEPTED, id: "ISSUE-41", type: "Intake", state: "closed", resolution: "not-planned", severity: null, milestone: null, gh: "issue-41" }, DATES);
-  assert.match(declined, /\nresolution: not-planned\n[\s\S]*\nclosed: 2026-10-22\n/u);
+  assert.ok(declined.includes("\nresolution: not-planned\n") && declined.includes("\nclosed: 2026-10-22\n"), "a closed record names how and when");
   assert.throws(() => writeIntakeRecord(root, { ...ACCEPTED, id: "ISSUE-42", gh: "issue-42", parent: "NO-SUCH-ITEM" }, DATES), (error: unknown) => error instanceof HarnessError && error.code === "tracker_item_invalid");
 });
 

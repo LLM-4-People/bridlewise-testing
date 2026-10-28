@@ -12,6 +12,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { escapeGithubText } from "../../../../shared/markup.ts";
 import { InputError } from "../../kernel/errors.ts";
 import { COMMUNITY_DIRECTORY } from "./sources.ts";
 
@@ -68,6 +69,22 @@ export function replyTemplateViolations(templates: ReadonlyMap<string, string>):
   return problems;
 }
 
+/**
+ * EVERY slot value is escaped by the markup owner's GitHub escape
+ * (`escapeGithubText`: no Markdown, no HTML, no `@` mention) unless it is
+ * named here: the command table the harness itself renders, and a URL GitHub
+ * itself answered (a pull request's, a check run's), which must be one.
+ * Record text, a person's words, a check run's title and summary: all escaped.
+ */
+const RAW_SLOTS: Readonly<Record<string, "markdown" | "url">> = Object.freeze({
+  "help.commands": "markdown",
+  "accepted.pull": "url",
+  "declined.pull": "url",
+  "duplicate.pull": "url",
+  "explain.url": "url",
+});
+const GITHUB_URL = /^https:\/\/github\.com\/[A-Za-z0-9._~/%-]{1,200}$/u;
+
 /** The marker that keys a reply to what it answers (a comment id, or `welcome-<n>`): the executor edits a reply carrying it instead of posting another. */
 export function replyMarker(answers: string): string {
   return `<!-- bridlewise:reply=${answers} -->`;
@@ -78,6 +95,13 @@ export function renderReply(templates: ReadonlyMap<string, string>, reply: Reply
   const template = templates.get(reply.key);
   if (template === undefined) throw new InputError(`${REPLIES_DIRECTORY}/${reply.key}${TEMPLATE_SUFFIX} is missing`, "community_reply_invalid", { key: reply.key });
   const slots = reply.slots as Readonly<Record<string, string>>;
-  const body = template.replace(SLOT, (whole, slot: string) => slots[slot] ?? whole);
+  const body = template.replace(SLOT, (whole, slot: string) => {
+    const value = slots[slot];
+    if (value === undefined) return whole;
+    const kind = RAW_SLOTS[`${reply.key}.${slot}`];
+    if (kind === undefined) return escapeGithubText(value);
+    if (kind === "url" && !GITHUB_URL.test(value)) throw new InputError(`the ${reply.key} reply's ${slot} is no GitHub URL`, "community_reply_invalid", { key: reply.key, slot });
+    return value;
+  });
   return `${replyMarker(answers)}\n${body.trimEnd()}\n`;
 }

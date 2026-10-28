@@ -303,9 +303,11 @@ export type TrackerItem = Readonly<{
   body: string;
 }>;
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/u;
+/** A tracker date, `YYYY-MM-DD` (the one pattern every writer of an item checks against). */
+export const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 /** A value YAML reads back as the same plain STRING (the site reads item front matter as YAML; a YAML 1.1 reader turns `No` into false). */
-function yamlPlain(item: string): string | null {
+/** Why `item` is not a value YAML reads back as the same plain string (the site reads item front matter as YAML), or `null`. */
+export function yamlPlain(item: string): string | null {
   if (/^[-?:,[\]{}#&*!|>'"%@`]|: | #|\s$/u.test(item)) return `${JSON.stringify(item)} is not a plain YAML scalar (no leading indicator, ": " or " #")`;
   if (/^(?:y|yes|n|no|true|false|on|off|null|~)$/iu.test(item) || /^[-+]?(?:\.?\d)[\d._:eE+-]*$/u.test(item)) return `${JSON.stringify(item)} reads as a YAML boolean, null or number, not text`;
   return null;

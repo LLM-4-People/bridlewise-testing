@@ -1,74 +1,103 @@
 /**
  * CONTRIBUTOR CREDIT (github-only §10.6): who contributed what, computed from
  * the history that landed, all-contributors style but without its bot (which
- * commits to `main` as a second writer). Pure: the caller hands over the
- * commits (the release train for a release's notes, the site for
- * `/contributors/`), and the same commits always answer the same credit.
+ * commits to `main` as a second writer). `landedCommits` reads a range from
+ * GitHub; the rest is pure: the same commits always answer the same credit
+ * (the release train for a release's notes, the site for `/contributors/`).
  *
- * A commit credits its author and every `Co-authored-by:` trailer, as kind
- * `code`. The project's own tooling is never credited: a GitHub App or bot
- * identity (`[bot]`, `…[bot]@users.noreply.github.com`) and the identities a
- * caller declares as its own (the agents' commit identity, for example).
- * People are keyed by email, lower-cased, so one person with two spellings of
- * a name is one contributor; the name shown is their latest.
+ * PRIVACY: credit is by GitHub LOGIN, never by email. A commit's author login
+ * is GitHub's own answer (the commit API's `author.login`); a
+ * `Co-authored-by:` person is known by login only through GitHub's noreply
+ * address (`<id>+<login>@users.noreply.github.com`), and otherwise by the
+ * name they wrote. A co-author's email only tells two of them apart and never
+ * leaves this module: nothing it answers, and so nothing published from it
+ * (pages, release notes, replies), carries one.
+ *
+ * The project's own tooling is never credited: a bot or App (`[bot]`) and the
+ * logins the caller declares as its own.
  */
+import type { ForgeClient } from "../forge/port.ts";
 
-/** One commit, as the caller read it (oldest first in a list). */
-export type CreditCommit = Readonly<{ sha: string; authorName: string; authorEmail: string; message: string }>;
+/** One commit, as the caller read it from GitHub (oldest first in a list). */
+export type CreditCommit = Readonly<{
+  sha: string;
+  /** GitHub's login for the commit's author, or `null` when GitHub ties the commit to no account. */
+  authorLogin: string | null;
+  authorName: string;
+  message: string;
+}>;
 
 export type Contributor = Readonly<{
+  /** The GitHub login, when GitHub knows one; the public identity credit uses. */
+  login: string | null;
+  /** The name as written (shown only when no login is known). */
   name: string;
-  email: string;
   /** The commits that credit them, oldest first. */
   commits: readonly string[];
-  /** The first commit that credited them. */
   first: string;
 }>;
 
-const CO_AUTHOR = /^Co-authored-by:\s*(.+?)\s*<([^<>\s]+)>\s*$/gimu;
+const CO_AUTHOR = /^Co-authored-by:[ \t]{0,8}([^<\r\n]{1,200}?)[ \t]{0,8}<([^<>\s]{1,320})>[ \t]{0,8}$/gimu;
+const NOREPLY = /^(?:\d{1,20}\+)?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))@users\.noreply\.github\.com$/iu;
+const BOT = /\[bot\]/iu;
 
-/** Whether `email`/`name` is tooling, never a person: a bot or App identity, or one the caller declares its own. */
-function isTooling(name: string, email: string, own: ReadonlySet<string>): boolean {
-  return /\[bot\]/iu.test(name) || /\[bot\]@users\.noreply\.github\.com$/iu.test(email) || own.has(email.toLowerCase());
+type Person = Readonly<{ key: string; login: string | null; name: string }>;
+
+/** The people a commit credits: its author, then its co-authors, each once; tooling never. */
+function creditedBy(commit: CreditCommit, own: ReadonlySet<string>): readonly Person[] {
+  const people: Person[] = [];
+  const add = (login: string | null, name: string, fallbackKey: string): void => {
+    if (BOT.test(name) || (login !== null && (BOT.test(login) || own.has(login.toLowerCase())))) return;
+    const key = login === null ? fallbackKey : `login:${login.toLowerCase()}`;
+    if (!people.some((person) => person.key === key)) people.push({ key, login, name: name.trim() });
+  };
+  add(commit.authorLogin, commit.authorName, `name:${commit.authorName.trim().toLowerCase()}`);
+  for (const match of commit.message.matchAll(CO_AUTHOR)) {
+    const email = match[2]!;
+    add(NOREPLY.exec(email)?.[1] ?? null, match[1]!, `email:${email.toLowerCase()}`);
+  }
+  return people;
 }
 
-/** The people a commit credits: its author, then its co-authors, each once. */
-export function creditedBy(commit: CreditCommit, own: ReadonlySet<string> = new Set()): readonly Readonly<{ name: string; email: string }>[] {
-  const people = [{ name: commit.authorName, email: commit.authorEmail }, ...[...commit.message.matchAll(CO_AUTHOR)].map((match) => ({ name: match[1]!, email: match[2]! }))];
-  const seen = new Set<string>();
-  return people.filter((person) => {
-    const key = person.email.toLowerCase();
-    if (seen.has(key) || isTooling(person.name, person.email, own)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-/** Every contributor of `commits` (oldest first), in order of first contribution. */
+/** Every contributor of `commits` (oldest first), in order of first contribution, by login (see the header). */
 export function contributorsOf(commits: readonly CreditCommit[], own: ReadonlySet<string> = new Set()): readonly Contributor[] {
-  const byEmail = new Map<string, { name: string; email: string; commits: string[]; first: string }>();
-  const lowered = new Set([...own].map((email) => email.toLowerCase()));
+  const ownLogins = new Set([...own].map((login) => login.toLowerCase()));
+  const byKey = new Map<string, { login: string | null; name: string; commits: string[]; first: string }>();
   for (const commit of commits) {
-    for (const person of creditedBy(commit, lowered)) {
-      const key = person.email.toLowerCase();
-      const known = byEmail.get(key);
-      if (known === undefined) byEmail.set(key, { name: person.name, email: key, commits: [commit.sha], first: commit.sha });
+    for (const person of creditedBy(commit, ownLogins)) {
+      const known = byKey.get(person.key);
+      if (known === undefined) byKey.set(person.key, { login: person.login, name: person.name, commits: [commit.sha], first: commit.sha });
       else {
         known.name = person.name;
         known.commits.push(commit.sha);
       }
     }
   }
-  return Object.freeze([...byEmail.values()].map((contributor) => Object.freeze({ ...contributor, commits: Object.freeze(contributor.commits) })));
+  return Object.freeze([...byKey.values()].map((contributor) => Object.freeze({ ...contributor, commits: Object.freeze(contributor.commits) })));
+}
+
+/** A release's credit: every contributor of the release's commits, and the new ones (no earlier commit credits them). */
+export function releaseCredit(before: readonly CreditCommit[], release: readonly CreditCommit[], own: ReadonlySet<string> = new Set()): Readonly<{ all: readonly Contributor[]; newcomers: readonly Contributor[] }> {
+  const identity = (contributor: Contributor): string => (contributor.login === null ? `name:${contributor.name.toLowerCase()}` : `login:${contributor.login.toLowerCase()}`);
+  const earlier = new Set(contributorsOf(before, own).map(identity));
+  const all = contributorsOf(release, own);
+  return Object.freeze({ all, newcomers: Object.freeze(all.filter((contributor) => !earlier.has(identity(contributor)))) });
 }
 
 /**
- * A release's credit: every contributor of the release's commits, and the
- * new ones — those no commit before the release credits (the "new
- * contributors" line of the release notes).
+ * The commits from `base` (excluded) to `head`, oldest first, as GitHub
+ * answers them (`GET …/compare/{base}...{head}`, page by page): each with its
+ * author's login, the one public identity credit uses.
  */
-export function releaseCredit(before: readonly CreditCommit[], release: readonly CreditCommit[], own: ReadonlySet<string> = new Set()): Readonly<{ all: readonly Contributor[]; newcomers: readonly Contributor[] }> {
-  const earlier = new Set(contributorsOf(before, own).map((contributor) => contributor.email));
-  const all = contributorsOf(release, own);
-  return Object.freeze({ all, newcomers: Object.freeze(all.filter((contributor) => !earlier.has(contributor.email))) });
+export async function landedCommits(client: ForgeClient, owner: string, repository: string, base: string, head: string, maxPages: number): Promise<readonly CreditCommit[]> {
+  const commits = await client.paginate<{ sha: string; author?: { login?: unknown } | null; commit: { author?: { name?: unknown } | null; message: string } }>(
+    { path: `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}` },
+    { maxPages, perPage: 100, items: (data) => (data as { commits?: [] }).commits ?? [] },
+  );
+  return Object.freeze(commits.map((commit) => Object.freeze({
+    sha: commit.sha,
+    authorLogin: typeof commit.author?.login === "string" ? commit.author.login : null,
+    authorName: typeof commit.commit.author?.name === "string" ? commit.commit.author.name : "",
+    message: commit.commit.message,
+  })));
 }
