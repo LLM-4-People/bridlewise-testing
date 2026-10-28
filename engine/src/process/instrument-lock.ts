@@ -34,10 +34,15 @@
  * `memory.swap.max` (it must be 0) and `memory.max` (it must be a number):
  * a host whose cgroup v2 has no swap accounting, or that did not apply
  * either, is refused typed (`per_run_caps_unavailable`), never run under
- * cap-plus-swap. Past the cap the kernel kills the run's largest process;
- * `OOMPolicy=continue` keeps the rest of the scope (the door that admitted
- * the run) alive to say so, and the door turns it into a typed refusal
- * (`run_memory_cap_exceeded`, {@link runScopeOomKills}).
+ * cap-plus-swap. Past the cap the kernel kills the run's largest process.
+ * `OOMPolicy=continue` keeps the rest of the scope alive: under the user
+ * manager's default (`stop`, measured on this host) systemd SIGTERMs every
+ * process of the scope the moment one is OOM-killed — the runner that
+ * admitted the run and every sibling worker mid-test — so nothing is left
+ * to say what happened. The policy is READ BACK from the unit like the
+ * memory files (a scope under another policy is refused), and the door
+ * turns the kill into a typed refusal (`run_memory_cap_exceeded`,
+ * {@link runScopeOomKills}).
  *
  * NESTING, read from the records' structured fields AND the kernel's: a
  * process BORROWS a live run (a validate's suites, a slot run's command,
@@ -248,8 +253,19 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
   if (swapMax !== "0") throw capsUnavailable(caps, `${unit} holds memory.swap.max ${swapMax}, not 0: the run could swap past its memory cap`);
   const memoryMax = ownCgroupFile("memory.max");
   if (memoryMax === undefined || !/^\d+$/u.test(memoryMax)) throw capsUnavailable(caps, `${unit} holds memory.max ${memoryMax ?? "(absent)"}, not a byte count`);
+  const oomPolicy = runScopeOomPolicy(unit);
+  if (oomPolicy !== "continue") throw capsUnavailable(caps, `${unit} runs under OOMPolicy ${oomPolicy ?? "(unreadable)"}, not continue: one process past the cap would stop the whole run before it could say so`);
   const limited = limitOwnCpu(cpu);
   if (limited !== null) throw capsUnavailable(caps, limited);
+}
+
+/** The OOM policy systemd holds for the run's scope `unit` (`Manager.GetUnit`, then the Scope's `OOMPolicy`), or `undefined` when unreadable. */
+function runScopeOomPolicy(unit: string): string | undefined {
+  const found = spawnSync("busctl", ["--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "GetUnit", "s", unit], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const path = found.status === 0 ? /^o "([^"]+)"/mu.exec(found.stdout)?.[1] : undefined;
+  if (path === undefined) return undefined;
+  const policy = spawnSync("busctl", ["--user", "get-property", "org.freedesktop.systemd1", path, "org.freedesktop.systemd1.Scope", "OOMPolicy"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return policy.status === 0 ? /^s "([^"]*)"/mu.exec(policy.stdout)?.[1] : undefined;
 }
 
 /**

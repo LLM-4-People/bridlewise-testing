@@ -153,13 +153,13 @@ test("EVERY SUPERVISOR AN ADMITTED RUN STARTS RUNS UNDER ITS CAPS: a cgroup scop
     `const { superviseCommand } = await import(${JSON.stringify(SUPERVISOR_OWNER)});`,
     `const lock = admitInstrumentRun(process.argv[2], "a capped run", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuLimitSeconds: 77, cpuKillGraceSeconds: 3, hangBackstopMs: 600_000 });`,
     "let out = '';",
-    `await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) swapmax=$(cat $g/memory.swap.max) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
+    `await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) swapmax=$(cat $g/memory.swap.max) oompolicy=$(systemctl --user show -p OOMPolicy --value $(basename $g)) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
     "lock.release();",
     "process.stdout.write(out);",
   ].join("\n"));
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr);
-  assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ swapmax=0 soft=77 hard=80/u, ran.stdout);
+  assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ swapmax=0 oompolicy=continue soft=77 hard=80/u, ran.stdout);
   const total = Number(procfsDocument("meminfo")!.match(/^MemTotal:\s+(\d+) kB/mu)![1]) * 1024;
   const memmax = Number(/memmax=(\d+)/u.exec(ran.stdout)![1]);
   assert.ok(Math.abs(memmax - total * 0.37) < total * 0.01, `MemoryMax is 37% of the host's memory (${String(memmax)} of ${String(total)})`);
