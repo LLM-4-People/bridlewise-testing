@@ -155,6 +155,8 @@ export type HarnessCheckOutput = Readonly<{
   webBudgetPopulation: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
+  /** Would the engine runner accept the tree at its setup (scripts/verification/candidate-manifest.ts --verdict, its own door)? */
+  candidateFormat: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -541,6 +543,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
   steps.push(bundleFreshnessStep(root));
 
+  emitProgress(onProgress, "Checking the tree the engine runner would accept...");
+  steps.push(candidateFormatStep(root));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -567,6 +572,7 @@ export async function harnessCheck(
     communityFiles: steps[21]!,
     webBudgetPopulation: steps[22]!,
     bundle: steps[23]!,
+    candidateFormat: steps[24]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -1614,6 +1620,40 @@ function bundleFreshnessStep(root: string): CheckStepResult {
   } catch (error) {
     return deepFreeze({ step: "bundle", status: "fail", message: error instanceof Error ? error.message : "the bundle check failed", details: null });
   }
+}
+
+/**
+ * `harness check`'s candidate-format step: the engine runner's own setup door
+ * (`buildCandidateManifest`, run as `scripts/verification/candidate-manifest.ts
+ * --verdict`, the builder layer, as a subprocess). The door lives in
+ * `scripts/verification/`, which ships, so a product tree's check runs the same
+ * step — never a probe that skips it where the file is stripped. The runner refuses a tree
+ * it cannot certify (a non-canonical text file, an LFS pointer, an unreadable
+ * entry) before it runs a single test; asked only there, a file it refuses
+ * landed through every required check and left the suite running nothing
+ * (#417). Asked here, it is refused before it lands.
+ */
+function candidateFormatStep(root: string): CheckStepResult {
+  let answer: ScriptAnswer;
+  try {
+    answer = runScriptSubprocess(root, "scripts/verification/candidate-manifest.ts", ["--root", ".", "--verdict"]);
+  } catch (error) {
+    return deepFreeze({ step: "candidate-format", status: "fail", message: `the engine runner's candidate check did not answer: ${error instanceof Error ? error.message : String(error)}`, details: null });
+  }
+  if (answer.ok) {
+    const verdict = JSON.parse(answer.payload) as { accepted?: unknown; files?: unknown };
+    return deepFreeze({ step: "candidate-format", status: "pass", message: `the engine runner accepts the tree (${String(verdict.files)} files)`, details: verdict });
+  }
+  const refusal = printedRecord(answer);
+  const violations = Array.isArray(refusal?.["violations"]) ? refusal["violations"] as readonly string[] : [];
+  return deepFreeze({
+    step: "candidate-format",
+    status: "fail",
+    message: violations.length === 0
+      ? `the engine runner's candidate check did not answer (${answer.ending}): ${answer.printed}`
+      : `the engine runner would refuse this tree at its setup and run no test: ${violations.join(", ")}`,
+    details: refusal ?? null,
+  });
 }
 
 /** One pass of `harness sync` (see {@link harnessSync}): the steps, each a CLI subprocess. */

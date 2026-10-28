@@ -5,7 +5,7 @@ import {
   buildCandidateManifestDetailed,
   candidateTestIdentityExcluding,
   refreshCandidateTestIdentityExcluding,
-} from "./candidate-manifest.ts";
+} from "../verification/candidate-manifest.ts";
 import { enableSharedCompileCache } from "./compile-cache.ts";
 import { executeInventoryTestRun } from "./inventory-test-run.ts";
 import { loadTestInventoryWithSnapshot } from "../test-inventory.ts";

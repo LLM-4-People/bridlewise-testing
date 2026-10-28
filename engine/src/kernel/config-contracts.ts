@@ -170,6 +170,21 @@ export const REPOSITORY_RELATIVE_PATH_SCHEMA = z.string().min(1).max(1024)
 export const WORKSPACE_COMMAND_NAME_SCHEMA = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u);
 
 /**
+ * THE PROMOTION PROFILE NAME RULE, the one owner: a lower-case letter, then
+ * up to 62 lower-case letters, digits and hyphens. A name is also a folder
+ * (the profile's private directory) and a file name, so the rule is what
+ * keeps it ONE path segment: no `/`, no `..`, never absolute. The profile's
+ * own `name` (`workflow/promotion/profile.ts`, which derives `isProfileName`
+ * and the trigger's header check from it) and `promotion.release.profile`
+ * here both name a profile by this one schema; it lives in the kernel beside
+ * the other shared schemas because `profile.ts` imports from here.
+ */
+export const PROMOTION_PROFILE_NAME_SCHEMA = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u);
+
+/** The profile-name rule, spelled for a refusal. */
+export const PROMOTION_PROFILE_NAME_RULE = "a lower-case letter, then up to 62 lower-case letters, digits or hyphens";
+
+/**
  * Whether provider-interaction payload capture is on when the config file
  * does not say. On: the ledger exists to answer "what did the provider
  * actually send and receive?", the payloads are redacted before write, and
@@ -1645,7 +1660,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   const promotionConfigSchema = z.strictObject({
     profileDirectory: repositoryRelativePath,
     release: z.strictObject({
-      profile: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+      profile: PROMOTION_PROFILE_NAME_SCHEMA,
       train: z.enum(RELEASE_TRAIN_MODES),
       minIntervalHours: z.number().int().min(0).max(8760),
       tagPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}$/u),
