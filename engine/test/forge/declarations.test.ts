@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
+import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations, SECURITY_FEATURE_DEPENDENTS } from "../../src/workflow/forge/declarations.ts";
 import { differences, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { codeownersFile, dependabotEntryViolations, dependabotFile, dependabotUpdates, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
@@ -191,17 +191,26 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   // Private repositories on this plan (no Secret Protection): neither, or the attach would fail there.
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning, "disabled");
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning_push_protection, "disabled");
-  // Secret scanning needs Secret Protection in a configuration (GitHub refuses one without it): advanced_security goes with it.
-  assert.equal(configuration("bridlewise-baseline").advanced_security, "enabled");
-  assert.equal(configuration("bridlewise-baseline-private").advanced_security, "disabled");
-  for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "not_set", `${key}: CodeQL runs in advanced setup`);
+  // Each Advanced Security feature is declared: Code Security off in both (code scanning is our own CodeQL workflow),
+  // Secret Protection on the public configuration, off on the private one without the add-on. No deprecated
+  // advanced_security is sent.
+  for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) {
+    assert.equal(configuration(key).code_security, "disabled", key);
+    assert.equal(configuration(key).advanced_security, undefined, key);
+  }
+  assert.equal(configuration("bridlewise-baseline").secret_protection, "enabled");
+  assert.equal(configuration("bridlewise-baseline-private").secret_protection, "disabled");
+  // Private vulnerability reporting exists for public repositories only.
+  assert.equal(configuration("bridlewise-baseline").private_vulnerability_reporting, "enabled");
+  assert.equal(configuration("bridlewise-baseline-private").private_vulnerability_reporting, "disabled");
+  for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "disabled", `${key}: Code Security is off; CodeQL runs as our own workflow`);
   // Attached to the governed repositories only, by visibility, and default for no new repository.
   assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", "bridlewise-testing"], default_for_new_repos: "none" });
   assert.deepEqual(attachment("bridlewise-baseline-private"), { repositories: ["bridlewise-coordination"], default_for_new_repos: "none" });
   // With the add-on, the private configuration carries secret scanning too.
   const withAddOn = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection: true } } });
   assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).secret_scanning, "enabled");
-  assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).advanced_security, "enabled");
+  assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).secret_protection, "enabled");
   // The project is private; no repository offers the Update-branch button; the Pages environment is governed.
   assert.equal((find(objects, "project", SETTINGS.project.title).desired as { public: boolean }).public, false);
   for (const settings of objects.filter((entry) => entry.kind === "repository-settings")) assert.equal((settings.desired as Record<string, unknown>).allow_update_branch, false, settings.key);
@@ -220,6 +229,33 @@ test("a custom property's allowed values compare as a set: a reorder is neutral,
   assert.notDeepEqual(looseningOf("custom-property", property([...live.allowed_values, "extra"]), live), [], "a superset");
   // Another schema change is still judged equal.
   assert.notDeepEqual(looseningOf("custom-property", { ...property(live.allowed_values), value_type: "string" }, live), []);
+});
+
+test("every field GitHub validates against an Advanced Security feature follows it, in every declared configuration, as GitHub receives it (after the plan's unavailable fields are taken out)", () => {
+  for (const secretProtection of [false, true]) {
+    const objects = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection } } });
+    for (const configuration of objects.filter((entry) => entry.kind === "security-configuration")) {
+      const sent = writableBody(configuration, configuration.desired) as Record<string, unknown>;
+      for (const [feature, dependents] of Object.entries(SECURITY_FEATURE_DEPENDENTS)) {
+        for (const field of dependents) {
+          if (sent[field] === undefined) continue; // not on this plan: never sent
+          assert.ok(sent[feature] === "enabled" || sent[field] === "disabled", `${configuration.key} (add-on ${String(secretProtection)}): ${field} is ${String(sent[field])} while ${feature} is ${String(sent[feature])}`);
+        }
+      }
+      // Dependabot's own chain: security updates need alerts, alerts need the dependency graph.
+      if (sent.dependabot_security_updates === "enabled") assert.equal(sent.dependabot_alerts, "enabled");
+      if (sent.dependabot_alerts === "enabled") assert.equal(sent.dependency_graph, "enabled");
+    }
+  }
+  // GitHub's 422 named exactly these as Code Security's.
+  assert.deepEqual([...SECURITY_FEATURE_DEPENDENTS.code_security].sort(), ["code_scanning_default_setup", "code_scanning_delegated_alert_dismissal", "dependabot_delegated_alert_dismissal"]);
+});
+
+test("each Advanced Security feature is strict: turning Secret Protection or Code Security off is a loosening, turning it on is not", () => {
+  for (const feature of ["secret_protection", "code_security"] as const) {
+    assert.deepEqual(looseningOf("security-configuration", { [feature]: "disabled" }, { [feature]: "enabled" }), [`${feature} "enabled" -> "disabled"`], `${feature} off`);
+    assert.deepEqual(looseningOf("security-configuration", { [feature]: "enabled" }, { [feature]: "disabled" }), [], `${feature} on`);
+  }
 });
 
 test("an ENABLED dismissal restriction may only stay enabled with fewer allowed actors; an unrestricted one restricts nothing", () => {

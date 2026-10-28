@@ -337,12 +337,12 @@ export function assertArchitectureBaselineClean(): void {
   // The candidate manifest reads git through the one repository-git
   // executor it imports: that module owns the git-invocation fact and the
   // `git` effect, and the candidate manifest depends on it.
-  const gitOwner = "scripts/tooling/repository-git.ts";
+  const gitOwner = "scripts/verification/repository-git.ts";
   const gitOwnerFacts = analyzeArchitectureSource(gitOwner, readFileSync(join(REPOSITORY_ROOT, gitOwner), "utf8"));
   assert.ok(gitOwnerFacts.directEffectFacts.some((fact) =>
     fact.ownerLabel === "git-invocation" && fact.effects.includes("git")));
   assert.ok(REPOSITORY_MANIFEST.modules.find((module) => module.path === gitOwner)!.effects.includes("git"));
-  const candidateManifest = "scripts/tooling/candidate-manifest.ts";
+  const candidateManifest = "scripts/verification/candidate-manifest.ts";
   assert.ok(analyzeArchitectureSource(candidateManifest, readFileSync(join(REPOSITORY_ROOT, candidateManifest), "utf8")).dependencies.includes(gitOwner));
   // The architecture-manifest changes fixed ALL architecture-effect-owner /
   // architecture-effect-unmodeled / architecture-reverse-layer /
