@@ -23,12 +23,12 @@ import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { workingTreeReader } from "../../git/tree-reader.ts";
-import { readIntake, readRoles, type CommunityRoles } from "../community/sources.ts";
+import { COMMUNITY_DIRECTORY, readIntake, readRoles, type CommunityRoles } from "../community/sources.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
 import { forgeDeclarations, type DeclarationSources } from "./declarations.ts";
 import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
-import { CODEOWNERS_FILE, codeownersFile, DEPENDABOT_FILE, dependabotFile, forgeTreeFacts, type ForgeTreeFacts } from "./repository-files.ts";
+import { CODEOWNERS_FILE, codeownersFile, DEPENDABOT_FILE, dependabotFile, forgeTreeFacts, isDependencyLockfile, type ForgeTreeFacts } from "./repository-files.ts";
 
 /** Where the generated files live, relative to the repository top. */
 const FORGE_FILES_DIRECTORY = ".github/forge";
@@ -75,6 +75,19 @@ function jsonText(value: unknown): string {
 export type ForgeFileSources = DeclarationSources & Readonly<{ roles: CommunityRoles; facts: ForgeTreeFacts }>;
 
 /** The sources as the repository at `top` holds them (its `forge` section given). */
+/**
+ * Every repository path the forge-files arm reads or writes outside the
+ * engine: the community sources (`readIntake`, `readRoles`), `.github/` (the
+ * workflows `forgeTreeFacts` reads, and the files this arm generates there)
+ * and every dependency lockfile (the roots Dependabot must cover). A tree
+ * missing one of them makes the arm refuse, loudly. The population of a
+ * generator test's repository copy is derived from this
+ * (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+ */
+export function forgeFilesInput(path: string): boolean {
+  return path.startsWith(`${COMMUNITY_DIRECTORY}/`) || path.startsWith(".github/") || isDependencyLockfile(path);
+}
+
 export function forgeFileSources(top: string, settings: ForgeSettings): ForgeFileSources {
   const facts = forgeTreeFacts(workingTreeReader(top), settings);
   return deepFreeze({ settings, intake: readIntake(top), roles: readRoles(top), workflowActions: facts.workflowActions, facts });
