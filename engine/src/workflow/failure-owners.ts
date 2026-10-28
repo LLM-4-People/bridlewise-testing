@@ -241,7 +241,7 @@ const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
  * and no state of its own (its state is computed from its members,
  * src/workflow/tracker-status.ts), and items name it in `milestone`.
  */
-const TRACKER_ITEM_TYPES = Object.freeze(["Milestone", "Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
+export const TRACKER_ITEM_TYPES = Object.freeze(["Milestone", "Workstream", "Task", "Bug", "Flake", "Lesson", "Risk", "Finding", "Security", "Intake"] as const);
 /** How soon an open item is meant: a plan's order of intent, never a date. */
 const TRACKER_HORIZONS = Object.freeze(["now", "next", "later"] as const);
 const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
