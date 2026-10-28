@@ -4,7 +4,7 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { HarnessError } from "../../src/kernel/errors.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
-import { strictUtf8Text } from "../verification/candidate-format.ts";
+import { strictUtf8Text } from "./candidate-format.ts";
 
 /** Raw Git execution policy shared by publication and working-state readers. */
 export function probeRepositoryGit(

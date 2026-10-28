@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { COMMIT_GUARD_PROGRAM, COMMIT_MESSAGE_FLAG, canonicalHookDuty, commitLossVerdict, hookTextIsCanonical, MERGE_COMMIT_FLAG, SHIPPED_HOOKS } from "./verification/staged-move-loss.ts";
 import { LESSON_TRAILER, missingLessonTrailers, stagedTrackerEntryViolations } from "./verification/lesson-trailers.ts";
 import { messageSignOffProblem } from "./verification/sign-off.ts";
+import { stagedTestDeletionVerdict, TEST_DELETED_TRAILER, testDeletionProblems } from "./verification/test-deletions.ts";
 import { stagedRatchetGrowth } from "./verification/ratchet.ts";
 import { qualificationEvidence, readRunHistory, readRunFailureRows, WEB_RUN_HISTORY_PATH } from "../src/shared/run-history.ts";
 import { createWorkingCopy } from "../src/git/working-copy.ts";
@@ -105,6 +106,17 @@ function checkCommitMessage(): void {
       process.stderr.write(`\nCOMMIT REFUSED — the commit's records are wrong (the DCO and the agent identity are binding): ${signOff}\n\n`);
       process.exitCode = 1;
     }
+    // A test deletion is a named decision (scripts/verification/test-deletions.ts):
+    // one `Test-deleted: <path>` per test source the commit takes off the surface.
+    const deletions = testDeletionProblems(stagedTestDeletionVerdict(root, message));
+    if (deletions.length > 0) {
+      process.stderr.write(
+        `\nCOMMIT REFUSED — this commit's test deletions and its ${TEST_DELETED_TRAILER} trailers disagree:\n` +
+          `${deletions.map((problem) => `  - ${problem}`).join("\n")}\n\n` +
+          `Name each test source this commit takes off the test surface (a rename too) in its own trailer at the end of the message (${TEST_DELETED_TRAILER}: <path>; the key is case-sensitive), and none it keeps.\n\n`,
+      );
+      process.exitCode = 1;
+    }
     const missing = missingLessonTrailers(root, message);
     if (missing.length > 0) {
       process.stderr.write(
@@ -116,7 +128,7 @@ function checkCommitMessage(): void {
     }
   } catch (error) {
     process.stderr.write(
-      `\nCOMMIT REFUSED — the message checks could not run, so they cannot say this message's records are right (its lessons, its sign-off and identities, its flake causes):\n` +
+      `\nCOMMIT REFUSED — the message checks could not run, so they cannot say this message's records are right (its lessons, its sign-off and identities, its flake causes, the tests it deletes):\n` +
         `${error instanceof Error ? error.message : String(error)}\n\n`,
     );
     process.exitCode = 1;

@@ -23,10 +23,10 @@
  *      (`pinAuthorities()` in `scripts/pin-authority-regeneration.ts`),
  *      including each authority's declared projection;
  *   3. a file whose header declares it generated (`@generated` / "do not
- *      edit") — its own generator owns the pin;
- *   4. the module registrar's own manifest (`src/architecture-manifest.ts`) —
- *      its per-module `namesSha256`/`sourceSha256` are re-derived by
- *      `harness register`, part of every sync.
+ *      edit") — its own generator owns the pin.
+ *
+ * The architecture's modules carry no pin at all: a module's export names are
+ * derived by the check, never committed (#221).
  *
  * A 64-hex literal that is NOT a byte-pin of a tracked file — a crypto seed, a
  * vendored upstream reference, a prose citation of a hash — is not a pin and
@@ -80,11 +80,8 @@ function coveredFiles(): ReadonlySet<string> {
       covered.add(authority.projection.targetPath.replace(/\\/gu, "/"));
     }
   }
-  // 4. The module registrar's own manifest is NOT a whole-file exemption: the
-  //    registrar owns only each module block's `publicApi.namesSha256`, and the
-  //    registry now owns each external command's `sourceSha256`. Round 5 found
-  //    that a blanket entry here also covered the external-command pins, which
-  //    no generator rewrote. Both halves are covered per occurrence below.
+  // The architecture manifest is NOT a whole-file exemption: the registry owns
+  // each external command's `sourceSha256`, covered per occurrence below.
   return covered;
 }
 
@@ -126,26 +123,13 @@ function bytePinOccurrences(text: string): readonly BytePinOccurrence[] {
       const measured = pathMatch[1]!;
       const measuredAbsolute = join(ROOT, measured);
       if (existsSync(measuredAbsolute) && statSync(measuredAbsolute).isFile()) {
-        // Keep the FULL line for classification (the registrar-owned
-    // `publicApi: { … namesSha256 }` on a builder module's long
-    // `moduleContract` line sits past 100 characters); truncate only when the
-    // failure names the occurrence.
-    findings.push({ line: index + 1, text: line.trim(), start: offset + literal.index });
+        // Keep the FULL line; truncate only when the failure names the occurrence.
+        findings.push({ line: index + 1, text: line.trim(), start: offset + literal.index });
       }
     }
     offset += line.length + 1;
   }
   return findings;
-}
-
-/**
- * The registrar's per-module field: its `publicApi.namesSha256` on a block
- * line. The registrar rewrites it from the module's exported-name set, so it
- * is auto-generated even though a registry binding does not locate it.
- */
-function isRegistrarOwnedModuleField(relativePath: string, occurrence: BytePinOccurrence): boolean {
-  return relativePath === "src/architecture-manifest.ts" &&
-    /publicApi:\s*\{[^}]*namesSha256\s*:/u.test(occurrence.text);
 }
 
 test("every sha256/byte-pin literal in source is produced by a registered auto-generator", () => {
@@ -169,7 +153,7 @@ test("every sha256/byte-pin literal in source is produced by a registered auto-g
     const ranges = bindingPinRanges(file, text);
     const ownedStarts = new Set(ranges.map((range) => range.start));
     handMaintained.push(...bytePinOccurrences(text)
-      .filter((occurrence) => !ownedStarts.has(occurrence.start) && !isRegistrarOwnedModuleField(file, occurrence))
+      .filter((occurrence) => !ownedStarts.has(occurrence.start))
       .map((occurrence) => `${file}:${occurrence.line}: ${occurrence.text.slice(0, 100)}`));
   }
   assert.deepEqual(

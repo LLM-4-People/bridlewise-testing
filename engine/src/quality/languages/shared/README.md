@@ -10,13 +10,6 @@ share, owned once so a loader or walker fix reaches every language.
 - `tree-sitter-walker.ts` — the generic AST-walking helpers that are not
   language-specific.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/quality/languages/shared/`.
-
-- `tree-sitter-loader.ts` is consumed by `engine/src/quality/languages/c-cpp/parser.ts`, `engine/src/quality/languages/go/parser.ts`, `engine/src/quality/languages/java/parser.ts`, `engine/src/quality/languages/python/parser.ts`, `engine/src/quality/languages/rust/parser.ts`, `engine/src/quality/languages/semantic-form.ts` and 1 more.
-- `tree-sitter-walker.ts` is consumed by `engine/src/quality/languages/c-cpp/parser.ts`, `engine/src/quality/languages/go/parser.ts`, `engine/src/quality/languages/java/parser.ts`, `engine/src/quality/languages/js-ts/parser.ts`, `engine/src/quality/languages/python/parser.ts`, `engine/src/quality/languages/rust/parser.ts`.
-
-<!-- /consumers:generated -->

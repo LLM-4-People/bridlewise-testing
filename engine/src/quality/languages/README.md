@@ -18,14 +18,6 @@ adding a language is adding a folder and one registry entry.
 - `shared/` — the tree-sitter loader and AST walker the tree-sitter-backed
   parsers share.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/quality/languages/`.
-
-- `index.ts` is consumed by `engine/src/quality/aggregator.ts`, `engine/src/quality/index.ts`.
-- `semantic-form.ts` is consumed by `engine/src/git/flake-cause-fixes.ts`.
-- `shared-helpers.ts` is consumed by `engine/src/quality/languages/go/parser.ts`, `engine/src/quality/languages/java/parser.ts`, `engine/src/quality/languages/rust/parser.ts`.
-
-<!-- /consumers:generated -->

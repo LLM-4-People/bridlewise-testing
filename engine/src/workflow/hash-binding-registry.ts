@@ -9,10 +9,10 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
-import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
-import { ownedFiles } from "../git/repository-ownership.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
+import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
 import { bytePinSha256Ranges } from "./byte-pin-objects.ts";
 
 /**
@@ -129,9 +129,8 @@ function escapeForRegex(literal: string): string {
  * declarations instead of hand-kept beside them.
  *
  * `externalCommands[].sourceSha256` is a byte-lock of a tracked
- * `verification/` source. The module registrar rewrites only the per-module
- * fields (`exportCount`/`namesSha256`/`dependencies`/`compositionRoot`), so
- * these pins had no generator at all: appending one line to a benchmark
+ * `verification/` source. The module registrar writes only module entries
+ * (src/architecture-modules.ts), so these pins had no generator at all: appending one line to a benchmark
  * command left `harness check` green ("architecture manifest is in sync"),
  * `harness register --write` clean, while `verifyArchitectureSources` reported
  * `architecture-external-command-source-hash-drift`. A source change now
@@ -424,8 +423,13 @@ export function suiteRegeneratedPaths(): ReadonlySet<string> {
   ]);
 }
 
-/** The architecture manifest, repository-relative: the registrar rewrites it wholesale; it carries no pin. */
-const GENERATED_ARCHITECTURE_MANIFEST = `engine/${ROOT_POLICY.universalPolicyArchitecture.moduleArchitecture.manifest}`;
+/**
+ * The architecture's module entries, repository-relative: AUTHORED decisions,
+ * one entry per line, that the registrar adds to, removes from and marks (and
+ * writes in their one form). It carries no pin and is never wholesale: its
+ * authored lines must survive a merge.
+ */
+const GENERATED_ARCHITECTURE_MODULES = `engine/${ARCHITECTURE_MODULES_PATH}`;
 /** The config-contract schema artifact, repository-relative: one canonical-JSON blob of the contract. */
 const GENERATED_CONFIG_SCHEMA_ARTIFACT = `engine/${ROOT_POLICY.configuration.contract.generatedSchemaPath}`;
 /** The guardian spec schema artifact, repository-relative: written by the bundle build from the spec schema. */
@@ -448,7 +452,6 @@ const GENERATED_ARTIFACT_MANIFEST = `engine/${ROOT_POLICY.artifactGovernance.can
  */
 export function wholesaleGeneratedPaths(): ReadonlySet<string> {
   return new Set([
-    GENERATED_ARCHITECTURE_MANIFEST,
     GENERATED_CONFIG_SCHEMA_ARTIFACT,
     GENERATED_SPEC_SCHEMA_ARTIFACT,
     GENERATED_ARTIFACT_MANIFEST,
@@ -463,32 +466,20 @@ const SHIPPED_HOOK_PATHS: readonly string[] = Object.freeze([...SHIPPED_HOOK_FIL
  * EVERY PATH A REGENERATE/SYNC PASS MAY WRITE, repository-relative — the one
  * list of generated outputs. It is {@link suiteRegeneratedPaths} (the
  * pin-bearing targets and the wholesale inventory, dispositions and schema
- * artifact) plus the architecture manifest, which the registrar rewrites
- * wholesale and which carries no pin, the guardian spec schema artifact the
+ * artifact) plus the architecture's module entries, which the registrar
+ * adds to, removes from and marks and which carry no pin, the guardian spec schema artifact the
  * bundle build writes, the ratchet baselines the pass prunes, the
- * source-authority pins it re-derives (`PIN_AUTHORITY_PATHS`), and the READMEs
- * of `repositoryRoot` whose consumer block the pass regenerates
- * ({@link generatedReadmePaths}). Consumers: the commit guard (a commit
- * whose generated outputs are not staged is refused), the working-copy and
- * candidate tooling, and the generator-door tests.
+ * source-authority pins it re-derives (`PIN_AUTHORITY_PATHS`). The same set
+ * for every tree: no README carries a generated block any more (a folder's
+ * consumers are the import graph's answer, never a committed list that every
+ * branch rewrites, #221). Consumers: the commit guard (a commit whose
+ * generated outputs are not staged is refused), the working-copy and
+ * candidate tooling, the promotion projection, and the generator-door tests.
  */
-export function generatedOutputPaths(repositoryRoot: string): ReadonlySet<string> {
-  return generatedOutputPathsOfReadmes(generatedReadmePaths(repositoryRoot));
-}
-
-/**
- * {@link generatedOutputPaths} of a tree that is not a work tree on disk (a
- * commit: the promotion projection), given its paths and its texts.
- */
-export function generatedOutputPathsOf(paths: readonly string[], readText: (path: string) => string | null): ReadonlySet<string> {
-  return generatedOutputPathsOfReadmes(generatedReadmePathsOf(paths, readText));
-}
-
-function generatedOutputPathsOfReadmes(readmes: readonly string[]): ReadonlySet<string> {
+export function generatedOutputPaths(): ReadonlySet<string> {
   return new Set([
-    ...readmes,
     ...suiteRegeneratedPaths(),
-    GENERATED_ARCHITECTURE_MANIFEST,
+    GENERATED_ARCHITECTURE_MODULES,
     // Written by the bundle build (`scripts/build-bundle.ts`, run by
     // `harness sync --with-bundle` and the checkout setup) from the guardian
     // spec schema: a generated output like the others, so a candidate's
@@ -504,6 +495,8 @@ function generatedOutputPathsOfReadmes(readmes: readonly string[]): ReadonlySet<
     // scans (`scripts/verification/ratchet-baselines.ts`; already
     // repository-relative).
     ...Object.values(ROOT_POLICY.verification.ratchetBaselines),
+    // The architecture judge's baseline: a fixed path in code, never a policy entry (ratchet-baselines.ts).
+    VERIFICATION_PATHS.architectureJudgeBaseline,
     // The decision index a regenerate pass rebuilds from the decision files
     // (`DECISION_INDEX.generator`).
     DECISION_INDEX.path,
@@ -520,26 +513,6 @@ function generatedOutputPathsOfReadmes(readmes: readonly string[]): ReadonlySet<
     // (`scripts/pin-authority-regeneration.ts`) and the projection beside one.
     ...Object.values(PIN_AUTHORITY_PATHS).map((path) => `engine/${path}`),
   ]);
-}
-
-/**
- * The READMEs of `repositoryRoot` (repository-relative) whose generated
- * consumer block (`README_CONSUMER_BLOCK`) a sync pass regenerates: every
- * owned README.md carrying the begin marker. Before, the blocks were
- * regenerated by hand and outside the candidate's copy-back set, so every
- * writer ran the generator in the live tree (WF-DEL leftover). Empty outside
- * a work tree.
- */
-export function generatedReadmePaths(repositoryRoot: string): readonly string[] {
-  return generatedReadmePathsOf(ownedFiles(repositoryRoot) ?? [], (path) => {
-    const absolute = resolve(repositoryRoot, path);
-    return existsSync(absolute) ? readFileSync(absolute, "utf8") : null;
-  });
-}
-
-/** The READMEs among `paths` whose text (`readText`) carries the generated consumer block. */
-function generatedReadmePathsOf(paths: readonly string[], readText: (path: string) => string | null): readonly string[] {
-  return paths.filter((path) => (path === "README.md" || path.endsWith("/README.md")) && (readText(path)?.includes(README_CONSUMER_BLOCK.begin) ?? false));
 }
 
 /**
@@ -758,7 +731,7 @@ function blankBlocks(text: string, begin: string, end: string): string {
  * A generated output's text with its GENERATED parts blanked: the pin
  * literals of a pin-bearing file ({@link suiteRegeneratedPaths}, the
  * source-authority pins) and the body of every generated block
- * (`GENERATED_BLOCKS`: a README's consumer block, the decision index). What
+ * (`GENERATED_BLOCKS`: the decision index, the evidence ignore block). What
  * is left is the file's AUTHORED part.
  */
 function stripGeneratedParts(path: string, text: string): string {

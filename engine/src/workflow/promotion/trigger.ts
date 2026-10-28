@@ -9,7 +9,14 @@
  * 2. For each moved `refs/remotes/<remote>/<branch>`, the profiles THAT COMMIT
  *    declares (the profile lives on the source, so no machine setting and no
  *    second list) whose source is `refs/heads/<branch>`, whose remote is
- *    `<remote>` and whose trigger is `on-source-publish`.
+ *    `<remote>` and whose trigger is `on-source-publish`. They are read as
+ *    their trigger fields alone (`profileTriggerHeaders`) and FILTERED before
+ *    anything judges them: a profile is judged only by the promotion it
+ *    starts, which runs the source's own committed promoter, never by this
+ *    checkout's code (#259). A ref holding a profile this engine could not
+ *    read, or a newer schema, ends nothing (#121): an unrelated ref, a
+ *    `manual` profile (the trunk's: the publish workflow promotes), a checkout
+ *    behind main, all answer nothing and print nothing.
  * 3. Each one not already carrying that commit (its last `Projected-From`)
  *    starts ONE unattended `apply --profile <p> --source <commit> --auto` in
  *    the background ({@link launchUnattendedApply}). A hold is never decided
@@ -34,27 +41,34 @@
  * Any scheduler may call `apply --auto` itself (idempotent; exit 0 when not
  * due); none is built in.
  */
-import { closeSync } from "node:fs";
+import { closeSync, realpathSync } from "node:fs";
+import { basename, dirname } from "node:path";
 
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { resolveRevision } from "../../git/tree-reader.ts";
 import { startDetached } from "../../process/supervised-run.ts";
+import { ensurePrivateStateDirectory } from "../../filesystem/private-state.ts";
+import { openContainedFolder, resolveLocation } from "../../filesystem/path-identity.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
 import { remoteTrackingRef } from "../../git/git-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { PromotionError, answer, answerWith, type PromotionAnswer, type PromotionCode } from "./codes.ts";
 import { openUnattendedLog, promotionState, readLastRun } from "./last-run.ts";
-import { branchOf } from "./profile.ts";
+import { branchOf, type PromotionProfile } from "./profile.ts";
 import { isPromoterHomeChild, runningEngine } from "./promoter-home.ts";
 import { formatPromoteArguments } from "./promote-arguments.ts";
-import { promotionErrorOf, targetTip } from "./promotion-run.ts";
+import { profileWorkDirectory, promotionErrorOf, targetTip } from "./promotion-run.ts";
 import { profileHistory } from "./trailers.ts";
 import type { PromotionContext, RepositoryContext } from "./context.ts";
 
+/** The pair an unattended run is started for: the checkout, the profile's private directory and the profile's name (never a parsed profile: the run reads it with the source's own code). */
+export type UnattendedPair = Readonly<{ top: string; workDirectory: string; profile: string }>;
+
 /** Starts one unattended run of a pair for `source` in the background; answers its pid. */
-export type UnattendedLaunch = (context: PromotionContext, source: string) => number;
+export type UnattendedLaunch = (pair: UnattendedPair, source: string) => number;
+
 
 /**
  * The environment of an unattended run started from `environment`: a
@@ -70,18 +84,35 @@ export function unattendedEnvironment(environment: NodeJS.ProcessEnv, log: strin
 }
 
 /** The production launch: this engine's CLI entry, `apply --profile <p> --source <S> --auto`, detached; it reports through its last-run record, and its log lines land in a log of its own (see the header). */
-export function launchUnattendedApply(context: PromotionContext, source: string): number {
+export function launchUnattendedApply(pair: UnattendedPair, source: string): number {
   const engine = runningEngine();
-  const log = openUnattendedLog(context.workDirectory);
+  // Defence in depth (the name is already one rule-checked segment): the profile's folder is reached from the
+  // promotion area without following a link and confirmed under it BEFORE any log is made, swept or written.
+  const area = dirname(pair.workDirectory);
+  ensurePrivateStateDirectory(area);
+  openContainedFolder(resolveLocation(realpathSync(area), "the promotion area"), [basename(pair.workDirectory)], true)?.close();
+  const log = openUnattendedLog(pair.workDirectory);
   try {
     return startDetached(process.execPath, [
       ...process.execArgv,
       `${engine.root}/${engine.entry}`,
       ...engine.command,
-      ...formatPromoteArguments({ verb: "apply", profile: context.loaded.profile.name, source, auto: true }),
-    ], { cwd: context.top, env: unattendedEnvironment(process.env, log.path), stderr: log.fd });
+      ...formatPromoteArguments({ verb: "apply", profile: pair.profile, source, auto: true }),
+    ], { cwd: pair.top, env: unattendedEnvironment(process.env, log.path), stderr: log.fd });
   } finally {
     closeSync(log.fd);
+  }
+}
+
+/** The profiles THIS checkout hosts: the ones its HEAD declares (judged by its own code) with an `on-source-publish` trigger; none when HEAD declares none it can read. */
+function hostedProfiles(repository: RepositoryContext): readonly PromotionProfile[] {
+  const head = resolveRevision(repository.repository, "HEAD");
+  if (head === null) return [];
+  try {
+    return repository.profilesAt(head).map((loaded) => loaded.profile).filter((profile) => profile.trigger === "on-source-publish");
+  } catch (error) {
+    if (!(error instanceof PromotionError)) throw error;
+    return [];
   }
 }
 
@@ -95,12 +126,10 @@ function movedRefs(refs: string): readonly Readonly<{ ref: string; remote: strin
 
 /**
  * `harness promote auto --refs <refs>` (see the header) over the repository
- * context; `contextOf` resolves a pair at a source commit; `launch` starts a
- * background run (a test's spy).
+ * context; `launch` starts a background run (a test's spy).
  */
 export function autoPromotion(
   repository: RepositoryContext,
-  contextOf: (profile: string, source: string) => PromotionContext,
   refs: string,
   launch: UnattendedLaunch,
   environment: NodeJS.ProcessEnv = process.env,
@@ -112,27 +141,44 @@ export function autoPromotion(
   const started: { profile: string; source: string; pid: number }[] = [];
   const skipped: { profile: string; source: string; reason: string }[] = [];
   const notices: string[] = [];
+  const hosted = hostedProfiles(repository);
   for (const moved of movedRefs(refs)) {
     const commit = resolveRevision(repository.repository, moved.ref);
     if (commit === null) continue;
-    for (const loaded of repository.profilesAt(commit)) {
-      const { profile } = loaded;
-      if (profile.trigger !== "on-source-publish" || profile.remote !== moved.remote || branchOf(profile.source.ref) !== moved.branch) continue;
-      const context = contextOf(profile.name, commit);
-      const last = readLastRun(context.workDirectory);
-      if (last?.result !== null && last?.result !== undefined && last.result.class !== "ok") {
-        notices.push(`promotion ${profile.name}: ${promotionState(last)} — ${last.result.code} (${last.result.message.split("\n")[0]!}); run: ${ROOT_POLICY.protocol.harnessCommand} promote status --profile ${profile.name}`);
+    const headers = repository.triggerHeadersAt(commit);
+    // THIS checkout hosts these profiles (its own HEAD declares them, judged by its own code): a moved source of one
+    // whose profile cannot be read there would stop its promotions in silence, so it is said, loudly. A foreign ref stays silent.
+    for (const host of hosted.filter((profile) => profile.remote === moved.remote && branchOf(profile.source.ref) === moved.branch)) {
+      if (!headers.some((header) => header.name === host.name)) {
+        notices.push(`promotion ${host.name}: ${moved.remote}/${moved.branch} moved to ${commit}, whose ${host.name} profile cannot be read (or is gone): nothing was started; run: ${ROOT_POLICY.protocol.harnessCommand} promote status --profile ${host.name}`);
       }
-      const target = targetTip(context.repository, profile);
-      const reason = target !== null && profileHistory(context.repository, target, profile.name)[0]?.trailers.projectedFrom === commit ? "up to date" : null;
+    }
+    for (const header of headers) {
+      if (header.trigger !== "on-source-publish" || header.remote !== moved.remote || branchOf(header.sourceRef) !== moved.branch) continue;
+      const pair: UnattendedPair = deepFreeze({ top: repository.top, workDirectory: profileWorkDirectory(repository.registry, header.name), profile: header.name });
+      const last = readLastRun(pair.workDirectory);
+      if (last?.result !== null && last?.result !== undefined && last.result.class !== "ok") {
+        notices.push(`promotion ${header.name}: ${promotionState(last)} — ${last.result.code} (${last.result.message.split("\n")[0]!}); run: ${ROOT_POLICY.protocol.harnessCommand} promote status --profile ${header.name}`);
+      }
+      const target = targetTip(repository.repository, { target: { ref: header.targetRef }, remote: header.remote });
+      const reason = target !== null && profileHistory(repository.repository, target, header.name)[0]?.trailers.projectedFrom === commit ? "up to date" : null;
       if (reason !== null) {
-        skipped.push({ profile: profile.name, source: commit, reason });
-        auditEvent("promotion.trigger", { profile: profile.name, kind: "skipped", source: commit, reason });
+        skipped.push({ profile: header.name, source: commit, reason });
+        auditEvent("promotion.trigger", { profile: header.name, kind: "skipped", source: commit, reason });
         continue;
       }
-      const pid = launch(context, commit);
-      started.push({ profile: profile.name, source: commit, pid });
-      auditEvent("promotion.trigger", { profile: profile.name, kind: "spawned", source: commit, pid });
+      let pid: number;
+      try {
+        pid = launch(pair, commit);
+      } catch (error) {
+        // A launch refused (a link where the profile's folder belongs) is that profile's notice, never the run's end.
+        const refused = promotionErrorOf(error, { profile: header.name, phase: "launch" });
+        notices.push(`promotion ${header.name}: its unattended run could not be started — ${refused.promotionCode} (${refused.message.split("\n")[0]!})`);
+        auditEvent("promotion.trigger", { profile: header.name, kind: "refused", source: commit, code: refused.promotionCode });
+        continue;
+      }
+      started.push({ profile: header.name, source: commit, pid });
+      auditEvent("promotion.trigger", { profile: header.name, kind: "spawned", source: commit, pid });
     }
   }
   const data = { refs, started, skipped, notices };
@@ -157,7 +203,6 @@ function chainUnattended(
   context: PromotionContext,
   git: WorktreeGitPort,
   ended: PromotionCode,
-  contextOf: (profile: string, source: string) => PromotionContext,
   launch: UnattendedLaunch,
 ): PromotionAnswer | null {
   const { profile } = context.loaded;
@@ -173,7 +218,7 @@ function chainUnattended(
     // Only a source the run's S does not already contain is newer (never a tip S carries: a `--no-push` run, a local S ahead of the remote).
     if (now === null || git.isAncestor(context.top, now, context.source, worktreeOperationTimeouts(context.document).inspectMs)) return null;
     auditEvent("promotion.trigger", { profile: profile.name, kind: "chained", source: now, after: context.source, ended });
-    return autoPromotion(context, contextOf, tracking, launch, {});
+    return autoPromotion(context, tracking, launch, {});
   } catch (error) {
     const failure = promotionErrorOf(error, { profile: profile.name, phase: "chain" });
     debugLog("workflow", "warn", "the promotion chain failed: the next push triggers again", () => ({ profile: profile.name, code: failure.promotionCode, message: failure.message }));
@@ -193,7 +238,6 @@ export async function withUnattendedChain(
   context: PromotionContext,
   git: WorktreeGitPort,
   run: () => Promise<PromotionAnswer>,
-  contextOf: (profile: string, source: string) => PromotionContext,
   launch: UnattendedLaunch,
   environment: NodeJS.ProcessEnv = process.env,
   engine = runningEngine(),
@@ -203,9 +247,9 @@ export async function withUnattendedChain(
   try {
     result = await run();
   } catch (error) {
-    chainUnattended(context, git, error instanceof PromotionError ? error.promotionCode : "promotion_unexpected", contextOf, launch);
+    chainUnattended(context, git, error instanceof PromotionError ? error.promotionCode : "promotion_unexpected", launch);
     throw error;
   }
-  const chained = chainUnattended(context, git, result.code, contextOf, launch);
+  const chained = chainUnattended(context, git, result.code, launch);
   return answerWith(result, { chained: chained === null ? null : chained.data });
 }

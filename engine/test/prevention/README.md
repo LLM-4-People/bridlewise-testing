@@ -4,6 +4,8 @@ The `engine/test/prevention/` folder of the development surface.
 
 ## What each file does
 
+- `adding-modules-merges.test.ts` — TWO PRS THAT ADD DIFFERENT MODULES MERGE WITH ZERO CONFLICTS (#221).
+- `architecture-judge-ratchet.test.ts` — the derived architecture judge is a gate: a module on a folder default that does not fit it is refused as new debt (the real judge, on a whole-repository copy); a deleted baseline is refused unless git's index says why it is absent (a partial copy, or a tree without its folder); a baseline that grew since its base is refused.
 - `bundle-staleness.test.ts` — bundle-staleness prevention test.
 - `commit-compile-door.test.ts` — tHE COMPILE DOOR'S REFUSAL BRANCHES ARE DRIVEN AT THE REAL DOOR. The compile leg of `engine/scripts/commit-guard.ts` had no in-suite drive: running….
 - `commit-move-guard.test.ts` — a MOVE CANNOT SILENTLY DROP A TRACKED FILE, AND THE HOOK THAT SAYS SO IS ACTUALLY INSTALLED. Two claims, and they fail in opposite directions, so….
@@ -31,7 +33,6 @@ The `engine/test/prevention/` folder of the development surface.
 - `integration-awareness-arch-owner.test.ts` — test/prevention/integration-awareness-arch-owner.test.ts.
 - `integration-backend-owner-1.test.ts` — the `integration-backend-owner-1.test` module.
 - `integration-intelligence-owner.test.ts` — test/prevention/integration-intelligence-owner.test.ts.
-- `integration-manifest-consistency.test.ts` — sPO R50 — Architecture-manifest hash-consistency mechanical test.
 - `integration-memory-owner.test.ts` — test/prevention/integration-memory-owner.test.ts.
 - `integration-remaining-owner.test.ts` — sPO R49 — Integration.
 - `integration-safety-runtime-owner.test.ts` — sPO R45 — Integration.
