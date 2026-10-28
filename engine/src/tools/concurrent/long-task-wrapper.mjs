@@ -30,6 +30,7 @@ import { dirname } from "node:path";
 // The unit's process is a top-level program: the one process bootstrap first
 // (a worker fails closed on a lost fault), and every callback the event loop
 // runs is guarded (SCALE-CR1 C2/C3, SCALE-CR1-FIX H2).
+import { InputError } from "../../kernel/errors.ts";
 import { guarded } from "../../process/fault-policy.ts";
 import { bootstrapProcess } from "../../runtime/cli-debug.ts";
 
@@ -43,7 +44,7 @@ const SHELL = process.env.LTR_SHELL || "/bin/bash";
 
 if (!STATE_DIR || !COMMAND) {
   // Thrown, never `process.exit()`: an exit can deadlock at shutdown (Node #54918, #351).
-  throw new Error("wrapper: LTR_STATE_DIR and LTR_COMMAND are required");
+  throw new InputError("wrapper: LTR_STATE_DIR and LTR_COMMAND are required", "long_task_wrapper_environment_missing");
 }
 mkdirSync(STATE_DIR, { recursive: true });
 const pidFile = `${STATE_DIR}/pid`;

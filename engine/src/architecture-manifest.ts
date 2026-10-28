@@ -4103,7 +4103,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-tools-concurrent-long-task-wrapper", path: "src/tools/concurrent/long-task-wrapper.mjs", realm: "runtime", layer: "domain",
       owner: "tools", publicApi: { exportCount: 0, namesSha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-      dependencies: ["node:child_process","node:fs","node:path","src/process/fault-policy.ts","src/runtime/cli-debug.ts"], executionBoundary: "composition-root", compositionRoot: true, effects: ["child-process","filesystem-read","filesystem-write","git","process-status"],
+      dependencies: ["node:child_process","node:fs","node:path","src/kernel/errors.ts","src/process/fault-policy.ts","src/runtime/cli-debug.ts"], executionBoundary: "composition-root", compositionRoot: true, effects: ["child-process","filesystem-read","filesystem-write","git","process-status"],
     }),
     moduleContract({
       id: "src-tools-concurrent-worker-pool", path: "src/tools/concurrent/worker-pool.ts", realm: "runtime", layer: "domain",
