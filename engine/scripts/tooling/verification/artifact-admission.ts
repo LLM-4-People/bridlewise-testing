@@ -100,6 +100,68 @@ export const ARTIFACT_ADMISSION_MANIFEST_SCHEMA = z.strictObject({
 });
 
 /**
+ * THE COMMITTED RECORD (`traceability/artifacts/manifest.json`, v5): only
+ * what the tree cannot say. One line per governed artifact naming its path
+ * (the population: a deletion is a decision, see the writer), and, for an
+ * artifact whose origin is an AUTHORED record rather than the mechanical
+ * capture (a byte-preserved intake, a pinned public source), that origin with
+ * the exact bytes it is for. Everything else — the type, owner, authority,
+ * classification, relations, retention, and the integrity of every other
+ * artifact — is derived from the tree at check time
+ * ({@link deriveArtifactAdmissionManifest}). An edit to a governed file
+ * rewrites nothing here, and two branches adding different artifacts touch
+ * different lines (#221).
+ */
+const ARTIFACT_RECORD_ENTRY_SCHEMA = z.union([
+  z.strictObject({ path: NONEMPTY }),
+  z.strictObject({ path: NONEMPTY, origin: ARTIFACT_ENTRY_SCHEMA.shape.origin, integrity: ARTIFACT_ENTRY_SCHEMA.shape.integrity }),
+]);
+export const ARTIFACT_RECORD_SCHEMA = z.strictObject({
+  schemaVersion: z.literal("bridlewise-artifact-admission/v5"),
+  role: z.literal("governed-artifact-record"),
+  policyHash: SHA256,
+  selfPath: z.literal(ARTIFACT_MANIFEST_PATH),
+  artifacts: z.array(ARTIFACT_RECORD_ENTRY_SCHEMA).min(1),
+  rejectedCandidates: z.array(REJECTED_CANDIDATE_SCHEMA).min(1),
+});
+export type ArtifactRecord = Readonly<z.infer<typeof ARTIFACT_RECORD_SCHEMA>>;
+
+/** The record text's one parse (duplicate keys refused). */
+export function parseArtifactRecordText(text: string): ArtifactRecord {
+  assertNoDuplicateJsonObjectKeys(text, "Artifact record contains a duplicate key", "artifact_manifest_key_duplicate");
+  return ARTIFACT_RECORD_SCHEMA.parse(JSON.parse(text) as unknown);
+}
+
+/** The record of a (derived) manifest: each path, and the origin with its bytes only where it is not the mechanical capture. */
+export function artifactRecordOf(manifest: ArtifactAdmissionManifest): ArtifactRecord {
+  return deepFreeze({
+    schemaVersion: "bridlewise-artifact-admission/v5",
+    role: "governed-artifact-record",
+    policyHash: manifest.policyHash,
+    selfPath: ARTIFACT_MANIFEST_PATH,
+    artifacts: manifest.entries.map((entry) => canonicalHash(entry.origin) === canonicalHash(mechanicalOrigin(entry.path))
+      ? { path: entry.path }
+      : { path: entry.path, origin: entry.origin, integrity: entry.integrity }),
+    rejectedCandidates: manifest.rejectedCandidates,
+  });
+}
+
+/** Is `path` a canonical authority (append-only: never pruned)? */
+export function isCanonicalArtifact(path: string): boolean {
+  return authorityStatusFor(path) === "canonical";
+}
+
+/**
+ * The full admission manifest of the tree at `root`, derived: its governed
+ * artifacts, with the authored origins `record` holds where their bytes are
+ * still the recorded ones (a changed byte drops the record to the mechanical
+ * capture, which the writer then records).
+ */
+export function deriveArtifactAdmissionManifest(root: SafeRepositoryRootAccessInput, record?: ArtifactRecord): ArtifactAdmissionManifest {
+  return buildArtifactAdmissionManifest({ root, ...(record === undefined ? {} : { previousManifest: record }) });
+}
+
+/**
  * The previous record's v3 shape (capture stamps on every origin and a document stamp), read ONLY so a rebuild can
  * reuse an admitted origin across the migration to v4; nothing is written in it.
  */
@@ -118,33 +180,43 @@ export type ArtifactAdmissionInput = Readonly<{
   manifest?: unknown;
 }>;
 
-export function parseArtifactAdmissionManifestText(text: string): ArtifactAdmissionManifest {
-  assertNoDuplicateJsonObjectKeys(
-    text,
-    "Artifact admission manifest contains a duplicate key",
-    "artifact_manifest_key_duplicate",
-  );
-  return ARTIFACT_ADMISSION_MANIFEST_SCHEMA.parse(JSON.parse(text) as unknown);
-}
-
 export function artifactAdmissionViolations(input: ArtifactAdmissionInput): readonly string[] {
   const violations: string[] = [];
-  let manifest: ArtifactAdmissionManifest;
+  let record: ArtifactRecord;
   try {
-    manifest = input.manifest === undefined
-      ? parseArtifactAdmissionManifestText(strictUtf8Text(readSafeRepositoryFile(
+    record = input.manifest === undefined
+      ? parseArtifactRecordText(strictUtf8Text(readSafeRepositoryFile(
         input.root,
         ARTIFACT_MANIFEST_PATH,
         ROOT_POLICY.verification.candidateFormat.maximumInspectedFileBytes,
       ).bytes))
-      : ARTIFACT_ADMISSION_MANIFEST_SCHEMA.parse(input.manifest);
+      : ARTIFACT_RECORD_SCHEMA.parse(input.manifest);
   } catch {
     return deepFreeze(["artifact-admission-manifest-missing-or-invalid"]);
   }
-
-  if (manifest.policyHash !== canonicalHash(ROOT_POLICY.artifactGovernance) ||
-    canonicalHash(manifest.managedRoots) !== canonicalHash(ROOT_POLICY.artifactGovernance.governedRoots)) {
-    violations.push("artifact-admission-policy-drift");
+  if (record.policyHash !== canonicalHash(ROOT_POLICY.artifactGovernance)) violations.push("artifact-admission-policy-drift");
+  // An authored origin is for exact bytes: a recorded artifact whose bytes moved is no longer what the record says.
+  for (const entry of record.artifacts) {
+    if (!("integrity" in entry)) continue;
+    let bytes: Buffer;
+    try {
+      bytes = readSafeRepositoryFile(input.root, entry.path, ROOT_POLICY.verification.candidateFormat.maximumInspectedFileBytes).bytes;
+    } catch {
+      violations.push(`artifact-bytes-missing:${entry.path}`);
+      continue;
+    }
+    if (bytes.length !== entry.integrity.byteLength || sha256(bytes) !== entry.integrity.sha256) violations.push(`artifact-integrity-drift:${entry.path}`);
+  }
+  // Everything else is the tree's: derived, then judged.
+  let manifest: ArtifactAdmissionManifest;
+  try {
+    manifest = deriveArtifactAdmissionManifest(input.root, record);
+  } catch (error) {
+    return deepFreeze([...violations, `artifact-admission-derivation-refused:${error instanceof Error ? error.message : String(error)}`].toSorted());
+  }
+  // The population is the record's decision: the derived artifacts are the tree's; they must be the same set.
+  if (!sameOrderedValues(record.artifacts.map((entry) => entry.path).toSorted(), manifest.entries.map((entry) => entry.path).toSorted())) {
+    violations.push("artifact-admission-record-population-drift");
   }
   // The provenance clauses are part of THIS policy, so every consumer of the
   // admission check (S1, the check's artifact arm) reads one answer.
@@ -155,8 +227,9 @@ export function artifactAdmissionViolations(input: ArtifactAdmissionInput): read
   const canonicalAuthorities = manifest.entries.filter((entry) => entry.authorityStatus === "canonical");
   uniqueMap(canonicalAuthorities, (entry) => entry.authorityKey, "artifact-authority-duplicate", violations);
 
+  // The same population the derivation takes: the test inventory is a cache of the tree (#221), never an artifact.
   const expectedPaths = input.paths.filter((path) =>
-    path !== manifest.selfPath && manifest.managedRoots.some((root) => path.startsWith(root)) &&
+    path !== manifest.selfPath && path !== VERIFICATION_PATHS.testInventory && manifest.managedRoots.some((root) => path.startsWith(root)) &&
     !isRepositoryScanExcludedPath(path) && isRegularFile(input.root, path)).toSorted();
   const actualPaths = [...entryByPath.keys()].toSorted();
   if (!sameOrderedValues(expectedPaths, actualPaths)) violations.push("artifact-admission-inventory-drift");
@@ -278,13 +351,16 @@ export function buildArtifactAdmissionManifest(input: Readonly<{
 }>): ArtifactAdmissionManifest {
   const managedRoots = [...ROOT_POLICY.artifactGovernance.governedRoots];
   const previous = ARTIFACT_ADMISSION_MANIFEST_SCHEMA.safeParse(input.previousManifest);
-  const previousV3 = previous.success ? undefined : PREVIOUS_V3_ARTIFACT_ADMISSION_MANIFEST_SCHEMA.safeParse(input.previousManifest);
+  const previousRecord = previous.success ? undefined : ARTIFACT_RECORD_SCHEMA.safeParse(input.previousManifest);
+  const previousV3 = previous.success || previousRecord?.success ? undefined : PREVIOUS_V3_ARTIFACT_ADMISSION_MANIFEST_SCHEMA.safeParse(input.previousManifest);
   const previousByHash = new Map<string, Readonly<{
     integrity: Readonly<{ byteLength: number; sha256: string }>;
     origin: ArtifactAdmissionManifest["entries"][number]["origin"];
   }>>();
   if (previous.success) {
     for (const entry of previous.data.entries) previousByHash.set(entry.integrity.sha256, entry);
+  } else if (previousRecord?.success) {
+    for (const entry of previousRecord.data.artifacts) if ("origin" in entry) previousByHash.set(entry.integrity.sha256, entry);
   } else if (previousV3?.success) {
     for (const entry of previousV3.data.entries) {
       const { capturedAt: _stamp, ...origin } = entry.origin;

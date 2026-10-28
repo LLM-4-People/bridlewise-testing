@@ -54,5 +54,5 @@ const child = spawn("node", ["--experimental-strip-types", WORKER], {
 // Detach so the escalation survives the parent agent session ending.
 child.unref();
 console.log(`  pid: ${child.pid} (detached, unref'd)`);
-child.on("error", (e) => { console.error("ESCALATE ERROR:", e); process.exit(1); });
-child.on("close", (code) => { console.log(`ESCALATE DONE code=${code}`); process.exit(code ?? 0); });
+child.on("error", (e) => { console.error("ESCALATE ERROR:", e); process.exitCode = 1; });
+child.on("close", (code) => { console.log(`ESCALATE DONE code=${code}`); process.exitCode = code ?? 0; });

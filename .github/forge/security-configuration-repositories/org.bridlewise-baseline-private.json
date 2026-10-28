@@ -1,0 +1,14 @@
+{
+  "kind": "security-configuration-repositories",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "bridlewise-baseline-private",
+  "unavailableOnPlan": [],
+  "desired": {
+    "repositories": [
+      "bridlewise-coordination"
+    ],
+    "default_for_new_repos": "none"
+  }
+}

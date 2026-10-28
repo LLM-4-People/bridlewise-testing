@@ -164,7 +164,7 @@ function guardedRepository(): string {
 
 /** `git commit` as DATA: the status is the verdict, so it must not throw. `env` adds to the environment (a `--git-dir` commit). */
 function commit(root: string, message: string, env: Readonly<Record<string, string>> = {}): Readonly<{ status: number; stderr: string }> {
-  const result = spawnSync("git", ["commit", "-q", "-m", message], {
+  const result = spawnSync("git", ["commit", "-s", "-q", "-m", message], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 1 << 24,
@@ -627,7 +627,7 @@ function shippedHookRepository(root: string, name: string): Readonly<{ scratch: 
   chmodSync(hook, 0o755);
   symlinkSync(join(root, "engine"), join(scratch, "engine"));
   writeFile(scratch, "readme.md", "# scratch\n");
-  execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-q", "--allow-empty", "-m", "base"], { cwd: scratch, stdio: "pipe" });
+  execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-s", "-q", "--allow-empty", "-m", "base"], { cwd: scratch, stdio: "pipe" });
   return { scratch, hook };
 }
 
@@ -645,8 +645,11 @@ test("the shipped hook of every reachable repository resolves and runs", () => {
       const { scratch, hook } = shippedHookRepository(root, name);
       // Invoked the way git invokes it: `commit-msg` is handed the message file.
       const message = join(scratch, "COMMIT_EDITMSG");
-      writeFile(scratch, "COMMIT_EDITMSG", "a message\n");
-      const result = spawnSync("sh", [hook, ...(name === "commit-msg" ? [message] : [])], { cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24 });
+      // Signed off by the committer the hook sees (the DCO is one of the message's duties).
+      writeFile(scratch, "COMMIT_EDITMSG", "a message\n\nSigned-off-by: hook <hook@example.invalid>\n");
+      // The identities git hands a commit's hooks: it resolves author and committer before it runs them.
+      const committer = { GIT_COMMITTER_NAME: "hook", GIT_COMMITTER_EMAIL: "hook@example.invalid", GIT_AUTHOR_NAME: "hook", GIT_AUTHOR_EMAIL: "hook@example.invalid" };
+      const result = spawnSync("sh", [hook, ...(name === "commit-msg" ? [message] : [])], { cwd: scratch, encoding: "utf8", maxBuffer: 1 << 24, env: { ...process.env, ...committer } });
       assert.equal(result.status, 0, `${root}: the shipped ${name} failed to run on a repository with nothing staged:\n${result.stderr}`);
     }
   }
@@ -664,10 +667,10 @@ test("the shipped post-commit hook of every reachable repository resolves and ru
     assert.equal(idle.status, 0, `${root}: the post-commit hook failed to run:\n${String(idle.stderr)}`);
     assert.doesNotMatch(String(idle.stderr), /could not be consumed/u);
     execFileSync("git", ["add", "readme.md"], { cwd: scratch, stdio: "pipe" });
-    execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-q", "-m", "add"], { cwd: scratch, stdio: "pipe" });
+    execFileSync("git", ["-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-s", "-q", "-m", "add"], { cwd: scratch, stdio: "pipe" });
     rmSync(join(scratch, "readme.md"));
     declareDeletions(scratch, ["readme.md"]);
-    execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-q", "-a", "-m", "delete"], { cwd: scratch, stdio: "pipe" });
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "user.name=hook", "-c", "user.email=hook@example.invalid", "commit", "-s", "-q", "-a", "-m", "delete"], { cwd: scratch, stdio: "pipe" });
     const consumed = run();
     assert.equal(consumed.status, 0, String(consumed.stderr));
     assert.match(String(consumed.stderr), /1 declared deletion\(s\) consumed/u);
@@ -1051,7 +1054,7 @@ test("DRIVEN (gitlink): removing a submodule is ACCEPTED — a gitlink names ano
   execFileSync("git", ["init", "-q"], { cwd: upstream, stdio: "pipe" });
   writeFile(upstream, "lib.md", "# a library\n");
   execFileSync("git", ["add", "lib.md"], { cwd: upstream, stdio: "pipe" });
-  execFileSync("git", ["-c", "user.email=guard@example.invalid", "-c", "user.name=guard", "commit", "-q", "-m", "lib"], { cwd: upstream, stdio: "pipe" });
+  execFileSync("git", ["-c", "user.email=guard@example.invalid", "-c", "user.name=guard", "commit", "-s", "-q", "-m", "lib"], { cwd: upstream, stdio: "pipe" });
   const root = repositoryWithATrackedFile();
   execFileSync("git", ["-c", "protocol.file.allow=always", "submodule", "add", "-q", upstream, "vendor/sub"], { cwd: root, stdio: "pipe" });
   const added = commit(root, "add a submodule");
@@ -1205,7 +1208,7 @@ test("DRIVEN (N6): a merge bringing a deliberate deletion is refused with the ro
   execFileSync("git", ["add", "local.md"], { cwd: root, stdio: "pipe" });
   commitSetup(root, "local work");
   writeFile(root, "archive/paper.md", "# the only copy\n");
-  const merged = spawnSync("git", ["merge", "-q", "--no-edit", "retire"], { cwd: root, encoding: "utf8" });
+  const merged = spawnSync("git", ["merge", "--signoff", "-q", "--no-edit", "retire"], { cwd: root, encoding: "utf8" });
   assert.notEqual(merged.status, 0, "the merge bringing a deletion with an ignored copy was accepted");
   assert.match(merged.stderr, /This is a MERGE/u);
   assert.match(merged.stderr, /git has left the merge in progress: declare the deletion, then git commit/u);

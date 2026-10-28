@@ -43,29 +43,6 @@ Worker startup failure joins every acquired worker, including partial readers an
 
 Checkpoint results distinguish completion, incomplete progress, no applicable WAL and failure. Timer intervals are best-effort cadence, not maximum crash-loss bounds.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/db/`.
-
-- `async-client.ts` is consumed by `server/auth/user-context.ts`, `server/blocks/anatomy.ts`, `server/blocks/arm.ts`, `server/blocks/breaker.ts`, `server/blocks/checks.ts`, `server/blocks/client-telemetry.ts` and 48 more.
-- `backup-restore.ts` is consumed by nothing yet.
-- `bootstrap-key.ts` is consumed by `server/context/memory-bridge.ts`, `server/db/index.ts`, `server/db/key-tool.ts`, `server/observability/timeline-bridge.ts`, `server/safety/host-facts.ts`.
-- `client.ts` is consumed by `server/blocks/breaker.ts`, `server/context/chat-history.ts`, `server/db/async-client.ts`, `server/db/conversation-archive.ts`, `server/db/db-worker.ts`, `server/db/index.ts` and 4 more.
-- `conversation-archive.ts` is consumed by nothing yet.
-- `db-crypto.ts` is consumed by `server/context/memory-bridge.ts`, `server/db/backup-restore.ts`, `server/db/bootstrap-key.ts`, `server/db/client.ts`, `server/db/db-worker.ts`, `server/db/index.ts` and 3 more.
-- `db-files.ts` is consumed by `server/db/backup-restore.ts`, `server/db/conversation-archive.ts`, `server/db/key-rotation.ts`, `server/db/migrations.ts`.
-- `db-worker.ts` is consumed by `server/db/thread-backend.ts`.
-- `index.ts` is consumed by `server/index.ts`.
-- `json-columns.ts` is consumed by `server/db/async-client.ts`, `server/db/client.ts`.
-- `key-rotation.ts` is consumed by `server/db/key-tool.ts`.
-- `key-scan-worker.ts` is consumed by nothing yet.
-- `key-tool.ts` is consumed by `server/index.ts`.
-- `method-kinds.ts` is consumed by `server/db/db-worker.ts`, `server/db/thread-backend.ts`.
-- `migrations.ts` is consumed by `server/db/client.ts`, `server/db/key-rotation.ts`.
-- `schema.ts` is consumed by `server/db/async-client.ts`, `server/db/client.ts`, `server/db/db-crypto.ts`, `server/db/key-rotation.ts`, `server/db/migrations.ts`, `server/filesystem/fs-gate.ts` and 2 more.
-- `thread-backend.ts` is consumed by `server/db/async-client.ts`, `server/db/index.ts`.
-- `wire.ts` is consumed by `server/db/db-worker.ts`, `server/db/thread-backend.ts`.
-
-<!-- /consumers:generated -->

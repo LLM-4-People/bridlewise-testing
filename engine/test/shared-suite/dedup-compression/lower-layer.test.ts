@@ -355,5 +355,5 @@ await test("config: validateConfig catches invalid values", () => {
 // ===== summary =====
 await Promise.resolve().then(() => {
   console.log(`\n=== EXP454 unit tests: ${passed} passed, ${failed} failed ===`);
-  if (failed > 0) process.exit(1);
+  if (failed > 0) process.exitCode = 1;
 });

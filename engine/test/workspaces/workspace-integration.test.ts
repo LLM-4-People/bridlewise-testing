@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdtempSync, rmdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readLinuxMountPoints } from "../../src/filesystem/linux-path.ts";
@@ -10,7 +11,7 @@ import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { landCommit } from "../../src/workflow/tree-landing.ts";
 import { WEB_RUN_HISTORY_PATH, suiteLedgerPaths, type SuiteLedgerName } from "../../src/shared/run-history.ts";
-import { README_CONSUMER_BLOCK } from "../../src/kernel/verification-paths.ts";
+import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
 import { acquireLock } from "../../src/workflow/resource-lock.ts";
 import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
@@ -72,7 +73,7 @@ const PIN_B = "b".repeat(64);
 const PIN_C = "c".repeat(64);
 /** A pin-bearing generated output (a hash-binding target) and a wholly generated one, repository-relative. */
 const PIN_BEARING = "engine/src/kernel/root-policy.ts";
-const WHOLESALE = "engine/src/architecture-manifest.ts";
+const WHOLESALE = "engine/traceability/artifacts/manifest.json";
 /**
  * The pin-bearing file's text: a REAL binding's pin (the config contract's
  * `sourceSha256`, located by its registry `findRegex`) and an authored body.
@@ -352,28 +353,28 @@ test("generated-output conflicts: a pin-only change and a wholly generated file 
   assert.equal(rawGit(authored.lease.worktreePath, ["status", "--porcelain"]), "", "nothing was merged in the worktree");
 });
 
-test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or a README's prose needs a lease, a pin or consumer-block change does not, and another workspace's lease on it holds", async () => {
+test("the lease exempts a regeneration, never a path: an authored edit of a pin-bearing file or the decision index's prose needs a lease, a pin or index-block change does not, and another workspace's lease on it holds", async () => {
   const { root } = initTempRepo("ws-genonly");
   const workspaceRoot = mkWorkspaceTempDir("ws-genonly-wt");
-  const readme = (prose: string, block: string): string => `# Module\n\n${prose}\n\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\n`;
+  const index = (prose: string, block: string): string => `# Decisions\n\n${prose}\n\n${DECISION_INDEX.begin}\n${block}\n${DECISION_INDEX.end}\n`;
   commitFile(root, PIN_BEARING, pinned(PIN_A, "base"));
-  commitFile(root, "src/mod/README.md", readme("Hand-written prose.", "- consumer a"));
+  commitFile(root, DECISION_INDEX.path, index("Hand-written prose.", "| a |"));
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
 
-  // Regeneration only: the pin and the consumer block change with a leased source edit.
+  // Regeneration only: the pin and the index block change with a leased source edit.
   const regenerating = await manager.create({ agentName: "regen", mode: "feature", writeSet: ["src/mod/a.ts"] });
   commitFile(regenerating.lease.worktreePath, "src/mod/a.ts", "export const a = 1;\n");
   commitFile(regenerating.lease.worktreePath, PIN_BEARING, pinned(PIN_B, "base"));
-  commitFile(regenerating.lease.worktreePath, "src/mod/README.md", readme("Hand-written prose.", "- consumer a\n- consumer b"));
+  commitFile(regenerating.lease.worktreePath, DECISION_INDEX.path, index("Hand-written prose.", "| a |\n| b |"));
   assert.equal((await manager.validate(regenerating.workspaceId)).status, "pass", "a pin and a generated block re-derived need no lease");
 
   // Authored edits of the same files are source edits.
   const authoring = await manager.create({ agentName: "author", mode: "feature", writeSet: ["src/mod/b.ts"] });
   commitFile(authoring.lease.worktreePath, PIN_BEARING, pinned(PIN_A, "policy text edited by hand"));
-  commitFile(authoring.lease.worktreePath, "src/mod/README.md", readme("Prose edited by hand.", "- consumer a"));
+  commitFile(authoring.lease.worktreePath, DECISION_INDEX.path, index("Prose edited by hand.", "| a |"));
   const proof = (await manager.validate(authoring.workspaceId)).gates.find((gate) => gate.gate === "write-set-proof")!;
   assert.equal(proof.status, "fail");
-  assert.deepEqual(proof.details, [`unleased: ${PIN_BEARING}`, "unleased: src/mod/README.md"]);
+  assert.deepEqual(proof.details, [`unleased: ${DECISION_INDEX.path}`, `unleased: ${PIN_BEARING}`].toSorted());
 
   // A workspace that LEASES the pin-bearing file blocks another's authored
   // edit of it (admission), and the merge's pending-lease check judges the
@@ -707,7 +708,7 @@ test("never-leasable: a wholly generated output or a state path cannot enter a w
   const workspaceRoot = mkWorkspaceTempDir("ws-neverlease-wt");
   const { manager } = makeManager(root, { config: makeTestConfig(workspaceRoot) });
   await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: [WHOLESALE] }), throwsCode("workspace_write_set_never_leasable"));
-  await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: ["engine/src"] }), throwsCode("workspace_write_set_never_leasable"), "a directory covering a generated output is refused too");
+  await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: ["engine/traceability"] }), throwsCode("workspace_write_set_never_leasable"), "a directory covering a generated output is refused too");
   await assert.rejects(() => manager.create({ agentName: "agentA", mode: "feature", writeSet: ["engine/.bridlewise/state"] }), throwsCode("workspace_write_set_never_leasable"));
   const record = await manager.create({ agentName: "agentA", mode: "feature", writeSet: [PIN_BEARING] });
   assert.deepEqual(record.lease.writeSet, [PIN_BEARING]);
@@ -1507,20 +1508,29 @@ test("the CLI states each command's own outcome: a successful abort or list of a
   assert.equal(aborted.status, "pass");
   assert.equal(manager.status(record.workspaceId).state, "aborted");
   await assert.rejects(() => runWorkspaceCli(root, ["validate", record.workspaceId, "--fast"]), (error: unknown) => (error as { code?: unknown }).code === "unknown_flag");
-  // A repository git gives no identity (none local; a HOME with no global config) is refused before a workspace is
-  // made: the integrator's merge commit would be refused at the end (A5-design L8).
+  // The identity of an agent's workspace is the project's, from the one declared source — never the host's: with no
+  // identity anywhere (none local; a HOME with no global config) a create succeeds, and the worktree's OWN config
+  // carries the agent identity and the agent-checkout marker, while the canonical checkout's stays untouched.
   const saved = { HOME: process.env["HOME"], XDG_CONFIG_HOME: process.env["XDG_CONFIG_HOME"] };
   process.env["HOME"] = mkWorkspaceTempDir("ws-cli-no-identity-home");
   process.env["XDG_CONFIG_HOME"] = process.env["HOME"];
   try {
-    await assert.rejects(() => runWorkspaceCli(root, ["create", "--agent", "worker", "--write-set", "src"]), (error: unknown) => (error as { code?: unknown }).code === "workspace_identity_missing");
+    const created = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+    const worktree = created.lease.worktreePath;
+    const config = (cwd: string, ...args: readonly string[]): string => spawnSync("git", ["config", ...args], { cwd, encoding: "utf8" }).stdout.trim();
+    const agent = ROOT_POLICY.workflow.commitIdentity.agent;
+    assert.equal(config(worktree, "user.name"), agent.name);
+    assert.equal(config(worktree, "user.email"), agent.email);
+    assert.equal(config(worktree, "--type=bool", ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey), "true");
+    assert.equal(config(root, "--type=bool", "--default=false", ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey), "false", "the canonical checkout is no agent checkout");
+    assert.notEqual(config(root, "user.email"), agent.email, "the canonical checkout keeps its own identity");
+    assert.equal((await runWorkspaceCli(root, ["abort", created.workspaceId])).status, "pass");
   } finally {
     for (const [name, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
   }
-  assert.equal(manager.list().filter((entry) => entry.state === "active").length, 0, "nothing was made");
 });
 
 

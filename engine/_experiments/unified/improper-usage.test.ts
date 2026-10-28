@@ -176,4 +176,4 @@ function assert(cond, msg) {
 }
 
 console.log(`\nImproper usage + boundary tests: ${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+if (failed > 0) process.exitCode = 1;

@@ -295,6 +295,7 @@ vi.mock("../../src/cockpit/shell/outlets.ts", async (importOriginal) => ({
 import { closeRightMenu, rightMenu } from "../../src/cockpit/shell/right-menu.ts";
 import type { ShellApi } from "../../src/cockpit/shell/contract.ts";
 import { mount as svelteMount, unmount as svelteUnmount } from "svelte";
+import { until } from "../helpers/until.ts";
 
 type ShellJson = Record<string, unknown> | unknown[];
 
@@ -335,11 +336,7 @@ function stubApiForShell(): void {
 }
 
 async function waitForReveal(host: HTMLElement): Promise<void> {
-  const t0 = Date.now();
-  while (host.querySelector(".shell")?.getAttribute("data-revealed") !== "true") {
-    if (Date.now() - t0 > 4000) throw new Error("waitForReveal timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
+  await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
 }
 
 describe("the arm chord bridges to the shell's right menu", () => {

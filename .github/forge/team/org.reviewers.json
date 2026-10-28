@@ -8,6 +8,7 @@
   "desired": {
     "name": "reviewers",
     "privacy": "closed",
-    "description": "The reviewer role (docs/community/roles.json)"
+    "description": "The reviewer role (docs/community/roles.json)",
+    "members": []
   }
 }

@@ -23,6 +23,7 @@
 import { consumeDeclaredDeletions } from "../src/git/declared-deletions.ts";
 import { bootstrapProcess, isEntryPoint } from "../src/runtime/cli-debug.ts";
 import { LESSON_TRAILER, missingLessonTrailersOfCommit } from "./verification/lesson-trailers.ts";
+import { commitTestDeletionVerdict, TEST_DELETED_TRAILER, testDeletionProblems } from "./verification/test-deletions.ts";
 
 /** Consumes the declarations the commit in `root` used, and says so on stderr. */
 function consumeAfterCommit(root: string): void {
@@ -60,6 +61,23 @@ function reportUnnamedLessons(root: string): void {
   }
 }
 
+/** Reports test deletions HEAD's trailers do not match (an amend that dropped or added a trailer; a `--no-verify` commit). */
+function reportTestDeletions(root: string): void {
+  try {
+    const problems = testDeletionProblems(commitTestDeletionVerdict(root, "HEAD"));
+    if (problems.length === 0) return;
+    process.stderr.write(
+      `\n[post-commit] TEST DELETION UNNAMED — the commit just made and its ${TEST_DELETED_TRAILER} trailers disagree:\n` +
+        `${problems.map((problem) => `  - ${problem}`).join("\n")}\n` +
+        `Repair it now: git commit --amend, with one ${TEST_DELETED_TRAILER}: <path> trailer per deleted test source and none for a kept one. The required commit-records check refuses it otherwise.\n\n`,
+    );
+    process.exitCode = 1;
+  } catch (error) {
+    process.stderr.write(`[post-commit] the test deletion check could not run: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
+}
+
 // Run as a program (the hook), never on import. Both sides are real paths, so
 // a checkout reached through a symbolic link still runs it.
 if (isEntryPoint(import.meta.url)) {
@@ -67,4 +85,5 @@ if (isEntryPoint(import.meta.url)) {
   const root = process.argv[2] ?? process.cwd();
   consumeAfterCommit(root);
   reportUnnamedLessons(root);
+  reportTestDeletions(root);
 }

@@ -30,6 +30,9 @@ import { experimentExclusion, walk } from "../scripts/verification/source-walk.t
 import { createTempDir } from "./support/temp-dir.ts";
 import { engineModuleSourceRelative } from "./support/module-resolver.ts";
 import { posix } from "node:path";
+import { repositoryArchitectureManifest } from "../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, ".."));
 
 // The fixtures model a module at src/hostile-effect-fixture.ts importing the
 // central policy. That import specifier is FOLD-SENSITIVE: it must name the
@@ -527,7 +530,7 @@ test("repository command effects are exhaustively architecture-registered while 
     assert.ok(witness.violations.includes(`command-effect-composition-root-missing:${witnessPath}`), witnessPath);
   }
   const inventory = verifyCommandEffectInventory({
-    architectureCompositionRoots: Object.values(ARCHITECTURE_MANIFEST.compositionRoots).flat(),
+    architectureCompositionRoots: Object.values(REPOSITORY_MANIFEST.compositionRoots).flat(),
     architectureExternalCommands: ARCHITECTURE_MANIFEST.externalCommands,
     preservedFixturePaths: preservedFixtureProjectionPaths((path) => readFileSync(join(ROOT, path))),
     registrations: qualified,

@@ -123,7 +123,8 @@
     "overlay": {
       "folder": "product-only/",
       "kinds": [
-        "*.md"
+        "*.md",
+        "*.txt"
       ]
     }
   },
