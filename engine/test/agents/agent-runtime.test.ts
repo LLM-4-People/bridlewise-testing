@@ -561,7 +561,6 @@ test("Agent runtime: timeout aborts the in-flight provider call (FIX 2)", async 
     },
     async chatCompletion() { return Object.freeze({ content: "", toolCalls: [], usage: undefined, finishReason: "stop" }); },
   });
-  const startMs = Date.now();
   const { stateStore, dir } = setup();
   try {
     const agent = createAgentRuntime({
@@ -578,9 +577,10 @@ test("Agent runtime: timeout aborts the in-flight provider call (FIX 2)", async 
     let result = await generator.next();
     while (!result.done) result = await generator.next(result.value);
     const runResult = result.value;
-    const elapsed = Date.now() - startMs;
+    // PROMPT BY ITS PATH, never by a wall clock (NO-LOAD-BLOCK): the provider
+    // above never ends on its own, only when its signal aborts, so the run
+    // ending at all proves the timeout aborted the in-flight call.
     assert.equal(runResult.lifecycleState, "cancelled", "timeout must produce cancelled lifecycleState");
-    assert.ok(elapsed < 2000, `timeout must abort promptly (elapsed ${elapsed}ms; expected < 2000ms)`);
     assert.ok(observedSignal !== undefined, "adapter must receive a signal");
     assert.ok(observedSignal!.aborted, "the signal observed by the adapter must be aborted");
   } finally { cleanup(dir); }

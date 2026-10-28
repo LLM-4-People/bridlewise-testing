@@ -46,6 +46,7 @@ import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
 import { PROVIDER_FIXTURE_OWNER } from "../helpers/multi-user.ts";
 import { responseEvents } from "../../engine/test/support/mock-provider.ts";
 import type { RunFrame } from "../../server/run/run-feed.ts";
+import { until } from "../helpers/until.ts";
 const REPO_ROOT = resolve(import.meta.dirname, "../..");
 
 // ── The instrumented provider: the spend is counted AT THE WIRE ────────────
@@ -83,16 +84,15 @@ type ProviderHold = {
 const providerHolds = new Set<ProviderHold>();
 const providerProblems: string[] = [];
 
-/** A deadline diagnoses a missing event; it never creates the event. */
-async function witnessed<T>(promise: Promise<T>, label: string, timeoutMs = 8_000): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([promise, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} did not arrive within ${String(timeoutMs)}ms`)), timeoutMs);
-    })]);
-  } finally {
-    clearTimeout(timer);
-  }
+/**
+ * The event `promise` stands for, awaited with NO wall deadline
+ * (NO-LOAD-BLOCK): a busy host makes an event late, not missing. An event
+ * that never comes is a hang, ended and named by the test's hang backstop;
+ * `label` names the event at the call site for its reader.
+ */
+async function witnessed<T>(promise: Promise<T>, label: string): Promise<T> {
+  void label;
+  return promise;
 }
 
 /** Install before POST. Hold the real response until the owning assertion releases it. */
@@ -360,7 +360,7 @@ beforeAll(async () => {
     if (warrant === undefined) throw new Error("the router handed the handler no warrant");
     return warrant;
   };
-}, 60_000);
+});
 
 afterEach(() => {
   expect(providerProblems.splice(0), "every provider request uses the actual native protocol").toEqual([]);
@@ -383,7 +383,6 @@ type Frame = { id: number | null; event: string; data?: unknown };
 async function drainStream(
   path: string,
   extraHeaders: Record<string, string>,
-  ms: number,
   origin = baseUrl,
 ): Promise<{ status: number; frames: Frame[] }> {
   const res = await fetch(`${origin}${path}`, { headers: { ...authHeaders, ...extraHeaders } });
@@ -392,17 +391,15 @@ async function drainStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const deadline = Date.now() + ms;
+  // READ UNTIL THE SERVER CLOSES THE STREAM, never for a wall-clock window
+  // (NO-LOAD-BLOCK): the route closes it once the run's ending is sent (a
+  // live subscription when its feed ends; a replay of an ended run right
+  // after the replay), so the frames read are the whole record, however busy
+  // the host. A stream that never closes is a hang, ended and named by the
+  // test's hang backstop.
   try {
     for (;;) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      const chunk = await Promise.race([
-        reader.read(),
-        new Promise<{ done: true; value: undefined }>((r) =>
-          setTimeout(() => r({ done: true, value: undefined }), remaining),
-        ),
-      ]);
+      const chunk = await reader.read();
       if (chunk.done) break;
       buffer += decoder.decode(chunk.value as Uint8Array, { stream: true });
       let split = buffer.indexOf("\n\n");
@@ -491,7 +488,7 @@ function projectionFor(runId: string): { assistantRows: number; userRows: number
 }
 
 /** Observe the actual terminal feed, including a run that ended before attachment. */
-async function runToCompletion(runId: string, timeoutMs = 8_000): Promise<readonly RunFrame[]> {
+async function runToCompletion(runId: string): Promise<readonly RunFrame[]> {
   const { subscribeToRunFeed } = await import("../../server/run/run-feed.ts");
   const ended = Promise.withResolvers<void>();
   const frames: RunFrame[] = [];
@@ -500,7 +497,7 @@ async function runToCompletion(runId: string, timeoutMs = 8_000): Promise<readon
   frames.push(...subscription.replay.frames);
   if (subscription.replay.ended) ended.resolve();
   try {
-    await witnessed(ended.promise, `terminal feed for ${runId}`, timeoutMs);
+    await witnessed(ended.promise, `terminal feed for ${runId}`);
     return frames;
   } finally {
     subscription.unsubscribe();
@@ -538,8 +535,8 @@ describe("a run executes exactly once", () => {
         // retained buffer, and the id-sequence equality below measures the
         // observation windows rather than the run's single execution.
         await held.ready();
-        const aPromise = drainStream(`/api/run/${runId}/stream`, {}, 2500);
-        const bPromise = drainStream(`/api/run/${runId}/stream`, {}, 2500);
+        const aPromise = drainStream(`/api/run/${runId}/stream`, {});
+        const bPromise = drainStream(`/api/run/${runId}/stream`, {});
         const { runFeedState } = await import("../../server/run/run-feed.ts");
         await vi.waitFor(
           () => expect(runFeedState(runId)?.subscribers, "both subscribers attach before the provider finishes").toBe(2),
@@ -588,7 +585,6 @@ describe("a run executes exactly once", () => {
         if (runId !== "") await runToCompletion(runId).catch(() => undefined);
       }
     },
-    30_000,
   );
 
   test.each(["assistant", "tool"] as const)("%s row persistence gates its published start and preserves a truthful failure", async (role) => {
@@ -627,7 +623,7 @@ describe("a run executes exactly once", () => {
         expect(beforeModels.filter((frame) => role === "assistant" || frame.type !== "start"), "neither subsequent model output nor tool arguments can overtake the held start").toEqual([]);
         // Attach while publication is parked. The route may first replay an
         // earlier assistant start; only IDs beyond this boundary are fresh.
-        liveDelivery = drainStream(`/api/run/${runId}/stream`, target.headers, 2500, origin);
+        liveDelivery = drainStream(`/api/run/${runId}/stream`, target.headers, origin);
         await vi.waitFor(() => expect(runFeedState(runId)?.subscribers,
           "the actual HTTP route subscribes before publication is released").toBe(1), { timeout: 8000, interval: 10 });
         release();
@@ -644,7 +640,7 @@ describe("a run executes exactly once", () => {
               "fresh subscribed output remains eligible for the producing clock").not.toBe(true);
           }
         }
-        const delivered = await drainStream(`/api/run/${runId}/stream`, target.headers, 2500, origin);
+        const delivered = await drainStream(`/api/run/${runId}/stream`, target.headers, origin);
         expect(delivered.status).toBe(200);
         const replayedModels = delivered.frames.filter((frame) => frame.event === "model");
         for (const frame of replayedModels) expect(frame.data,
@@ -691,7 +687,7 @@ describe("a run executes exactly once", () => {
         }
       }
     }
-  }, 30_000);
+  });
 
   test(
     "a second execution of one run is refused by the database, not by a check",
@@ -787,7 +783,6 @@ describe("a run executes exactly once", () => {
       expect(refused[0]!.code).toBe("run_already_executing");
       expect(outcomes.filter((o) => o.status === 200).length).toBe(1);
     },
-    30_000,
   );
 
   test("a warrant authorises ONE operation — honouring it twice is refused the second time", async () => {
@@ -862,7 +857,6 @@ describe("a run executes exactly once", () => {
       expect(runFeedState(runId)).toBeUndefined();
       expect(getActiveRun(runId)).toBeUndefined();
     },
-    30_000,
   );
 
   test(
@@ -931,7 +925,6 @@ describe("a run executes exactly once", () => {
         if (runId !== "") await runToCompletion(runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -964,18 +957,17 @@ describe("a run executes exactly once", () => {
       // precisely the state a reconnect depends on.
       expect(after!.subscribers).toBe(0);
     },
-    30_000,
   );
 
   test(
     "a reconnect replays from Last-Event-ID instead of meeting a 404",
     async () => {
       const { runId } = await startRun("resume me");
-      const first = await drainStream(`/api/run/${runId}/stream`, {}, 400);
+      const first = await drainStream(`/api/run/${runId}/stream`, {});
       expect(first.status).toBe(200);
       await runToCompletion(runId);
 
-      const fresh = await drainStream(`/api/run/${runId}/stream`, {}, 900);
+      const fresh = await drainStream(`/api/run/${runId}/stream`, {});
       // The run has FINISHED and the connection that watched it has gone.
       // Before this, that was a 404 and the run was unreachable for good.
       expect(fresh.status).toBe(200);
@@ -983,7 +975,7 @@ describe("a run executes exactly once", () => {
       expect(freshIds.length).toBeGreaterThan(0);
       expect(freshIds[0]).toBe(1);
 
-      const resumed = await drainStream(`/api/run/${runId}/stream`, { "Last-Event-ID": "3" }, 900);
+      const resumed = await drainStream(`/api/run/${runId}/stream`, { "Last-Event-ID": "3" });
       const resumedIds = resumed.frames.filter((f) => f.id !== null).map((f) => f.id as number);
       expect(resumedIds.length).toBeGreaterThan(0);
       // Resumption means resumption: every id is strictly past the one the
@@ -993,7 +985,6 @@ describe("a run executes exactly once", () => {
       // …and it is a SUFFIX of the full stream, not a different stream.
       expect(resumedIds).toEqual(freshIds.filter((id) => id > 3));
     },
-    30_000,
   );
 
   test("the 404 and 403 gates still hold on the subscriber", async () => {
@@ -1013,7 +1004,7 @@ describe("a run executes exactly once", () => {
     // sleeping a constant long enough for it. The constant was paid in full
     // on every run of the suite, and the suite is judged on wall clock.
     await runToCompletion(runId);
-  }, 30_000);
+  });
 
   test(
     "ONE live run per conversation — a second start on the same chat is refused with its remedy",
@@ -1091,7 +1082,6 @@ describe("a run executes exactly once", () => {
         if (first.runId !== "") await runToCompletion(first.runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -1165,10 +1155,12 @@ describe("a run executes exactly once", () => {
         // inside the route — each parked getProject call is one. This is
         // what makes the arm the race itself, never the settled case the
         // early gate already covers, and never a timing-dependent flake.
-        const rendezvousDeadline = Date.now() + 5_000;
-        while (parkedCalls < 2 && Date.now() < rendezvousDeadline) {
-          await new Promise((r) => setTimeout(r, 10));
-        }
+        // Bounded by the requests' own lives, never a wall clock
+        // (NO-LOAD-BLOCK): a start that ANSWERED before parking never will.
+        let answered = 0;
+        void aP.then(() => { answered += 1; }, () => { answered += 1; });
+        void bP.then(() => { answered += 1; }, () => { answered += 1; });
+        await until(() => parkedCalls + answered >= 2);
         expect(parkedCalls, "both racing starts must reach the parked await").toBe(2);
         releasePark();
         const [a, b] = await Promise.all([aP, bP]);
@@ -1201,7 +1193,6 @@ describe("a run executes exactly once", () => {
         raceServer.closeAllConnections?.();
       }
     },
-    30_000,
   );
 
   test(
@@ -1279,14 +1270,8 @@ describe("a run executes exactly once", () => {
         // determinant and the assertions below still decide honestly).
         const { runFeedState } = await import("../../server/run/run-feed.ts");
         const { activeRunForChat, getActiveRun } = await import("../../server/run/run-registry.ts");
-        const deadline = Date.now() + 8_000;
-        while (
-          parkedCalls === 0 &&
-          runFeedState(runId)?.ended !== true &&
-          Date.now() < deadline
-        ) {
-          await new Promise((r) => setTimeout(r, 25));
-        }
+        // A run either parks or ends: both end the wait, with no wall deadline (NO-LOAD-BLOCK).
+        await until(() => parkedCalls > 0 || runFeedState(runId)?.ended === true);
         const feedEndedBeforePark = runFeedState(runId)?.ended === true;
         if (!feedEndedBeforePark) {
           expect(parkedCalls, "the epilogue must have reached its parked timeline replay").toBeGreaterThan(0);
@@ -1364,7 +1349,6 @@ describe("a run executes exactly once", () => {
         gateServer.closeAllConnections?.();
       }
     },
-    30_000,
   );
 
   test(
@@ -1437,14 +1421,8 @@ describe("a run executes exactly once", () => {
         // determinant and the arm says so rather than measuring nothing).
         const { runFeedState } = await import("../../server/run/run-feed.ts");
         const { activeRunForChat, getActiveRun } = await import("../../server/run/run-registry.ts");
-        const deadline = Date.now() + 8_000;
-        while (
-          parkedCalls === 0 &&
-          runFeedState(runId)?.ended !== true &&
-          Date.now() < deadline
-        ) {
-          await new Promise((r) => setTimeout(r, 25));
-        }
+        // A run either parks or ends: both end the wait, with no wall deadline (NO-LOAD-BLOCK).
+        await until(() => parkedCalls > 0 || runFeedState(runId)?.ended === true);
         const feedEndedBeforePark = runFeedState(runId)?.ended === true;
         if (!feedEndedBeforePark) {
           expect(parkedCalls, "the run must be parked inside its epilogue before the cancel").toBeGreaterThan(0);
@@ -1520,7 +1498,6 @@ describe("a run executes exactly once", () => {
         gateServer.closeAllConnections?.();
       }
     },
-    30_000,
   );
 
   test(
@@ -1608,7 +1585,6 @@ describe("a run executes exactly once", () => {
         if (slowRun.runId !== "") await runToCompletion(slowRun.runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -1686,7 +1662,7 @@ describe("a run executes exactly once", () => {
           "the delivery must be the native tool-loop continuation — the request that follows the tool results").toBe(true);
         // THE ANNOUNCEMENT: exactly one steered frame (the compose-point
         // consumption), never a second beat for one instruction.
-        const frames = await drainStream(`/api/run/${runId}/stream`, {}, 1_500);
+        const frames = await drainStream(`/api/run/${runId}/stream`, {});
         const steeredFrames = frames.frames.filter((f) => f.event === "steered");
         expect(steeredFrames).toHaveLength(1);
       } finally {
@@ -1694,7 +1670,6 @@ describe("a run executes exactly once", () => {
         if (runId !== "") await runToCompletion(runId);
       }
     },
-    30_000,
   );
 
   test(
@@ -1806,7 +1781,7 @@ describe("a run executes exactly once", () => {
         // drain's shift is what emptied the queue, so the drain turn's
         // own compose-point consumed nothing. The stream read carries the
         // run's owner cookie — the run belongs to the fresh user above.
-        const frames = await drainStream(`/api/run/${runId}/stream`, { Cookie: drainHeaders["Cookie"]! }, 1_500, baseUrl);
+        const frames = await drainStream(`/api/run/${runId}/stream`, { Cookie: drainHeaders["Cookie"]! }, baseUrl);
         const steeredFrames = frames.frames.filter((f) => f.event === "steered");
         expect(steeredFrames).toHaveLength(1);
         expect(
@@ -1822,7 +1797,6 @@ describe("a run executes exactly once", () => {
         }
       }
     },
-    30_000,
   );
 
   test("a fast failure can settle before a late observer reads the accepted run", async () => {
@@ -1843,7 +1817,7 @@ describe("a run executes exactly once", () => {
     } finally {
       late?.unsubscribe();
     }
-  }, 30_000);
+  });
 
   test(
     "the executor's crash path clears the entry — a provider that fails mid-run still settles the registry",
@@ -1921,7 +1895,6 @@ describe("a run executes exactly once", () => {
         if (reopenedId !== "") await runToCompletion(reopenedId);
       }
     },
-    30_000,
   );
 
   test(
@@ -2051,7 +2024,6 @@ describe("a run executes exactly once", () => {
         await subject.stop();
       }
     },
-    30_000,
   );
 
   test(
@@ -2132,7 +2104,6 @@ describe("a run executes exactly once", () => {
         await subject.stop();
       }
     },
-    30_000,
   );
 });
 

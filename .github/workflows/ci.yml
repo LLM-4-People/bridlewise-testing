@@ -75,10 +75,14 @@ jobs:
       - name: Build engine bundle
         run: npm --prefix engine run build:bundle
 
-      - name: Install the pinned compiler
+      - name: Require the pinned compiler from the runner image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14
+          # gcc-14 ships in the ubuntu-24.04 image. Installing it over the
+          # network only ever waited on a package mirror (a hung mirror held
+          # two shards for their whole 45-minute budget, #333). A missing
+          # compiler is a named failure, never an install.
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
 
       - name: Build guardian
         run: make -C engine/guardian all
@@ -141,6 +145,29 @@ jobs:
         working-directory: engine
         run: node src/cli.ts harness sync --with-bundle
 
+      # The product projection declares itself (TREE-KIND.txt, shipped by the
+      # promotion overlay); the testing repository never carries the declaration.
+      - name: The testing repository never declares itself the product
+        run: |
+          if [ -e TREE-KIND.txt ]; then
+            echo "::error::TREE-KIND.txt declares the product projection; it ships only from product-only/ (engine/src/workflow/promotion/tree-kind.ts)"
+            exit 1
+          fi
+
+      # A ratchet only shrinks, judged against the base the change lands on (the
+      # local hook judges against HEAD; this is the server's half). On a push
+      # to main there is no base to land on, and nothing to judge.
+      - name: Every ratchet baseline only shrank since the base
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        working-directory: engine
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          git fetch --no-tags --depth=1 "$SERVER/$REPOSITORY" "$BASE"
+          node scripts/verification/ratchet-baselines.ts --check --grown-since "$BASE"
+
       # Tracked AND untracked: a generator that writes a new file nobody
       # committed (and no ignore rule covers) is as stale as a changed one.
       - name: Require that the generators changed no file
@@ -192,10 +219,14 @@ jobs:
       - name: Install engine dependencies
         run: npm --prefix engine ci --no-audit --no-fund
 
-      - name: Install the pinned compiler
+      - name: Require the pinned compiler from the runner image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-14
+          # gcc-14 ships in the ubuntu-24.04 image. Installing it over the
+          # network only ever waited on a package mirror (a hung mirror held
+          # two shards for their whole 45-minute budget, #333). A missing
+          # compiler is a named failure, never an install.
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
 
       - name: Install hooks and build the confinement supervisor
         run: |
@@ -209,10 +240,19 @@ jobs:
           npm run corpus:fetch
           npm run corpus:verify
 
+      # The image sets kernel.apparmor_restrict_unprivileged_userns=1. The
+      # namespace proofs (keep-out aliases, the procfs-less door, S1-B04/B13)
+      # need unprivileged user and mount namespaces, and refuse by name
+      # without them (#149): the job provides the capability, never a skip.
+      - name: Allow unprivileged user and mount namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # D-19: a run's temporary root lies under the per-user cache, outside
+      # the safety floor (the instrument-lock proof places a checkout there).
       - name: Run the engine suite
         run: |
-          mkdir -p "$RUNNER_TEMP/bw"
-          TMPDIR="$RUNNER_TEMP/bw" npm --prefix engine test
+          mkdir -p "$HOME/.cache/bridlewise-tmp/ci"
+          TMPDIR="$HOME/.cache/bridlewise-tmp/ci" npm --prefix engine test
 
       # The runner writes its verdict to one summary file; the job prints the
       # failing tests and their reasons, so a red run is readable without a

@@ -99,20 +99,22 @@ check` reports it stale): change a decision's file, never its row.
 | [D-W5](D-W5-mock-free-test-files-share-a-process.md) | Mock-free test files share a process | coordinator | pending (WEB-EFFICIENCY) |
 | [EVD-STORE](EVD-STORE-raw-evidence-in-a-content-addressed-store.md) | Code and small records in git; raw evidence in a content-addressed store | user | partial (EVIDENCE-DURABILITY) |
 | [FLAKE-REPRO](FLAKE-REPRO-a-flake-cause-needs-a-recorded-reproduction.md) | A flake cause needs a recorded reproduction | coordinator | partial (FLAKE-REPRO-REDECLARE), amended by NO-LOAD-BLOCK |
-| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | done, amended by NO-LOAD-BLOCK |
+| [GEN-AGGREGATES](GEN-AGGREGATES-no-generated-aggregate-two-changes-both-rewrite.md) | No generated aggregate that two independent changes both rewrite | coordinator | partial (GH-563) |
+| [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | superseded by NO-LOAD-BLOCK, amended by NO-LOAD-BLOCK |
 | [KILL-OWNED-ONLY](KILL-OWNED-ONLY-signal-only-what-you-started.md) | Signal only what you started | coordinator | done |
 | [LIVE-SUITE](LIVE-SUITE-one-live-suite-no-hermetic-skips.md) | One live suite; the hermetic suites have no skips | coordinator | done |
-| [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) | Nothing is ever blocked by CPU load | user | pending (TEST-10X) |
+| [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md) | Nothing is ever blocked by CPU load | user | partial (TEST-10X) |
 | [Q-TX1](Q-TX1-reuse-a-proven-deterministic-result.md) | A deterministic test file's result may be reused | user | pending (TEST-10X) |
 | [Q-TX2](Q-TX2-budgets-count-cpu-work.md) | Test budgets count CPU work, not wall time | user | partial (TEST-10X) |
 | [Q-TX4](Q-TX4-per-file-test-budgets.md) | Every test file has its own budget | user | pending (TEST-10X) |
 | [REQUIRES](REQUIRES-a-gate-runs-after-what-it-judges.md) | A gate runs after the steps that produce what it judges | coordinator | done |
+| [TEST-CPU-CLASSES](TEST-CPU-CLASSES-per-test-limits-are-cpu-work.md) | Per-test limits are CPU-work classes plus one hang backstop | coordinator | done |
 | [TEST-EFF](TEST-EFF-the-test-efficiency-decisions.md) | The test-efficiency decisions (covers Q-TXL1, Q-TXL2, Q-TXL3, Q-TXL4) | user | pending (TEST-10X) |
-| [UD-AUDIT-NO-FORGIVENESS](UD-AUDIT-NO-FORGIVENESS-no-rerun-forgiveness-no-ambient-allowance.md) | No rerun forgiveness, no ambient-load allowance | user | partial (AMBIENT-ALLOWANCE-REMOVE) |
+| [UD-AUDIT-NO-FORGIVENESS](UD-AUDIT-NO-FORGIVENESS-no-rerun-forgiveness-no-ambient-allowance.md) | No rerun forgiveness, no ambient-load allowance | user | done |
 | [UD-CORE-NO-BYPASS](UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md) | A module cannot bypass core | user | pending (CORE-NO-BYPASS) |
 | [UD-LOG-NEVER-DISABLED](UD-LOG-NEVER-DISABLED-warn-and-error-always-reported.md) | Logging is never disabled | user | done |
 | [UI-CPU](UI-CPU-browser-gates-judged-in-cpu-work.md) | Browser speed gates are judged in CPU work | user | pending (UI-CPU) |
-| [UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md) | A budget breach joins the one judgement | coordinator | partial (AMBIENT-ALLOWANCE-REMOVE) |
+| [UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md) | A budget breach joins the one judgement | coordinator | done |
 
 ## Earlier engine decisions (coordinator)
 
@@ -249,6 +251,7 @@ check` reports it stale): change a decision's file, never its row.
 | [GH-A](GH-A-public-by-default.md) | Public by default | user | standing |
 | [GH-B](GH-B-agents-act-through-least-privilege-apps.md) | Agents act only through least-privilege GitHub Apps | user | pending (P3.9) |
 | [GH-C](GH-C-all-labs-merge-into-the-one-repository.md) | All labs merge into the one repository | user | pending (P9.1) |
+| [GH-IDENTITY](GH-IDENTITY-an-agent-commit-carries-no-personal-identity.md) | An agent commit carries no personal identity | coordinator | partial (P3.2) |
 | [GH-KEYS](GH-KEYS-github-app-keys-have-one-custody.md) | GitHub App private keys have one custody: the key home, or a protected environment | coordinator | partial (P1.2) |
 | [GH-PROJECTION](GH-PROJECTION-github-always-reflects-the-harness.md) | GitHub always reflects the harness | user | partial (P5.2) |
 | [GH-U](GH-U-the-accepted-github-recommendations.md) | The accepted GitHub recommendations (covers GH-U1, GH-U3, GH-U4, GH-U5, GH-U6, GH-U7) | user | pending (P3.2) |
@@ -256,6 +259,7 @@ check` reports it stale): change a decision's file, never its row.
 | [GITHUB-300](GITHUB-300-the-full-github-feature-catalogue.md) | GitHub as an active part of the harness: the full feature catalogue (covers GITHUB-500) | user | partial (P3.1) |
 | [GITHUB-COMMUNITY](GITHUB-COMMUNITY-people-can-collaborate.md) | People can collaborate, help and interact | user | partial (P5.4) |
 | [GITHUB-ONLY](GITHUB-ONLY-github-is-the-only-host.md) | GitHub is the only host | user | partial (P2.1) |
+| [WS-RECORDS](WS-RECORDS-older-workspace-records-are-read-only.md) | Older workspace records are read-only, upcast in memory, and never written | coordinator | done |
 
 ## Brand and public messaging
 

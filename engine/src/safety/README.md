@@ -25,31 +25,6 @@ The safety domain: the pre-dispatch gates, the runtime detectors, and the self-p
 - `tool-call-gate.ts` — Pre-dispatch hallucination gate for LLM tool calls (EXP485, ).
 - `workaround-detector.ts` — the workaround-detector module.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/safety/`.
-
-- `bandaid-ast-detector.ts` is consumed by `engine/src/safety/bandaid-detector.ts`.
-- `bandaid-config.ts` is consumed by `engine/src/safety/bandaid-ast-detector.ts`, `engine/src/safety/bandaid-detector.ts`, `engine/src/safety/bandaid-exposure.ts`, `engine/src/safety/deviation-detector.ts`, `engine/src/safety/index.ts`, `engine/src/safety/investigation.ts` and 6 more.
-- `bandaid-detector.ts` is consumed by `engine/src/safety/index.ts`, `engine/src/safety/investigation.ts`, `server/kernel/canonical.ts`.
-- `bandaid-exposure.ts` is consumed by nothing yet.
-- `bandaid-pattern-learner.ts` is consumed by `engine/src/safety/bandaid-exposure.ts`.
-- `bias-config.ts` is consumed by `engine/src/safety/bias-detector.ts`, `engine/src/safety/bias-preventer.ts`, `engine/src/safety/index.ts`.
-- `bias-detector.ts` is consumed by `engine/src/safety/bias-preventer.ts`, `engine/src/safety/index.ts`.
-- `bias-preventer.ts` is consumed by nothing yet.
-- `deviation-detector.ts` is consumed by `engine/src/safety/investigation.ts`, `server/kernel/canonical.ts`.
-- `hallucination-config.ts` is consumed by `engine/src/safety/hallucination-detector.ts`, `engine/src/safety/hallucination-semantic.ts`, `engine/src/safety/index.ts`.
-- `hallucination-detector.ts` is consumed by `engine/src/editor/edit-resolve.ts`, `engine/src/safety/index.ts`.
-- `hallucination-semantic.ts` is consumed by `engine/src/safety/hallucination-detector.ts`.
-- `index.ts` is consumed by nothing yet.
-- `investigation.ts` is consumed by `engine/src/safety/pause-ask.ts`, `server/kernel/canonical.ts`.
-- `pause-ask.ts` is consumed by `server/kernel/canonical.ts`.
-- `safety-config-section.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/shared/exposure/index.ts`, `server/kernel/canonical.ts`.
-- `shared-helpers.ts` is consumed by `engine/src/safety/bandaid-ast-detector.ts`, `engine/src/safety/bandaid-pattern-learner.ts`.
-- `step-skip-detector.ts` is consumed by `engine/src/safety/investigation.ts`, `server/kernel/canonical.ts`.
-- `tool-call-gate.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/governed-tool-dispatch.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/safety/safety-config-section.ts`, `engine/src/shared/exposure/registrations/safety.ts`, `server/kernel/canonical.ts`.
-- `workaround-detector.ts` is consumed by `engine/src/safety/investigation.ts`, `server/kernel/canonical.ts`.
-
-<!-- /consumers:generated -->

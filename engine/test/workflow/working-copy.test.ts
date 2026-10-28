@@ -27,12 +27,13 @@ import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy
 import { STATE_DIRECTORY_NAME } from "../../src/kernel/product-identity.ts";
 import { checkoutCommandRunner, commandFailureClass, commandsRun, gateLogDirectory, owedSetup, prepareCheckout, rerunChangedSetup, runCheckoutCommand, runCheckoutPhase, unconsumedCommands, type CheckoutCommandRunner, type CommandRetryPolicy } from "../../src/workflow/checkout-setup.ts";
 import { convergenceReport, convergeUntilStable } from "../../src/workflow/checkout-setup.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory, TEST_REPOSITORY_ROOT } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { ownedTemporaryName } from "../../src/filesystem/private-state.ts";
 import { configureDebugSystem, createCollectingSink, resetDebugSystem } from "../../src/shared/debug/debug-system.ts";
 import { DEBUG_CONFIG_DEFAULTS } from "../../src/shared/debug/debug-config.ts";
+import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 
 function git(cwd: string, ...argv: string[]): string {
   return execFileSync("git", ["-c", "user.name=Working Copy Test", "-c", "user.email=wc.invalid@example.invalid", ...argv], {
@@ -154,7 +155,7 @@ function gateRoot(prefix: string): string {
 }
 
 function supervisedRunner(retries: CommandRetryPolicy = { retries: 0, backoffMs: 0 }): CheckoutCommandRunner {
-  return { supervisor: testProcessSupervisorBinary(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
+  return { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
 }
 
 test("checkout setup: links, the config mode, then the declared commands in order; after the first failure the rest are skipped", async () => {
@@ -261,11 +262,11 @@ test("sync fixed point: passes repeat until one changes nothing (its status deci
 test("the command runner: a command past its ceiling is killed with every descendant and fails", async () => {
   const root = gateRoot("checkout-command-ceiling-");
   const sleeper = { cwd: ".", argv: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"], timeoutMs: 300 };
-  const started = Date.now();
   const outcome = await runCheckoutCommand(root, "sleeper", sleeper, supervisedRunner());
   assert.equal(outcome.status, "fail");
+  // The ceiling ended it, not the command (which would exit 0 after 60 s):
+  // the outcome names the ceiling, its path, never a wall clock (NO-LOAD-BLOCK).
   assert.match(outcome.message, /ceiling/u);
-  assert.ok(Date.now() - started < 30_000, "the ceiling ended it, not the command");
 });
 
 test("the command runner's classes: the environment's ending (a ceiling, a signal, no receipt, a REPORTED environmental error) is ERRORED; any other non-zero exit FAILED", async () => {
@@ -855,33 +856,73 @@ test("snapshotWorkingTree: HEAD moves by COMPARE-AND-SWAP; a refused advance rec
   assert.equal(git(source, "rev-parse", "HEAD").trim(), head);
 });
 
-test("a heavy setup command waits for the instrument lock with NO deadline counted against it, runs inside the hold, and runs once per tree", async () => {
+test("a heavy setup command is ADMITTED AT ONCE beside a live run — it never waits for another run — and runs once per tree", async () => {
   const target = gateRoot("working-copy-heavy-setup-");
   execFileSync("git", ["init", "-q"], { cwd: target, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
   writeFileSync(join(target, "a.txt"), "a\n");
   const lockPath = join(createTempDir("working-copy-heavy-lock-"), "instrument.lock");
-  const runner: CheckoutCommandRunner = { ...supervisedRunner(), instrumentLock: { lockPath, pollIntervalMs: 50 } };
+  const runner: CheckoutCommandRunner = { ...supervisedRunner(), instrumentLock: { lockPath, perRun: { memoryMaxPercent: 50, cpuWeight: 100 } } };
   const counter = join(target, "..", `${String(process.pid)}-runs.txt`);
   // The command counts its runs (outside the checkout, so the tree it ran for does not change).
-  const command = { cwd: ".", argv: [process.execPath, "-e", `require("fs").appendFileSync(${JSON.stringify(counter)}, Date.now() + "\\n")`], timeoutMs: 1_000, holdsInstrumentLock: true as const };
-  // Another process holds the lock for longer than the command's whole timeout: the wait is not the command's.
-  const lockModule = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "filesystem", "file-lock.ts")).href;
-  const holder = spawn(process.execPath, ["-e", `import(${JSON.stringify(lockModule)}).then((m) => { const held = m.tryAcquireFileLock(${JSON.stringify(lockPath)}, { holder: "a validate" }); if (held.state !== "taken") process.exit(3); console.log("held"); setTimeout(() => { held.handle.release(); process.exit(0); }, 1500); })`], { stdio: ["ignore", "pipe", "inherit"] });
-  await new Promise<void>((resolveHeld) => holder.stdout.once("data", () => resolveHeld()));
-  const heldAt = Date.now();
-  const first = await runCheckoutCommand(target, "warm", command, runner);
-  assert.equal(first.status, "pass", first.message);
-  const runs = readFileSync(counter, "utf8").trim().split("\n").map(Number);
-  assert.equal(runs.length, 1, "it ran once");
-  assert.ok(runs[0]! >= heldAt + 1_400, `it started only after the lock was free (${String(runs[0]! - heldAt)} ms after the hold began)`);
-  const again = await runCheckoutCommand(target, "warm", command, runner);
-  assert.equal(again.status, "pass");
-  assert.match(again.message, /already run for this tree/u);
-  assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "the same tree is not run again");
-  writeFileSync(join(target, "a.txt"), "b\n");
-  assert.equal((await runCheckoutCommand(target, "warm", command, runner)).status, "pass");
-  assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 2, "another tree runs it");
-  rmSync(counter, { force: true });
+  const command = { cwd: ".", argv: [process.execPath, "-e", `require("fs").appendFileSync(${JSON.stringify(counter)}, Date.now() + "\\n")`], timeoutMs: 60_000, holdsInstrumentLock: true as const };
+  // Another admitted run is live for the whole test: the setup command runs beside it.
+  const lockModule = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "process", "instrument-lock.ts")).href;
+  const configModule = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "workflow", "workflow-config.ts")).href;
+  const holder = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `const m = await import(${JSON.stringify(lockModule)}); const c = await import(${JSON.stringify(configModule)}); m.admitInstrumentRun(${JSON.stringify(lockPath)}, "a validate", { memoryMaxPercent: 50, cpuWeight: 100 }, c.SUBPROCESS_BOUNDS); console.log("admitted"); setTimeout(() => process.exit(0), 60_000);`], { stdio: ["ignore", "pipe", "inherit"] });
+  try {
+    await new Promise<void>((resolveHeld) => holder.stdout.once("data", () => resolveHeld()));
+    const first = await runCheckoutCommand(target, "warm", command, runner);
+    assert.equal(first.status, "pass", first.message);
+    assert.equal(holder.exitCode, null, "it ran while the other run was still live: nothing waited");
+    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "it ran once");
+    const again = await runCheckoutCommand(target, "warm", command, runner);
+    assert.equal(again.status, "pass");
+    assert.match(again.message, /already run for this tree/u);
+    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "the same tree is not run again");
+    writeFileSync(join(target, "a.txt"), "b\n");
+    assert.equal((await runCheckoutCommand(target, "warm", command, runner)).status, "pass");
+    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 2, "another tree runs it");
+  } finally {
+    holder.kill("SIGKILL");
+    rmSync(counter, { force: true });
+  }
+});
+
+test("a heavy setup command's OWN nested admission BORROWS the run its checkout command was admitted under: owns nothing, inside the run's scope, under its caps (NO-LOAD-BLOCK; a nested admission that refused or took a run of its own would leave the outer cap)", async () => {
+  const target = gateRoot("working-copy-nested-admission-");
+  execFileSync("git", ["init", "-q"], { cwd: target, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+  writeFileSync(join(target, "a.txt"), "a\n");
+  const lockPath = join(createTempDir("working-copy-nested-lock-"), "instrument.lock");
+  const runner: CheckoutCommandRunner = { ...supervisedRunner(), instrumentLock: { lockPath, perRun: { memoryMaxPercent: 37, cpuWeight: 42 } } };
+  const answer = join(target, "..", `${String(process.pid)}-nested.json`);
+  const engine = join(import.meta.dirname, "..", "..");
+  const lockModule = pathToFileURL(join(engine, "src", "process", "instrument-lock.ts")).href;
+  const factsModule = pathToFileURL(join(engine, "src", "process", "process-facts.ts")).href;
+  const configModule = pathToFileURL(join(engine, "src", "workflow", "workflow-config.ts")).href;
+  // The checkout command itself is a nested heavy run (a validate's suite does exactly this): it admits on the same registry.
+  const script = [
+    `const { admitInstrumentRun, admittedRuns } = await import(${JSON.stringify(lockModule)});`,
+    `const { ownCgroupPath, ownCpuTimeLimit } = await import(${JSON.stringify(factsModule)});`,
+    `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(configModule)});`,
+    `const { readFileSync, writeFileSync } = await import("node:fs");`,
+    `const nested = admitInstrumentRun(${JSON.stringify(lockPath)}, "a nested suite", { memoryMaxPercent: 99, cpuWeight: 999 }, SUBPROCESS_BOUNDS);`,
+    "const cgroup = ownCgroupPath();",
+    `writeFileSync(${JSON.stringify(answer)}, JSON.stringify({ owns: nested.owns, cgroup, weight: readFileSync("/sys/fs/cgroup" + cgroup + "/cpu.weight", "utf8").trim(), limit: ownCpuTimeLimit(), runs: admittedRuns(${JSON.stringify(lockPath)}).length }));`,
+    "nested.release();",
+  ].join("\n");
+  const command = { cwd: ".", argv: [process.execPath, "--input-type=module", "-e", script], timeoutMs: 60_000, holdsInstrumentLock: true as const };
+  try {
+    const ran = await runCheckoutCommand(target, "nested", command, runner);
+    assert.equal(ran.status, "pass", ran.message);
+    const seen = JSON.parse(readFileSync(answer, "utf8")) as { owns: boolean; cgroup: string; weight: string; limit: { soft: string; hard: string }; runs: number };
+    assert.equal(seen.owns, false, "the nested admission borrows: it owns nothing");
+    assert.match(seen.cgroup, /\/bridlewise-run-[0-9a-f-]+\.scope$/u, "the nested run is inside the outer run's scope");
+    assert.equal(seen.weight, "42", "under the OUTER run's caps (its own requested 999 never applied)");
+    assert.deepEqual(seen.limit, { soft: String(SUBPROCESS_BOUNDS.cpuLimitSeconds), hard: String(SUBPROCESS_BOUNDS.cpuLimitSeconds + SUBPROCESS_BOUNDS.cpuKillGraceSeconds) }, "under the CPU-time limit");
+    assert.equal(seen.runs, 1, "one record: the outer run's; the nested admission wrote none");
+  } finally {
+    rmSync(answer, { force: true });
+  }
 });
 
 test("a gate-log line that grows past the bound with no end is WITHHELD whole, never split and never held without limit: the place says so, the rest of that line is discarded, and the next line is logged", async () => {

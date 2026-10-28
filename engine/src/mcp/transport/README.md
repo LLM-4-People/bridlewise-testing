@@ -30,16 +30,6 @@ served it. The agnostic machinery is shared; each transport is its own file.
   outbound policy and the configured headers ride the handshake.
 - `helpers.ts` — shared transport helpers.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/mcp/transport/`.
-
-- `helpers.ts` is consumed by `engine/src/mcp/transport/stdio.ts`.
-- `stdio.ts` is consumed by `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
-- `streamable-http.ts` is consumed by `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
-- `types.ts` is consumed by `engine/src/mcp/auth.ts`, `engine/src/mcp/config.ts`, `engine/src/mcp/core.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/transport/stdio.ts` and 2 more.
-- `websocket.ts` is consumed by `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
-
-<!-- /consumers:generated -->

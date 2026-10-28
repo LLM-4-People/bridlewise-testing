@@ -499,10 +499,6 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
     "engine/src/workflow/workspace-cli.ts resolves the workspaceGit section from the pinned config document once per command invocation (runWorkspaceCli) and threads timeouts.commitMs into the workspace merge commit (workspace-manager.ts merge: git.commit, whose hooks run the commit guard), so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves the resolution reads the configured commitMs from the pinned file",
   ],
   [
-    "testExecution.runtimeBudgetMs",
-    "engine/src/workflow/test-result-collector.ts resolves the testExecution section from the pinned config document once per runner invocation (readTestExecutionConfig :318-353, a fresh process per test run) and hands runtimeBudgetMs to the runner as the per-test kill timeout (:332, consumed by executeInventoryTestRun), so the honest timing is next-run; engine/test/workflow/test-execution-config.test.ts drives the real harness-test door consuming the section, and engine/test/workflow/inventory-test-run.test.ts pins the runner's bound consumption",
-  ],
-  [
     "testExecution.serialPhaseConcurrency",
     "engine/src/workflow/test-result-collector.ts resolves the testExecution section from the pinned config document once per runner invocation (readTestExecutionConfig :318-353) and threads serialPhaseConcurrency into the serial phase's tier scheduling (:333, consumed by buildSerialPhases), so the honest timing is next-run; engine/test/workflow/test-execution-config.test.ts drives the real harness-test door consuming the section",
   ],
@@ -517,10 +513,6 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
   [
     "testExecution.fullSuiteParallelConcurrency",
     "engine/src/workflow/test-result-collector.ts resolves the testExecution section from the pinned config document once per runner invocation (readTestExecutionConfig :318-353) and threads fullSuiteParallelConcurrency into the full suite's parallel phase lane count (:330-331), so the honest timing is next-run; engine/test/workflow/test-execution-config.test.ts drives the real harness-test door consuming the section",
-  ],
-  [
-    "harnessCommands.typecheckTimeoutMs",
-    "engine/src/workflow/harness-commands.ts resolves harness.typecheckTimeoutMs from the pinned config document once per command invocation (resolveTypecheckTimeoutMs :60-65, a fresh process per run) and bounds the typecheck subprocess with it (:1365), so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves resolveTypecheckTimeoutMs returns the configured value from the pinned file",
   ],
   [
     "harnessCommands.lockTimeoutMs",
@@ -650,14 +642,30 @@ test("enrichment sweep: every declared measuredBy resolves to a same-module regi
  * belonged to: a declaration that tells a generic renderer to format a value
  * as something it is not. Two mechanical rules over every registered signal.
  */
+/**
+ * Prose that names a point in time: "epoch", "instant", or "at" as a
+ * preposition of time. "At least" and "at most" are quantities, not instants:
+ * "not measured until at least one call is recorded" describes a duration's
+ * availability, and reading it as an instant misdeclared two correct timers.
+ */
+const DESCRIBES_AN_INSTANT = /epoch|instant|\bat\b(?!\s+(?:least|most)\b)/iu;
+
+test("the instant reading: a preposition of time is an instant; 'at least' and 'at most' are not", () => {
+  for (const instant of ["The epoch ms of the last edit.", "The instant the turn began.", "When the run started, at the wall clock."]) {
+    assert.ok(DESCRIBES_AN_INSTANT.test(instant), instant);
+  }
+  for (const quantity of ["Not measured until at least one call is recorded.", "Kept for at most an hour.", "The median duration of every call."]) {
+    assert.ok(!DESCRIBES_AN_INSTANT.test(quantity), quantity);
+  }
+});
+
 test("misdeclaration sweep: an epoch instant is typed `timestamp`, never a duration `timer`", () => {
   resetAllRegistrations();
   registerAllExposure();
   try {
     const misdeclared: string[] = [];
     for (const signal of listSignals()) {
-      const describesAnInstant =
-        /epoch|instant|\bat\b/i.test(signal.description) || /At$|lastUpdate$/.test(signal.id);
+      const describesAnInstant = DESCRIBES_AN_INSTANT.test(signal.description) || /At$|lastUpdate$/.test(signal.id);
       if (describesAnInstant && signal.type === "timer") {
         misdeclared.push(
           `${signal.id}: describes an instant but is typed "timer" — a renderer will format it as a duration`,

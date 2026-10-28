@@ -20,16 +20,18 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, closeSync, existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import test from "node:test";
 
 import { configuredWorktreeGitPort } from "../../../src/git/worktree-port.ts";
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
 import { answer } from "../../../src/workflow/promotion/codes.ts";
-import { promotionAuto, resolvePromotionContext } from "../../../src/workflow/promotion/context.ts";
+import { promotionAuto, resolvePromotionContext, resolveRepositoryContext } from "../../../src/workflow/promotion/context.ts";
 import { lastRunRecorder, openUnattendedLog, readLastRun } from "../../../src/workflow/promotion/last-run.ts";
-import { promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
+import { profileWorkDirectory, promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
+import { launchUnattendedApply } from "../../../src/workflow/promotion/trigger.ts";
+import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { runPromoteCli } from "../../../src/workflow/promotion/promote-cli.ts";
 import { renderCommandAnswer } from "../../../src/workflow/command-result.ts";
 import { PROMOTION_TRIGGER_HOOK, promotionTriggerHookText } from "../../../src/workflow/promotion/trigger-hook.ts";
@@ -99,7 +101,11 @@ test("T-T1: the trigger exits 0 in every state, with node absent and with a fail
   const broken = hookedRepository("promotion-trigger-broken", "#!/bin/sh\nset -e\n[ \"$1\" = committed ]\n");
   const blocked = broken.git(["commit", "-q", "--allow-empty", "-m", "a commit"], programs.path);
   assert.notEqual(blocked.status, 0);
-  assert.match(String(blocked.stderr), /ref updates aborted by hook/u);
+  // git names the abort in its own words, which differ by version ("ref updates aborted by hook" in 2.47, "in
+  // 'preparing' phase, update aborted by the reference-transaction hook" on the hosted runner's): the behaviour is the
+  // fact judged — no commit landed — and the words only say it was the hook (#149).
+  assert.match(String(blocked.stderr), /aborted by (?:the reference-transaction )?hook/u);
+  assert.notEqual(broken.git(["rev-parse", "--verify", "-q", "HEAD"], programs.path).status, 0, "the aborted commit did not land");
 });
 
 test("T-T2/T-T3: a push moving a remote-tracking ref starts `harness promote auto --refs <the ref>` in the background; ordinary commits, checkouts and the promoter's own fetch start nothing", () => {
@@ -145,7 +151,7 @@ test("T-T2: `auto` over the moved refs launches ONE unattended apply of the prof
   fixture.git(["symbolic-ref", "refs/remotes/origin/HEAD", `refs/remotes/origin/${SOURCE}`]);
   const launched: string[] = [];
   const result = promotionAuto(fixture.root, ` refs/remotes/origin/${SOURCE}\n refs/remotes/origin/prod\n refs/remotes/elsewhere/${SOURCE}\n refs/remotes/origin/HEAD`, fixture.document, (context, source) => {
-    launched.push(`${context.loaded.profile.name}@${source}`);
+    launched.push(`${context.profile}@${source}`);
     return 4242;
   }, {});
   assert.equal(result.code, "promotion_triggered", result.message);
@@ -197,6 +203,102 @@ test("T-T4: a profile whose previous run ended blocked gives exactly ONE notice 
   recorder.end(answer("promotion_published", "published", {}));
   assert.deepEqual((promotionAuto(fixture.root, ` refs/remotes/origin/${SOURCE}`, fixture.document, () => 1, {}).data as { notices: readonly string[] }).notices, [], "an ok run gives none");
   assert.equal(renderCommandAnswer(await runPromoteCli(fixture.root, ["auto", "--refs", ` refs/remotes/origin/${SOURCE}`], fixture.document, () => 1), "text"), "", "and prints nothing");
+});
+
+/** `fixture`'s source profile rewritten with `fields` (a newer schema the engine cannot read, a key it does not know), committed, published and fetched. */
+function publishProfile(fixture: PromotionFixture, fields: Readonly<Record<string, unknown>>, message: string): void {
+  const current = JSON.parse(fixture.git(["show", `${SOURCE}:${PROFILE_PATH}`])) as Record<string, unknown>;
+  fixture.commit(SOURCE, { [PROFILE_PATH]: json({ ...current, ...fields }) }, message);
+  fixture.publish(SOURCE);
+  fixture.git(["fetch", "-q", "origin"]);
+}
+
+test("#259/#121: a fetched ref's profiles are FILTERED by their trigger fields before anything judges them — a newer schema behind a manual trigger, or an unreadable profile on another ref, refuses nothing and prints nothing", async () => {
+  const never = () => assert.fail("nothing may be launched");
+  // A checkout behind main fetches a main whose (manual) profile is a schema this engine does not know.
+  const behind = triggered("promotion-auto-newer-manual", "manual");
+  publishProfile(behind, { schema: "bridlewise-promotion-profile/v999", futureField: { judged: "by its own code" } }, "a newer profile");
+  const quiet = await runPromoteCli(behind.root, ["auto", "--refs", ` refs/remotes/origin/${SOURCE}`], behind.document, never);
+  assert.equal(quiet.result.result.code, "promotion_not_due", quiet.result.result.message);
+  assert.equal(renderCommandAnswer(quiet, "text"), "", "the hook prints nothing on the fetcher's terminal");
+  assert.equal(quiet.exitCode, 0);
+  // #121: a PR ref holding an unreadable profile next to a real source move: the source move still triggers.
+  const host = triggered("promotion-auto-pr-ref");
+  const scratch = createTempDir("promotion-auto-pr-");
+  const prEnv = { GIT_INDEX_FILE: join(scratch, "index") };
+  writeFileSync(join(scratch, "profile.json"), "{ not json");
+  host.git(["read-tree", host.tip(SOURCE)], prEnv);
+  host.git(["update-index", "--add", "--cacheinfo", `100644,${host.git(["hash-object", "-w", join(scratch, "profile.json")])},${PROFILE_PATH}`], prEnv);
+  const prCommit = host.git(["commit-tree", host.git(["write-tree"], prEnv), "-p", host.tip(SOURCE), "-m", "a PR whose profile is unreadable"]);
+  host.git(["update-ref", "refs/remotes/pr/7", prCommit]);
+  const launched: string[] = [];
+  const both = promotionAuto(host.root, ` refs/remotes/pr/7\n refs/remotes/origin/${SOURCE}`, host.document, (pair, source) => { launched.push(`${pair.profile}@${source}`); return 1; }, {});
+  assert.equal(both.code, "promotion_triggered", both.message);
+  assert.deepEqual(launched, [`${PROFILE_NAME}@${host.tip(SOURCE)}`], "the unreadable profile ends nothing; the real source move triggers");
+  assert.deepEqual((both.data as { notices: readonly string[] }).notices, [], "a foreign ref's unreadable profile stays silent");
+});
+
+test("SECURITY (planted): a profile name is never a path until the schema's rule holds — `..`, an absolute path and an over-long name start nothing and touch nothing", () => {
+  const host = triggered("promotion-auto-name-escape");
+  const repository = resolveRepositoryContext(host.root, host.document);
+  const area = dirname(profileWorkDirectory(repository.registry, PROFILE_NAME));
+  const longName = `a${"b".repeat(63)}`;
+  const current = JSON.parse(host.git(["show", `${SOURCE}:${PROFILE_PATH}`])) as Record<string, unknown>;
+  const planted = {
+    [`${dirname(PROFILE_PATH)}/escape.json`]: json({ ...current, name: "../../../../escaped-dir" }),
+    [`${dirname(PROFILE_PATH)}/absolute.json`]: json({ ...current, name: join(createTempDir("promotion-auto-absolute-"), "escaped") }),
+    [`${dirname(PROFILE_PATH)}/${longName}.json`]: json({ ...current, name: longName }),
+  };
+  host.commit(SOURCE, planted, "profiles whose names are paths");
+  host.publish(SOURCE);
+  host.git(["fetch", "-q", "origin"]);
+  const launched: string[] = [];
+  const result = promotionAuto(host.root, ` refs/remotes/origin/${SOURCE}`, host.document, (pair) => { launched.push(pair.profile); return 1; }, {});
+  assert.deepEqual(launched, [PROFILE_NAME], `only the real profile starts: ${result.message}`);
+  assert.equal(existsSync(resolve(area, "../../../../escaped-dir")), false, "nothing is made where `..` points");
+  assert.equal(existsSync(join(area, longName)), false);
+  for (const name of ["../../../../escaped-dir", "/an/absolute/path", longName, "Upper", "a/b"]) {
+    assert.throws(() => profileWorkDirectory(repository.registry, name), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_profile_invalid", name);
+  }
+});
+
+test("SECURITY (planted): a link where the profile's folder belongs is refused before any log is made — the launch is that profile's notice, and nothing lands outside", () => {
+  const host = triggered("promotion-auto-folder-link");
+  const repository = resolveRepositoryContext(host.root, host.document);
+  const folder = profileWorkDirectory(repository.registry, PROFILE_NAME);
+  const outside = createTempDir("promotion-auto-outside-");
+  mkdirSync(dirname(folder), { recursive: true });
+  if (existsSync(folder)) renameSync(folder, `${folder}.set-aside`);
+  symlinkSync(outside, folder);
+  const result = promotionAuto(host.root, ` refs/remotes/origin/${SOURCE}`, host.document, launchUnattendedApply, {});
+  const notices = (result.data as { notices: readonly string[] }).notices;
+  assert.equal(notices.length, 1, result.message);
+  assert.match(notices[0]!, /could not be started/u);
+  assert.doesNotThrow(() => rmdirSync(outside), "no log, no sweep, nothing written through the link: the outside folder is still empty");
+});
+
+test("an unreadable profile on the HOST'S OWN source is said loudly: one notice, nothing started (a foreign ref's stays silent)", async () => {
+  const host = triggered("promotion-auto-host-unreadable");
+  host.commit(SOURCE, { [PROFILE_PATH]: "{ not json" }, "the host's profile breaks");
+  host.publish(SOURCE);
+  host.git(["fetch", "-q", "origin"]);
+  // HEAD is still the checkout's own (readable) commit: it names what this checkout hosts.
+  host.git(["checkout", "-q", "--detach", `${SOURCE}~1`]);
+  const never = () => assert.fail("nothing may be launched");
+  const answered = await runPromoteCli(host.root, ["auto", "--refs", ` refs/remotes/origin/${SOURCE}`], host.document, never);
+  const text = renderCommandAnswer(answered, "text");
+  assert.match(text, new RegExp(`^promotion ${PROFILE_NAME}: origin/${SOURCE} moved to [0-9a-f]{40}, whose ${PROFILE_NAME} profile cannot be read`, "u"));
+  assert.equal(text.trim().split("\n").length, 1, "one line");
+});
+
+test("#259: the host's own source move with a profile this engine cannot judge still starts its promotion — the run, the source's own code, judges it", () => {
+  const host = triggered("promotion-auto-newer-host");
+  publishProfile(host, { schema: "bridlewise-promotion-profile/v999" }, "a newer profile on the host's source");
+  const launched: { profile: string; workDirectory: string; source: string }[] = [];
+  const result = promotionAuto(host.root, ` refs/remotes/origin/${SOURCE}`, host.document, (pair, source) => { launched.push({ profile: pair.profile, workDirectory: pair.workDirectory, source }); return 1; }, {});
+  assert.equal(result.code, "promotion_triggered", result.message);
+  assert.deepEqual(launched.map((entry) => [entry.profile, entry.source]), [[PROFILE_NAME, host.tip(SOURCE)]]);
+  assert.equal(basename(launched[0]!.workDirectory), PROFILE_NAME, "the pair names the profile's own private directory");
 });
 
 test("M3 (PROMO-3+4-FIX): an unattended run's log lives as long as the record that may point at it — a launch removes only the logs older than the record's start, never the record's own, never a newer one", () => {

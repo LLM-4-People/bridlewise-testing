@@ -1,5 +1,5 @@
 {
-  "schema": "bridlewise-promotion-profile/v3",
+  "schema": "bridlewise-promotion-profile/v4",
   "name": "main-to-product",
   "source": {
     "ref": "refs/heads/main"
@@ -76,6 +76,7 @@
       "engine/.gitignore",
       ".githooks/",
       "engine/README.md",
+      "engine/docs/registration-procedure.md",
       "scripts/trace.ts"
     ],
     "exclude": [
@@ -123,11 +124,25 @@
       "folder": "product-only/",
       "kinds": [
         "*.md",
-        "Makefile"
+        "*.txt"
       ]
     }
   },
   "transforms": [
+    {
+      "kind": "makefile",
+      "path": "Makefile",
+      "targets": [
+        "install",
+        "typecheck",
+        "build",
+        "guardian",
+        "dev",
+        "status",
+        "stop",
+        "clean"
+      ]
+    },
     {
       "kind": "package-manifest",
       "path": "package.json",

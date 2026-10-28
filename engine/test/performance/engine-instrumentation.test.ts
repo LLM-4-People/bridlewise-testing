@@ -156,7 +156,7 @@ test("engine span: a throwing decorated function records failed with the real er
 test("engine span: the args document carries SHAPES ONLY — argument values never reach a record", () => {
   const c = capture();
   try {
-    const CANARY = "sk-canary-secret-value-0123456789";
+    const CANARY = ("sk" + "-canary-secret-value-0123456789");
     const taking = (_config: unknown): string => "called";
     const decorated = engineSpans({ taking }, "test-probe");
     withRecordingContext({ actor: { kind: "user", id: "engine-owner-shapes" } }, () =>

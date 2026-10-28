@@ -19,6 +19,7 @@ import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, prepareOutboundRequest, readBody } from "../../shared/outbound-http.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
+import { FORGE_REFUSAL_TEXT } from "./forge-config.ts";
 import {
   GITHUB_API_VERSION,
   GITHUB_JSON_MEDIA_TYPE,
@@ -142,13 +143,22 @@ type ErrorBody = Readonly<{ message: string; documentationUrl: string | undefine
 
 function errorBodyOf(text: string): ErrorBody {
   const parsed = parseJsonExact(text)?.value;
-  if (typeof parsed !== "object" || parsed === null) return { message: text.slice(0, 300), documentationUrl: undefined, errors: [] };
+  if (typeof parsed !== "object" || parsed === null) return { message: text.slice(0, FORGE_REFUSAL_TEXT.bodyExcerptChars), documentationUrl: undefined, errors: [] };
   const body = parsed as Record<string, unknown>;
-  const errors = Array.isArray(body.errors) ? body.errors.map((entry) => typeof entry === "string" ? entry : JSON.stringify(entry)).slice(0, 20) : [];
+  const errors = Array.isArray(body.errors) ? body.errors.map((entry) => typeof entry === "string" ? entry : JSON.stringify(entry)).slice(0, FORGE_REFUSAL_TEXT.errorEntries) : [];
   return {
     message: typeof body.message === "string" ? body.message : "",
     documentationUrl: typeof body.documentation_url === "string" ? body.documentation_url : undefined,
     errors,
+  };
+}
+
+/** GitHub's own words from a refusal's facts, for its warning log line (its message and validation errors; no secret). */
+function githubWords(refusal: ForgeError): Readonly<Record<string, string>> {
+  const facts = refusal.facts as Readonly<{ message?: unknown; errors?: unknown }>;
+  return {
+    githubMessage: typeof facts.message === "string" ? facts.message : "",
+    githubErrors: Array.isArray(facts.errors) ? facts.errors.join("; ") : "",
   };
 }
 
@@ -162,7 +172,10 @@ export function classifyGithubAnswer(status: number, headers: Headers, bodyText:
   const rate = rateFactsOf(headers);
   const retryAfter = numberHeader(headers, "retry-after");
   const base = { status, path, method, message: body.message, ...(body.documentationUrl === undefined ? {} : { documentationUrl: body.documentationUrl }), ...(body.errors.length === 0 ? {} : { errors: body.errors }) };
-  const raise = (code: ForgeCode, text: string, extra: Readonly<Record<string, string | number>> = {}): ForgeError => new ForgeError(code, `${method} ${path}: ${text}`, { ...base, ...extra });
+  // GitHub's own words (its message and each validation error: resource, field, code) carry no secret, and an operator
+  // needs them to know WHICH field was refused: they are in the error's text, not only its facts.
+  const said = body.message === "" && body.errors.length === 0 ? "" : ` GitHub: ${JSON.stringify(body.message)}${body.errors.length === 0 ? "" : ` errors: ${body.errors.join("; ")}`}.`;
+  const raise = (code: ForgeCode, text: string, extra: Readonly<Record<string, string | number>> = {}): ForgeError => new ForgeError(code, `${method} ${path}: ${text}${said}`, { ...base, ...extra });
   if (status === 401) return raise("github_unauthorized", "GitHub refused the credential.");
   if (status === 403 || status === 429) {
     if (rate.remaining === 0) return raise("github_rate_limited", "the primary rate limit is spent.", rate.resetAt === undefined ? {} : { resetAt: rate.resetAt });
@@ -267,7 +280,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
       const text = await readBody(response, lifetime.signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY);
       if (response.status < 200 || response.status >= 300) {
         const refusal = classifyGithubAnswer(response.status, response.headers, text, method, path);
-        debugLog(FORGE_LOG_CATEGORY, "warn", refusal.forgeCode, () => ({ principal: credential.principal, method, path, status: response.status, requestId: requestId ?? "" }));
+        debugLog(FORGE_LOG_CATEGORY, "warn", refusal.forgeCode, () => ({ principal: credential.principal, method, path, status: response.status, requestId: requestId ?? "", ...githubWords(refusal) }));
         throw refusal;
       }
       const data = parseBody(text, method, path);
@@ -322,7 +335,7 @@ function classifyGraphqlErrors(errors: readonly unknown[]): ForgeError {
   const first = (errors[0] ?? {}) as { type?: unknown; message?: unknown };
   const type = typeof first.type === "string" ? first.type : "";
   const message = typeof first.message === "string" ? first.message : "";
-  const facts = { path: "/graphql", type, message, errors: errors.slice(0, 20).map((entry) => JSON.stringify(entry)) };
+  const facts = { path: "/graphql", type, message, errors: errors.slice(0, FORGE_REFUSAL_TEXT.errorEntries).map((entry) => JSON.stringify(entry)) };
   const code: ForgeCode = type === "RATE_LIMITED" ? "github_rate_limited"
     : SECONDARY_LIMIT.test(message) ? "github_content_budget_exhausted"
       : PLAN_REFUSAL.test(message) ? "unavailable_on_plan"

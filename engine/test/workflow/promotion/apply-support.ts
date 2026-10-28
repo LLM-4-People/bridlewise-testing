@@ -17,7 +17,7 @@ import { PromotionError, type PromotionAnswer, type PromotionCode } from "../../
 import { applyPromotion } from "../../../src/workflow/promotion/apply.ts";
 import { resolvePromotionContext, type PromotionDocument } from "../../../src/workflow/promotion/context.ts";
 import { promotionFolder, promotionRefs, type ApplyRequest, type ApplyRun } from "../../../src/workflow/promotion/promotion-run.ts";
-import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { FIXTURE_ENGINE, FIXTURE_GENERATED, PROFILE_NAME, SOURCE, promotionFixture, type FixtureOptions, type PromotionFixture } from "./promotion-fixture.ts";
 
 export type ApplyOptions = Readonly<{
@@ -35,14 +35,13 @@ export function documentOf(fixture: PromotionFixture, preserve: boolean): Promot
   return { ...fixture.document, workspaceIsolation: { ...fixture.document.workspaceIsolation!, preserveOnFailure: preserve } };
 }
 
-/** `apply` over the fixture (`--no-publish` unless the request says otherwise), run in this process (the promoter home is `promoter-home.test.ts`'s). */
-export async function apply(fixture: PromotionFixture, options: ApplyOptions = {}): Promise<PromotionAnswer> {
+/** The build run a fixture's promotion uses in this process: the test supervisor, the fixture's generated outputs, its engine folder, and its plan. */
+export function fixtureRun(fixture: PromotionFixture, options: ApplyOptions = {}): ApplyRun {
   const document = documentOf(fixture, options.preserve === true);
-  const context = resolvePromotionContext(options.from ?? fixture.root, PROFILE_NAME, SOURCE, document);
-  return applyPromotion(context, { acceptTargetEdits: null, allowDeletions: false, releaseHold: false, reason: null, noPublish: true, noPush: false, auto: false, ...options.request }, {
+  return {
     git: configuredWorktreeGitPort(document),
     runner: {
-      supervisor: testProcessSupervisorBinary(),
+      supervisor: ensureTestProcessSupervisor(),
       killGraceMs: 500,
       outputCharacters: 4_000,
       retries: { retries: options.retries ?? 1, backoffMs: 7, sleep: async (ms) => { options.waits?.push(ms); } },
@@ -53,7 +52,14 @@ export async function apply(fixture: PromotionFixture, options: ApplyOptions = {
     toolchain: { node: process.version },
     plan: (reconciled) => fixture.plan({ source: reconciled.source, target: reconciled.target }),
     ...options.run,
-  });
+  };
+}
+
+/** `apply` over the fixture (`--no-publish` unless the request says otherwise), run in this process (the promoter home is `promoter-home.test.ts`'s). */
+export async function apply(fixture: PromotionFixture, options: ApplyOptions = {}): Promise<PromotionAnswer> {
+  const document = documentOf(fixture, options.preserve === true);
+  const context = resolvePromotionContext(options.from ?? fixture.root, PROFILE_NAME, SOURCE, document);
+  return applyPromotion(context, { acceptTargetEdits: null, allowDeletions: false, releaseHold: false, reason: null, noPublish: true, noPush: false, auto: false, ...options.request }, fixtureRun(fixture, options));
 }
 
 /** The refusal `apply` throws (a PromotionError), asserted to carry `code`. */

@@ -162,7 +162,7 @@ test("L13: --text renders the answer as a report (code, class, message, remedy, 
   assert.equal(outcome.exitCode, 2);
   const text = renderCommandAnswer(outcome, "text");
   assert.match(text, /^promotion_usage \(input\): an override \(--accept-target-edits, --allow-deletions, --release-hold\) needs --reason <text>/u);
-  assert.match(text, /\nremedy: Run `harness promote <status\|plan\|explain\|apply\|rollback\|hold\|release-hold\|auto>/u);
+  assert.match(text, /\nremedy: Run `harness promote <status\|plan\|explain\|apply\|forge-publish\|verify\|rollback\|hold\|release-hold\|auto>/u);
   assert.deepEqual(JSON.parse(renderCommandAnswer(outcome, "json")), JSON.parse(JSON.stringify(outcome.result)), "the default: the envelope");
   // The format is the harness dispatch's one option, never a verb's argument.
   assert.equal((await runPromoteCli(process.cwd(), ["status", "--text"])).result.result.code, "promotion_usage");

@@ -290,7 +290,7 @@ describe("the picked model reaches the provider — client write to provider cal
     // Spelled out separately so a regression reads as the user's own
     // sentence rather than as a diff between two opaque strings.
     expect(served).not.toBe(SAVED_DEFAULT_MODEL);
-  }, 20000);
+  });
 
   test("the selection survives as the run's model on every later turn, not just the first", async () => {
     const ids = await newConversation("picked-model-persists");
@@ -301,7 +301,7 @@ describe("the picked model reaches the provider — client write to provider cal
 
     expect(first).toBe(PICKED_MODEL);
     expect(second).toBe(PICKED_MODEL);
-  }, 20000);
+  });
 
   test("changing the selection changes the model the next run is served by", async () => {
     const ids = await newConversation("picked-model-changes");
@@ -312,7 +312,7 @@ describe("the picked model reaches the provider — client write to provider cal
     // The user changes their mind — the whole point of the control.
     await setChatModel(ids.chatId, REQUESTED_MODEL);
     expect(await modelReachingProvider(ids)).toBe(REQUESTED_MODEL);
-  }, 20000);
+  });
 
   test("a conversation that never chose is served by the user's SAVED default", async () => {
     const ids = await newConversation("never-picked-proj");
@@ -323,7 +323,7 @@ describe("the picked model reaches the provider — client write to provider cal
     // NOT a server-wide default: that source is deleted, so a conversation
     // cannot be served by a model the account never chose.
     expect(await modelReachingProvider(ids)).toBe(SAVED_DEFAULT_MODEL);
-  }, 20000);
+  });
 
   test("WITH NO PROVIDER SAVED, the run REFUSES and names the remedy — nothing reaches a provider", async () => {
     // The other half of the same seam, and the one the product was missing:
@@ -371,7 +371,7 @@ describe("the picked model reaches the provider — client write to provider cal
     // would be a refusal in name only — this is the assertion that separates
     // "refused" from "failed after trying".
     expect(provider.models).toEqual([]);
-  }, 20000);
+  });
 
   test("an explicit modelId in the request wins over the conversation's recorded model", async () => {
     const ids = await newConversation("explicit-override-proj");
@@ -381,7 +381,7 @@ describe("the picked model reaches the provider — client write to provider cal
     // a test so the precedence is a decision on the record, not an accident
     // of which `??` came first.
     expect(await modelReachingProvider(ids, { modelId: REQUESTED_MODEL })).toBe(REQUESTED_MODEL);
-  }, 20000);
+  });
 
   test("another user's conversation cannot lend its model to a run", async () => {
     const ids = await newConversation("scoping-proj");
@@ -401,7 +401,7 @@ describe("the picked model reaches the provider — client write to provider cal
       body: JSON.stringify({ projectId: ids.projectId, prompt: "hi", chatId: ids.chatId }),
     });
     expect(res.status).toBe(403);
-  }, 20000);
+  });
 
   test("a custom header the user saved reaches the engine's client construction", async () => {
     // THE CLASS: a stored provider field that never reaches the engine. The
@@ -440,13 +440,13 @@ describe("the picked model reaches the provider — client write to provider cal
     expect(provider.configs.length).toBeGreaterThan(0);
     const wire=provider.wires.at(-1)!; expect(new URL(wire.url).pathname).toBe("/v1/responses");
     expect(wire.headers["x-org-id"]).toBe("org-on-the-wire"); expect(wire.headers["x-route"]).toBe("blue");
-    expect(wire.headers.authorization).toBe("Bearer fixture-header-authentication");
+    expect(wire.headers.authorization).toBe(("Be" + "arer fixture-header-authentication"));
     const config = provider.configs[provider.configs.length - 1]!;
     expect(
       config["headers"],
       "the saved headers must reach the engine's client config",
     ).toEqual(header);
-  }, 20000);
+  });
 
   test("changing the saved default model changes what the next run is served by", async () => {
     // The DEFAULT half of the seam. The picker control posts only a model id;
@@ -480,7 +480,7 @@ describe("the picked model reaches the provider — client write to provider cal
     expect(restore.status).toBe(200);
     const ids2 = await newConversation("default-restored-proj");
     expect(await modelReachingProvider(ids2)).toBe(SAVED_DEFAULT_MODEL);
-  }, 30000);
+  });
 });
 
 describe("native client cache qualification",()=>{

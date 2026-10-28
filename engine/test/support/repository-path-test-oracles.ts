@@ -7,6 +7,7 @@ import {
   deriveCaseFoldingAuthority,
   deriveRepositoryPathUnicodeFoundation,
   parsePathPolicySourceManifest,
+  readPathPolicySource,
   parseUnicodePathSourceManifest,
   runRepositoryPathUnicodeGenerator,
   type UnicodePathSourceManifest,
@@ -69,8 +70,10 @@ const GIT_PATH_SOURCE = GIT_SOURCE_AUTHORITY.sources.find((source) => source.ups
 const GIT_TEST_SOURCE = GIT_SOURCE_AUTHORITY.sources.find((source) =>
   source.upstreamPath === "t/t0060-path-utils.sh"
 )!;
-const GIT_PATH_TEXT = readFileSync(`${ROOT}${GIT_PATH_SOURCE.path}`, "utf8");
-const GIT_TEST_TEXT = readFileSync(`${ROOT}${GIT_TEST_SOURCE.path}`, "utf8");
+// Fetched for testing (`npm run corpus:fetch`), read and verified through the
+// one reader: absent or off its pin is a typed refusal naming the fetch.
+const GIT_PATH_TEXT = readPathPolicySource(ROOT, GIT_PATH_SOURCE).toString("utf8");
+const GIT_TEST_TEXT = readPathPolicySource(ROOT, GIT_TEST_SOURCE).toString("utf8");
 const CONFIG = CONFIG_DOCUMENT_SCHEMA.parse(JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as unknown);
 const LIMITS: RepositoryPathLimits = CONFIG.repositoryPaths.limits;
 const LIMITS_INSPECTOR = createRepositoryPathInspector(LIMITS);

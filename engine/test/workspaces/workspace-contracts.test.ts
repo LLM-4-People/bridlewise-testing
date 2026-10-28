@@ -70,7 +70,7 @@ function makeRecord(): WorkspaceRecord {
     mergeReceipt: null,
     abortReason: null,
     history: [deepFreeze({ from: "admitted", to: "active", at: "2026-07-19T00:00:00.000Z", reason: "created" })],
-    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false }),
+    forge: deepFreeze({ remote: "origin", trunk: "main", pullRequest: null, publishedHead: null, ready: false, land: null, stackedOn: null }),
     revision: 1,
   });
 }
@@ -89,7 +89,7 @@ function makeUnsignedReceipt(): UnsignedMergeReceipt {
     landing: "fast-forward",
     landedIn: "/home/user/bridlewise-testing",
     changedPaths: ["src/x.ts"],
-    regeneratedPaths: ["engine/src/architecture-manifest.ts"],
+    regeneratedPaths: ["engine/src/architecture-modules.ts"],
     resolvedConflicts: [],
     importedRuns: ["engine/.bridlewise/state/test-results/run-history.json: 1"],
     timelineImportedEvents: 3,
@@ -229,9 +229,9 @@ test("canonicalizeWriteSetPath rejects traversal and absolute paths", () => {
 
 test("assertLeasableWriteSet refuses the wholly generated outputs (derived) and never-source segments", () => {
   for (const path of [
-    "engine/src/architecture-manifest.ts",
+    "engine/traceability/artifacts/manifest.json",
     "engine/traceability/config-document-schema.json",
-    "engine/src",
+    "engine/traceability",
     "engine",
     ".bridlewise/state",
     "engine/.bridlewise/state/x.json",
@@ -243,9 +243,10 @@ test("assertLeasableWriteSet refuses the wholly generated outputs (derived) and 
   }
 });
 
-test("assertLeasableWriteSet leases authored files that carry generated parts: pin-bearing sources, the dispositions, READMEs", () => {
+test("assertLeasableWriteSet leases authored files that carry generated parts: pin-bearing sources, the module entries, the dispositions, READMEs", () => {
   assert.doesNotThrow(() => assertLeasableWriteSet([
     "engine/src/kernel/root-policy.ts",
+    "engine/src/architecture-modules.ts",
     "engine/traceability/test-surface-dispositions.json",
     "engine/src/workflow/README.md",
     "engine/traceability/requirements.json",
@@ -273,7 +274,11 @@ test("the forge state: a feature workspace has one and a read-only one none; the
   const published = { ...forge, pullRequest: { number: 7, url: "https://forge.test/pull/7" }, publishedHead: SHA_B };
   assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: published }));
   assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), forge: { ...published, ready: true } }));
+  assert.doesNotThrow(() => parseWorkspaceRecord({ ...makeRecord(), state: "merging", forge: { ...published, ready: true, land: { head: SHA_B } } }), "a land in flight of the published, ready head");
   for (const [broken, why] of [
+    [{ ...makeRecord(), forge: { ...published, land: { head: SHA_B } } }, "a land of a head never readied"],
+    [{ ...makeRecord(), forge: { ...published, ready: true, land: { head: SHA_A } } }, "a land of another head than the published one"],
+    [{ ...makeRecord(), forge: { ...forge, land: undefined } }, "a forge state without its land field"],
     [{ ...makeRecord(), forge: null }, "a feature workspace without a forge state"],
     [{ ...makeRecord(), lease: readOnly, forge }, "a read-only workspace with a forge state"],
     [{ ...makeRecord(), forge: { ...forge, publishedHead: SHA_B } }, "a published head without a pull request"],

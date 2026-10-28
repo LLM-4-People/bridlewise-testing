@@ -1,0 +1,51 @@
+{
+  "kind": "issue-field",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Area",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Area",
+    "data_type": "single_select",
+    "visibility": "organization_members_only",
+    "description": "Where it lives (the areas table)",
+    "options": [
+      {
+        "name": "engine",
+        "color": "gray",
+        "priority": 1
+      },
+      {
+        "name": "forge",
+        "color": "gray",
+        "priority": 2
+      },
+      {
+        "name": "server",
+        "color": "gray",
+        "priority": 3
+      },
+      {
+        "name": "web",
+        "color": "gray",
+        "priority": 4
+      },
+      {
+        "name": "docs",
+        "color": "gray",
+        "priority": 5
+      },
+      {
+        "name": "ci",
+        "color": "gray",
+        "priority": 6
+      },
+      {
+        "name": "tests",
+        "color": "gray",
+        "priority": 7
+      }
+    ]
+  }
+}

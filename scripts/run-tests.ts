@@ -58,7 +58,7 @@
  * Usage: `npm test` (any arguments are passed through to vitest).
  */
 
-import { testProcessSupervisorBinary } from "../engine/guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../engine/guardian/build.ts";
 import { superviseCommand, supervisedEndingLines, type SupervisedCommand } from "../engine/src/process/supervised-run.ts";
 import { reportLauncherStop, watchLauncher } from "../engine/scripts/tooling/launcher-watch.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../engine/src/filesystem/temporary-root.ts";
@@ -70,7 +70,7 @@ import { ROOT_POLICY } from "../engine/src/kernel/root-policy.ts";
 import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { supervisedCommandOutcome, finalizeQualifiedRun, qualificationInvocation, qualificationTerminal, runForInvocation, QUALIFICATION_INVOCATION_ENV, WEB_RUN_HISTORY_PATH } from "../engine/src/shared/run-history.ts";
 import { readMeasuredTree } from "../engine/src/shared/tree-identity.ts";
-import { asLockDoor, enforceTestRunLock, testFileCountOfArgs } from "../engine/scripts/tooling/test-run-lock.ts";
+import { enforceTestRunLock, testFileCountOfArgs } from "../engine/scripts/tooling/test-run-lock.ts";
 import { resolve } from "node:path";
 
 const projectDir = process.cwd();
@@ -205,7 +205,7 @@ export async function superviseRun(
     }, options.watchIntervalMs ?? WATCH_INTERVAL_MS)
     : () => undefined;
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(),
+    supervisor: ensureTestProcessSupervisor(),
     command,
     args,
     hardCeilingMs: watchdog.hardCeilingMs,
@@ -258,12 +258,15 @@ async function main(): Promise<void> {
   const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../engine/", import.meta.url)));
   if (keptOut !== undefined) {
     process.stderr.write(`[run-tests] REFUSED (temporary_root_kept_out) — ${keptOut}\n`);
-    process.exit(1);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
+    process.exitCode = 1;
+    return;
   }
   const watchdog = readWebSuiteWatchdog();
   if ("missing" in watchdog) {
     process.stderr.write(`[run-tests] ${watchdog.missing}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const strays = strayVitest();
   if (strays.length > 0) {
@@ -271,12 +274,18 @@ async function main(): Promise<void> {
       `[run-tests] ${String(strays.length)} orphaned vitest process(es) of this project are still running (not stopped: this run did not start them): ${strays.join(", ")}\n`,
     );
   }
-  // THE HOST'S ONE INSTRUMENT LOCK (engine/src/process/instrument-lock.ts):
-  // the whole web suite (or any run of the configured number of files) waits
-  // for it, saying who holds it; a targeted run of fewer files takes nothing.
-  // vitest's own global setup then runs inside this hold, and the supervisor
-  // that runs vitest is adopted into it.
-  const instrumentLock = await enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
+  // The native supervisor vitest runs under is BUILT HERE, before the run, as the engine runner builds it: every
+  // later caller (this runner's launch, a test's nested run) only resolves it, so nothing compiles into the live
+  // tree mid-run (#293).
+  ensureTestProcessSupervisor();
+  // HEAVY-RUN ADMISSION (engine/src/process/instrument-lock.ts): the whole web
+  // suite (or any run of the configured number of files) is admitted at once,
+  // and this process enters the run's caps (its cgroup scope and CPU-time
+  // limit), so vitest and every worker are born under them; nothing waits for
+  // another run. A targeted run of fewer files records nothing. vitest's own
+  // global setup borrows this run, and the supervisor that runs vitest is
+  // adopted into its record.
+  const instrumentLock = enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   const invocationId = qualificationInvocation(process.env);
   const tree = readMeasuredTree(projectDir);
   const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
@@ -292,21 +301,25 @@ async function main(): Promise<void> {
   if (runForInvocation(history, invocationId) !== undefined) {
     if (tree === null || readMeasuredTree(projectDir) !== tree) {
       process.stderr.write("[run-tests] current qualification tree changed or is unreadable\n");
-      process.exit(1);
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
     }
     try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, run.terminal, run.ending)); }
     catch {
       process.stderr.write("[run-tests] current qualification finalization refused\n");
-      process.exit(1);
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
     }
   }
   instrumentLock.release();
-  process.exit(completion.kind === "pass" ? run.exitCode : 1);
+  process.exitCode = completion.kind === "pass" ? run.exitCode : 1;
 }
 
 // Only run when invoked as a script, so the tests above can import the
 // stray finder without launching a suite.
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  await asLockDoor(main);
+  await main();
 }

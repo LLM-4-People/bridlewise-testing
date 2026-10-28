@@ -1,23 +1,28 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
+  readExternalCommandSources,
   verifyArchitectureSources,
   verifyExternalCommands,
   type ArchitectureSource,
 } from "../../scripts/verification/architecture.ts";
 import {
   ARCHITECTURE_MANIFEST,
+  architectureManifestOf,
   EMPTY_COMPOSITION_ROOTS,
   type ArchitectureExternalCommand,
   type ArchitectureManifest,
 } from "../../src/architecture-manifest.ts";
 import {
+  externalCommandSourceFinding,
   PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
   publishedExternalCommandPopulationHash,
 } from "../../src/kernel/architecture-external-commands.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
+import { createTempDir } from "../support/temp-dir.ts";
 
 // Regression coverage for MAJOR finding M2: `verifyExternalCommands` must
 // read each external command's source from disk (provided by the caller as
@@ -50,10 +55,10 @@ function makeExternalCommand(overrides: Partial<ArchitectureExternalCommand> = {
 
 function makeManifest(externalCommands: readonly ArchitectureExternalCommand[]): ArchitectureManifest {
   return {
-    schemaVersion: "bridlewise-architecture-manifest/v3",
+    schemaVersion: "bridlewise-architecture-manifest/v5",
     sourceRoots: ["scripts/", "src/", "verification/"],
-    graphPolicy: "exact-registered-edges-no-cycles",
-    publicApiPolicy: "exact-declared-export-name-hash",
+    graphPolicy: "derived-edges-no-cycles",
+    publicApiPolicy: "derived-from-source-never-committed",
     analysisLimits: { maximumSourceBytes: 1_048_576, maximumAstNodes: 100_000 },
     responsibilityPolicy: "one-registered-cohesive-owner-per-responsibility",
     physicalLayoutStatus: "open-blocking-architecture-v1-migration-required",
@@ -238,7 +243,7 @@ test("architecture-external-commands: real repository matches the manifest and i
     sources.push({ path: command.path, source: readFileSync(command.path, "utf8") });
   }
   assert.ok(notPublished.length > 0, "the declared not-published set is empty — the boundary assertion would be vacuous");
-  const result = verifyArchitectureSources([], ARCHITECTURE_MANIFEST, sources);
+  const result = verifyArchitectureSources([], architectureManifestOf([]), sources);
   const boundaryViolations = result.violations.filter((violation) =>
     violation.startsWith("architecture-external-command-source-not-published:"));
   assert.deepEqual(
@@ -250,4 +255,44 @@ test("architecture-external-commands: real repository matches the manifest and i
     violation.startsWith("architecture-external-command-source-") &&
     !violation.startsWith("architecture-external-command-source-not-published:"));
   assert.deepEqual([...publishedViolations], [], "every published source must match its manifest hash");
+});
+
+// THE ONE PUBLICATION RULE: every reader (this verifier, the command-effect
+// inventory, harness check, S1) classes a source through
+// `externalCommandSourceFinding`, so its four outcomes are pinned here once.
+test("architecture-external-commands: the one publication rule names every outcome", () => {
+  const published = makeExternalCommand();
+  const notPublished = makeExternalCommand({ publication: "not-published" });
+  assert.deepEqual(externalCommandSourceFinding(published, PYTHON_SOURCE), { kind: "current" });
+  assert.deepEqual(externalCommandSourceFinding(published, `${PYTHON_SOURCE}\n`), {
+    kind: "hash-drift",
+    violation: `architecture-external-command-source-hash-drift:${published.path}`,
+  });
+  assert.deepEqual(externalCommandSourceFinding(published, undefined), {
+    kind: "missing",
+    violation: `architecture-external-command-source-missing:${published.path}`,
+  });
+  assert.deepEqual(externalCommandSourceFinding(notPublished, undefined), {
+    kind: "declared-absent",
+    violation: `architecture-external-command-source-not-published:${notPublished.path}`,
+  });
+  assert.deepEqual(externalCommandSourceFinding(notPublished, PYTHON_SOURCE), {
+    kind: "unexpectedly-published",
+    violation: `architecture-external-command-source-unexpectedly-published:${notPublished.path}`,
+  });
+});
+
+test("architecture-external-commands: the one reader leaves absence to the rule and refuses an unreadable source", () => {
+  const root = createTempDir("external-command-reader-");
+  const present = makeExternalCommand();
+  const absent = makeExternalCommand({ id: "absent", path: "verification/benchmarks/absent/command.py" });
+  const invalid = makeExternalCommand({ id: "invalid", path: "verification/benchmarks/test/invalid.py" });
+  mkdirSync(join(root, "verification/benchmarks/test"), { recursive: true });
+  writeFileSync(join(root, present.path), PYTHON_SOURCE);
+  writeFileSync(join(root, invalid.path), Buffer.from([0xff, 0xfe]));
+  const violations: string[] = [];
+  const sources = readExternalCommandSources(root, makeManifest([absent, invalid, present]), violations);
+  assert.deepEqual(sources, [{ path: present.path, source: PYTHON_SOURCE }]);
+  assert.equal(violations.length, 1, JSON.stringify(violations));
+  assert.ok(violations[0]!.startsWith(`architecture-external-command-source-unreadable:${invalid.path}:`), violations[0]);
 });

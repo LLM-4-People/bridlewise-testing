@@ -17,9 +17,8 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
-import { createConnection } from "node:net";
 import { ownedChild, ownedSelf, type OwnedProcess } from "../engine/src/process/process-facts.ts";
-import { DEV_PID_DIRECTORY, devPidfilePath, removeDevPidfile, stopDevGroup, writeDevPidfile } from "./dev-processes.ts";
+import { DEV_PID_DIRECTORY, devPidfilePath, portAnswers, removeDevPidfile, stopDevGroup, writeDevPidfile } from "./dev-processes.ts";
 
 // Align with the server config owner (server/config.ts reads HARNESS_WEB_PORT,
 // default 5174) so the port-busy precheck targets the port the API server will
@@ -84,7 +83,8 @@ async function shutdown(code: number): Promise<void> {
   }
 
   removeDevPidfile(devPidfilePath("parent"));
-  process.exit(exitCode);
+  // Every child is stopped; the loop drains. Never `process.exit()`, which can deadlock at shutdown (Node #54918, #351).
+  process.exitCode = exitCode;
 }
 
 process.on("SIGINT", () => shutdown(0));
@@ -94,36 +94,31 @@ process.on("SIGTERM", () => shutdown(0));
  * Pre-check: refuse to start if the API or web port is already in use. A
  * busy port would make a child fail to bind and crash mid-shutdown (a
  * confusing exit), so we surface a clear, actionable message BEFORE
- * spawning anything. Uses a TCP connect probe (node:net — no deps, ). A refused connection means the port is free; an accepted
- * connection means something is already listening.
+ * spawning anything. Uses the one local port probe (`portAnswers`,
+ * dev-processes.ts): a refused connection means the port is free; an
+ * accepted connection means something is already listening.
  */
-function checkPortFree(port: number, label: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const sock = createConnection({ host: "127.0.0.1", port }, () => {
-      sock.end();
-      resolve(false); // someone answered → port busy
-    });
-    sock.on("error", () => resolve(true)); // refused → free
-    sock.setTimeout(400, () => { sock.destroy(); resolve(true); });
-  });
-}
 
-async function precheckPorts(): Promise<void> {
-  const apiFree = await checkPortFree(API_PORT, "api");
-  const webFree = await checkPortFree(WEB_PORT, "web");
-  if (apiFree && webFree) return;
+/** Whether both ports are free; a busy one is said, with its remedy. */
+async function precheckPorts(): Promise<boolean> {
+  const apiFree = !(await portAnswers(API_PORT));
+  const webFree = !(await portAnswers(WEB_PORT));
+  if (apiFree && webFree) return true;
   console.error("[dev:all] a required port is already in use:");
   if (!apiFree) console.error("  - API port " + API_PORT + " is busy.");
   if (!webFree) console.error("  - web port " + WEB_PORT + " is busy.");
   console.error("[dev:all] stop the running server first:  npm run dev:stop");
   console.error("[dev:all] (or free the port manually), then retry.");
-  process.exit(1);
+  return false;
 }
 
 // Start API first (Vite proxy targets it), then Vite.
-await precheckPorts();
-start("api", devPidfilePath("api"), "node", ["--experimental-strip-types", "server/index.ts"]);
-start("web", devPidfilePath("web"), "npx", ["vite"]);
+if (await precheckPorts()) {
+  start("api", devPidfilePath("api"), "node", ["--experimental-strip-types", "server/index.ts"]);
+  start("web", devPidfilePath("web"), "npx", ["vite"]);
 
-console.log("[dev:all] starting api + web servers...");
-console.log("[dev:all] pid files in " + DEV_PID_DIRECTORY + "/ (use 'npm run dev:stop' to stop)");
+  console.log("[dev:all] starting api + web servers...");
+  console.log("[dev:all] pid files in " + DEV_PID_DIRECTORY + "/ (use 'npm run dev:stop' to stop)");
+} else {
+  process.exitCode = 1;
+}

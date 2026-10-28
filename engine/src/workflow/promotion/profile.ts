@@ -21,7 +21,7 @@ import { gitAcceptsRefName } from "../../git/repository-ownership.ts";
 import type { TreeReader } from "../../git/tree-reader.ts";
 import { PromotionError } from "./codes.ts";
 
-const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 3);
+const PROMOTION_PROFILE_SCHEMA_VERSION = schemaId("promotion-profile", 4);
 
 const refName = z.string().regex(/^refs\/heads\/[A-Za-z0-9._/-]+$/u);
 /**
@@ -36,9 +36,25 @@ const pathOrPrefix = z.string().refine((value) => {
 /** A folder prefix: a repository-relative folder path with its trailing `/`. */
 const folderPrefix = z.string().refine((value) => value.endsWith("/") && pathOrPrefix.safeParse(value).success, "must be a repository folder prefix ending in /");
 
+/**
+ * THE PROFILE NAME RULE, the one owner (the schema's `name`): a lower-case
+ * letter, then up to 62 lower-case letters, digits and hyphens. A name is
+ * also a folder (the profile's private directory) and a file name, so the
+ * rule is what keeps it ONE path segment: no `/`, no `..`, never absolute.
+ */
+const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/u;
+
+/** The profile-name rule, spelled for a refusal. */
+export const PROFILE_NAME_RULE = "a lower-case letter, then up to 62 lower-case letters, digits or hyphens";
+
+/** Is `name` a profile name ({@link PROFILE_NAME_PATTERN}): one path segment, never a path? */
+export function isProfileName(name: string): boolean {
+  return PROFILE_NAME_PATTERN.test(name);
+}
+
 const promotionProfileShape = z.strictObject({
   schema: z.literal(PROMOTION_PROFILE_SCHEMA_VERSION),
-  name: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+  name: z.string().regex(PROFILE_NAME_PATTERN),
   source: z.strictObject({ ref: refName }),
   target: z.strictObject({ ref: refName }),
   /** The remote both refs are published to; `null`: a local-only pair. */
@@ -65,15 +81,16 @@ const promotionProfileShape = z.strictObject({
      * its path with the prefix removed (`product-only/README.md` →
      * `README.md`); `null`: none. The folder itself never ships (the boundary
      * excludes it). `kinds` is what it may hold, each one of `OVERLAY_KINDS`
-     * (compared without case): `*.<ext>` (an extension) or an exact basename.
+     * (compared without case): `*.<extension>`.
      */
     overlay: z.strictObject({
       folder: folderPrefix,
-      kinds: z.array(z.string().regex(/^(?:\*\.[A-Za-z0-9]+|[A-Za-z0-9][A-Za-z0-9._-]*)$/u, "must be *.<extension> or an exact basename")).min(1).max(32),
+      kinds: z.array(z.string().regex(/^\*\.[A-Za-z0-9]+$/u, "must be *.<extension>")).min(1).max(32),
     }).nullable(),
   }),
   transforms: z.array(z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("package-manifest"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, scripts: z.array(z.string().min(1)).max(128) }),
+    z.strictObject({ kind: z.literal("makefile"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, targets: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u, "must be a target name")).min(1).max(64) }),
     z.strictObject({ kind: z.literal("lockfile"), path: REPOSITORY_RELATIVE_PATH_SCHEMA, manifest: REPOSITORY_RELATIVE_PATH_SCHEMA, command: WORKSPACE_COMMAND_NAME_SCHEMA }),
   ])).max(32),
   phases: z.strictObject({
@@ -92,22 +109,23 @@ export type LoadedPromotionProfile = Readonly<{ profile: PromotionProfile; path:
 
 /** The branch name a profile's ref names (`refs/heads/<branch>` → `<branch>`; the schema admits only branch refs). */
 /**
- * THE ONLY KINDS AN OVERLAY MAY HOLD, a fixed allowlist: documents, the
- * images named here, and the one recipe a person runs by typing `make`.
- * Every other kind is refused, whatever its spelling: code (`*.js`, `*.mts`,
- * `*.node`, `*.wasm`, `*.sh`), active documents (`*.html`, `*.svg`), and
- * configuration a tool reads by itself (`package.json`, `.npmrc`, a hook).
- * Code ships from the source tree, where the import walk judges it. Kinds
+ * THE ONLY KINDS AN OVERLAY MAY HOLD, a fixed allowlist: documents and the
+ * images named here. Every other kind is refused, whatever its spelling: code
+ * (`*.js`, `*.mts`, `*.node`, `*.wasm`, `*.sh`), a build recipe (`Makefile`:
+ * the `makefile` transform derives the target's from the source's, so it has
+ * one source), active documents (`*.html`, `*.svg`), and configuration a tool
+ * reads by itself (`package.json`, `.npmrc`, a hook). Code ships from the
+ * source tree, where the import walk judges it. Kinds
  * and file names are compared without case, so no spelling of a refused kind
  * passes as another.
  */
-export const OVERLAY_KINDS = Object.freeze(["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "makefile"] as const);
+export const OVERLAY_KINDS = Object.freeze(["*.md", "*.txt", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp"] as const);
 
-/** Does the file `basename` belong to the overlay kind `kind` (compared without case)? */
+/** Does the file `basename` belong to the overlay kind `kind` (`*.<extension>`, compared without case)? */
 export function isOfOverlayKind(basename: string, kind: string): boolean {
   const name = basename.toLowerCase();
-  const wanted = kind.toLowerCase();
-  return wanted.startsWith("*.") ? name.endsWith(wanted.slice(1)) && name.length > wanted.length - 1 : name === wanted;
+  const extension = kind.toLowerCase().slice(1);
+  return name.endsWith(extension) && name.length > extension.length;
 }
 
 export function branchOf(ref: string): string {
@@ -181,6 +199,12 @@ function profileViolations(
     if (transform.kind === "lockfile" && !context.commandNames.has(transform.command)) {
       violations.push([`/transforms/${String(index)}/command`, `${transform.command} is not a command of the registry (workspaceIsolation.commands)`]);
     }
+    if (transform.kind === "makefile" && transform.path.slice(transform.path.lastIndexOf("/") + 1) !== "Makefile") {
+      violations.push([`/transforms/${String(index)}/path`, `${transform.path} is not a Makefile: the makefile transform derives a file named Makefile`]);
+    }
+    if (transform.kind === "makefile") {
+      for (const duplicate of duplicates(transform.targets)) violations.push([`/transforms/${String(index)}/targets`, `${duplicate} is listed twice`]);
+    }
   });
   for (const phase of ["setup", "converge", "verify"] as const) {
     profile.phases[phase].forEach((name, index) => {
@@ -212,7 +236,8 @@ export function profileTreeViolations(profile: PromotionProfile, present: Readon
  * name that is not the file's basename, the same ref twice, a ref git refuses,
  * a profile directory the boundary does not exclude, a path both excluded and
  * included (or derived), an overlay folder the boundary does not exclude or
- * that overlaps the profile directory, an overlay kind off the fixed allowlist, a duplicate, two transforms of one path, a lockfile
+ * that overlaps the profile directory, an overlay kind off the fixed allowlist, a duplicate, two transforms of one path, a makefile
+ * transform of a file not named Makefile, a lockfile
  * whose manifest no transform derives, a command the registry does not
  * declare.
  */
@@ -244,14 +269,54 @@ export function parsePromotionProfile(
 }
 
 /** Every profile `reader` holds: each `<profileDirectory>/<name>.json`, parsed and validated (see {@link parsePromotionProfile}). */
+/** The profile files `reader` holds: `<profileDirectory>/<name>.json`, one level deep. */
+function profileFiles(reader: TreeReader, profileDirectory: string): readonly string[] {
+  const prefix = profileDirectory.endsWith("/") ? profileDirectory : `${profileDirectory}/`;
+  const files = reader.paths().filter((path) => path.startsWith(prefix) && path.endsWith(".json") && !path.slice(prefix.length).includes("/"));
+  reader.prefetch(files);
+  return files;
+}
+
+/** What the trigger reads of a profile BEFORE any judgement of it (see `trigger.ts`). */
+export type ProfileTriggerHeader = Readonly<{ name: string; trigger: string; remote: string | null; sourceRef: string; targetRef: string }>;
+
+/**
+ * THE TRIGGER'S READ of the profiles `reader` holds: each one's name,
+ * trigger, remote and refs, read as plain JSON fields, with no schema
+ * judgement. The trigger decides from these alone which profile a moved ref
+ * concerns. The profile itself is judged only by the promotion it starts,
+ * run by the source's own committed promoter, never by this checkout's code
+ * (#259). A file that does not even spell these fields concerns no ref and
+ * is passed over, never a refusal of the run (#121). The NAME is held to the
+ * schema's rule (`PROFILE_NAME_PATTERN`) and to its file's name here, before
+ * anything uses it as a path: a name the rule refuses (`..`, an absolute
+ * path, an over-long one) never reaches the filesystem.
+ */
+export function profileTriggerHeaders(reader: TreeReader, profileDirectory: string): readonly ProfileTriggerHeader[] {
+  return deepFreeze(profileFiles(reader, profileDirectory).flatMap((path) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(reader.text(path) ?? "");
+    } catch {
+      return [];
+    }
+    const fields = (value ?? {}) as { name?: unknown; trigger?: unknown; remote?: unknown; source?: { ref?: unknown }; target?: { ref?: unknown } };
+    const sourceRef = fields.source?.ref;
+    const targetRef = fields.target?.ref;
+    if (typeof fields.name !== "string" || !PROFILE_NAME_PATTERN.test(fields.name) || `${fields.name}.json` !== path.slice(path.lastIndexOf("/") + 1) || typeof fields.trigger !== "string" || !(fields.remote === null || typeof fields.remote === "string")
+      || typeof sourceRef !== "string" || !sourceRef.startsWith("refs/heads/") || typeof targetRef !== "string" || !targetRef.startsWith("refs/heads/")) {
+      return [];
+    }
+    return [{ name: fields.name, trigger: fields.trigger, remote: fields.remote, sourceRef, targetRef }];
+  }));
+}
+
 export function loadPromotionProfiles(
   reader: TreeReader,
   profileDirectory: string,
   commandNames: ReadonlySet<string>,
 ): readonly LoadedPromotionProfile[] {
-  const prefix = profileDirectory.endsWith("/") ? profileDirectory : `${profileDirectory}/`;
-  const files = reader.paths().filter((path) => path.startsWith(prefix) && path.endsWith(".json") && !path.slice(prefix.length).includes("/"));
-  reader.prefetch(files);
+  const files = profileFiles(reader, profileDirectory);
   return deepFreeze(files.map((path) => deepFreeze({
     profile: parsePromotionProfile(reader.text(path)!, { path, profileDirectory, commandNames }),
     path,

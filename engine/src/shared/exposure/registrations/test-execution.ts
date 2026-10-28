@@ -44,11 +44,11 @@ import {
 import { readConfigCustomization, readNumberCustomization, writeConfigCustomization } from "../config-binding.ts";
 import {
   DEFAULT_ENGINE_SUITE_WATCHDOG,
-  DEFAULT_TEST_RUNTIME_BUDGET_MS,
   DEFAULT_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_PARALLEL_CONCURRENCY,
+  classCeilingMs,
 } from "../../../workflow/workflow-config.ts";
 
 /**
@@ -82,17 +82,6 @@ function asPercent(fraction: number): string {
 }
 
 const ROWS = [
-  {
-    id: "runtimeBudgetMs",
-    configPath: "testExecution.runtimeBudgetMs",
-    name: "How long one test may run before it fails",
-    description:
-      "Every test gets this many milliseconds to settle; a test that never does is killed and FAILS instead of stalling the whole suite. Lower = a stuck test ends sooner; higher = a slow but legitimate test still finishes. Takes effect on the next test run.",
-    default: DEFAULT_TEST_RUNTIME_BUDGET_MS,
-    min: 1,
-    max: 600_000,
-    unit: "milliseconds",
-  },
   {
     id: "serialPhaseConcurrency",
     configPath: "testExecution.serialPhaseConcurrency",
@@ -261,38 +250,6 @@ export function registerTestExecutionExposure(): void {
     },
   });
   registerSignal({
-    id: "testExecution.webSuiteAmbientInflationSlope",
-    module: "testExecution",
-    name: "CPU inflation paid per unit of sustained ambient load",
-    description:
-      "How much of a run's recorded CPU cost the box's sustained ambient load explains, per recorded 5-minute load unit per CPU — the measured envelope every judgement line scales by, so a clean run at a busy ambient judges clean and nothing anywhere waits for a quiet box. Shown read-only: the slope is the gate's own measured calibration (the ledger's recorded busy-vs-quiet pairs), and a settings write that steepened it would loosen what a green run means.",
-    type: "string",
-    value: () => {
-      const slope = readBudgetNumber(`${BUDGET_PATH}.ambientInflationSlopePerCpu`);
-      if (slope !== undefined) {
-        return `the gate pays ${(slope * 100).toFixed(1)}% more allowance per unit of recorded 5-minute ambient load per CPU`;
-      }
-      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
-        ? NOT_DECLARED
-        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
-    },
-  });
-  registerSignal({
-    id: "testExecution.webSuiteAmbientInflationCap",
-    module: "testExecution",
-    name: "Bound on the ambient allowance the gate may pay",
-    description:
-      "The largest fraction of the baseline the ambient-inflation allowance may ever expand a judgement line by, so the gate's teeth hold at every ambient: a regression beyond the capped line fails at any load the box is under. Shown read-only: the cap is the gate's own bound, and a settings write that raised it would let a busy box hide a regression.",
-    type: "string",
-    value: () => {
-      const cap = readBudgetNumber(`${BUDGET_PATH}.ambientInflationCapFraction`);
-      if (cap !== undefined) return `the ambient allowance is capped at ${(cap * 100).toFixed(1)}% of the baseline`;
-      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined
-        ? NOT_DECLARED
-        : "no ambient allowance is paid — the calibrated metric normalises the run's own work instead";
-    },
-  });
-  registerSignal({
     id: "testExecution.webTestFileCostShareMax",
     module: "testExecution",
     name: "Worker-time share one web-suite test file may take",
@@ -304,15 +261,15 @@ export function registerTestExecutionExposure(): void {
       return share === undefined ? NOT_DECLARED : `one test file may take at most ${asPercent(share)} of the pool's worker time`;
     },
   });
-  // THE HOST'S ONE INSTRUMENT LOCK (src/process/instrument-lock.ts): served
-  // read-only, like every suite-gate number — a settings write that moved the
-  // lock's file or raised the heavy threshold would let two instruments overlap.
+  // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): served read-only,
+  // like every suite-gate number — a settings write that moved the registry
+  // or loosened a run's caps would let a run escape them.
   registerSignal({
     id: "testExecution.instrumentLockFile",
     module: "testExecution",
-    name: "The host's one instrument lock file (under the host user's cache folder)",
+    name: "The host's run registry (under the host user's cache folder)",
     description:
-      "Every heavy instrument — a whole suite, a coverage or browser run, a workspace validation, an ad-hoc load run through `harness slot run` — holds this one lock of the host; a second one waits, naming the holder. Shown read-only.",
+      "Every heavy instrument — a whole suite, a coverage or browser run, a workspace validation, an ad-hoc load run through `harness slot run` — is admitted at once and recorded beside this path, under its per-run caps; none waits for another. Shown read-only.",
     type: "string",
     value: () => {
       const path = readConfigCustomization("testExecution.instrumentLock.cacheRelativeLockPath");
@@ -324,7 +281,7 @@ export function registerTestExecutionExposure(): void {
     module: "testExecution",
     name: "Test files that make a run heavy",
     description:
-      "A run of this many test files or more is heavy and holds the host's instrument lock; a targeted run of fewer takes nothing. Shown read-only.",
+      "A run of this many test files or more is heavy: it is admitted under its per-run caps; a targeted run of fewer records nothing. Shown read-only.",
     type: "string",
     value: () => {
       const files = readBudgetNumber("testExecution.instrumentLock.minimumTestFiles");
@@ -332,15 +289,27 @@ export function registerTestExecutionExposure(): void {
     },
   });
   registerSignal({
-    id: "testExecution.instrumentLockPoll",
+    id: "testExecution.perRunMemoryCap",
     module: "testExecution",
-    name: "How often a waiting heavy run looks at the instrument lock again",
+    name: "The memory one heavy run may use (a share of the host's memory)",
     description:
-      "A heavy run that waits for the host's instrument lock looks at it again at this interval (and says who holds it whenever the holder changes). Shown read-only.",
+      "Every supervisor a heavy run starts runs in a cgroup scope of its own with this memory ceiling; a host that cannot make the scope refuses the run. Shown read-only.",
     type: "string",
     value: () => {
-      const ms = readBudgetNumber("testExecution.instrumentLock.pollIntervalMs");
-      return ms === undefined ? NOT_DECLARED : `a waiting run looks again every ${ms} ms`;
+      const percent = readBudgetNumber("testExecution.instrumentLock.perRun.memoryMaxPercent");
+      return percent === undefined ? NOT_DECLARED : `a heavy run may use at most ${String(percent)}% of the host's memory`;
+    },
+  });
+  registerSignal({
+    id: "testExecution.perRunCpuWeight",
+    module: "testExecution",
+    name: "The CPU share one heavy run gets beside the others",
+    description:
+      "Heavy runs proceed concurrently; each one's scope gets this CPU weight (100 is an equal share), so runs share the cores instead of waiting for each other. Shown read-only.",
+    type: "string",
+    value: () => {
+      const weight = readBudgetNumber("testExecution.instrumentLock.perRun.cpuWeight");
+      return weight === undefined ? NOT_DECLARED : `a heavy run's CPU weight is ${String(weight)}`;
     },
   });
   registerSignal({
@@ -392,6 +361,62 @@ export function registerTestExecutionExposure(): void {
     value: () => {
       const shims = readConfigCustomization("testExecution.flakeReproduction.deterministicShims");
       return Array.isArray(shims) ? (shims.length === 0 ? "no deterministic shim: every reproduction needs its runs" : `deterministic shims: ${shims.join(", ")}`) : NOT_DECLARED;
+    },
+  });
+  // PER-TEST LIMITS (TEST-CPU-CLASSES): judged in CPU work by class, with one
+  // wall hang backstop. Read-only like every suite-gate number: a settings
+  // write that raised a ceiling would change what a green test means.
+  registerSignal({
+    id: "testExecution.testCpuDefaultCeiling",
+    module: "testExecution",
+    name: "CPU work a test may do (its class's ceiling, by default)",
+    description:
+      "Each test is judged by the CPU work it did (its process and every child it reaped), never by its wall time: a test over its file's class ceiling fails. This is the ceiling of every file no class names. Shown read-only.",
+    type: "string",
+    value: () => {
+      const ms = readBudgetNumber("testExecution.testCpuClasses.defaultCeilingMs");
+      return ms === undefined ? NOT_DECLARED : `a test may do ${ms / 1000} s of CPU work unless its file's class says otherwise`;
+    },
+  });
+  registerSignal({
+    id: "testExecution.testCpuHeadroom",
+    module: "testExecution",
+    name: "Headroom over a measured CPU class",
+    description:
+      "A CPU class records the most CPU work one of its tests was measured to do; its ceiling is that measurement times this factor, because CPU work still varies with the runner's processor. Shown read-only.",
+    type: "string",
+    value: () => {
+      const factor = readBudgetNumber("testExecution.testCpuClasses.headroomFactor");
+      return factor === undefined ? NOT_DECLARED : `a class's ceiling is ${String(factor)} times the CPU work it was measured to do`;
+    },
+  });
+  registerSignal({
+    id: "testExecution.testCpuClasses",
+    module: "testExecution",
+    name: "Test files with their own CPU-work ceiling",
+    description:
+      "The named CPU-work classes and the test files each holds, each ceiling measured for its files. Shown read-only: a class added from a settings write would let a test do more work unseen.",
+    type: "string",
+    value: () => {
+      const classes = readConfigCustomization("testExecution.testCpuClasses.classes");
+      const headroom = readBudgetNumber("testExecution.testCpuClasses.headroomFactor");
+      if (!Array.isArray(classes) || headroom === undefined) return NOT_DECLARED;
+      if (classes.length === 0) return "no class: every test file has the default ceiling";
+      // The ceiling is DERIVED by the one owner the judgement asks.
+      return (classes as { name: string; measuredCpuMs: number; files: string[] }[])
+        .map((one) => `${one.name} (measured ${one.measuredCpuMs / 1000} s, ceiling ${classCeilingMs({ headroomFactor: headroom }, one) / 1000} s): ${one.files.join(", ")}`).join("; ");
+    },
+  });
+  registerSignal({
+    id: "testExecution.testHangBackstop",
+    module: "testExecution",
+    name: "Wall time after which a test is reported hung",
+    description:
+      "The one wall bound left on a test: one still running after this long is hung (a promise that never settles), not slow; how much a test costs is judged in CPU work. Shown read-only.",
+    type: "string",
+    value: () => {
+      const ms = readBudgetNumber("testExecution.testHangBackstopMs");
+      return ms === undefined ? NOT_DECLARED : `a test still running after ${ms / 1000} s is reported hung`;
     },
   });
   // The web suite's supervisor (`scripts/run-tests.ts`): served read-only,

@@ -1,0 +1,28 @@
+{
+  "kind": "environment",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "rotation",
+  "unavailableOnPlan": [],
+  "desired": {
+    "deployment_branch_policy": {
+      "protected_branches": false,
+      "custom_branch_policies": true
+    },
+    "can_admins_bypass": false,
+    "branch_policies": [
+      "main"
+    ],
+    "reviewers": [
+      {
+        "type": "User",
+        "id": {
+          "$ref": "user",
+          "name": "amberflag48"
+        }
+      }
+    ]
+  }
+}

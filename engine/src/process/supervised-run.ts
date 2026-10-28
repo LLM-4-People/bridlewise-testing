@@ -23,7 +23,7 @@
  *   trigger's unattended run), in a session of its own with none of this
  *   process's stdio; it bounds its own work (its commands are supervised).
  *
- * The native binary is built by the caller (`testProcessSupervisorBinary()`,
+ * The native binary is built by the caller (`ensureTestProcessSupervisor()`,
  * `engine/guardian/build.ts`) and
  * handed in: this layer runs processes, it builds nothing.
  */
@@ -137,7 +137,7 @@ function endOrphanedGroup(announced: ProcessIdentity | undefined): boolean {
 }
 
 export type SupervisedCommandOptions = Readonly<{
-  /** The native supervisor binary (`testProcessSupervisorBinary()`). */
+  /** The native supervisor binary (`ensureTestProcessSupervisor()`). */
   supervisor: string;
   command: string;
   args: readonly string[];
@@ -203,16 +203,19 @@ export function superviseCommand(options: SupervisedCommandOptions): Promise<Sup
   // reached the supervisor, the forwarded stop would be its second, which
   // kills at once and skips the grace (wf-1b3a-correctness L3). If this
   // process dies instead, the supervisor's parent-death signal stops it.
+  // Inside an admitted heavy run, the supervisor is born under the run's caps
+  // (this process is in the run's scope and CPU-time limit:
+  // src/process/instrument-lock.ts).
   const child: ChildProcess = spawn(options.supervisor, args, {
     detached: true,
     stdio: ["ignore", "pipe", "pipe", "pipe", ...(passFd ? ["pipe" as const] : [])],
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
   });
-  // A holder of the one instrument lock keeps it held while THIS supervisor
-  // lives (src/process/instrument-lock-adoption.ts): the supervisor ends only
-  // after the command's whole process tree is gone, so a holder killed
-  // outright never frees the lock under a command still running.
+  // An admitted run's record stays live while THIS supervisor lives
+  // (src/process/instrument-lock-adoption.ts): the supervisor ends only after
+  // the command's whole process tree is gone, so a run's owner killed
+  // outright never drops its record under a command still running.
   if (child.pid !== undefined) adoptIntoOwnedInstrumentLock(child.pid);
   const receipt: Buffer[] = [];
   // A stop is delivered once the supervisor has ANNOUNCED its command (its

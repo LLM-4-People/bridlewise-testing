@@ -51,7 +51,7 @@ describe("awareness worker — non-blocking (502 wedge fix)", () => {
     expect(timerFired).toBe(true);
     const snap = await snapPromise;
     expect(snap.fileCount).toBeGreaterThan(0);
-  }, 30_000);
+  });
 
   test("concurrent async calls share one worker build", async () => {
     seedProject(projectPath, 10);
@@ -63,12 +63,11 @@ describe("awareness worker — non-blocking (502 wedge fix)", () => {
     // Cache ready — sync read succeeds (no throw, no re-build).
     const syncSnap = getAwarenessSnapshot(projectPath);
     expect(syncSnap.fileCount).toBe(a.fileCount);
-  }, 30_000);
+  });
 
   test("sync accessor throws a typed AwarenessNotReadyError on a miss", () => {
     seedProject(projectPath, 5);
     let threw: unknown = null;
-    const start = Date.now();
     try {
       getAwarenessSnapshot(projectPath);
     } catch (err) {
@@ -76,9 +75,9 @@ describe("awareness worker — non-blocking (502 wedge fix)", () => {
     }
     expect(threw).toBeInstanceOf(AwarenessNotReadyError);
     expect((threw as AwarenessNotReadyError).retryable).toBe(true);
-    // Non-blocking: a miss returns immediately (spawns the worker
-    // fire-and-forget) — well under the time a real compute takes.
-    expect(Date.now() - start).toBeLessThan(2000);
+    // Non-blocking BY ITS PATH: a miss throws (it spawns the worker
+    // fire-and-forget) instead of computing inline and returning a snapshot;
+    // no wall clock judges it (NO-LOAD-BLOCK).
   });
 
   test("after the async build, the sync accessor returns the cached snapshot", async () => {
@@ -87,7 +86,7 @@ describe("awareness worker — non-blocking (502 wedge fix)", () => {
     const snap = getAwarenessSnapshot(projectPath);
     expect(snap.fileCount).toBeGreaterThan(0);
     expect(typeof snap.totalLoc).toBe("number");
-  }, 30_000);
+  });
 });
 
 

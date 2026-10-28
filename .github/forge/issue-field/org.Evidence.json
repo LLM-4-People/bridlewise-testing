@@ -1,0 +1,14 @@
+{
+  "kind": "issue-field",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Evidence",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Evidence",
+    "data_type": "text",
+    "visibility": "organization_members_only",
+    "description": "The evidence record (evidence:<path>)"
+  }
+}

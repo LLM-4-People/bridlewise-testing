@@ -55,8 +55,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { ownedSiblingTemporaryName } from "../../src/filesystem/private-state.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
-/** Repository-relative path the tests resolve the corpus at. */
-export const CORPUS_ROOT = "engine/large-codebases";
+import { CORPUS_ENGINE_ROOT, CORPUS_FETCH_COMMAND, CORPUS_ROOT } from "./corpus-root.ts";
+import { parsePathPolicySourceManifest } from "../generation/repository-path-unicode.ts";
+
+/** Repository-relative path the tests resolve the corpus at (owned by `corpus-root.ts`). */
+export { CORPUS_ROOT };
 /** The generated manifest, committed. */
 export const MANIFEST_PATH = "engine/test/fixtures/corpus-manifest.json";
 export const MANIFEST_SCHEMA = "bridlewise-corpus-manifest/v1";
@@ -68,6 +71,19 @@ export const GENERATOR_REVISION = "corpus-ts-1";
 
 /** Licences the publisher has reviewed as permissive. A new member is a review, not a config edit. */
 export const PERMITTED_LICENSES: readonly string[] = Object.freeze(["MIT", "ISC", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause"]);
+
+/**
+ * Licences reviewed for REFERENCE ONLY: such a member's files are fetched into
+ * the cache (outside every checkout) for the tests that read them, and are
+ * never published, vendored or redistributed — the AGPL tree carries only the
+ * pins. Git's GPL-2.0-only `path.c` and its t0060 test, the path policy's NTFS
+ * alias authority, are the one such member; they come from the path-policy
+ * source manifest, never from `corpus-manifest.json`.
+ */
+export const REFERENCE_ONLY_LICENSES: readonly string[] = Object.freeze(["GPL-2.0-only"]);
+
+/** The path-policy source authority, repository-relative: the git member's pins live there, once. */
+export const PATH_POLICY_MANIFEST_PATH = "engine/traceability/sources/path-policy/manifest.json";
 
 export const REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..", "..");
 
@@ -292,6 +308,75 @@ export function readManifest(path = join(REPOSITORY_ROOT, MANIFEST_PATH)): Corpu
   return validateManifest(parsed);
 }
 
+/**
+ * The git member, DERIVED from the path-policy source manifest: its upstream,
+ * commit and the three files (COPYING, path.c, t/t0060-path-utils.sh) with the
+ * sizes and digests that manifest already pins. There is no second copy of
+ * those pins: the manifest's paths point into this corpus (`large-codebases/
+ * git/…`), and a path that does not is refused here.
+ */
+export function pathPolicyMember(repoRoot = REPOSITORY_ROOT): CorpusMember {
+  const path = join(repoRoot, PATH_POLICY_MANIFEST_PATH);
+  if (!existsSync(path)) refuse("corpus_manifest_absent", `the path-policy source manifest is absent at ${path}`);
+  return gitCorpusMember(parsePathPolicySourceManifest(readFileSync(path, "utf8")).sourceSets.git);
+}
+
+/** The path-policy git source set's own shape: what {@link gitCorpusMember} reads. */
+export type PathPolicyGitSourceSet = Readonly<{
+  upstream: Readonly<{ repository: string; commit: string }>;
+  license: Readonly<{ spdx: string; path: string; byteLength: number; sha256: string }>;
+  sources: readonly Readonly<{ path: string; byteLength: number; sha256: string }>[];
+}>;
+
+/**
+ * THE LICENCE BOUNDARY, as the corpus enforces it: the git member is admitted
+ * only with a reference-only licence, and only when every one of its files
+ * points INTO the corpus root (a binding pointing back into the tracked tree
+ * would vendor GPL bytes there). Separate from the file read so each refusal
+ * is driven directly.
+ */
+export function gitCorpusMember(git: PathPolicyGitSourceSet): CorpusMember {
+  if (!REFERENCE_ONLY_LICENSES.includes(git.license.spdx)) {
+    refuse("corpus_license_unreviewed", `git member: licence ${git.license.spdx} is not reviewed for reference-only fetching`);
+  }
+  const prefix = `${CORPUS_ENGINE_ROOT}/git/`;
+  const files = [git.license, ...git.sources].map((binding) => {
+    if (!binding.path.startsWith(prefix)) refuse("corpus_path_invalid", `git member: ${binding.path} does not point into ${prefix}`);
+    const relativePath = safeRelativePath(binding.path.slice(prefix.length), "git member");
+    return Object.freeze({ path: relativePath, sizeBytes: binding.byteLength, sha256: binding.sha256 });
+  }).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return Object.freeze({
+    name: "git",
+    upstream: publicUpstream(`${git.upstream.repository}.git`, "git member"),
+    commit: commitValue(git.upstream.commit, "git member"),
+    license: git.license.spdx,
+    files: Object.freeze(files),
+  });
+}
+
+/**
+ * THE CORPUS the fetch materialises and the verify judges: the committed
+ * manifest's members plus the reference-only git member. The digest (and so
+ * the cache directory) covers both, so a changed pin is a new cache, never a
+ * stale one judged by new rules.
+ */
+export function readCorpus(repoRoot = REPOSITORY_ROOT): CorpusManifest {
+  const manifest = readManifest(join(repoRoot, MANIFEST_PATH));
+  const git = pathPolicyMember(repoRoot);
+  if (manifest.members.some((member) => member.name === git.name)) {
+    refuse("corpus_manifest_invalid", `corpus-manifest.json must not carry a ${git.name} member: its pins live in ${PATH_POLICY_MANIFEST_PATH}`);
+  }
+  const payload = {
+    schemaVersion: manifest.schemaVersion,
+    generatorRevision: manifest.generatorRevision,
+    root: manifest.root,
+    members: Object.freeze([...manifest.members, git]),
+    derived: manifest.derived,
+    notIncluded: manifest.notIncluded,
+  };
+  return Object.freeze({ ...payload, manifestSha256: manifestDigest(payload) });
+}
+
 /** The cache root: outside every checkout, under the user's cache home by default. */
 export function defaultCacheDir(manifest: CorpusManifest, base = join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "bridlewise", "corpus")): string {
   return join(base, manifest.manifestSha256.slice(0, 12));
@@ -323,7 +408,7 @@ export function verifyCorpus(repoRoot: string, manifest: CorpusManifest): Corpus
     return { ok: false, root: null, problems: [{ path: CORPUS_ROOT, reason: (error as CorpusError).message }] };
   }
   if (root === null) {
-    return { ok: false, root: null, problems: [{ path: CORPUS_ROOT, reason: `absent — run npm run corpus:fetch` }] };
+    return { ok: false, root: null, problems: [{ path: CORPUS_ROOT, reason: `absent — run ${CORPUS_FETCH_COMMAND}` }] };
   }
   const problems = judgeCache(root, manifest);
   return { ok: problems.length === 0, root, problems };
@@ -397,6 +482,55 @@ function git(args: readonly string[], cwd: string): Buffer {
   return execFileSync("git", args, { cwd, encoding: "buffer", maxBuffer: 256 * 1024 * 1024 }) as Buffer;
 }
 
+/**
+ * THE NETWORK BOUND. A fetch from an upstream (and the partial clone's lazy
+ * blob reads, which reach the promisor remote) waited on the network without
+ * limit: a stalled host held the run for its whole budget. Each network step
+ * now runs under git's own stall detector (`http.lowSpeedLimit` /
+ * `http.lowSpeedTime`: below this many bytes a second for this long, from the
+ * connection on, git gives up), which ends a silent host, a dead connection
+ * and a stalled transfer alike, in a typed refusal naming the host — never a
+ * retry. Upstreams are https only (`publicUpstream`), so the detector always
+ * applies. There is deliberately no process timeout on top: killing `git`
+ * leaves its remote helper holding the output pipe, and the synchronous call
+ * then waits for the helper anyway (measured: the test hung).
+ */
+export type CorpusNetworkBound = Readonly<{ stallBytesPerSecond: number; stallSeconds: number }>;
+export const CORPUS_NETWORK_BOUND: CorpusNetworkBound = Object.freeze({
+  stallBytesPerSecond: 1_000,
+  stallSeconds: 60,
+});
+
+function upstreamHost(upstream: string): string {
+  try {
+    return new URL(upstream).host || upstream;
+  } catch {
+    return upstream;
+  }
+}
+
+/** A git step that reaches `member`'s upstream: stall-bounded, hang-bounded, refused by name. */
+function networkGit(args: readonly string[], cwd: string, member: Readonly<{ name: string; upstream: string }>, bound: CorpusNetworkBound): Buffer {
+  const bounded = [
+    "-c", `http.lowSpeedLimit=${String(bound.stallBytesPerSecond)}`,
+    "-c", `http.lowSpeedTime=${String(bound.stallSeconds)}`,
+    ...args,
+  ];
+  try {
+    return execFileSync("git", bounded, {
+      cwd, encoding: "buffer", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+    }) as Buffer;
+  } catch (error) {
+    const failure = error as { stderr?: Buffer };
+    const detail = (failure.stderr?.toString("utf8") ?? "").trim().split("\n").filter((line) => line.length > 0).at(-1) ?? "";
+    const host = upstreamHost(member.upstream);
+    if (/too slow|timed out|timeout/iu.test(detail)) {
+      refuse("corpus_fetch_stalled", `fetching ${member.name} from ${host} stalled below ${String(bound.stallBytesPerSecond)} B/s for ${String(bound.stallSeconds)} s: ${detail}`);
+    }
+    refuse("corpus_fetch_failed", `fetching ${member.name} from ${host} failed: ${detail || (error as Error).message}`);
+  }
+}
+
 function gitText(args: readonly string[], cwd: string): string {
   return git(args, cwd).toString("utf8").trim();
 }
@@ -413,8 +547,9 @@ function writeCacheFile(root: string, relativePath: string, bytes: Buffer): void
  * place only after it verifies, so a killed fetch never leaves a half cache
  * that the next run would judge as the real one.
  */
-export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: string; repoRoot?: string; log?: (line: string) => void } = {}): string {
+export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: string; repoRoot?: string; log?: (line: string) => void; network?: CorpusNetworkBound } = {}): string {
   const repoRoot = options.repoRoot ?? REPOSITORY_ROOT;
+  const network = options.network ?? CORPUS_NETWORK_BOUND;
   const cacheDir = options.cacheDir ?? defaultCacheDir(manifest);
   const log = options.log ?? (() => {});
   const inside = relative(repoRoot, cacheDir);
@@ -442,9 +577,10 @@ export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: stri
       log(`fetching ${member.name} @ ${member.commit}`);
       git(["init", "-q"], checkout);
       git(["remote", "add", "origin", member.upstream], checkout);
-      git(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", member.commit], checkout);
+      networkGit(["fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", member.commit], checkout, member, network);
       for (const file of member.files) {
-        const bytes = git(["cat-file", "blob", `${member.commit}:${file.path}`], checkout);
+        // A partial clone reads the blob from the promisor remote: a network step.
+        const bytes = networkGit(["cat-file", "blob", `${member.commit}:${file.path}`], checkout, member, network);
         if (bytes.byteLength !== file.sizeBytes || sha256Hex(bytes) !== file.sha256) {
           refuse("corpus_blob_mismatch", `${member.name}/${file.path}: fetched blob does not match the manifest`);
         }
@@ -454,7 +590,7 @@ export function fetchCorpus(manifest: CorpusManifest, options: { cacheDir?: stri
     for (const entry of manifest.derived) {
       const member = manifest.members.find((candidate) => candidate.name === entry.member);
       if (member === undefined) refuse("corpus_manifest_invalid", `derived ${entry.path}: unknown member ${entry.member}`);
-      const source = git(["cat-file", "blob", `${member.commit}:${entry.source}`], join(staging, member.name));
+      const source = networkGit(["cat-file", "blob", `${member.commit}:${entry.source}`], join(staging, member.name), member, network);
       if (source.byteLength !== entry.sizeBytes || sha256Hex(source) !== entry.sha256) {
         refuse("corpus_blob_mismatch", `${entry.path}: derived blob does not match the manifest`);
       }
@@ -611,7 +747,7 @@ export function main(argv: readonly string[]): number {
       return 0;
     }
     if (command === "fetch") {
-      const manifest = readManifest();
+      const manifest = readCorpus();
       const cacheDir = parseArg(argv, "--cache") ?? defaultCacheDir(manifest);
       const written = fetchCorpus(manifest, { cacheDir, log: (line) => process.stdout.write(`${line}\n`) });
       const link = linkCorpus(REPOSITORY_ROOT, written);
@@ -621,7 +757,7 @@ export function main(argv: readonly string[]): number {
       return 0;
     }
     if (command === "verify") {
-      const manifest = readManifest();
+      const manifest = readCorpus();
       const verdict = verifyCorpus(REPOSITORY_ROOT, manifest);
       if (!verdict.ok) {
         for (const problem of verdict.problems) process.stderr.write(`${problem.path}: ${problem.reason}\n`);

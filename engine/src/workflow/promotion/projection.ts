@@ -37,12 +37,12 @@ import { commandsRun } from "../checkout-setup.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE } from "../../filesystem/private-state.ts";
 import { HarnessError } from "../../kernel/errors.ts";
-import { GITLINK_MODE, SYMLINK_MODE, commitTreeReader, gitOutput, writeBlob, writeTree, type GitRepository, type TreeReader } from "../../git/tree-reader.ts";
-import { generatedOutputPathsOf, isGenerationOnlyChange } from "../hash-binding-registry.ts";
+import { commitTreeReader, GITLINK_MODE, gitOutput, type GitRepository, isAncestor, SYMLINK_MODE, type TreeReader, writeBlob, writeTree } from "../../git/tree-reader.ts";
+import { generatedOutputPaths, isGenerationOnlyChange } from "../hash-binding-registry.ts";
 import { directoryOf, isWalkableModule, normalizeRepositoryPath, packageNameOf, reachabilityChain, reachabilityClosure, type PathAlias, type Reachability } from "../reachability.ts";
 import { PromotionError, mostSevereCode, type PromotionCode } from "./codes.ts";
 import { excludedBy, isOfOverlayKind, pathMatchesEntry, profileCommandNames, type LoadedPromotionProfile, type PromotionProfile } from "./profile.ts";
-import { deriveLockfile, deriveManifest, type LockfileRun, type ManifestExplanation } from "./transforms.ts";
+import { deriveLockfile, deriveMakefile, deriveManifest, type LockfileRun, type MakefileExplanation, type ManifestExplanation } from "./transforms.ts";
 import { profileHistory, type TrailerLine } from "./trailers.ts";
 
 /** Why a path is, or is not, projected. */
@@ -229,15 +229,28 @@ export function classifyTree(reader: TreeReader, profile: PromotionProfile): Cla
   return deepFreeze({ projected, notProjected, reachability, importedPackages, overlaid, refusals: deepFreeze(refusals) });
 }
 
-/** The derived manifests of a classification: each package-manifest transform the tree holds (no command runs). */
-export function deriveManifests(
+/** Why a derived file reads as it does: a manifest's or a Makefile's explanation. */
+export type TransformExplanation = ManifestExplanation | MakefileExplanation;
+
+/** The pure derivations of a classification: each package-manifest and makefile transform the tree holds (no command runs). */
+export function derivePureTransforms(
   reader: TreeReader,
   profile: PromotionProfile,
   classification: Classification,
-): Readonly<{ texts: ReadonlyMap<string, string>; explanations: readonly ManifestExplanation[]; refusals: readonly Refusal[] }> {
+): Readonly<{ texts: ReadonlyMap<string, string>; explanations: readonly TransformExplanation[]; refusals: readonly Refusal[] }> {
   const texts = new Map<string, string>();
-  const explanations: ManifestExplanation[] = [];
+  const explanations: TransformExplanation[] = [];
   const refusals: Refusal[] = [];
+  for (const transform of profile.transforms) {
+    if (transform.kind !== "makefile" || reader.text(transform.path) === null) continue;
+    try {
+      const derived = deriveMakefile(reader.text(transform.path)!, transform.targets, transform.path);
+      texts.set(transform.path, derived.text);
+      explanations.push(derived.explanation);
+    } catch (error) {
+      refusals.push(refusalOf(error));
+    }
+  }
   const tsconfigs = [...classification.projected.keys()].filter((path) => TSCONFIG.test(path));
   const manifests = [...classification.projected.keys()].filter((path) => MANIFEST.test(path));
   for (const transform of profile.transforms) {
@@ -286,14 +299,14 @@ type ManifestLockPackages = Readonly<Record<string, Readonly<Record<string, unkn
 export function projectionAdvisories(
   reader: TreeReader,
   classification: Classification,
-  manifestTexts: ReadonlyMap<string, string>,
+  derivedTexts: ReadonlyMap<string, string>,
   addedSinceLastPromotion: readonly string[],
 ): readonly Readonly<{ kind: string; path: string; detail: string }>[] {
   const found: { kind: string; path: string; detail: string }[] = [];
   for (const path of addedSinceLastPromotion) {
     if (classification.notProjected.get(path)?.rule === "unreachable") found.push({ kind: "new_unprojected_paths", path, detail: "added on the source since the last promotion and not projected (deny by default): reach it from an entry point or include it if it ships" });
   }
-  const derivedScripts = new Map([...manifestTexts].map(([path, text]) => [path, new Set(Object.keys((JSON.parse(text) as { scripts?: object }).scripts ?? {}))]));
+  const derivedScripts = new Map([...derivedTexts].filter(([path]) => classification.projected.get(path)?.detail === "package-manifest").map(([path, text]) => [path, new Set(Object.keys((JSON.parse(text) as { scripts?: object }).scripts ?? {}))]));
   const shipped = shippedSources(classification);
   const manifests = [...derivedScripts.keys()];
   const documents = [...shipped.keys()].filter((path) => path.endsWith(".md"));
@@ -308,7 +321,7 @@ export function projectionAdvisories(
   }
   const tree = new Set(reader.paths());
   for (const path of makefiles) {
-    for (const word of (reader.text(shipped.get(path)!) ?? "").split(/\s+/u)) {
+    for (const word of (derivedTexts.get(path) ?? reader.text(shipped.get(path)!) ?? "").split(/\s+/u)) {
       if (!word.includes("/") || word.includes("$(")) continue;
       const target = normalizeRepositoryPath(directoryOf(path), word.replace(/^[|:]+|[|:]+$/gu, ""));
       if (tree.has(target) && !shipped.has(target)) found.push({ kind: "dangling_recipe_path", path, detail: `names ${target}, which the projection does not carry` });
@@ -348,10 +361,6 @@ function promoterDigest(): string {
   return promoterDigestMemo;
 }
 
-function isAncestor(repository: GitRepository, ancestor: string, descendant: string): boolean {
-  return gitOutput(repository, ["merge-base", "--is-ancestor", ancestor, descendant], { allowed: [0, 1] }).status === 0;
-}
-
 function mergeBase(repository: GitRepository, a: string, b: string): string | null {
   const answer = gitOutput(repository, ["merge-base", a, b], { allowed: [0, 1] });
   return answer.status === 0 ? answer.stdout.toString("utf8").trim() : null;
@@ -389,7 +398,7 @@ export type PromotionPlan = Readonly<{
   projection: Readonly<{ tree: string; paths: number; underived: readonly string[] }>;
   summary: Readonly<{ added: number; modified: number; deleted: number; derived: number; generated: number }>;
   paths: Readonly<{ added: readonly PlannedPath[]; modified: readonly PlannedPath[]; deleted: readonly PlannedPath[] }>;
-  transforms: readonly ManifestExplanation[];
+  transforms: readonly TransformExplanation[];
   targetEdits: readonly string[];
   targetEditsPatch: string | null;
   refusals: readonly Refusal[];
@@ -422,7 +431,7 @@ function describe(reason: PathReason | undefined): string {
 export type SourceProjection = Readonly<{
   reader: TreeReader;
   classification: Classification;
-  manifests: ReturnType<typeof deriveManifests>;
+  derivations: ReturnType<typeof derivePureTransforms>;
   /** This profile's promotion (and rollback) commits on the target's first-parent line (newest first). */
   promotions: readonly TrailerLine[];
   lastPromoted: Readonly<{ commit: string | null; source: string | null; bootstrap: boolean }>;
@@ -441,16 +450,16 @@ export function projectSource(repository: GitRepository, loaded: LoadedPromotion
   const classified = Date.now();
   const classification = classifyTree(reader, profile);
   const classifyMs = Date.now() - classified;
-  const manifests = deriveManifests(reader, profile, classification);
+  const derivations = derivePureTransforms(reader, profile, classification);
   const addedOnSource = lastPromoted.source === null ? reader.paths() : changedPaths(repository, lastPromoted.source, source, "A");
-  return deepFreeze({ reader, classification, manifests, promotions, lastPromoted, advisories: projectionAdvisories(reader, classification, manifests.texts, addedOnSource), classifyMs });
+  return deepFreeze({ reader, classification, derivations, promotions, lastPromoted, advisories: projectionAdvisories(reader, classification, derivations.texts, addedOnSource), classifyMs });
 }
 
 export async function planPromotion(input: PromotionPlanInput): Promise<PromotionPlan> {
   const started = Date.now();
   const { profile } = input.loaded;
   const { repository } = input;
-  const { reader, classification, manifests, promotions, lastPromoted, advisories: advised, classifyMs } = projectSource(repository, input.loaded, input.source, input.target);
+  const { reader, classification, derivations, promotions, lastPromoted, advisories: advised, classifyMs } = projectSource(repository, input.loaded, input.source, input.target);
   const last = promotions[0] ?? null;
   // Every input the plan is a function of: the commits, the profile, the
   // registry commands it runs (their argv decide the derived lockfiles) and
@@ -458,8 +467,8 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
   const commands = Object.fromEntries([...commandsRun(input.commands, profileCommandNames(profile))].sort().map((name) => [name, input.commands[name] ?? null]));
   const planId = sha256(canonicalJson({ source: input.source, target: input.target, profile: input.loaded.blob, commands, promoter: promoterDigest() }));
   const profileInfo = deepFreeze({ name: profile.name, blob: input.loaded.blob, path: input.loaded.path });
-  const refusals: Refusal[] = [...classification.refusals, ...manifests.refusals];
-  const derived = new Map(manifests.texts);
+  const refusals: Refusal[] = [...classification.refusals, ...derivations.refusals];
+  const derived = new Map(derivations.texts);
   const underived: string[] = [];
   for (const transform of profile.transforms) {
     if (transform.kind !== "lockfile" || reader.text(transform.path) === null) continue;
@@ -498,7 +507,7 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
 
   const targetReader = input.target === null ? null : commitTreeReader(repository, input.target);
   const targetPaths = targetReader?.paths() ?? [];
-  const generated = generatedOutputPathsOf(reader.paths(), (path) => reader.text(path));
+  const generated = generatedOutputPaths();
   const sameAsTarget = (path: string): boolean => {
     const mine = entries.get(path);
     const theirs = targetReader?.entry(path) ?? null;
@@ -565,7 +574,7 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
       generated: [...entries.keys()].filter((path) => generated.has(path)).length,
     },
     paths: { added, modified, deleted },
-    transforms: manifests.explanations,
+    transforms: derivations.explanations,
     targetEdits,
     targetEditsPatch,
     refusals,

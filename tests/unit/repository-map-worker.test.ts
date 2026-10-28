@@ -87,7 +87,7 @@ describe("repository-map worker — non-blocking (502 wedge fix)", () => {
     // build was in flight, which is impossible under a blocking build.)
     const map = await mapPromise;
     expect(map.files.length).toBeGreaterThan(0);
-  }, 30_000);
+  });
 
   test("concurrent async calls for the same path share one worker build", async () => {
     seedProject(projectPath, 20);
@@ -104,7 +104,7 @@ describe("repository-map worker — non-blocking (502 wedge fix)", () => {
     // Cache is now ready — sync read succeeds (no throw, no re-build).
     const syncMap = getRepositoryMap(projectPath);
     expect(syncMap.files.length).toBe(mapA.files.length);
-  }, 30_000);
+  });
 
   test("sync accessor throws a typed MapNotReadyError on a miss (does not block)", () => {
     seedProject(projectPath, 5);
@@ -112,19 +112,16 @@ describe("repository-map worker — non-blocking (502 wedge fix)", () => {
     // a typed MapNotReadyError (retryable) — NOT block the event loop and
     // NOT return a partially-built map.
     let threw: unknown = null;
-    const start = Date.now();
     try {
       getRepositoryMap(projectPath);
     } catch (err) {
       threw = err;
     }
-    const elapsed = Date.now() - start;
+    // Non-blocking proof, BY ITS PATH: a miss throws (the build is
+    // off-thread, spawned fire-and-forget) instead of building inline and
+    // returning a map; no wall clock judges it (NO-LOAD-BLOCK).
     expect(threw).toBeInstanceOf(MapNotReadyError);
     expect((threw as MapNotReadyError).retryable).toBe(true);
-    // Non-blocking proof: a miss returns in well under the time a real
-    // build takes (the build is off-thread; the miss returns immediately
-    // after spawning the worker fire-and-forget).
-    expect(elapsed).toBeLessThan(2000);
   });
 
   test("getRepositoryMapSummary throws MapNotReadyError when not ready", () => {
@@ -152,7 +149,7 @@ describe("repository-map worker — prompt injection (skip when not ready)", () 
     expect(result).toContain("## Codebase intelligence");
     expect(result).toContain("Pre-indexed map:");
     expect(result.startsWith(prompt)).toBe(true);
-  }, 30_000);
+  });
 });
 
 describe("repository-map worker — improper usage (no worker leak on bad path)", () => {

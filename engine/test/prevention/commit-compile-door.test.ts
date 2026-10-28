@@ -44,7 +44,7 @@ const COMMIT_GUARD = join(INTEGRATION_ROOT, "scripts", "commit-guard.ts");
 
 /** `git commit` as DATA: the status is the verdict, so it must not throw. */
 function commit(root: string, message: string): Readonly<{ status: number; stderr: string }> {
-  const result = spawnSync("git", ["commit", "-q", "-m", message], {
+  const result = spawnSync("git", ["commit", "-s", "-q", "-m", message], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 1 << 24,
@@ -371,7 +371,7 @@ function contentJudgedRepository(): string {
 
 /** `git commit` with extra arguments, as data. */
 function commitWith(root: string, args: readonly string[]): Readonly<{ status: number; stderr: string }> {
-  const result = spawnSync("git", ["commit", "-q", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  const result = spawnSync("git", ["commit", "-s", "-q", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
   return { status: result.status ?? -1, stderr: result.stderr };
 }
 
@@ -442,7 +442,7 @@ test("DRIVEN: in a LINKED WORKTREE and under --git-dir/--work-tree the engine le
     for (const [form, run] of [
       ["linked worktree", (): Readonly<{ status: number; stderr: string }> => commitWith(worktree, ["-a", "-m", "engine break from a linked worktree"])],
       ["--git-dir/--work-tree", (): Readonly<{ status: number; stderr: string }> => {
-        const result = spawnSync("git", ["--git-dir", join(root, ".git"), "--work-tree", root, "commit", "-q", "-a", "-m", "engine break via flags"], {
+        const result = spawnSync("git", ["--git-dir", join(root, ".git"), "--work-tree", root, "commit", "-s", "-q", "-a", "-m", "engine break via flags"], {
           cwd: createTempDir("ch-commit-elsewhere-"), encoding: "utf8", maxBuffer: 1 << 24,
         });
         return { status: result.status ?? -1, stderr: result.stderr };
@@ -481,7 +481,7 @@ test("DRIVEN: git's automatic MERGE commit runs the same door (pre-merge-commit)
   assert.equal(commitWith(root, ["--no-verify", "-m", "an uncertified side commit"]).status, 0);
   execFileSync("git", ["switch", "-q", "-"], { cwd: root, stdio: "pipe" });
   const before = commitCount(root);
-  const merged = spawnSync("git", ["merge", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  const merged = spawnSync("git", ["merge", "--signoff", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
   assert.notEqual(merged.status, 0, "an automatic merge commit carrying a break was made — no hook ran");
   assert.match(merged.stderr, /does not compile/u);
   assert.equal(commitCount(root), before, "the refused merge commit landed");
@@ -526,6 +526,33 @@ test("DRIVEN: a commit that DELETES a guarded hook, or stages one that no longer
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
   const accepted = commit(root, "comment in the hook");
   assert.equal(accepted.status, 0, accepted.stderr);
+});
+
+test("DRIVEN: the DCO — a commit, and a merge, without the committer's sign-off is REFUSED (commit-msg)", () => {
+  const root = compileFixtureRepository("pass");
+  writeFile(root, "notes.txt", "one\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  const unsigned = spawnSync("git", ["commit", "-q", "-m", "an unsigned change"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.notEqual(unsigned.status, 0, "an unsigned commit was accepted");
+  assert.match(unsigned.stderr, /COMMIT REFUSED — the commit's records are wrong \(the DCO and the agent identity are binding\)/u);
+  const other = spawnSync("git", ["commit", "-q", "-m", "signed by another\n\nSigned-off-by: Someone Else <else@example.invalid>"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.notEqual(other.status, 0, "a commit signed off by someone other than its committer was accepted");
+  assertCommitted(root, "a signed change");
+  // A merge passes through commit-msg too: unsigned it is refused, `--signoff` lands it.
+  execFileSync("git", ["checkout", "-q", "-b", "side", "HEAD~0"], { cwd: root, stdio: "pipe" });
+  writeFile(root, "side.txt", "side\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "a side change");
+  execFileSync("git", ["checkout", "-q", "-"], { cwd: root, stdio: "pipe" });
+  writeFile(root, "main.txt", "main\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "a main change");
+  const merge = spawnSync("git", ["merge", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.notEqual(merge.status, 0, "an unsigned merge was accepted");
+  assert.match(merge.stderr, /git merge --signoff/u);
+  execFileSync("git", ["merge", "--abort"], { cwd: root, stdio: "pipe" });
+  const signed = spawnSync("git", ["merge", "--signoff", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.equal(signed.status, 0, signed.stderr);
 });
 
 test("DRIVEN: a commit that turns a workflow lesson to acted must name it in a Lesson: trailer (commit-msg)", () => {
@@ -606,7 +633,7 @@ test("DRIVEN: a --no-ff MERGE of a branch whose own commit acted on a lesson (wi
   writeFile(root, "note.md", "unrelated\n");
   execFileSync("git", ["add", "--", "note.md"], { cwd: root, stdio: "pipe" });
   assertCommitted(root, "an unrelated change on the main line");
-  const merged = git(root, "merge", "--no-ff", "-q", "-m", "merge: workspace side", "side");
+  const merged = git(root, "merge", "--signoff", "--no-ff", "-q", "-m", "merge: workspace side", "side");
   assert.equal(merged.status, 0, `the merge of a branch that already named its lesson was refused:\n${merged.stderr}`);
 
   // The branch's commit acted WITHOUT the trailer (landed around the hook):
@@ -615,13 +642,13 @@ test("DRIVEN: a --no-ff MERGE of a branch whose own commit acted on a lesson (wi
   git(other.root, "checkout", "-q", "-b", "side");
   writeFile(other.root, other.path, lessonText("2026-01-01-unnamed", "acted"));
   execFileSync("git", ["add", "--", other.path], { cwd: other.root, stdio: "pipe" });
-  assert.equal(git(other.root, "commit", "-q", "--no-verify", "-m", "act without the trailer").status, 0);
+  assert.equal(git(other.root, "commit", "-s", "-q", "--no-verify", "-m", "act without the trailer").status, 0);
   git(other.root, "checkout", "-q", other.main);
   writeFile(other.root, "note.md", "unrelated\n");
   execFileSync("git", ["add", "--", "note.md"], { cwd: other.root, stdio: "pipe" });
   assertCommitted(other.root, "an unrelated change on the main line");
   const before = commitCount(other.root);
-  const refused = git(other.root, "merge", "--no-ff", "-q", "-m", "merge: workspace side", "side");
+  const refused = git(other.root, "merge", "--signoff", "--no-ff", "-q", "-m", "merge: workspace side", "side");
   assert.notEqual(refused.status, 0, "a merge bringing an unnamed act was accepted");
   assert.match(refused.stderr, /does not name them:\n {2}- L-2026-01-01-unnamed/u);
   assert.equal(commitCount(other.root), before, "the refused merge commit landed");
@@ -640,7 +667,7 @@ test("DRIVEN: the trailer is git's own parse — a verbose (-v) editor commit ke
   // wf-1b3a-correctness M1: `git commit -v` puts the diff under a scissors
   // line (a `#` line); dropping every `#` line first made the diff the last
   // paragraph, and the real trailer was never found. The editor keeps git's template.
-  const verbose = spawnSync("git", ["commit", "-q", "-v", "-e", "-m", "act on the lesson", "-m", "Lesson: L-2026-01-01-verbose"], {
+  const verbose = spawnSync("git", ["commit", "-s", "-q", "-v", "-e", "-m", "act on the lesson", "-m", "Lesson: L-2026-01-01-verbose"], {
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, GIT_EDITOR: "true" },
@@ -658,14 +685,109 @@ test("DRIVEN: an --amend that drops a lesson's trailer is REPORTED by post-commi
   const named = commit(root, "act on the lesson\n\nLesson: L-2026-01-01-amended");
   assert.equal(named.status, 0, named.stderr);
   assert.doesNotMatch(named.stderr, /LESSON TRAILER MISSING/u, "a commit naming its lesson was reported");
-  const amended = git(root, "commit", "-q", "--amend", "-m", "act on the lesson (reworded, trailer dropped)");
+  const amended = git(root, "commit", "-s", "-q", "--amend", "-m", "act on the lesson (reworded, trailer dropped)");
   for (const part of ["LESSON TRAILER MISSING", "- L-2026-01-01-amended", "Repair it now: git commit --amend"]) {
     assert.ok(amended.stderr.includes(part), `an amend dropping the trailer went unreported (no "${part}"): ${amended.stderr}`);
   }
   // The repair the report names clears it.
-  const repaired = git(root, "commit", "-q", "--amend", "-m", "act on the lesson\n\nLesson: L-2026-01-01-amended");
+  const repaired = git(root, "commit", "-s", "-q", "--amend", "-m", "act on the lesson\n\nLesson: L-2026-01-01-amended");
   assert.equal(repaired.status, 0, repaired.stderr);
   assert.doesNotMatch(repaired.stderr, /LESSON TRAILER MISSING/u);
+});
+
+/** A guarded fixture holding three engine test sources and one engine module, committed. */
+function testDeletionFixture(): string {
+  const root = compileFixtureRepository("pass");
+  for (const name of ["one", "two", "three"]) writeFile(root, `engine/test/a/${name}.test.ts`, `// ${name}\n`);
+  writeFile(root, "engine/src/kept.ts", "export const kept = 1;\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "baseline");
+  return root;
+}
+
+test("DRIVEN: a commit that takes a test off the surface names it in a Test-deleted: trailer, and names nothing it keeps (commit-msg)", () => {
+  const root = testDeletionFixture();
+  git(root, "rm", "-q", "--", "engine/test/a/one.test.ts");
+  const unnamed = commit(root, "delete one");
+  assert.notEqual(unnamed.status, 0, "a commit deleting a test without naming it was accepted");
+  assert.ok(unnamed.stderr.includes("engine/test/a/one.test.ts: deleted from the test surface without a Test-deleted trailer (test_deletion_undeclared)"), unnamed.stderr);
+  // git log --grep is case-sensitive: a lower-case key names nothing.
+  assert.notEqual(commit(root, "delete one\n\ntest-deleted: engine/test/a/one.test.ts").status, 0, "a lower-case key was accepted");
+  // A trailer naming a test the commit keeps is refused, even beside the right one.
+  const kept = commit(root, "delete one\n\nTest-deleted: engine/test/a/one.test.ts\nTest-deleted: engine/test/a/two.test.ts");
+  assert.notEqual(kept.status, 0, "a trailer naming a kept test was accepted");
+  assert.ok(kept.stderr.includes("engine/test/a/two.test.ts: named by a Test-deleted trailer, but this commit does not delete it (test_deletion_declared_not_deleted)"), kept.stderr);
+  assert.equal(commitCount(root), "1");
+  assertCommitted(root, "delete one\n\nTest-deleted: engine/test/a/one.test.ts");
+  assert.match(execFileSync("git", ["log", "-1", "--format=%B"], { cwd: root, encoding: "utf8" }), /^Test-deleted: engine\/test\/a\/one\.test\.ts$/mu);
+  // A rename moves paths off the surface: every one is named, or the commit is refused naming the rest.
+  git(root, "mv", "engine/test/a", "engine/tests-moved");
+  const partial = commit(root, "move the tests\n\nTest-deleted: engine/test/a/two.test.ts");
+  assert.notEqual(partial.status, 0, "a rename naming only some of its paths was accepted");
+  assert.ok(partial.stderr.includes("engine/test/a/three.test.ts: deleted from the test surface without a Test-deleted trailer"), partial.stderr);
+  assert.ok(!partial.stderr.includes("engine/test/a/two.test.ts: deleted"), partial.stderr);
+  assertCommitted(root, "move the tests\n\nTest-deleted: engine/test/a/three.test.ts\nTest-deleted: engine/test/a/two.test.ts");
+  // Deleting a module that is not a test needs no trailer.
+  git(root, "rm", "-q", "--", "engine/src/kept.ts");
+  assertCommitted(root, "drop a module");
+});
+
+test("DRIVEN: an --amend that drops a Test-deleted: trailer is REPORTED by post-commit", () => {
+  const root = testDeletionFixture();
+  writeFile(root, join(HOOKS_DIRECTORY, "post-commit"), `#!/bin/sh\nexec node --experimental-strip-types ${JSON.stringify(join(INTEGRATION_ROOT, "scripts", "post-commit.ts"))} "$(git rev-parse --show-toplevel)"\n`);
+  chmodSync(join(root, HOOKS_DIRECTORY, "post-commit"), 0o755);
+  git(root, "rm", "-q", "--", "engine/test/a/one.test.ts");
+  const named = commit(root, "delete one\n\nTest-deleted: engine/test/a/one.test.ts");
+  assert.equal(named.status, 0, named.stderr);
+  assert.doesNotMatch(named.stderr, /TEST DELETION UNNAMED/u, "a commit naming its deletion was reported");
+  const amended = git(root, "commit", "-s", "-q", "--amend", "-m", "delete one (reworded, trailer dropped)");
+  for (const part of ["TEST DELETION UNNAMED", "engine/test/a/one.test.ts: deleted from the test surface", "Repair it now: git commit --amend"]) {
+    assert.ok(amended.stderr.includes(part), `an amend dropping the trailer went unreported (no "${part}"): ${amended.stderr}`);
+  }
+});
+
+test("DRIVEN: the required commit-records check refuses, over a branch's commits, what a skipped hook let through — and a merge that brings in a named deletion needs no new trailer", () => {
+  const root = testDeletionFixture();
+  assert.ok(existsSync(join(root, ".git")), "the fixture is its own repository");
+  const unhooked = (...args: readonly string[]): void => {
+    execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], { cwd: root, stdio: "pipe" });
+  };
+  const head = (): string => execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const check = (range: string): Readonly<{ status: number; stdout: string; stderr: string }> => {
+    // As the workflow runs it: the base's engine, from the engine folder of the repository judged.
+    const run = spawnSync(process.execPath, ["--experimental-strip-types", join(INTEGRATION_ROOT, "scripts", "verification", "test-deletions.ts"), "--range", range], {
+      cwd: join(root, "engine"),
+      encoding: "utf8",
+    });
+    return { status: run.status ?? -1, stdout: run.stdout, stderr: run.stderr };
+  };
+  const base = head();
+  const trunk = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  // A branch whose hooks were skipped: one undeclared deletion, one trailer naming a kept test.
+  unhooked("checkout", "-q", "-b", "skipped");
+  unhooked("rm", "-q", "--", "engine/test/a/one.test.ts");
+  unhooked("commit", "-q", "-m", "delete one");
+  const undeclared = head();
+  unhooked("commit", "-q", "--allow-empty", "-m", "say three went\n\nTest-deleted: engine/test/a/three.test.ts");
+  const stray = head();
+  const refused = check(`${base}..${stray}`);
+  assert.equal(refused.status, 1, `the range check passed a skipped hook's commits:\n${refused.stdout}${refused.stderr}`);
+  assert.ok(refused.stderr.includes(`${undeclared}:\n  - engine/test/a/one.test.ts: deleted from the test surface without a Test-deleted trailer`), refused.stderr);
+  assert.ok(refused.stderr.includes(`${stray}:\n  - engine/test/a/three.test.ts: named by a Test-deleted trailer, but this commit does not delete it`), refused.stderr);
+  assert.deepEqual(JSON.parse(refused.stdout), { range: `${base}..${stray}`, refusedCommits: 2 });
+  // A named deletion on a side branch, merged into a trunk that moved: the merge deletes nothing new.
+  unhooked("checkout", "-q", trunk);
+  unhooked("checkout", "-q", "-b", "named");
+  unhooked("rm", "-q", "--", "engine/test/a/two.test.ts");
+  unhooked("commit", "-q", "-m", "delete two\n\nTest-deleted: engine/test/a/two.test.ts");
+  unhooked("checkout", "-q", trunk);
+  writeFile(root, "engine/src/other.ts", "export const other = 1;\n");
+  unhooked("add", "--", "engine/src/other.ts");
+  unhooked("commit", "-q", "-m", "trunk moves");
+  unhooked("merge", "-q", "--no-ff", "-m", "merge named", "named");
+  const accepted = check(`${base}..${head()}`);
+  assert.equal(accepted.status, 0, `a merge bringing in a named deletion was refused:\n${accepted.stderr}`);
+  assert.deepEqual(JSON.parse(accepted.stdout), { range: `${base}..${head()}`, refusedCommits: 0 });
 });
 
 test("DRIVEN: a commit that removes the execute bit from a tracked hook is REFUSED — git would silently stop running it", () => {
@@ -725,16 +847,18 @@ test("DRIVEN: a commit that itself drops a protected staged blob (a committed `g
 const BOUNDED_LEG_START = "// --- bounded typecheck leg (extracted and driven by engine/test/prevention/commit-compile-door.test.ts) ---";
 const BOUNDED_LEG_END = "// --- end bounded typecheck leg ---";
 
-test("DRIVEN: a compile leg that outlives its bound is KILLED and REFUSED — a hanging compiler cannot hold a commit", () => {
+test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REFUSED as hung — and it is bounded by CPU work, never a wall limit", () => {
   const source = readFileSync(COMMIT_GUARD, "utf8");
   const from = source.indexOf(BOUNDED_LEG_START);
   const to = source.indexOf(BOUNDED_LEG_END);
   assert.ok(from !== -1 && to > from, "the guard carries the bounded typecheck leg block this test drives");
-  // The door must resolve the bound from the harness's own typecheck timeout
-  // and refuse the timed-out outcome by name — not merely print its output.
-  assert.match(source, /runTypecheckLeg\(stagedTree, "web", timeoutMs\)/u);
-  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", timeoutMs\)/u);
-  assert.match(source, /harness\?\.typecheckTimeoutMs/u);
+  // The door bounds both legs with the harness's one subprocess bound (CPU
+  // work + one hang backstop, src/process/subprocess-bounds.ts) and refuses
+  // the killed outcome by name — not merely print its output.
+  assert.match(source, /runTypecheckLeg\(stagedTree, "web", SUBPROCESS_BOUNDS\)/u);
+  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", SUBPROCESS_BOUNDS\)/u);
+  assert.match(source, /cpuLimitedInvocation\("npm", \["run", "typecheck"\], bounds\)/u);
+  assert.doesNotMatch(source, /typecheckTimeoutMs/u, "no wall limit bounds a compile leg");
   assert.match(source, /outcome\.timedOut/u);
   assert.match(source, /typecheckLegRefusal\(outcome\)/u);
 
@@ -745,22 +869,21 @@ test("DRIVEN: a compile leg that outlives its bound is KILLED and REFUSED — a 
   const block = source.slice(from + BOUNDED_LEG_START.length, to);
   const leg = join(root, "typecheck-leg.ts");
   const processFacts = pathToFileURL(join(INTEGRATION_ROOT, "src/process/process-facts.ts")).href;
-  writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
+  const subprocessBounds = pathToFileURL(join(INTEGRATION_ROOT, "src/process/subprocess-bounds.ts")).href;
+  writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\nimport { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from ${JSON.stringify(subprocessBounds)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
   const tree = join(root, "tree");
   writeFile(root, "tree/package.json", `${JSON.stringify({ name: "bounded-leg-fixture", private: true, scripts: { typecheck: 'node -e "setTimeout(() => {}, 60000)"' } })}\n`);
   const driver = join(root, "drive.ts");
   writeFileSync(driver, [
     `import { runTypecheckLeg, typecheckLegRefusal } from ${JSON.stringify(pathToFileURL(leg).href)};`,
-    "const started = Date.now();",
-    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", 250);`,
-    "process.stdout.write(JSON.stringify({ timedOut: outcome.timedOut, status: outcome.status, elapsedMs: Date.now() - started, refusal: typecheckLegRefusal(outcome) }));",
+    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuLimitSeconds: 60, cpuKillGraceSeconds: 5, hangBackstopMs: 250 });`,
+    "process.stdout.write(JSON.stringify({ timedOut: outcome.timedOut, status: outcome.status, refusal: typecheckLegRefusal(outcome) }));",
     "",
   ].join("\n"));
-  const run = spawnSync(process.execPath, ["--experimental-strip-types", driver], { encoding: "utf8", timeout: 20_000 });
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", driver], { encoding: "utf8" });
   assert.equal(run.status, 0, `the bounded-leg driver failed:\n${run.stderr}`);
   const outcome = JSON.parse(run.stdout);
-  assert.equal(outcome.timedOut, true, "the leg was not killed at its bound");
+  assert.equal(outcome.timedOut, true, "the leg was not killed at its hang backstop");
   assert.equal(outcome.status, null, "a killed leg must not report an exit status");
-  assert.ok(outcome.elapsedMs < 10_000, `the leg outlived its bound: ${String(outcome.elapsedMs)}ms`);
-  assert.match(outcome.refusal, /remained unfinished after its 250ms bound/u);
+  assert.match(outcome.refusal, /did not finish: HUNG: it was still running at the 0\.25 s hang backstop \(wall\)/u);
 });

@@ -1,20 +1,23 @@
 /**
- * `harness slot run -- <command> [args…]` — THE SHELL'S DOOR TO THE HOST'S ONE
- * INSTRUMENT LOCK (src/process/instrument-lock.ts), for ad-hoc load and
- * performance work that no runner starts: a CPU hog, a file looped under load,
- * a profile. It waits for the lock (saying who holds it), runs the command
- * under the native supervisor (adopted into the lock: a door killed outright
- * leaves the lock held until the command and everything it started are gone),
- * and frees the lock when the command ends; its exit code is the command's.
+ * `harness slot run -- <command> [args…]` — THE SHELL'S DOOR TO HEAVY-RUN
+ * ADMISSION (src/process/instrument-lock.ts), for ad-hoc load and performance
+ * work that no runner starts: a CPU hog, a file looped under load, a profile.
+ * The run is admitted at once (it never waits for another run), the command
+ * runs under the native supervisor and the run's caps (its cgroup scope and
+ * CPU-time limit; adopted into the run's record, so a door killed outright
+ * leaves the record live until the command and everything it started are
+ * gone), and the record is released when the command ends; its exit code is
+ * the command's.
  */
 import { constants } from "node:os";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
-import { holdInstrumentLock, waitForInstrumentLock, wholeInstrumentTestFileCount } from "../process/instrument-lock.ts";
+import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount } from "../process/instrument-lock.ts";
+import { SUBPROCESS_BOUNDS } from "./workflow-config.ts";
 import { superviseCommand } from "../process/supervised-run.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
@@ -22,7 +25,7 @@ import { readTestExecutionConfig } from "./test-result-collector.ts";
 export type SlotRunOutput = Readonly<{ command: readonly string[]; exitCode: number; ending: string }>;
 
 /**
- * Who holds the lock, for a slot run: the program and how many arguments it
+ * The run's label in the registry, for a slot run: the program and how many arguments it
  * got — never the arguments themselves (a person reads it; a command line is
  * unbounded and carries anything).
  */
@@ -41,16 +44,16 @@ function slotRunLabel(command: readonly string[]): string {
 export const INSIDE_INSTRUMENT_LOCK_VARIABLE = "HARNESS_INSIDE_INSTRUMENT_LOCK";
 
 /**
- * THE SUPERVISING DOOR (correctness L-N1): the host's one instrument lock for
- * `runner` (heavy by `testFileCount`; a whole instrument passes `Infinity`),
- * waited for, then `command` run under the native supervisor, ADOPTED into
- * the hold — so a door killed outright never frees the lock under its
- * command: the lock stays held until the command's whole process tree is
- * gone. Answers the command's exit code (a command a signal ended: 128 + its
- * number, the shell's convention). `harness slot run`, the coverage run and
- * the perf profile all hold the lock this way, never in their own process.
+ * THE SUPERVISING DOOR (correctness L-N1): `runner` admitted as a heavy run
+ * (heavy by `testFileCount`; a whole instrument passes `Infinity`) AT ONCE,
+ * then `command` run under the native supervisor and the run's caps, ADOPTED
+ * into the run's record — so a door killed outright never drops the record
+ * under its command. Answers the command's exit code (a command a signal
+ * ended: 128 + its number, the shell's convention). `harness slot run`, the
+ * coverage run and the perf profile are all admitted this way, never in
+ * their own process.
  */
-/** The declared lock (required: its place and its poll are config). */
+/** The declared admission (required: the registry's place and the caps are config). */
 function declaredInstrumentLock<T>(lock: T | undefined): T {
   if (lock === undefined) throw new InputError("testExecution.instrumentLock is not declared in bridlewise.config.json", "instrument_lock_undeclared");
   return lock;
@@ -59,14 +62,13 @@ function declaredInstrumentLock<T>(lock: T | undefined): T {
 export async function runInsideInstrumentLock(runner: string, testFileCount: number, command: readonly string[], options: Readonly<{ lockPath?: string }> = {}): Promise<Readonly<{ exitCode: number; ending: string }>> {
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
   const config = readTestExecutionConfig(engineRoot);
-  const onWait = (line: string): void => void process.stderr.write(`${line}\n`);
-  // `lockPath`: a test's own lock file (the host's lock is never a test's to take).
+  // `lockPath`: a test's own registry (the host's registry is never a test's to write).
   const lock = options.lockPath !== undefined
-    ? await waitForInstrumentLock(options.lockPath, runner, { onWait, pollIntervalMs: declaredInstrumentLock(config.instrumentLock).pollIntervalMs })
-    : await holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, onWait });
+    ? admitInstrumentRun(options.lockPath, runner, declaredInstrumentLock(config.instrumentLock).perRun, SUBPROCESS_BOUNDS)
+    : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: SUBPROCESS_BOUNDS });
   try {
     const run = await superviseCommand({
-      supervisor: testProcessSupervisorBinary(),
+      supervisor: ensureTestProcessSupervisor(),
       command: command[0]!,
       args: command.slice(1),
       hardCeilingMs: config.engineSuiteWatchdog.hardCeilingMs,

@@ -32,15 +32,18 @@
  * promotion view's (`tests/helpers/promotion-view.ts`), the one answer every
  * guard asks about what ships.
  */
-import { posix } from "node:path";
+import { spawnSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join, posix } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import type { TreeReader } from "../../engine/src/git/tree-reader.ts";
 import { unconsumedCommands } from "../../engine/src/workflow/checkout-setup.ts";
 import { excludedBy, profileCommandNames, type LoadedPromotionProfile } from "../../engine/src/workflow/promotion/profile.ts";
 import { moduleSpecifiers, normalizeRepositoryPath } from "../../engine/src/workflow/reachability.ts";
-import { classifyTree, deriveManifests, projectionAdvisories, shippedSources } from "../../engine/src/workflow/promotion/projection.ts";
+import { classifyTree, derivePureTransforms, projectionAdvisories, shippedSources } from "../../engine/src/workflow/promotion/projection.ts";
 import { promotionView } from "../helpers/promotion-view.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 
 const { document, tree, profiles } = promotionView();
 const isolation = document.workspaceIsolation!;
@@ -61,14 +64,14 @@ function overlay(base: TreeReader, overrides: Readonly<Record<string, string | n
 /** Every refusal the source side of `loaded`'s promotion raises over `reader`, by code. */
 function refusals(reader: TreeReader, loaded: LoadedPromotionProfile): readonly string[] {
   const classification = classifyTree(reader, loaded.profile);
-  return [...classification.refusals, ...deriveManifests(reader, loaded.profile, classification).refusals].map((entry) => `${entry.code}: ${entry.message}`);
+  return [...classification.refusals, ...derivePureTransforms(reader, loaded.profile, classification).refusals].map((entry) => `${entry.code}: ${entry.message}`);
 }
 
-/** Use the plan's document checker against the derived manifests, not the development scripts. */
+/** Use the plan's document checker against the derived files (the manifests' scripts), not the development scripts. */
 function danglingScripts(reader: TreeReader, loaded: LoadedPromotionProfile): readonly string[] {
   const classification = classifyTree(reader, loaded.profile);
-  const manifests = deriveManifests(reader, loaded.profile, classification);
-  return projectionAdvisories(reader, classification, manifests.texts, [])
+  const derived = derivePureTransforms(reader, loaded.profile, classification);
+  return projectionAdvisories(reader, classification, derived.texts, [])
     .filter((entry) => entry.kind === "dangling_script_reference")
     .map((entry) => `${entry.path}: ${entry.detail}`);
 }
@@ -80,9 +83,8 @@ describe("the source-side promotion guard", () => {
   });
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: the working tree raises no refusal a promotion would", (_name, loaded) => {
-    const started = Date.now();
+    // No wall-clock bound (NO-LOAD-BLOCK, #122): a busy host makes this slower, never wrong. Its cost is the suite's CPU budget.
     expect(refusals(tree, loaded)).toEqual([]);
-    expect(Date.now() - started, "the pure projection of the whole tree stays a guard, not a suite").toBeLessThan(60_000);
   });
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: shipped documents name scripts the derived package carries", (_name, loaded) => {
@@ -91,7 +93,7 @@ describe("the source-side promotion guard", () => {
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: missing, different and inert script references cannot evade the document guard", (_name, loaded) => {
     const classification = classifyTree(tree, loaded.profile);
-    const { texts } = deriveManifests(tree, loaded.profile, classification);
+    const texts = [...derivePureTransforms(tree, loaded.profile, classification).texts].filter(([path]) => classification.projected.get(path)?.detail === "package-manifest");
     // Every shipped path with the source path its bytes come from: the
     // overlay's files (the product's own README) are planted where they live.
     const shipped = shippedSources(classification);
@@ -120,6 +122,20 @@ describe("the source-side promotion guard", () => {
         .toEqual([`${document}: names \`npm run missing-script\`, which the derived ${manifest} does not carry`]);
     }
     expect(checkedDocuments, "no shipped README was exercised — the document guard's universe collapsed").toBeGreaterThan(0);
+  });
+
+  test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: each derived Makefile runs — `make -n` of every kept target succeeds", (_name, loaded) => {
+    const classification = classifyTree(tree, loaded.profile);
+    const { texts } = derivePureTransforms(tree, loaded.profile, classification);
+    for (const transform of loaded.profile.transforms) {
+      if (transform.kind !== "makefile") continue;
+      const folder = createTempDir("derived-makefile-");
+      writeFileSync(join(folder, "Makefile"), texts.get(transform.path)!);
+      for (const target of transform.targets) {
+        const run = spawnSync("make", ["-n", target], { cwd: folder, encoding: "utf8" });
+        expect(run.status, `${transform.path}: make -n ${target}: ${run.stderr}`).toBe(0);
+      }
+    }
   });
 
   test("every registry command is run by a workspace phase or a promotion profile (no dead command)", () => {

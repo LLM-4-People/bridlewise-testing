@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "ci-failure",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "ci-failure",
+    "color": "e11d21",
+    "description": "A workflow failed (retired by the MAIN-RED projection, runbook P5.5)"
+  }
+}

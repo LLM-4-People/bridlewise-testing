@@ -59,7 +59,7 @@ test("a killed reader is replaced and its read retried; a killed writer is repla
     assert.equal(captured.filter(w=>w.threadId!==-1).length,0);
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 60_000);
+});
 
 test("restarts past the window's budget open the circuit: calls answer db_unavailable (retryable) instead of hanging, and it is not permanent", () => {
   const dir = createTempDir("db-circuit-");
@@ -86,7 +86,7 @@ test("restarts past the window's budget open the circuit: calls answer db_unavai
     }finally{clearTimeout(watchdog);await backend.close();}
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 60_000);
+});
 
 test("a thread that stops while the facade closes answers its calls, so the close completes", () => {
   const dir = createTempDir("db-close-loss-");
@@ -115,7 +115,7 @@ test("a thread that stops while the facade closes answers its calls, so the clos
     }finally{clearTimeout(watchdog);Atomics.store(gate,0,1);Atomics.notify(gate,0);}
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 60_000);
+});
 
 test("a respawn that fails before it is ready starts ONE replacement: one live writer, restarts counted once each, writes commit in issue order (W1, SCALE-CR1-FIX N1)", () => {
   const dir = createTempDir("db-failed-respawn-");
@@ -158,7 +158,7 @@ test("a respawn that fails before it is ready starts ONE replacement: one live w
     assert.equal(captured.filter(w=>w.threadId!==-1).length,0);
   `, 80_000);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 90_000);
+});
 
 test("a close while a respawn is in flight answers the call held for it (db_closed) and completes (SCALE-CR1-FIX N2)", () => {
   const dir = createTempDir("db-close-respawn-");
@@ -179,4 +179,4 @@ test("a close while a respawn is in flight answers the call held for it (db_clos
     assert.equal(captured.filter(w=>w.threadId!==-1).length,0,'every thread joined, the replacement included');
   `);
   expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 60_000);
+});

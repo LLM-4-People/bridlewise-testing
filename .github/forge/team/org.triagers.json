@@ -1,0 +1,14 @@
+{
+  "kind": "team",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "triagers",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "triagers",
+    "privacy": "closed",
+    "description": "The triager role (docs/community/roles.json)",
+    "members": []
+  }
+}

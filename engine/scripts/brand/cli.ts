@@ -57,7 +57,10 @@ export function renderSurface(root: string, surface: typeof SURFACES[number]): s
   switch (surface) {
     case "readme-hero": return `${readmeHero(messaging, claims, decisionStates(root))}\n`;
     case "org-profile": return `${orgProfile(messaging, claims)}\n`;
-    case "repo-metadata": return `${JSON.stringify(repositoryMetadata(messaging), null, 2)}\n`;
+    case "repo-metadata": {
+      const metadata = repositoryMetadata(messaging);
+      return `${JSON.stringify(metadata, null, 2)}\n`;
+    }
     case "release-header": return `${releaseHeader(messaging)}\n`;
   }
 }
@@ -130,7 +133,7 @@ function run(argv: readonly string[]): number {
     const filled = withFrontBlock(shell, CLAIMS_PAGE_BLOCK.begin, CLAIMS_PAGE_BLOCK.end, claimsPage(readWords(REPOSITORY_ROOT), judged, status.commit, decisionStates(REPOSITORY_ROOT)));
     if (filled === null) throw new InputError(`${page} carries no single claims block between its markers`, "claims_page_shell_invalid");
     writeFile(page, filled);
-    process.stdout.write(`${JSON.stringify({ commit: status.commit, claims: judged.length, retracted: judged.filter((j) => j.verdict === "retracted").map((j) => j.claim.id) })}\n`);
+    process.stdout.write(`${JSON.stringify(buildSummary(status.commit, judged))}\n`);
     return 0;
   }
   if (command === "sync") {
@@ -141,6 +144,11 @@ function run(argv: readonly string[]): number {
     return report.allCurrent ? 0 : 1;
   }
   throw new InputError(`Usage: brand render ${SURFACES.join("|")} [--out <file>] | build --site <dir> --checks <status.json> | sync --write|--check`, "input_error");
+}
+
+/** What `build` reports: the commit the claims were judged at, how many there are, and which are retracted. */
+function buildSummary(commit: string, judged: readonly { verdict: string; claim: { id: string } }[]): { commit: string; claims: number; retracted: string[] } {
+  return { commit, claims: judged.length, retracted: judged.filter((j) => j.verdict === "retracted").map((j) => j.claim.id) };
 }
 
 if (isEntryPoint(import.meta.url)) {

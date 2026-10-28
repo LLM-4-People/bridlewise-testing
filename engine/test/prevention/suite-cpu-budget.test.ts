@@ -26,13 +26,12 @@ import type { MetricEntry } from "../../src/shared/measurement-registry.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 
 import {
   deriveRollingBaseline,
   judgeSuiteCpu,
   judgePopulationDrift,
-  ambientInflationFraction,
   COLD_MODULE_CACHE_FRACTION,
   type AccumulatingCpuBudget,
   type DeclaredCpuBudget,
@@ -64,10 +63,6 @@ const DERIVED: DeclaredCpuBudget & { readonly phase: "derived" } = {
   calibrationDriftMaxFraction: 0.15,
   validThroughLoad5PerCpu: 1.25,
   maxPopulationDriftFraction: 0.03,
-  // The same proportions as the deployed web declaration, so the ambient
-  // arms below exercise the arithmetic the live gate runs.
-  ambientInflationSlopePerCpu: 0.05,
-  ambientInflationCapFraction: 0.12,
 };
 /** A warm, complete, judgeable run at the given per-file CPU cost. */
 function evidence(over: Partial<SuiteCpuEvidence> = {}, unitsPerFile = 900): SuiteCpuEvidence {
@@ -285,60 +280,35 @@ test("suite-cpu: the ledger's earlier runs never change a verdict — a red afte
   assert.equal(green([ranAt(2_000), ranAt(2_000), ranAt(2_000)]), "pass", "earlier reds never turn a run under the cap red");
 });
 
-// ── Ambient load: the one allowance left, stated numerically on every
-// verdict until AMBIENT-ALLOWANCE-REMOVE removes it. The cap scales by the
-// CPU inflation the run's OWN recorded 5-minute ambient leg explains (capped);
-// a run over the scaled cap fails in that run.
+// ── Ambient load is a recorded signal, never a term of the cap
+// (NO-LOAD-BLOCK, audit A-08): the judged figure is calibrated CPU work,
+// and the same reading gets the same verdict on a quiet and a busy host.
 
-test("suite-cpu: A CLEAN RUN AT A BUSY AMBIENT JUDGES CLEAN — the adjustment does its work, with the arithmetic on the line", () => {
-  // At a recorded 5-minute ambient of 0.8/cpu the adjustment is +4%, so the
-  // cap is 1,040. A reading of 1,030 is within it: a PASS, with the
-  // arithmetic named.
-  const { outcome, judgedRecord } = judgeSuiteCpu(
-    evidence({ ambientLoad5PerCpu: 0.8 }, 1_030),
-    DERIVED,
-    [],
-    LABEL,
-    KEY,
-  );
-  assert.equal(outcome.kind, "pass");
-  assert.match(outcome.message, /1030\.000 calibration units\/file within 1040\.000/);
-  assert.match(outcome.message, /baseline 1000\.000 × 1\.040 ambient adjustment/);
-  assert.match(outcome.message, /0\.800\/cpu/);
-  // The allowance in force is SAID, numerically, until AMBIENT-ALLOWANCE-REMOVE lands: no pass reads as a strict one.
-  assert.match(outcome.message, /\[ambient allowance in force until AMBIENT-ALLOWANCE-REMOVE: \+5\.0% per unit of 5-minute load per CPU, capped at \+\d+\.\d%; this verdict: \+4\.0%\]/);
-  const strict = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.05 }, 900), DERIVED, [], LABEL, KEY);
-  assert.match(strict.outcome.message, /this verdict: \+0\.3%\]|this verdict: \+0\.2%\]/, "a quiet verdict says what it added too");
+test("suite-cpu: THE CAP NEVER MOVES WITH LOAD — the same reading gets the same verdict at a quiet and a busy host, and the load is printed as a signal", () => {
+  for (const reading of [990, 1_000, 1_030]) {
+    const quiet = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.05 }, reading), DERIVED, [], LABEL, KEY).outcome.kind;
+    const busy = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 1.2 }, reading), DERIVED, [], LABEL, KEY).outcome.kind;
+    assert.equal(busy, quiet, `a ${String(reading)} reading`);
+  }
+  const { outcome, judgedRecord } = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.8 }, 1_030), DERIVED, [], LABEL, KEY);
+  assert.equal(outcome.kind, "fail");
+  assert.match(outcome.message, /over the 1000\.000 cap in force/);
+  assert.match(outcome.message, /\(5-minute load 0\.800\/cpu: recorded, not judged\)/);
+  assert.doesNotMatch(outcome.message, /ambient adjustment|ambient allowance/);
   assert.ok(judgedRecord !== null);
-  assert.equal(judgedRecord.ambientLoad5PerCpu, 0.8);
-  // The boundary: the IDENTICAL reading at a quiet ambient FAILS — the
-  // adjustment is what moved the line, and it is stated on both verdicts.
-  const quiet = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.05 }, 1_030), DERIVED, [], LABEL, KEY);
-  assert.equal(quiet.outcome.kind, "fail");
-  assert.match(quiet.outcome.message, /ambient allowance in force until AMBIENT-ALLOWANCE-REMOVE/);
+  assert.equal(judgedRecord.ambientLoad5PerCpu, 0.8, "the load is recorded beside the reading");
 });
 
-test("suite-cpu: THE TEETH HOLD UNDER LOAD — one regressed reading at a busy ambient fails, and no ambient empties the cap", () => {
-  // At amb5 0.8 the cap is 1,040: a 1,050 reading fails in its one run.
-  const { outcome } = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.8 }, 1_050), DERIVED, [], LABEL, KEY);
+test("suite-cpu: THE TEETH HOLD AT ANY LOAD — one regressed reading fails; past the metric's validity bound the gate DEFERS, never passes", () => {
+  const { outcome } = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 0.8 }, 1_001), DERIVED, [], LABEL, KEY);
   assert.equal(outcome.kind, "fail");
-  assert.match(outcome.message, /cap in force \(metric calibrated-work\/v1; raw [\d.]+ ms\/file, provenance\) = baseline 1000\.000 × 1\.040/);
   assert.match(outcome.message, /do not raise the budget/);
-  // PAST THE METRIC'S VALIDITY BOUND THE GATE DEFERS. At 3.0/cpu the
+  // PAST THE METRIC'S VALIDITY BOUND THE GATE DEFERS: at 3.0/cpu the
   // calibrated metric's residual was never measured (bound 1.25), so the
-  // run is NOT JUDGED — not failed, not passed. This is the honest half of
-  // "load-agnostic or declare its sensitivity and defer past the bound".
+  // run is NOT JUDGED — not failed, not passed, and nothing waits.
   const saturated = judgeSuiteCpu(evidence({ ambientLoad5PerCpu: 3.0 }, 1_121), DERIVED, [], LABEL, KEY);
   assert.equal(saturated.outcome.kind, "not-judged");
   assert.match(saturated.outcome.message, /past the 1\.25\/cpu bound/);
-  // The helper's own bounds, spelled at its boundary: absence and
-  // non-positive readings adjust nothing, the slope scales until the cap.
-  assert.equal(ambientInflationFraction(undefined, DERIVED), 0);
-  assert.equal(ambientInflationFraction(null, DERIVED), 0);
-  assert.equal(ambientInflationFraction(Number.NaN, DERIVED), 0);
-  assert.equal(ambientInflationFraction(-1, DERIVED), 0);
-  assert.equal(ambientInflationFraction(1, DERIVED), 0.05);
-  assert.equal(ambientInflationFraction(3, DERIVED), 0.12);
 });
 
 test("suite-cpu: POPULATION DRIFT past the declared tolerance refuses to judge and prescribes the re-derivation at the right key", () => {
@@ -541,8 +511,8 @@ test("suite-cpu prescription: the accumulation messages demand same-sha same-con
   );
   assert.equal(midway.outcome.kind, "not-judged");
   assert.match(midway.outcome.message, /ONE headSha/u, "the prescription must demand same-sha samples");
-  assert.match(midway.outcome.message, /ambient-adjusted readings, never excluded for busyness/u,
-    "the prescription must name the ambient-adjusted feed — ambient is a covariate, never an exclusion");
+  assert.match(midway.outcome.message, /every reading as recorded, whatever ran beside it/u,
+    "the prescription must name the as-recorded feed — load is a signal, never an exclusion or an adjustment");
   // The same-sha count: this run plus the one prior sharing its sha — the
   // other-sha and pre-identity entries must NOT count toward it.
   assert.match(midway.outcome.message, /2 of the counted samples share it/u);
@@ -647,7 +617,7 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
     const historyOwner = pathToFileURL(join(copy.engineRoot, "src", "shared", "run-history.ts")).href;
     const treeOwner = pathToFileURL(join(copy.engineRoot, "src", "shared", "tree-identity.ts")).href;
     const cacheOwner = pathToFileURL(join(copy.engineRoot, "scripts", "tooling", "compile-cache.ts")).href;
-    for (const state of ["green", "red", "unslotted"] as const) {
+    for (const state of ["green", "red"] as const) {
       const red = state === "red";
       const invocationId = qualificationInvocation({});
       const environment: NodeJS.ProcessEnv = { ...process.env, NODE_DISABLE_COMPILE_CACHE: "1", [QUALIFICATION_INVOCATION_ENV]: invocationId };
@@ -655,7 +625,7 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
       delete environment.HARNESS_MUTATION_RUN;
       const output: string[] = [];
       const child = await superviseCommand({
-        supervisor: testProcessSupervisorBinary(), command: process.execPath,
+        supervisor: ensureTestProcessSupervisor(), command: process.execPath,
         args: ["--input-type=module", "-e", [
           'import assert from "node:assert/strict"; import { writeFileSync } from "node:fs";',
           `const { judgeSuiteRunCost } = await import(${JSON.stringify(owner)});`,
@@ -673,7 +643,7 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
           'failures: ["owned fixture failure"], failureDigests: {}, failureLocations: {}, invocationId: qualificationInvocation(process.env),',
           'producer: { complete: true, outcomes: [{ gate: "engine-results", kind: "pass", message: "complete typed fixture with one owned test failure" }] },',
           'headSha: readRepositoryHeadSha(process.cwd()), ambientLoadPerCpu: 0, ambientLoad5PerCpu: 0, ambientLoad15PerCpu: 0,',
-          `heavySlot: ${JSON.stringify(state === "unslotted" ? "unslotted" : "held")}, provisional: {}, mutation: {}, tree: { treeId } });`,
+          "provisional: {}, mutation: {}, tree: { treeId } });",
           `writeFileSync(${JSON.stringify(observedPath)}, JSON.stringify({ gateExitCode, treeId }));`,
           // Both children exit1 for the same owned test. Only the adapter's
           // independently computed outcome may distinguish current admission.
@@ -684,13 +654,6 @@ test("suite-cpu: actual adapter preserves its one-run red beside an owned test f
       });
       assert.equal(supervisedCommandOutcome(child, "actual suite CPU adapter", 1).kind, "pass", output.join(""));
       const observed = JSON.parse(readFileSync(observedPath, "utf8")) as { gateExitCode: number; treeId: string };
-      if (state === "unslotted") {
-        // AN UNSLOTTED MEASUREMENT IS REFUSED, NEVER JUDGED: the run fails, says why, and records no row.
-        assert.equal(observed.gateExitCode, 1, output.join(""));
-        assert.match(output.join(""), /cpu-per-test-file REFUSED: this run did not hold the host's instrument lock/u);
-        assert.equal(runForInvocation(historyPath, invocationId), undefined, "an unslotted measurement is not recorded");
-        continue;
-      }
       assert.equal(observed.gateExitCode, red ? 1 : 0, output.join(""));
       assert.match(output.join(""), /compile cache not observable/u);
       const raw = runForInvocation(historyPath, invocationId);
@@ -716,9 +679,9 @@ test("THE BASELINE NEVER CLIMBS ON RUNS THAT FAILED (design HIGH 1): seven runs 
     calibrationDriftMaxFraction: 0.15,
     validThroughLoad5PerCpu: 1.25,
     baselineFloorUnitsPerTestFile: 1_000, derivedAtTestFileCount: 100, maxPopulationDriftFraction: 0.05, sameTreeSpreadFraction: 0.026,
-    baselineWindowRuns: 12, ambientInflationSlopePerCpu: 0, ambientInflationCapFraction: 0,
+    baselineWindowRuns: 12,
   };
-  const run = (cpu: number, over: Partial<JudgedRunRecord> = {}): JudgedRunRecord => ({ timestamp: "2026-10-11T00:00:00.000Z", cpuMsPerTestFile: cpu, workUnitsPerTestFile: cpu, metric: "calibrated-work/v1", calibrationMs: 1, calibrationDriftFraction: 0.02, testModuleCount: 100, heavySlot: "held", ...over });
+  const run = (cpu: number, over: Partial<JudgedRunRecord> = {}): JudgedRunRecord => ({ timestamp: "2026-10-11T00:00:00.000Z", cpuMsPerTestFile: cpu, workUnitsPerTestFile: cpu, metric: "calibrated-work/v1", calibrationMs: 1, calibrationDriftFraction: 0.02, testModuleCount: 100, ...over });
   // The same +2.5% regression, run after run: each is over the 1000 cap, so none feeds, and the cap stays 1000.
   const regressed = Array.from({ length: 40 }, () => run(1_025));
   const derived = deriveRollingBaseline(budget, regressed, 100, []);

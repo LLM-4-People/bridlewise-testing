@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import {
   harnessMetrics,
   harnessRollback,
   harnessExtensionList,
+  harnessSync,
+  autoAddDispositionEntries,
+  generatorReport,
+  regeneratePinAuthorities,
+  regenerateRatchetBaselines,
+  regenerateTestInventory,
+  runInventoryCheck,
   HARNESS_ROOT,
   HARNESS_SUBCOMMANDS,
   promotionsStep,
@@ -16,6 +24,8 @@ import {
   type HarnessMetricsOutput,
   type HarnessRollbackOutput,
 } from "../../src/workflow/harness-commands.ts";
+import { boundedEnding } from "../../src/process/subprocess-bounds.ts";
+import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 import { runBenchmarkCli, parseBenchmarkArgs } from "../../src/performance/benchmark-cli.ts";
 import { runDiagnosticCli, parseDiagnosticArgs } from "../../src/performance/diagnostic-cli.ts";
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
@@ -431,7 +441,7 @@ test("a builder script missing from the supplied root names the file and the roo
   const dir = createTempDir("harness-missing-builder-");
   try {
     assert.throws(
-      () => runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"], 5_000),
+      () => runScriptSubprocess(dir, "scripts/pin-authority-regeneration.ts", ["--check"]),
       (error: unknown) => {
         assert.ok(error instanceof InputError);
         assert.match(error.message, /does not contain scripts\/pin-authority-regeneration\.ts/u);
@@ -461,8 +471,259 @@ test("the DOCUMENTED root invocation reaches the pin-authorities step instead of
   );
   assert.equal(result.error, undefined, "the documented invocation must complete");
   assert.equal(typeof result.status, "number", "the process must exit, not be killed");
-  assert.doesNotMatch(result.stderr ?? "", /failed without a status payload/u);
+  assert.doesNotMatch(result.stderr ?? "", /without a status payload/u);
   const answer = JSON.parse(result.stdout) as { result?: { pinAuthorities?: { step?: string; status?: string } } };
   assert.equal(answer.result?.pinAuthorities?.step, "pin-authorities");
   assert.ok(["pass", "fail"].includes(String(answer.result?.pinAuthorities?.status)));
+});
+
+// ---------------------------------------------------------------------------
+// A script subprocess is bounded in CPU work, never killed by a wall clock a
+// loaded host runs out (NO-LOAD-BLOCK L2, audit A-18), and one that ends
+// without a payload says HOW it ended (status, signal, which bound fired).
+// ---------------------------------------------------------------------------
+
+test("a script subprocess that dies without a payload names how it ended: the signal, or its exit status", () => {
+  const dir = createTempDir("harness-subprocess-ending-");
+  try {
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(join(dir, "scripts", "signalled.ts"), "process.kill(process.pid, 'SIGTERM');\nsetTimeout(() => {}, 10_000);\n");
+    writeFileSync(join(dir, "scripts", "silent-exit.ts"), "process.exit(3);\n");
+    assert.throws(() => runScriptSubprocess(dir, "scripts/signalled.ts", []), (error: unknown) => {
+      assert.match((error as Error).message, /scripts\/signalled\.ts ended without a status payload: it was ended by signal SIGTERM/u);
+      return true;
+    });
+    assert.throws(() => runScriptSubprocess(dir, "scripts/silent-exit.ts", []), (error: unknown) => {
+      assert.match((error as Error).message, /it exited with status 3 \(it printed nothing on stderr\)/u);
+      return true;
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the two L2 bounds are named when they fire: the CPU-time limit (SIGXCPU) and the hang backstop (HUNG)", () => {
+  assert.match(boundedEnding({ status: null, signal: "SIGXCPU" }, SUBPROCESS_BOUNDS), /spent its CPU-time limit of 1800 s of CPU work \(RLIMIT_CPU\)/u);
+  assert.match(boundedEnding({ status: null, signal: "SIGKILL", errorCode: "ETIMEDOUT" }, SUBPROCESS_BOUNDS), /^HUNG: it was still running at the 7200 s hang backstop \(wall\) and was killed with SIGKILL/u);
+});
+
+/** Each bound, driven THROUGH runScriptSubprocess with bounds small enough to fire. */
+function boundedFixture(name: string, body: string): Readonly<{ dir: string; script: string }> {
+  const dir = createTempDir(`harness-bound-${name}-`);
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  writeFileSync(join(dir, "scripts", `${name}.ts`), body);
+  return { dir, script: `scripts/${name}.ts` };
+}
+
+test("BOUND 1, the CPU-time limit: a step past it is ended by SIGXCPU and says so", () => {
+  const { dir, script } = boundedFixture("spin", "for (;;) {}\n");
+  try {
+    assert.throws(() => runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 1, cpuKillGraceSeconds: 5, hangBackstopMs: 120_000 } }), (error: unknown) => {
+      assert.match((error as Error).message, /spent its CPU-time limit of 1 s of CPU work \(RLIMIT_CPU\) and was ended by SIGXCPU/u);
+      return true;
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("BOUND 1 is BINDING: the hard limit is set too, so no child can raise its CPU limit", () => {
+  const { dir, script } = boundedFixture("limits", 'import { execFileSync } from "node:child_process";\nconst read = (flag: string) => execFileSync("/bin/sh", ["-c", `ulimit ${flag} -t`], { encoding: "utf8" }).trim();\nlet raised = "refused";\ntry { execFileSync("/bin/sh", ["-c", "ulimit -H -t unlimited"], { stdio: "ignore" }); raised = "raised"; } catch {}\nprocess.stdout.write(JSON.stringify({ soft: read("-S"), hard: read("-H"), raised }));\n');
+  try {
+    const ran = runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 7, cpuKillGraceSeconds: 3, hangBackstopMs: 120_000 } });
+    assert.ok(ran.ok, "the limits probe exits clean");
+    const answer = JSON.parse(ran.payload) as { soft: string; hard: string; raised: string };
+    assert.deepEqual(answer, { soft: "7", hard: "10", raised: "refused" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("BOUND 2, the hang backstop: a step still running at it is killed and reported HUNG (script_subprocess_hung)", () => {
+  const { dir, script } = boundedFixture("sleeps", "setTimeout(() => {}, 60_000);\n");
+  try {
+    assert.throws(() => runScriptSubprocess(dir, script, [], { bounds: { cpuLimitSeconds: 60, cpuKillGraceSeconds: 5, hangBackstopMs: 300 } }), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: HUNG: it was still running at the 0\.3 s hang backstop \(wall\) and was killed with SIGKILL/u);
+      assert.equal((error as { code?: unknown }).code, "script_subprocess_hung");
+      return true;
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a typed refusal printed by a step that was then KILLED is reported as the kill, never as the refusal", () => {
+  const { dir, script } = boundedFixture("refused-then-killed", 'process.stderr.write(JSON.stringify({ error: "some_refusal", message: "the step refused" }) + "\\n");\nprocess.kill(process.pid, "SIGTERM");\nsetTimeout(() => {}, 10_000);\n');
+  try {
+    assert.throws(() => runScriptSubprocess(dir, script, []), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: it was ended by signal SIGTERM/u);
+      assert.notEqual((error as { code?: unknown }).code, "some_refusal");
+      return true;
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A STEP THAT DID NOT FINISH HAS NO VERDICT (fail-closed). A `build-bundle
+// --check` that printed `{"fresh":true}` and then hung was killed, and the
+// fragment it had printed was read as its answer: `harness sync` reported
+// allPassed. A step ended by a signal or a bound, or with no payload, fails.
+// ---------------------------------------------------------------------------
+
+test("FAIL-CLOSED: a step that printed a PASS and was then killed, or ran past its CPU bound, is a failure naming how it ended; a step that answered nothing is one too", () => {
+  const killed = boundedFixture("pass-then-killed", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nprocess.kill(process.pid, "SIGTERM");\nsetTimeout(() => {}, 10_000);\n');
+  const spun = boundedFixture("pass-then-spun", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nfor (;;) {}\n');
+  const silent = boundedFixture("silent-zero", "process.exit(0);\n");
+  try {
+    assert.throws(() => runScriptSubprocess(killed.dir, killed.script, []), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: it was ended by signal SIGTERM \(the \d+ characters it printed on stdout before it ended are not a verdict\)/u);
+      assert.equal((error as { code?: unknown }).code, "script_subprocess_unfinished");
+      return true;
+    });
+    assert.throws(() => runScriptSubprocess(spun.dir, spun.script, [], { bounds: { cpuLimitSeconds: 1, cpuKillGraceSeconds: 5, hangBackstopMs: 120_000 } }), (error: unknown) => {
+      assert.match((error as Error).message, /spent its CPU-time limit of 1 s of CPU work \(RLIMIT_CPU\) and was ended by SIGXCPU \(the \d+ characters/u);
+      return true;
+    });
+    assert.throws(() => runScriptSubprocess(silent.dir, silent.script, []), (error: unknown) => {
+      assert.match((error as Error).message, /ended without a status payload: it exited with status 0 \(it printed nothing on stderr\)/u);
+      return true;
+    });
+  } finally {
+    for (const one of [killed, spun, silent]) rmSync(one.dir, { recursive: true, force: true });
+  }
+});
+
+test("FAIL-CLOSED: a step that printed a PASS and then exited non-zero, or crashed, did not exit clean; its payload is never its verdict", () => {
+  const exited = boundedFixture("pass-then-exit-1", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nprocess.exitCode = 1;\n');
+  const crashed = boundedFixture("pass-then-crash", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\nthrow new Error("the step crashed after printing");\n');
+  const clean = boundedFixture("pass-clean", 'process.stdout.write(JSON.stringify({ fresh: true, status: "pass" }) + "\\n");\n');
+  try {
+    // Only the clean branch carries a payload; a failed one carries what it printed, under another name.
+    assert.deepEqual(runScriptSubprocess(exited.dir, exited.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
+    assert.deepEqual(runScriptSubprocess(crashed.dir, crashed.script, []), { ok: false, ending: "it exited with status 1", printed: '{"fresh":true,"status":"pass"}' });
+    assert.deepEqual(runScriptSubprocess(clean.dir, clean.script, []), { ok: true, payload: '{"fresh":true,"status":"pass"}' });
+  } finally {
+    for (const one of [exited, crashed, clean]) rmSync(one.dir, { recursive: true, force: true });
+  }
+});
+
+/** A stand-in engine: a CLI whose every step answers a signed pass, `check` then ending as `checkEnding` says, and a bundle check answering fresh with `bundleExit`. */
+async function syncOverStandIn(checkEnding: string, bundleExit = 0): Promise<Awaited<ReturnType<typeof harnessSync>>> {
+  const dir = createTempDir("harness-sync-stand-in-");
+  try {
+    const engine = join(dir, "engine");
+    mkdirSync(join(engine, "src"), { recursive: true });
+    mkdirSync(join(engine, "scripts"), { recursive: true });
+    execFileSync("git", ["init", "-q", dir]);
+    const resultOwner = pathToFileURL(resolve("src", "workflow", "command-result.ts")).href;
+    writeFileSync(join(engine, "src", "cli.ts"), [
+      `const { wrapResult } = await import(${JSON.stringify(resultOwner)});`,
+      "const step = process.argv[3];",
+      "process.stdout.write(JSON.stringify(wrapResult(step, { ok: true }, { status: \"pass\" })) + \"\\n\");",
+      `if (step === "check") { ${checkEnding} }`,
+    ].join("\n"));
+    writeFileSync(join(engine, "scripts", "build-bundle.ts"), [
+      'if (process.argv.includes("--check")) process.stdout.write(JSON.stringify({ fresh: true, status: "fresh", path: "dist/bundle.js" }) + "\\n");',
+      'else process.stdout.write(JSON.stringify({ built: true }) + "\\n");',
+      `process.exitCode = ${String(bundleExit)};`,
+    ].join("\n"));
+    return await harnessSync(engine);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("FAIL-CLOSED, end to end: a `harness sync` whose check step prints a pass and is then KILLED, exits non-zero or crashes fails the whole sync, naming the step", async () => {
+  for (const [ending, said] of [
+    ['process.kill(process.pid, "SIGTERM"); setTimeout(() => {}, 10_000);', /it was ended by signal SIGTERM/u],
+    ["process.exitCode = 1;", /failed: it exited with status 1, after printing a pass/u],
+    ['throw new Error("the check crashed after printing");', /failed: it exited with status 1, after printing a pass/u],
+  ] as const) {
+    const result = await syncOverStandIn(ending);
+    assert.equal(result.status, "fail", `a check that ends with ${ending} can never leave the sync passing`);
+    assert.equal(result.result.allPassed, false);
+    assert.equal(result.result.steps.find((step) => step.step === "check")?.status, "fail");
+    const told = JSON.stringify(result.result.check.result);
+    assert.match(told, /harness sync step 'check' /u);
+    assert.match(told, said);
+  }
+  // The control: the same stand-in with a clean check passes, so the arms above fail for their ending alone.
+  assert.equal((await syncOverStandIn("")).status, "pass");
+  // A bundle check that printed "fresh" and exited non-zero is NOT fresh: the sync rebuilds the bundle.
+  const unclean = await syncOverStandIn("", 1);
+  assert.notEqual(unclean.result.bundleBuild, undefined, "an unclean freshness answer never skips the rebuild");
+  assert.equal(unclean.result.bundleBuild?.status, "fail", "and a build that exited non-zero failed, whatever it printed");
+  assert.equal(unclean.status, "fail");
+});
+
+/**
+ * EVERY ARM THAT READS A SCRIPT'S ANSWER, one row each: the arm's own
+ * "current"/"pass" payload, printed by a stand-in for its script. Exiting 0,
+ * the arm judges it current (the control); exiting 1 after printing the very
+ * same payload, it never does.
+ */
+const CLEAN_EXIT_ARMS: readonly Readonly<{ arm: string; script: string; payload: unknown; current: (root: string) => boolean }>[] = [
+  {
+    arm: "the disposition auto-add",
+    script: "scripts/tooling/run-tests.ts",
+    payload: { status: "current", addedCount: 0, addedPaths: [], prunedCount: 0, prunedPaths: [] },
+    current: (root) => {
+      try {
+        return autoAddDispositionEntries(root, true, []).status === "current";
+      } catch (error) {
+        assert.equal((error as { code?: unknown }).code, "disposition_auto_add_failed");
+        return false;
+      }
+    },
+  },
+  {
+    arm: "the test-inventory regenerate arm",
+    script: "scripts/test-inventory.ts",
+    payload: { status: "current", testCount: 3, inventoryHash: "0123456789abcdef" },
+    current: (root) => regenerateTestInventory(root, false).status === "current",
+  },
+  {
+    arm: "the pin-authority arm",
+    script: "scripts/pin-authority-regeneration.ts",
+    payload: { allCurrent: true, results: [{ status: "current" }] },
+    current: (root) => regeneratePinAuthorities(root, false).converged,
+  },
+  {
+    arm: "the ratchet-baseline arm",
+    script: "scripts/verification/ratchet-baselines.ts",
+    payload: { allCurrent: true, results: [] },
+    current: (root) => regenerateRatchetBaselines(root, false).converged,
+  },
+  {
+    arm: "the generator arm (decision index, shipped hooks, README consumers)",
+    script: "scripts/generator.ts",
+    payload: { allCurrent: true, status: "current", changed: [] },
+    current: (root) => generatorReport(root, "scripts/generator.ts", ["--check"], "a generator", "generator_no_result").allCurrent,
+  },
+  {
+    arm: "the check's inventory step",
+    script: "scripts/test-inventory.ts",
+    payload: { status: "current", testCount: 3, inventoryHash: "0123456789abcdef", transactionPresent: false },
+    current: (root) => runInventoryCheck(root).status === "pass",
+  },
+];
+
+test("FAIL-CLOSED, every arm: a script that prints its arm's current/pass answer and then exits 1 is never judged current; exiting 0 it is", () => {
+  for (const row of CLEAN_EXIT_ARMS) {
+    for (const exit of [0, 1] as const) {
+      const dir = createTempDir("harness-arm-exit-");
+      try {
+        // The test surface the inventory and disposition arms look for, as stand-ins answering this row's payload.
+        for (const script of ["scripts/tooling/run-tests.ts", "scripts/test-inventory.ts", row.script]) {
+          mkdirSync(join(dir, script, ".."), { recursive: true });
+          writeFileSync(join(dir, script), `process.stdout.write(${JSON.stringify(JSON.stringify(row.payload))} + "\\n");\nprocess.exitCode = ${String(exit)};\n`);
+        }
+        assert.equal(row.current(dir), exit === 0, `${row.arm}, exiting ${String(exit)} after printing its current answer`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
 });

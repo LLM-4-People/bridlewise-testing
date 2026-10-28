@@ -27,7 +27,7 @@ import { DEFAULT_LOCK_TIMEOUT_MS } from "../../../src/workflow/workflow-config.t
 import { applyCeilingMs } from "../../../src/workflow/promotion/apply.ts";
 import { promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
 import { resolvePromotionContext, type PromotionDocument } from "../../../src/workflow/promotion/context.ts";
-import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { TEST_GIT_IDENTITY } from "../../support/test-git-identity.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { FIXTURE_ENGINE, FIXTURE_GENERATED, PROFILE_NAME, SOURCE, TARGET, promotionFixture, type PromotionFixture } from "./promotion-fixture.ts";
@@ -496,7 +496,7 @@ test("I-5: a sweep that fails after a failed landing never replaces the landing'
 test("N7: the derived ceiling counts the configured lock wait (the lock owner's default when undeclared), every errored retry, and one converge pass per generated output", () => {
   const fixture = landing("promotion-apply-ceiling");
   const context = (document: PromotionDocument) => resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, document);
-  const runner = (retries: number) => ({ supervisor: testProcessSupervisorBinary(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries, backoffMs: 7 } });
+  const runner = (retries: number) => ({ supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries, backoffMs: 7 } });
   const declared = context({ ...fixture.document, resourceLock: { timeoutMs: 0, pollIntervalMs: 50, staleMs: 60_000 } });
   const { resourceLock: _dropped, ...undeclaredDocument } = fixture.document;
   const undeclared = context(undeclaredDocument);

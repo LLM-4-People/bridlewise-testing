@@ -39,11 +39,11 @@
 
 import { fileURLToPath } from "node:url";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
-import { asLockDoor, enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
+import { enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
 import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
@@ -63,20 +63,25 @@ export async function main(): Promise<void> {
         "argument, node --test discovers the whole tree — including non-test " +
         "`.mjs` scripts under verification/ — and fails on them.\n",
     );
-    process.exit(1);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
+    process.exitCode = 1;
+    return;
   }
-  // THE ONE INSTRUMENT LOCK: a run of the configured number of test files or
-  // more (the guards: a few hundred) waits for it, saying who holds it; a
-  // targeted run of fewer takes nothing.
-  const lock: TestRunLock = await enforceTestRunLock(runner, { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
+  // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): a run of the
+  // configured number of test files or more (the guards: a few hundred) is
+  // admitted at once, under its per-run caps, and never waits for another
+  // run; a targeted run of fewer is light and records nothing.
+  const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   armTestKeyHome();
-  // UNDER THE NATIVE SUPERVISOR (adopted into the lock this door holds): a
+  // UNDER THE NATIVE SUPERVISOR (adopted into the run this door admitted): a
   // door killed outright leaves its `node --test` stopped with every process
   // it started, and the lock held until that is done — never a run orphaned
   // beside the next holder.
   const { engineSuiteWatchdog } = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url)));
+  // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
+  const supervisor = ensureTestProcessSupervisor();
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(),
+    supervisor,
     command: process.execPath,
     args: ["--experimental-strip-types", "--test", ...process.argv.slice(2)],
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
@@ -88,12 +93,13 @@ export async function main(): Promise<void> {
   lock.release();
   if (run.ending !== "exited") {
     process.stderr.write(`[test-guards] node --test ended by ${run.ending}${run.signal === null ? "" : ` (${run.signal})`}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
-  process.exit(run.exitCode);
+  process.exitCode = run.exitCode;
 }
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  await asLockDoor(main);
+  await main();
 }

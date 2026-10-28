@@ -30,6 +30,9 @@ import { experimentExclusion, walk } from "../scripts/verification/source-walk.t
 import { createTempDir } from "./support/temp-dir.ts";
 import { engineModuleSourceRelative } from "./support/module-resolver.ts";
 import { posix } from "node:path";
+import { repositoryArchitectureManifest } from "../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, ".."));
 
 // The fixtures model a module at src/hostile-effect-fixture.ts importing the
 // central policy. That import specifier is FOLD-SENSITIVE: it must name the
@@ -527,16 +530,22 @@ test("repository command effects are exhaustively architecture-registered while 
     assert.ok(witness.violations.includes(`command-effect-composition-root-missing:${witnessPath}`), witnessPath);
   }
   const inventory = verifyCommandEffectInventory({
-    architectureCompositionRoots: Object.values(ARCHITECTURE_MANIFEST.compositionRoots).flat(),
+    architectureCompositionRoots: Object.values(REPOSITORY_MANIFEST.compositionRoots).flat(),
     architectureExternalCommands: ARCHITECTURE_MANIFEST.externalCommands,
     preservedFixturePaths: preservedFixtureProjectionPaths((path) => readFileSync(join(ROOT, path))),
     registrations: qualified,
     sources,
   });
   assert.equal(inventory.entries.some((entry) => entry.disposition === "missing-registration"), false);
+  // The ONLY external-command findings on this tree are the declared
+  // absences, each refused BY NAME (the one publication rule in
+  // src/kernel/architecture-external-commands.ts) — never skipped in silence.
+  const declaredAbsences = ARCHITECTURE_MANIFEST.externalCommands
+    .filter((entry) => entry.publication === "not-published")
+    .map((entry) => `architecture-external-command-source-not-published:${entry.path}`);
   assert.deepEqual(inventory.violations.filter((entry) =>
     entry.includes("registration") || entry.includes("composition-root") || entry.includes("external-")
-  ), []);
+  ).toSorted(), declaredAbsences.toSorted());
   // The preserved-fixture exclusion is LOAD-BEARING, asserted rather than
   // implied: the fixture projections hold executable-shaped sources (the
   // superseded benchmark's runner), and without the exclusion the census
@@ -555,8 +564,27 @@ test("repository command effects are exhaustively architecture-registered while 
       .map((entry) => entry.path),
     expectedFixtureExclusions.toSorted(),
   );
-  for (const command of ARCHITECTURE_MANIFEST.externalCommands) {
+  for (const command of ARCHITECTURE_MANIFEST.externalCommands.filter((entry) => entry.publication === "published")) {
     assert.equal(inventory.entries.find((entry) => entry.path === command.path)?.disposition, "blocked-unqualified");
+  }
+  // A NOT-PUBLISHED command is the declared boundary: this tree carries no
+  // source for it, so it has no inventory entry and its absence is named
+  // (asserted above); a source that appears for it is refused (planted below).
+  const notPublished = ARCHITECTURE_MANIFEST.externalCommands.filter((entry) => entry.publication === "not-published");
+  for (const command of notPublished) {
+    assert.equal(scannedPaths.has(command.path), false, `${command.path} is declared not-published but the tree carries it`);
+  }
+  if (notPublished.length > 0) {
+    const planted = verifyCommandEffectInventory({
+      architectureCompositionRoots: [],
+      architectureExternalCommands: [notPublished[0]!],
+      registrations: [],
+      sources: [{ path: notPublished[0]!.path, source: "print('present')\n" }],
+    });
+    assert.ok(
+      planted.violations.includes(`architecture-external-command-source-unexpectedly-published:${notPublished[0]!.path}`),
+      "a not-published command whose source appears is not refused",
+    );
   }
   for (const registration of qualified) {
     assert.equal(inventory.entries.find((entry) => entry.path === registration.path)?.disposition, "qualified-contract");
@@ -574,7 +602,7 @@ test("repository command effects are exhaustively architecture-registered while 
     registrations: [],
     sources: [{ ...original, source: `${original.source}\n` }],
   });
-  assert.ok(drifted.violations.includes(`command-effect-external-source-drift:${external.path}`));
+  assert.ok(drifted.violations.includes(`architecture-external-command-source-hash-drift:${external.path}`));
   const effectDrift = verifyCommandEffectInventory({
     architectureCompositionRoots: [],
     architectureExternalCommands: [{ ...external, effects: [] }],

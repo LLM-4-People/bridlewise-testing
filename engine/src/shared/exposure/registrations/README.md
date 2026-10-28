@@ -52,43 +52,6 @@ single call.
   tree itself). No customizations: the file is the machine administrator's
   path, with the re-derivation recorded beside the change.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/shared/exposure/registrations/`.
-
-- `agents.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `artifacts.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `awareness.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `bias.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `context.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `database.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `dedup.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `editor.ts` is consumed by `engine/src/editor/edit-tools.ts`, `engine/src/shared/exposure/registrations/index.ts`, `server/blocks/editor.ts`, `server/llm/llm-bridge.ts`, `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
-- `graph.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `hallucination.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`, `server/kernel/canonical.ts`.
-- `harness-commands.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `index.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `server/kernel/canonical.ts`.
-- `intelligence.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `learning.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `mcp.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `memory.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `network.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `performance.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `privacy.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `process.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `promotion.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`, `engine/src/workflow/promotion/context.ts`.
-- `quality.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `redaction.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `release.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `safety.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`, `server/kernel/canonical.ts`.
-- `search.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `settings.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `test-execution.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `timeline.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `tools.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `web-performance.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-- `workspace-git.ts` is consumed by `engine/src/shared/exposure/registrations/index.ts`.
-
-<!-- /consumers:generated -->

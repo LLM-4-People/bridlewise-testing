@@ -150,7 +150,7 @@ test("the floor status reports the product branch of this repository", async () 
       if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [] } };
       return { body: [] };
     });
-    const status = await buildStatus({ root: ROOT, client, now: new Date("2026-01-01T00:00:00.000Z") });
+    const status = await buildStatus({ root: ROOT, client, maxPages: 5, now: new Date("2026-01-01T00:00:00.000Z") });
     assert.ok(requested.every((path) => path.startsWith(`/repos/${REPOSITORY}/`)), "one repository");
     assert.ok(requested.some((path) => path.endsWith("/branches/product")));
     assert.equal(status.product.ref, "refs/heads/product");
@@ -170,7 +170,7 @@ async function codeScanningCheck(alerts) {
     if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
     return { body: [] };
   });
-  const status = await buildStatus({ root: ROOT, client, now: new Date("2026-01-01T00:00:00.000Z") });
+  const status = await buildStatus({ root: ROOT, client, maxPages: 5, now: new Date("2026-01-01T00:00:00.000Z") });
   return status.checks.find((entry) => entry.id === "code_scanning");
 }
 

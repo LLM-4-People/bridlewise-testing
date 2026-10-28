@@ -48,9 +48,7 @@ two cannot drift.
   region). `tests/public/markup-owner.test.mjs` refuses a hand-rolled copy
   anywhere in the tree.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `shared/`.
 

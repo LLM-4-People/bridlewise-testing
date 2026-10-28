@@ -9,7 +9,9 @@
  *   (and 304 to a matching `If-None-Match`, not counted against the rate
  *   limit); a stored LIST is paginated (`per_page`, `page`, a `Link` header);
  *   `PUT` replaces, `PATCH` merges, `POST` to a stored list appends (with an
- *   `id`), `DELETE` removes (204); an unknown path is 404;
+ *   `id`), `DELETE` removes (204); an unknown path is 404. A declared
+ *   COLLECTION ({@link FakeGithub.collection}) also keeps each item at
+ *   `<list>/<key>` in step with the list;
  * - APPS: {@link FakeGithub.installApp} registers an App (its RSA key pair is
  *   generated here; the private PEM is handed to the test to store through
  *   the real custody). `GET /repos/{o}/{r}/installation` and
@@ -73,11 +75,20 @@ export type FakeGithub = Readonly<{
   /** The rate-limit window's remaining count (decremented per counted answer). */
   rate: { limit: number; remaining: number; resetEpochSeconds: number };
   route: (method: string, pattern: RegExp, handler: FakeRoute) => void;
+  /**
+   * Declare a collection at `path` (a list API whose items are addressed at
+   * `<path>/<item[key]>`): POST appends and creates the item (with
+   * `defaults`, the fields GitHub adds), PUT, PATCH and DELETE on an item
+   * keep the list in step.
+   */
+  collection: (path: string, items: readonly Record<string, unknown>[], key?: string, defaults?: Readonly<Record<string, unknown>>) => void;
   refuseNext: (match: Readonly<{ method?: string; path?: RegExp }>, answer: Readonly<{ status: number; message: string; headers?: Readonly<Record<string, string>> }>) => void;
   /** A token for a user principal (a maintainer's token or a workflow's). */
   userToken: (principal: string) => string;
   installApp: (input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
   pendingConversion: (code: string, input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
+  /** Make every later attach of a security configuration to `owner/name` FAIL (its status `failed`). */
+  failSecurityAttach: (owner: string, name: string) => void;
   /** The principal a request's token belongs to (undefined when unknown). */
   principalOf: (request: FakeRequest) => string | undefined;
 }>;
@@ -99,6 +110,8 @@ export function fakeGithub(): FakeGithub {
   const apiUrl = address(FAKE_GITHUB_ORIGIN);
   const requests: FakeRequest[] = [];
   const objects = new Map<string, unknown>();
+  /** Lists whose items are also objects at `<list>/<item[key]>` (a collection API: rulesets, labels, autolinks). */
+  const collections = new Map<string, Readonly<{ key: string; defaults: Readonly<Record<string, unknown>> }>>();
   const routes: { method: string; pattern: RegExp; handler: FakeRoute }[] = [];
   const refusals: { method?: string; path?: RegExp; status: number; message: string; headers?: Readonly<Record<string, string>> }[] = [];
   const tokens = new Map<string, MintedToken>();
@@ -107,6 +120,20 @@ export function fakeGithub(): FakeGithub {
   const tokenPolicy = { lifetimeMs: 3600_000 };
   const rate = { limit: 5000, remaining: 5000, resetEpochSeconds: Math.floor(Date.now() / 1000) + 3600 };
   let nextId = 1000;
+  /** Team memberships, by `org/team-slug`. */
+  const teamMembers = new Map<string, Set<string>>();
+  /** Code security: each configuration's attached repository ids, and its default for new repositories. */
+  const attachments = new Map<number, Map<number, string>>();
+  /** Repositories (by API path) where an attach FAILS, as GitHub's does for a feature it cannot enable there. */
+  const failingAttach = new Set<string>();
+  const configurationDefaults = new Map<number, string>();
+  /** A repository object's id (GitHub always answers one; a test that stored a repository without one gets a stable one). */
+  const repositoryIds = new Map<string, number>();
+  const repositoryId = (path: string): number => {
+    let id = repositoryIds.get(path);
+    if (id === undefined) { id = 500_000 + repositoryIds.size; repositoryIds.set(path, id); }
+    return id;
+  };
 
   function newApp(input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>): FakeApp & { publicKey: KeyObject } {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -165,28 +192,97 @@ export function fakeGithub(): FakeGithub {
       if (request.headers.get("if-none-match") === etag) return { status: 304, headers };
       return json(200, slice, headers);
     }
-    if (method === "PUT") { objects.set(path, request.body); return json(200, request.body); }
+    const parent = path.slice(0, path.lastIndexOf("/"));
+    const keyField = collections.get(parent)?.key;
+    /** Keep a collection's list entry equal to its item object. */
+    const syncParent = (item: unknown, remove = false): void => {
+      if (keyField === undefined) return;
+      const list = objects.get(parent) as Record<string, unknown>[];
+      const index = list.findIndex((entry) => `${parent}/${String(entry[keyField])}` === path);
+      if (index !== -1) list.splice(index, 1);
+      if (!remove) list.splice(index === -1 ? list.length : index, 0, item as Record<string, unknown>);
+    };
+    if (method === "PUT") {
+      // A collection item keeps what GitHub adds (its id, its source); the body replaces the rest.
+      const replaced = keyField !== undefined && current !== undefined ? { ...(current as object), ...(request.body as object) } : request.body;
+      objects.set(path, replaced);
+      syncParent(replaced);
+      return json(200, replaced);
+    }
     if (method === "PATCH") {
       if (current === undefined || Array.isArray(current) || typeof current !== "object") return json(404, { message: "Not Found" });
       const merged = { ...(current as object), ...(request.body as object) };
       objects.set(path, merged);
+      syncParent(merged);
       return json(200, merged);
     }
     if (method === "POST") {
       if (!Array.isArray(current)) return json(404, { message: "Not Found" });
-      const created = { id: nextId++, ...(request.body as object) };
+      const declared = collections.get(path);
+      const created: Record<string, unknown> = { id: nextId++, ...declared?.defaults, ...(request.body as object) };
       current.push(created);
+      if (declared !== undefined) objects.set(`${path}/${String(created[declared.key])}`, created);
       return json(201, created);
     }
     if (method === "DELETE") {
       if (current === undefined) return json(404, { message: "Not Found" });
       objects.delete(path);
+      syncParent(undefined, true);
       return { status: 204 };
     }
     return json(404, { message: "Not Found" });
   }
 
   function builtIn(request: FakeRequest): FakeAnswer | undefined {
+    // Team members: the list, and a membership added or removed.
+    const membersOf = /^\/orgs\/([^/]+)\/teams\/([^/]+)\/members$/u.exec(request.path);
+    if (request.method === "GET" && membersOf !== null) return json(200, [...(teamMembers.get(`${membersOf[1]!}/${membersOf[2]!}`) ?? [])].sort().map((login) => ({ login })));
+    const membership = /^\/orgs\/([^/]+)\/teams\/([^/]+)\/memberships\/([^/]+)$/u.exec(request.path);
+    if (membership !== null && (request.method === "PUT" || request.method === "DELETE")) {
+      const key = `${membership[1]!}/${membership[2]!}`;
+      const members = teamMembers.get(key) ?? new Set<string>();
+      if (request.method === "PUT") members.add(membership[3]!); else members.delete(membership[3]!);
+      teamMembers.set(key, members);
+      return request.method === "PUT" ? json(200, { role: "member", state: "active" }) : { status: 204 };
+    }
+    // A repository answers its id.
+    if (request.method === "GET" && /^\/repos\/[^/]+\/[^/]+$/u.test(request.path) && objects.has(request.path)) {
+      return json(200, { id: repositoryId(request.path), ...(objects.get(request.path) as Record<string, unknown>) });
+    }
+    // Code security configurations: attach (selected repositories only), detach, defaults, and the attached list.
+    const security = /^\/orgs\/([^/]+)\/code-security\/configurations(?:\/(\d+))?\/(attach|defaults|repositories|detach)$/u.exec(request.path);
+    if (security !== null) {
+      const owner = security[1]!;
+      const id = security[2] === undefined ? undefined : Number(security[2]);
+      const body = (request.body ?? {}) as { scope?: string; selected_repository_ids?: number[]; default_for_new_repos?: string };
+      if (security[3] === "attach" && request.method === "POST" && id !== undefined) {
+        if (body.scope !== "selected") return json(422, { message: `this fake attaches only selected repositories, not ${String(body.scope)}` });
+        for (const set of attachments.values()) for (const repository of body.selected_repository_ids ?? []) set.delete(repository);
+        const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
+        const set = attachments.get(id) ?? new Map<number, string>();
+        for (const repository of body.selected_repository_ids ?? []) set.set(repository, failingAttach.has(byId.get(repository) ?? "") ? "failed" : "attached");
+        attachments.set(id, set);
+        return json(202, {});
+      }
+      if (security[3] === "detach" && request.method === "DELETE" && id === undefined) {
+        for (const set of attachments.values()) for (const repository of body.selected_repository_ids ?? []) set.delete(repository);
+        return { status: 204 };
+      }
+      if (security[3] === "defaults" && request.method === "PUT" && id !== undefined) {
+        configurationDefaults.set(id, String(body.default_for_new_repos));
+        return json(200, { default_for_new_repos: body.default_for_new_repos });
+      }
+      if (security[3] === "defaults" && request.method === "GET" && id === undefined) {
+        return json(200, [...configurationDefaults].map(([configuration, value]) => ({ default_for_new_repos: value, configuration: { id: configuration } })));
+      }
+      if (security[3] === "repositories" && request.method === "GET" && id !== undefined) {
+        const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
+        // GitHub's `status` filter (comma-separated; `all` or none lists every status).
+        const wanted = request.query.get("status");
+        const statuses = wanted === null || wanted === "all" ? undefined : new Set(wanted.split(","));
+        return json(200, [...(attachments.get(id) ?? [])].filter(([, status]) => statuses === undefined || statuses.has(status)).map(([repository, status]) => ({ status, repository: { id: repository, name: byId.get(repository)?.split("/").at(-1) ?? "", full_name: `${owner}/${byId.get(repository)?.split("/").at(-1) ?? ""}` } })));
+      }
+    }
     const conversion = /^\/app-manifests\/([^/]+)\/conversions$/u.exec(request.path);
     if (request.method === "POST" && conversion !== null) {
       const app = conversions.get(conversion[1]!);
@@ -233,7 +329,7 @@ export function fakeGithub(): FakeGithub {
     const base = new URL(FAKE_GITHUB_ORIGIN);
     let body: unknown;
     try { body = init.body === undefined ? undefined : JSON.parse(init.body); } catch { body = init.body; }
-    const request: FakeRequest = Object.freeze({ method: init.method, path: parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length) || "/", query: parsed.searchParams, headers: init.headers, body });
+    const request: FakeRequest = Object.freeze({ method: init.method, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body });
     requests.push(request);
     const answer = ((): FakeAnswer => {
       if (request.headers.get("x-github-api-version") !== GITHUB_API_VERSION) return json(400, { message: "Unsupported API version" });
@@ -273,6 +369,12 @@ export function fakeGithub(): FakeGithub {
     tokens: tokenPolicy,
     rate,
     route: (method: string, pattern: RegExp, handler: FakeRoute) => { routes.push({ method, pattern, handler }); },
+    collection: (path: string, items: readonly Record<string, unknown>[], key = "id", defaults: Readonly<Record<string, unknown>> = {}) => {
+      const list: Record<string, unknown>[] = items.map((item) => ({ ...(key === "id" && item.id === undefined ? { id: nextId++ } : {}), ...item }));
+      objects.set(path, list);
+      collections.set(path, { key, defaults });
+      for (const item of list) objects.set(`${path}/${String(item[key])}`, item);
+    },
     refuseNext: (match, answer) => { refusals.push({ ...match, ...answer }); },
     userToken: (principal: string) => {
       const token = runtimeToken("gho");
@@ -285,6 +387,7 @@ export function fakeGithub(): FakeGithub {
       conversions.set(code, app);
       return app;
     },
+    failSecurityAttach: (owner, name) => { failingAttach.add(`/repos/${owner}/${name}`); },
     principalOf: (request: FakeRequest) => tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "")?.principal,
   });
 }

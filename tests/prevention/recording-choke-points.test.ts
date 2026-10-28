@@ -50,18 +50,31 @@
  */
 import { describe, test, expect } from "vitest";
 
-import { walk, read, relpath, stripCommentsOnly } from "../helpers/source-scan.ts";
+import { walk, read, relpath, sourceFiles, stripCommentsOnly } from "../helpers/source-scan.ts";
 import { callArgumentsOf } from "../helpers/function-scope.ts";
 import { hubDecoratedPopulation, hubEngineSpanCalls, hubNamespaceSourcePaths, bareEngineValueReExports } from "../helpers/hub-population.ts";
 import { ENGINE_SPAN_EXCLUSIONS } from "../../engine/src/performance/engine-instrumentation.ts";
-import { declaredModuleContracts } from "../../engine/src/workflow/module-contract-blocks.ts";
+import { readArchitectureModuleDecisions } from "../../engine/src/workflow/architecture-module-entries.ts";
+import { architectureModuleId } from "../../engine/src/architecture-manifest.ts";
 
 import { modulePath } from "../helpers/module-resolver.ts";
 const TIMELINE_BRIDGE = modulePath("timeline-bridge.ts");
-let manifestModulesCache: ReturnType<typeof declaredModuleContracts> | undefined;
-/** The architecture manifest's module blocks, parsed once per file run. */
-const manifestModules = (): ReturnType<typeof declaredModuleContracts> =>
-  (manifestModulesCache ??= declaredModuleContracts(read(modulePath("architecture-manifest.ts"))));
+let manifestModulesCache: readonly Readonly<{ path: string; id: string }>[] | undefined;
+/**
+ * Every engine src/ module's architecture id (engine-relative path → id), once
+ * per file run: its decision's id, or the id its path derives — read as data
+ * from the decisions file, the module list being the tree's own.
+ */
+const manifestModules = (): readonly Readonly<{ path: string; id: string }>[] => {
+  if (manifestModulesCache !== undefined) return manifestModulesCache;
+  const { entries } = readArchitectureModuleDecisions(read(modulePath("architecture-modules.ts")));
+  const idByPath = new Map(entries.flatMap((entry) => entry.id === undefined ? [] : [[entry.path, entry.id] as const]));
+  manifestModulesCache = sourceFiles("engine/src").filter((path) => path.endsWith(".ts")).map((path) => {
+    const engineRelative = path.slice("engine/".length);
+    return { path: engineRelative, id: idByPath.get(engineRelative) ?? architectureModuleId(engineRelative) };
+  });
+  return manifestModulesCache;
+};
 const CANONICAL_HUB = modulePath("canonical.ts");
 const ROUTER = modulePath("router.ts");
 /** The engine module that owns the effect-kind → ledger-lane table. */

@@ -213,7 +213,7 @@ describe("the atomic-rename owner under a reader storm — no reader ever sees t
     // owner guarantees for a config-shaped file.
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toHaveProperty("generation");
     expect((statSync(configPath).mode & 0o7777).toString(8)).toBe("600");
-  }, 30_000);
+  });
 });
 
 describe("the config write lock across processes", () => {
@@ -298,7 +298,7 @@ describe("the config write lock across processes", () => {
       `both increments must survive — a lost update is exactly one of them vanishing. ` +
         `bases read: ${String(first.base)}, ${String(secondBase)}; child stderr: [${stderrOne}] [${stderrTwo}]`,
     ).toBe(2);
-  }, 20_000);
+  });
 
   test("a lock held by another PROCESS excludes this process until it releases", async () => {
     const dir = createTempDir("config-exclusion-");
@@ -316,7 +316,7 @@ describe("the config write lock across processes", () => {
       "the holder kept the lock for 400ms, so this acquire must have waited for it — an acquire that " +
         `returned immediately (${String(waitedMs)}ms) is not cross-process`,
     ).toBeGreaterThanOrEqual(350);
-  }, 20_000);
+  });
 
   test("a stale lock from a dead holder is broken, not waited on", () => {
     const dir = createTempDir("config-stale-");
@@ -336,15 +336,14 @@ describe("the config write lock across processes", () => {
       nonce: "planted-stale",
     })}\n`, { mode: 0o600 });
     expect(existsSync(lockPath)).toBe(true);
-    const started = Date.now();
     let ranInside = false;
     withConfigWriteLock(configPath, () => {
       ranInside = true;
     });
+    // BROKEN, not waited out, by its path: a wait for a live holder ends in
+    // ConfigWriteLockTimeout and never runs the body; no wall clock judges it
+    // (NO-LOAD-BLOCK).
     expect(ranInside).toBe(true);
-    // Far under the policy timeout: the stale break is immediate, where the
-    // wait for a live holder would have been the full timeout.
-    expect(Date.now() - started).toBeLessThan(5_000);
     expect(existsSync(lockPath), "a released lock leaves no file behind").toBe(false);
   });
 
@@ -362,13 +361,12 @@ describe("the config write lock across processes", () => {
       acquiredAt: new Date().toISOString(),
       nonce: "planted-recycled",
     })}\n`, { mode: 0o600 });
-    const started = Date.now();
     let ranInside = false;
     withConfigWriteLock(configPath, () => {
       ranInside = true;
     });
+    // Broken, by its path: a wait would end in ConfigWriteLockTimeout without running the body.
     expect(ranInside).toBe(true);
-    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   test("the lock is re-entrant within one process — the gate writes inside a held cycle without deadlocking", () => {

@@ -3,14 +3,14 @@ import { fileURLToPath } from "node:url";
 import { InputError } from "../kernel/errors.ts";
 import { canonicalJson, deepFreeze } from "../kernel/integrity.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
+import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
-import { configuredGitIdentity } from "../git/repository-ownership.ts";
 import type { WorkingTreeSnapshot } from "../git/working-copy.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { holdInstrumentLock } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { resolveRepositoryRegistry } from "./repository-registry.ts";
-import { worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { configuredCheckoutCommandRunner, engineRelativePath, runCheckoutCommand, type CheckoutCommandRunner } from "./checkout-setup.ts";
 import {
   createWorkspaceManager,
@@ -21,7 +21,8 @@ import {
   type WorkspaceManagerTimeouts,
 } from "./workspace-manager.ts";
 import { wrapResult, type HarnessCommandResult } from "./command-result.ts";
-import type { ConflictReport, MergeReceipt, ValidationReport, WorkspaceRecord } from "./workspace-contracts.ts";
+import type { ConflictReport, LandReceipt, MergeReceipt, ValidationReport, WorkspaceRecord } from "./workspace-contracts.ts";
+import { githubWorkspaceForgeFactory } from "./workspace-forge-github.ts";
 import type { PublishedRound } from "./workspace-forge.ts";
 
 /**
@@ -29,12 +30,14 @@ import type { PublishedRound } from "./workspace-forge.ts";
  * `npm run ws -- <subcommand>`), the composition root of isolated work.
  *
  *   create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]   a feature workspace
+ *   create --agent <name> --write-set <path…> --stack-on <id>                      stacked on a published workspace
  *   create --agent <name> --overlay [--write-set <path…>]                          adopt THIS dirty checkout
  *   create --agent <name> --read-only [--base <ref>]                               a verifier's checkout
  *   extend <id> --write-set <path…>          widen and renew the lease (admission-checked)
  *   validate <id> [--full]                   the gates; --full adds regenerate, converged and the merge gates
  *   publish <id>                             a round: the new commits as signed twins on the forge; the draft pull request
  *   ready <id>                               the pull request leaves draft: its published tree passed validate
+ *   land <id>                                enter the merge queue at the published head; wait; follow the trunk
  *   merge <id>                               integrate in the workspace, gate, land on the target
  *   recover <id>                             finish or roll back a merge whose integrator died
  *   abort <id> [--quarantine]                remove (or preserve) the worktree and branch
@@ -57,13 +60,14 @@ import type { PublishedRound } from "./workspace-forge.ts";
  */
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
+const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "land", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
 
 export type WorkspaceCliOutput =
   | Readonly<{ action: "create" | "extend" | "ready" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
   | Readonly<{ action: "publish"; record: WorkspaceRecord; round: PublishedRound }>
   | Readonly<{ action: "validate"; report: ValidationReport }>
   | Readonly<{ action: "merge"; receipt: MergeReceipt }>
+  | Readonly<{ action: "land"; receipt: LandReceipt }>
   | Readonly<{ action: "snapshot"; snapshot: WorkingTreeSnapshot }>
   | Readonly<{ action: "list"; records: readonly WorkspaceRecord[] }>
   | Readonly<{ action: "sweep"; swept: readonly string[]; orphaned: readonly string[] }>
@@ -93,23 +97,19 @@ export async function runWorkspaceCli(
   const checkoutRoot = git.toplevel(root, timeouts.inspectMs);
   // Built on the first command run: a subcommand that runs none never compiles the supervisor.
   let runner: CheckoutCommandRunner | null = null;
-  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(snapshot.document, isolation, testProcessSupervisorBinary(),
+  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(snapshot.document, isolation, ensureTestProcessSupervisor(),
     (step: string, commandArguments: readonly string[]) => progress(`run ${step}: ${commandArguments.join(" ")}`));
-  // The integrator commits as the repository's user, resolved the way git
-  // resolves it (the pinned git reads the repository's config alone): a
-  // repository with no identity is refused before a workspace is made or a
-  // merge begins, never at the merge commit (A5-design L8).
-  const identity = configuredGitIdentity(checkoutRoot);
-  if (identity === null && (action === "create" || action === "merge")) {
-    throw new InputError(`${checkoutRoot} has no git identity (user.name and user.email): the integrator's merge commit would be refused — set them (git config user.name / user.email)`, "workspace_identity_missing");
-  }
+  // The integrator's commits (a workspace merge) are the harness's, so they are the project's agent identity
+  // from the one declared source, never whatever user.name and user.email the checkout or the host carries.
+  const identity = ROOT_POLICY.workflow.commitIdentity.agent;
   const manager = createWorkspaceManager({
     checkoutRoot,
     engineRelative: engineRelativePath(checkoutRoot, ENGINE_ROOT),
     config: isolation,
     git,
     repository: (checkout: string) => configuredGitRepository(snapshot.document, checkout),
-    ...(identity === null ? {} : { identity }),
+    forge: githubWorkspaceForgeFactory(isolation.landTargets),
+    identity,
     commands: { run: (checkout, name, command) => runCheckoutCommand(checkout, name, command, commandRunner()) },
     timeouts,
     timeline: createWorkspaceTimelineHooks(resolveRepositoryRegistry(git, checkoutRoot, timeouts.inspectMs), snapshot.document.timeline),
@@ -160,6 +160,10 @@ async function dispatch(
     const workspaceId = requireSingleId(args, "ready");
     return wrapResult("workspace ready", deepFreeze({ action: "ready", record: await manager.ready(workspaceId) }), { status: "pass" });
   }
+  if (action === "land") {
+    const workspaceId = requireSingleId(args, "land");
+    return conflictAware("workspace land", async () => deepFreeze({ action: "land", receipt: await manager.land(workspaceId) }));
+  }
   if (action === "merge") {
     const workspaceId = requireSingleId(args, "merge");
     return conflictAware("workspace merge", async () => deepFreeze({ action: "merge", receipt: await withInstrumentLock(`ws merge ${workspaceId}`, () => manager.merge(workspaceId)) }));
@@ -172,7 +176,7 @@ async function dispatch(
     const [workspaceId, flags] = splitId(args, "abort");
     const unknown = flags.filter((flag) => flag !== "--quarantine");
     if (unknown.length > 0) throw new InputError(`unknown workspace abort flag: ${unknown[0]!} (supported: --quarantine)`, "unknown_flag");
-    const record = manager.abort(workspaceId, { quarantine: flags.includes("--quarantine"), reason: "operator abort" });
+    const record = await manager.abort(workspaceId, { quarantine: flags.includes("--quarantine"), reason: "operator abort" });
     return wrapResult("workspace abort", deepFreeze({ action: "abort", record }), { status: "pass" });
   }
   if (action === "snapshot") {
@@ -196,16 +200,17 @@ function requireSingleId(args: readonly string[], action: string): string {
 
 /** The workspace id (the first argument) and the flags after it. */
 /**
- * `run` holding the host's ONE instrument lock (src/process/instrument-lock.ts):
- * a validate or a merge runs whole suites, so it waits while another heavy run
- * holds the lock (saying who), and every suite it starts runs inside its hold.
+ * `run` as an ADMITTED heavy run (src/process/instrument-lock.ts): a validate
+ * or a merge runs whole suites, so it is admitted at once under its per-run
+ * caps — it never waits for another run, and no run waits for it — and every
+ * suite it starts runs inside it.
  */
 async function withInstrumentLock<T>(label: string, run: () => Promise<T>): Promise<T> {
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
   // A whole instrument (it runs whole suites), heavy by kind.
-  const lock = await holdInstrumentLock({
+  const lock = holdInstrumentLock({
     config: readTestExecutionConfig(engineRoot).instrumentLock, harnessRoot: engineRoot, runner: label,
-    testFileCount: Number.POSITIVE_INFINITY, onWait: (line) => process.stderr.write(`${line}\n`),
+    testFileCount: Number.POSITIVE_INFINITY, cpu: SUBPROCESS_BOUNDS,
   });
   try {
     return await run();
@@ -234,6 +239,7 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
   let agentName: string | undefined;
   let base: string | undefined;
   let target: string | undefined;
+  let stackOn: string | undefined;
   let overlay = false;
   let readOnly = false;
   const writeSet: string[] = [];
@@ -241,9 +247,10 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
   while (index < args.length) {
     const arg = args[index]!;
     const value = args[index + 1];
-    if ((arg === "--agent" || arg === "--base" || arg === "--target") && value !== undefined && !value.startsWith("--")) {
+    if ((arg === "--agent" || arg === "--base" || arg === "--target" || arg === "--stack-on") && value !== undefined && !value.startsWith("--")) {
       if (arg === "--agent") agentName = value;
       else if (arg === "--base") base = value;
+      else if (arg === "--stack-on") stackOn = value;
       else target = value;
       index += 2;
       continue;
@@ -263,7 +270,7 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
       continue;
     }
     throw new InputError(
-      `unknown workspace create flag: ${arg} (supported: --agent, --write-set, --overlay, --read-only, --base, --target)`,
+      `unknown workspace create flag: ${arg} (supported: --agent, --write-set, --overlay, --read-only, --base, --target, --stack-on)`,
       "unknown_flag",
     );
   }
@@ -279,5 +286,6 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
     writeSet: deepFreeze(writeSet),
     ...(base !== undefined ? { base } : {}),
     ...(target !== undefined ? { target } : {}),
+    ...(stackOn !== undefined ? { stackOn } : {}),
   });
 }

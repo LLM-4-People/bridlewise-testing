@@ -11,9 +11,7 @@
  */
 import { parentPort, workerData } from "node:worker_threads";
 
-if (parentPort === null) {
-  process.exit(1);
-}
+if (parentPort === null) throw new Error("this fixture is a worker thread's entry; start it as a worker");
 
 const input = workerData as { value?: number; delayMs?: number; preloadKey?: string };
 const port = parentPort;

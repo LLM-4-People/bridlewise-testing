@@ -226,5 +226,5 @@ async function main() {
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  main().catch((e) => { console.error("ORCH ERROR:", e); process.exit(1); });
+  main().catch((e) => { console.error("ORCH ERROR:", e); process.exitCode = 1; });
 }

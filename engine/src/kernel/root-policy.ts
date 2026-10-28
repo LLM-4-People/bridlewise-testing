@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "0987e6bbc97c0da22b584fc3f441818387f18546cb1027d29c7639ba11e925af",
+      sourceSha256: "26f23a96010549f666bf47ffd15f9f69a8b41e496467deaa538d9e7ad49191fd",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1364,10 +1364,10 @@ const ROOT_POLICY_VALUE = {
      * regenerates is a value someone can add or edit without evidence — the
      * exact shape this floor refuses.
      */
-    binaryStamp: "bdcbd9bf3bb72b59180b563f679f028b10dd1fed6c7da77501dc6069727a59a5",
+    binaryStamp: "e297762aac11ddcd6b63451c8d327f1ace9bcf3bf937e12a5f2f7a140681c00c",
     bundleRelativePath: "dist/bundle.js",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
-    specSchemaArtifactSha256: "689cf67a9a516786b6fedae6716c94c07c818d97b144393e1eb8d26b89668d70",
+    specSchemaArtifactSha256: "fd0ecade13d7b2690cb9585d6464a92459c2c3961a6a18ec5b978e4ab9e48790",
     /**
      * THE SOURCE HALF OF THE SPEC-SCHEMA PIN.
      *
@@ -1390,7 +1390,7 @@ const ROOT_POLICY_VALUE = {
      * decides admission is the reviewed source".
      */
     specSchemaSourcePath: "src/filesystem/self-protection/self-protection-contracts.ts",
-    specSchemaSourceSha256: "13e5d2112ef059ae3efac6ab66668b6d06a1210bdd5068e9bd3473cf0492255f",
+    specSchemaSourceSha256: "c29864150e2bef90c49a4db09f0907aea2b617927860a0814398ecf2224dabd2",
     /**
      * RELATIVE TO THE HARNESS ROOT — the tree that holds `dist/bundle.js` and
      * `guardian/build/…` above, never the repository root.
@@ -1633,10 +1633,10 @@ const ROOT_POLICY_VALUE = {
     metrics: ["overhead", "false-positive", "false-negative", "coverage", "conflict-and-cycle"],
     moduleArchitecture: {
       manifest: "src/architecture-manifest.ts",
-      graph: "exact-registered-edges-no-cycles-and-inward-layer-direction",
-      publicApi: "exact-declared-export-name-hash",
+      graph: "derived-edges-no-cycles-and-inward-layer-direction",
+      publicApi: "derived-from-source-never-committed",
       effects: "registered-owner-and-execution-boundary-only",
-      compositionRoots: "per-realm-versioned-arrays-owned-by-src/architecture-manifest.ts",
+      compositionRoots: "derived-from-the-module-entries-in-src/architecture-modules.ts",
       primaryAnalyzer: "babel-typed-pure-architecture-analysis",
       independentOracle: "separate-lexical-scanner-plus-typescript-no-emit-pipeline",
       analyzerDisagreement: "fail-closed",
@@ -1982,6 +1982,10 @@ const ROOT_POLICY_VALUE = {
       maximumFileBytes: 16_777_216,
       maximumDirectoryEntries: 100_000,
       temporaryRandomBytes: 16,
+      // Hex digits of a path's SHA-256 in a journaled commit's backup name
+      // (`<transaction>.<digest>.previous`, beside the journal): enough to keep
+      // a transaction's few files apart, short enough for a file name.
+      journalBackupPathDigestHex: 16,
       procFileDescriptorRoot: "/proc/self/fd",
       segmentContract: {
         maximumUtf8Bytes: 255,
@@ -2272,7 +2276,7 @@ const ROOT_POLICY_VALUE = {
       },
       dispositionRegistry: {
         manifestPath: "traceability/test-surface-dispositions.json",
-        schemaVersion: schemaId("test-surface-dispositions", 1),
+        schemaVersion: schemaId("test-surface-dispositions", 2),
         allowedDispositions: [
           "canonical-node-test",
           "qualified-external-oracle",
@@ -2280,7 +2284,10 @@ const ROOT_POLICY_VALUE = {
           "non-test-fixture",
           "unsupported-blocking",
         ],
-        everyRecognizableSourceRequiresExactEntry: true,
+        // A qualified Node test source is canonical WITHOUT an entry; only the
+        // exceptions are recorded (#221: adding a test rewrites nothing).
+        everyRecognizableSourceRequiresExactEntry: false,
+        qualifiedNodeSourceDefault: "canonical-node-test",
         benchmarkLocationImpliesDisposition: false,
         pythonImplicitExecutionAllowed: false,
         unqualifiedDisposition: "block-and-report-exact-source-and-disposition",
@@ -2623,6 +2630,25 @@ const ROOT_POLICY_VALUE = {
   },
   workflow: {
     /**
+     * THE PROJECT'S CONTRIBUTOR IDENTITY FOR AGENT COMMITS
+     * (scripts/verification/sign-off.ts): every commit an agent makes —
+     * author, committer and every `Signed-off-by` — is this identity, never a
+     * person's own. An agent commit is told apart from a human's by its marks
+     * (any of its identities is this one, or uses this address's domain) and,
+     * server-side, by the pull request's author (`agentAccounts`, the GitHub
+     * logins and Apps that open the lanes' pull requests). A human outside
+     * contributor keeps the ordinary DCO: their own name and address, signed
+     * off as their committer.
+     */
+    commitIdentity: {
+      agent: { name: "bridlewise.llm4people.dev", email: "hello@bridlewise.llm4people.dev" },
+      agentAccounts: ["amberflag48"],
+      // The git config key the harness sets in every checkout it makes for an agent (a workspace's own
+      // worktree config, a candidate's local config), beside the agent identity: the commit-msg hook
+      // refuses a commit there whose identities are not all the agent's (scripts/verification/sign-off.ts).
+      agentCheckoutKey: "bridlewise.agentCheckout",
+    },
+    /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs
      * (src/shared/flake-reproduction.ts; written by `harness flake
      * reproduce`): one canonical JSON record per (test, fix), engine-relative.
@@ -2655,9 +2681,10 @@ const ROOT_POLICY_VALUE = {
        * THE BUDGETS JUDGED IN THE SAME JUDGEMENT (UR-24): a budget gate of a
        * ledger whose breach persists from the target passes only while an
        * open task row names the budget (its config key) and this change's
-       * SLOTTED value is no higher than the target's LOWEST recorded value
-       * (the row field named here). A new breach, a worse one, an unowned or
-       * an unslotted one fails. Any other budget gate fails outright.
+       * value is no higher than the target's LOWEST recorded value (the row
+       * field named here), whatever ran beside either run (NO-LOAD-BLOCK). A
+       * new breach, a worse one or an unowned one fails. Any other budget
+       * gate fails outright.
        */
       budgets: {
         engine: { "cpu-per-test-file": { budget: "testExecution.integrationSuiteCpuBudget", field: "cpuMsPerTestFile" } },

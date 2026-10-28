@@ -416,7 +416,7 @@ async function unattended(fixture: PromotionFixture, options: Parameters<typeof 
   };
   let outcome: PromotionAnswer | PromotionError;
   try {
-    outcome = await withUnattendedChain(contextOf(PROFILE_NAME, SOURCE), configuredWorktreeGitPort(fixture.document), () => apply(fixture, { ...options, request: { noPublish: false, auto: true, ...options.request } }), contextOf, launch, environment);
+    outcome = await withUnattendedChain(contextOf(PROFILE_NAME, SOURCE), configuredWorktreeGitPort(fixture.document), () => apply(fixture, { ...options, request: { noPublish: false, auto: true, ...options.request } }), launch, environment);
   } catch (error) {
     assert.ok(error instanceof PromotionError, String(error));
     outcome = error;
@@ -524,7 +524,7 @@ test("N2 (PROMO-3+4-FIX): a held run and a run coalesced into a running one chai
 
 test("H1 (PROMO-3+4-FIX): the unattended run's own environment never carries the promoter home's variable (a chained run finds its own promoter) and names its own log", () => {
   const { promoterHomeEnvironmentVariable, logEnvironmentVariable } = ROOT_POLICY.workflow.promotion;
-  const own = unattendedEnvironment({ PATH: "/bin", [promoterHomeEnvironmentVariable]: "/home/engine", [logEnvironmentVariable]: "/old.log" }, "/new.log");
+  const own = unattendedEnvironment({ PATH: "/bin", [promoterHomeEnvironmentVariable]: "/home/app", [logEnvironmentVariable]: "/old.log" }, "/new.log");
   assert.deepEqual(own, { PATH: "/bin", [logEnvironmentVariable]: "/new.log" });
 });
 

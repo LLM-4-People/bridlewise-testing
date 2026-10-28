@@ -1,17 +1,28 @@
-import { posix } from "node:path";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { join, posix, relative, resolve } from "node:path";
 
 import { astChildren, astNode, astNodeArray, parseSourceModule, type AstNode } from "../../src/quality-packs/prevention/ast-helpers.ts";
 
 import {
   ARCHITECTURE_MANIFEST,
+  architectureManifestOf,
   type ArchitectureAuthorityFamily,
   type ArchitectureEffect,
   type ArchitectureManifest,
   type ArchitectureModule,
+  type ArchitecturePolicy,
   type ArchitectureRealm,
 } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_SOURCE_EXTENSIONS } from "../../src/shared/source-extensions.ts";
+import { getExtension } from "../../src/shared/path-utils.ts";
+import { shouldExcludeExperiment } from "../../src/shared/source-scan.ts";
 import { canonicalHash, deepFreeze, sha256 } from "../../src/kernel/integrity.ts";
-import { publishedExternalCommandPopulationHash } from "../../src/kernel/architecture-external-commands.ts";
+import {
+  externalCommandSourceFinding,
+  publishedExternalCommandPopulationHash,
+} from "../../src/kernel/architecture-external-commands.ts";
+import { readSafeRepositoryFile } from "./safe-repository-reader.ts";
+import { extractErrorMessage, HarnessError } from "../../src/kernel/errors.ts";
 import { isPlainObject } from "../../src/shared/type-guards.ts";
 import { sameOrderedValues } from "../../src/kernel/ordered.ts";
 import { repositoryScanExclusionFor } from "../../src/shared/source-scan.ts";
@@ -1189,9 +1200,40 @@ function collectMutatedArchitectureNames(root: AstNode): ReadonlySet<string> {
   return names;
 }
 
+/**
+ * THE ARCHITECTURE'S CENSUS OF A TREE: every source module under the source
+ * roots of `root` (the architecture extensions; a dot-file and an
+ * experiment-excluded path are not modules), engine-relative, sorted. The
+ * module list is this census, never a committed one (#221).
+ */
+export function architectureSourcePaths(root: string): readonly string[] {
+  const extensions = new Set<string>(ARCHITECTURE_SOURCE_EXTENSIONS);
+  const paths: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      const path = relative(root, absolute).split("\\").join("/");
+      // Experiment subtrees are pruned at the walk boundary unless HARNESS_INCLUDE_EXPERIMENTS opts back in.
+      if (shouldExcludeExperiment(path)) continue;
+      if (entry.isDirectory()) walk(absolute);
+      else if (entry.isFile() && !entry.name.startsWith(".") && extensions.has(getExtension(path))) paths.push(path);
+    }
+  };
+  for (const sourceRoot of ARCHITECTURE_MANIFEST.sourceRoots) {
+    const absolute = resolve(root, sourceRoot);
+    if (existsSync(absolute)) walk(absolute);
+  }
+  return deepFreeze(paths.toSorted());
+}
+
+/** The manifest of the tree at `root`: its census, classified by the committed decisions. */
+export function repositoryArchitectureManifest(root: string): ArchitectureManifest {
+  return architectureManifestOf(architectureSourcePaths(root));
+}
+
 export function verifyArchitectureSources(
   sources: readonly ArchitectureSource[],
-  manifest: ArchitectureManifest = ARCHITECTURE_MANIFEST,
+  manifest: ArchitectureManifest,
   externalCommandSources?: readonly ArchitectureSource[],
 ): ArchitectureVerification {
   const violations: string[] = [];
@@ -1241,13 +1283,6 @@ export function verifyArchitectureSources(
     if (!sameOrderedValues(facts.exportedNames, lexical.exportedNames)) {
       violations.push(`architecture-independent-export-disagreement:${module.path}`);
     }
-    if (!sameOrderedValues(facts.dependencies, [...module.dependencies].toSorted())) {
-      violations.push(`architecture-dependency-drift:${module.path}`);
-    }
-    if (facts.exportedNames.length !== module.publicApi.exportCount ||
-      canonicalHash(facts.exportedNames) !== module.publicApi.namesSha256) {
-      violations.push(`architecture-public-api-drift:${module.path}`);
-    }
     const internalDependencies = facts.dependencies.filter((dependency) => moduleByPath.has(dependency));
     graph.set(module.path, internalDependencies);
     verifyDependencyUniverse(
@@ -1291,6 +1326,35 @@ function verifyInternalImportBoundaries(
 }
 
 /**
+ * THE ONE READER of the inventory's sources from a tree (the S1 verification
+ * and `harness check`'s architecture step both read through it). A source that
+ * does not exist is simply not returned — what that absence means is decided
+ * by `externalCommandSourceFinding`, never here; any other failure (unsafe
+ * path, too large, not UTF-8) is refused by name in `violations`.
+ */
+export function readExternalCommandSources(
+  root: string,
+  manifest: ArchitecturePolicy,
+  violations: string[],
+): readonly ArchitectureSource[] {
+  const entries: ArchitectureSource[] = [];
+  for (const command of manifest.externalCommands) {
+    // Absence is a FACT here (`lstat`, so a dangling link is present and refused
+    // by the safe read); the safe reader cannot tell a missing ancestor
+    // directory from an unsafe one, so it is asked only about entries that exist.
+    if (lstatSync(join(root, command.path), { throwIfNoEntry: false }) === undefined) continue;
+    try {
+      const { bytes } = readSafeRepositoryFile(root, command.path, manifest.analysisLimits.maximumSourceBytes);
+      entries.push({ path: command.path, source: new TextDecoder("utf-8", { fatal: true }).decode(bytes) });
+    } catch (error) {
+      const reason = error instanceof HarnessError ? error.code : extractErrorMessage(error);
+      violations.push(`architecture-external-command-source-unreadable:${command.path}:${reason}`);
+    }
+  }
+  return deepFreeze(entries);
+}
+
+/**
  * The external-command arm, on its own so a caller that does not want the
  * whole module-registration verification (the harness check's architecture
  * step) can still gate the inventory: each declared source hash, the
@@ -1299,7 +1363,7 @@ function verifyInternalImportBoundaries(
  * pin — the published population itself.
  */
 export function verifyExternalCommands(
-  manifest: ArchitectureManifest,
+  manifest: ArchitecturePolicy,
   modules: ReadonlyMap<string, ArchitectureModule>,
   violations: string[],
   externalCommandSources?: readonly ArchitectureSource[],
@@ -1341,20 +1405,9 @@ export function verifyExternalCommands(
       violations.push(`architecture-external-command-effects-invalid:${command.path}`);
     }
     if (verifyContent) {
-      const source = sourceByPath.get(command.path);
-      if (command.publication === "not-published") {
-        // A DECLARED BOUNDARY, NOT A SKIP. The public snapshot does not carry
-        // this source, and the verifier still refuses: absence is named as
-        // not-published, while an unexpected source at the path is refused as
-        // a boundary breach rather than quietly hash-checked or ignored.
-        violations.push(source === undefined
-          ? `architecture-external-command-source-not-published:${command.path}`
-          : `architecture-external-command-source-unexpectedly-published:${command.path}`);
-      } else if (source === undefined) {
-        violations.push(`architecture-external-command-source-missing:${command.path}`);
-      } else if (sha256(source) !== command.sourceSha256) {
-        violations.push(`architecture-external-command-source-hash-drift:${command.path}`);
-      }
+      // The one publication rule (a declared absence is still named).
+      const finding = externalCommandSourceFinding(command, sourceByPath.get(command.path));
+      if (finding.kind !== "current") violations.push(finding.violation);
     }
   }
 }

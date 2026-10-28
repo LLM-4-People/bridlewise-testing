@@ -26,14 +26,6 @@ and probed for live status; nothing here is static.
 - `extensions-bridge.ts` — reads the harness config to list configured
   extensions and their manifest metadata.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/integrations/`.
-
-- `extensions-bridge.ts` is consumed by `server/routes/extensions.ts`, `server/tools/tool-executor.ts`.
-- `mcp-bridge.ts` is consumed by `server/routes/config.ts`, `server/routes/mcp.ts`.
-- `mcp-runtime-bridge.ts` is consumed by `server/index.ts`, `server/integrations/mcp-bridge.ts`, `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
-
-<!-- /consumers:generated -->

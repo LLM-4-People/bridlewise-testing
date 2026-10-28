@@ -180,14 +180,14 @@ export interface MeasurementFinding {
 export const MEASUREMENT_FINDINGS: readonly MeasurementFinding[] = Object.freeze([
   {
     id: "F-PERF-LATENCY-NO-BOUND",
-    title: "Web performance latencies are judged absolutely with no ambient bound",
+    title: "Web performance latencies are wall time, so they are recorded signals and never judged",
     detail:
       "The profile's latency budgets (LCP, long tasks, tab switch, typing, API response, " +
-      "long-chat render, 10k-projects render, viewport LCP) are wall-clock durations judged " +
-      "against absolute budgets from a slotted profile. The instrument lock and the idle-host " +
-      "contract are preconditions, but no numeric ambient-load bound exists past which the " +
-      "verdict defers: a busy but slotted host still yields a judged reading. Recorded as an " +
-      "open finding; the registry does not claim these entries are load-agnostic.",
+      "long-chat render, 10k-projects render, viewport LCP) are wall-clock durations a busy " +
+      "host inflates. Under NO-LOAD-BLOCK they are recorded in the run's row, printed beside " +
+      "their budgets and never judged (`WEB_PERFORMANCE_WALL_SIGNALS`); no CPU-work measure of " +
+      "the browser's work replaces them yet. Recorded as an open finding; the registry does not " +
+      "claim these entries are load-agnostic, and nothing fails or waits on them.",
   },
   {
     id: "F-PERF-CLS-NO-BOUND",
@@ -295,6 +295,8 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "engine/scripts/tooling/compile-cache.ts::pruneCacheDirectory": "prunes the V8 compile cache and reports how many entries it removed; a maintenance count, not a judged signal",
   "engine/scripts/tooling/compile-cache.ts::scanCacheDirectory": "counts cache entries so the prune can bound itself; a maintenance count, not a measurement",
   "engine/scripts/tooling/test-run-lock.ts::testFileCountOfArgs": "parses the runner's argument vector into a test-file count; an input parse, not a measurement",
+  "engine/src/filesystem/file-mode.ts::settleDescriptorMode": "reads a file's permission bits to decide whether to change them; a mode comparison, not a measured quantity",
+  "engine/src/filesystem/file-mode.ts::settleFileMode": "opens a file to settle its permission bits through settleDescriptorMode; a mode comparison, not a measured quantity",
   "engine/src/kernel/integrity.ts::sha256": "a content identity hash; not a duration, load or cost the floor judges",
   "engine/src/kernel/integrity.ts::sha256Bytes": "a content identity hash over a buffer; identity, not a measurement",
   "engine/src/kernel/integrity.ts::gitBlobId": "git's blob identity for content; an object id, not a measurement",
@@ -328,8 +330,6 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
  */
 export const NON_MEASUREMENT_CONSUMERS: Readonly<Record<string, string>> = Object.freeze({
   "tests/prevention/measurement-contract.test.ts::readAmbientLoadPerCpu": "drives the producer's unreadable-sample branches in unit arms; it records no ambient quantity and is a test of the producer, not a consumer of a measured value",
-  "engine/scripts/tooling/test-run-lock.ts::instrumentLockStamp": "borrows the stamp for the runner's own lock decision and re-exposes it; it records no instrument-lock measurement",
-  "engine/test/process/instrument-lock.test.ts::instrumentLockStamp": "drives the stamp's held/unslotted branches; the test asserts the producer, it records no measurement",
   "tests/prevention/flaky-test-memory.test.ts::readMeasuredSurfaceHash": "builds a synthetic profile report with the measured surface's hash; the test plants identity, it records no measurement",
   "tests/prevention/tree-identity-owner.test.ts::readMeasuredSurfaceHash": "asserts the hash owner is single and changes with the surface; the test drives the producer, it records no measurement",
   "tests/prevention/web-ui-runtime-budget-verdict.test.ts::readMeasuredSurfaceHash": "feeds a synthetic tree identity into the budget-verdict arms; the test plants identity, it records no measurement",
@@ -389,53 +389,6 @@ const MEASURED_SURFACE: MetricEntry = {
   zero: { kind: "not-numeric", reason: "a hash is not a numeric measurement" },
 };
 
-/** Whether the profile ran inside the host's one instrument lock. */
-const INSTRUMENT_LOCK: MetricEntry = {
-  status: "registered",
-  name: "perf.profile.instrumentLock",
-  unit: "lock stamp (held | unslotted)",
-  family: "profile.identity",
-  distinctFrom: [],
-  producer: {
-    module: "engine/src/process/instrument-lock.ts",
-    symbol: "instrumentLockStamp",
-    compute: ["holder\\.pid === process\\.pid"],
-    reads: [],
-    forbids: ["Date.now", "performance.now(", "loadavg("],
-  },
-  consumers: [
-    {
-      kind: "gate",
-      id: "the profile report was measured inside the host's one instrument lock (an unslotted report is refused, never judged)",
-      source: "tests/performance/regression.test.ts",
-    },
-    { kind: "gate", id: "performance-report", source: "scripts/testing/performance-measurements.ts" },
-    { kind: "gate", id: "instrumentLockStamp(lockPath)", source: "tests/reporters/budget-reporter.ts" },
-    {
-      kind: "record",
-      id: "instrumentLock",
-      source: "tests/performance/profile.spec.ts",
-    },
-    {
-      kind: "doc",
-      id: "instrument lock",
-      source: MEASUREMENT_DOC_SOURCE,
-      anchor: "instrument lock",
-    },
-  ],
-  load: {
-    kind: "agnostic",
-    normalization: "a host-lock STATE read at write time, not a duration: the same report is held or unslotted independently of load",
-    proof: "instrumentLockStamp",
-  },
-  absent: {
-    kind: "sentinel",
-    value: "unslotted",
-    reason: "no live hold stamps \"unslotted\"; the gate refuses it by name rather than judging the profile",
-  },
-  zero: { kind: "not-numeric", reason: "a stamp is not a numeric measurement" },
-};
-
 /** One web-performance budget signal. */
 function perfBudget(
   budget: string,
@@ -483,7 +436,7 @@ function perfBudget(
 
 const PERF_LATENCY_FINDING: LoadBehaviour = {
   kind: "sensitive",
-  sensitivity: "wall-clock latency measured in the browser under the instrument lock; a busy host inflates it",
+  sensitivity: "wall-clock latency measured in the browser; a busy host inflates it, so it is a recorded signal and never judged",
   bound: null,
   finding: "F-PERF-LATENCY-NO-BOUND",
 };
@@ -802,7 +755,7 @@ const AMBIENT_LOAD: MetricEntry = {
   },
   absent: {
     kind: "null",
-    reason: "an unreadable sample or CPU count yields `perCpu: null`; consumers record null and the verdict takes no ambient adjustment — never a fabricated zero",
+    reason: "an unreadable sample or CPU count yields `perCpu: null`; consumers record null and a verdict past the metric's validity bound cannot be read from it — never a fabricated zero",
   },
   zero: { kind: "not-numeric", reason: "the unit is load per CPU; a measured 0 is an idle reading and is represented as 0 only when the sample was readable" },
 };
@@ -854,7 +807,6 @@ const TOKEN_THROUGHPUT: MetricEntry = {
 
 export const MEASUREMENT_REGISTRY: readonly MetricEntry[] = Object.freeze([
   MEASURED_SURFACE,
-  INSTRUMENT_LOCK,
   ...WEB_PERF_ENTRIES,
   PER_FILE_COLLECT,
   PER_FILE_OCCUPANCY,

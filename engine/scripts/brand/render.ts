@@ -133,7 +133,7 @@ export function siteFront(m: Words): string {
  * sources by `harness sync` (`cli.ts sync`) and judged by `harness check`.
  * The text around a block is hand-written; the block is never edited by hand.
  */
-export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: string; render: (m: Words, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>) => string }>[] = [
+export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: string; render: (m: Words, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>) => string }>[] = Object.freeze([
   {
     path: "README.md",
     begin: "<!-- BEGIN GENERATED: the front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->",
@@ -152,7 +152,7 @@ export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: 
     end: "# END GENERATED: the site's title and description",
     render: (m) => [`title: ${JSON.stringify(`${m.name}: ${m.promise}`)}`, `description: ${JSON.stringify(m.description)}`].join("\n"),
   },
-];
+]);
 
 export function repositoryMetadata(m: Words): Readonly<{ description: string; homepage: string; topics: readonly string[] }> {
   return { description: m.description, homepage: m.siteUrl, topics: m.topics };

@@ -44,7 +44,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createTempDir } from "../helpers/temp-dir.ts";
-import { TEST_TIMEOUT_MS } from "../test-budget.ts";
+import { TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
 
 type PackageJson = Readonly<{
   scripts?: Record<string, string>;
@@ -132,7 +132,8 @@ describe("the svelte template check is wired into the typecheck gate", () => {
       runner,
       "the runner must verify the loaded TypeScript version before running svelte-check",
     ).toMatch(/loaded\.version !== aliasVersion/);
-    expect(runner, "a failed self-check must exit non-zero").toMatch(/process\.exit\(1\)/);
+    // A refusal is thrown (an uncaught throw exits 1), never process.exit(), which can deadlock at shutdown (#351).
+    expect(runner, "a failed self-check must exit non-zero").toMatch(/function fail\(message: string\): never \{\s*throw /u);
   });
 });
 
@@ -206,7 +207,7 @@ for(const method of ['spawn','spawnSync','exec','execSync','execFile','execFileS
     // The wrapper requires svelte-check in this same child. SIGKILL bounds
     // that child; this does not claim arbitrary escaped-descendant cleanup.
     const child = spawnSync(process.execPath, [...argv, "--output", "machine"], {
-      cwd: root, encoding: "utf8", timeout: TEST_TIMEOUT_MS, killSignal: "SIGKILL",
+      cwd: root, encoding: "utf8", timeout: TEST_HANG_BACKSTOP_MS, killSignal: "SIGKILL",
       env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(join(root, "observe.mjs")).href}` },
     });
     const output = child.stdout + child.stderr;

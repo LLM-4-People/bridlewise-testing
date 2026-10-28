@@ -35,14 +35,16 @@
  * Output: `.bridlewise/capture/<commit>/` (ignored; raw images never enter git).
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 
-import { portListeners } from "../dev-processes.ts";
+import { settleFileMode } from "../../engine/src/filesystem/file-mode.ts";
+import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
+import { allProcessIds, ancestorsOf, commandLineOf } from "../../engine/src/process/process-facts.ts";
+import { portAnswers, portListeners } from "../dev-processes.ts";
 import {
   ACCOUNT_USERNAME,
   API_PORT,
@@ -138,14 +140,6 @@ function parseArgs(argv: readonly string[]): Options {
 
 // ── Preflight ──
 
-function portAnswers(port: number): Promise<boolean> {
-  return new Promise((done) => {
-    const socket = createConnection({ host: "127.0.0.1", port });
-    socket.once("connect", () => { socket.destroy(); done(true); });
-    socket.once("error", () => done(false));
-  });
-}
-
 async function refuseBusyPorts(): Promise<void> {
   const ports = [WEB_PORT, API_PORT];
   const listeners = portListeners(ports);
@@ -187,7 +181,8 @@ function prepareApp(scratch: string, commit: string): string {
   const guardian = join(REPO_ROOT, "engine", "guardian", "build");
   if (!existsSync(join(guardian, "harness-landlock-guardian"))) throw new CaptureRefusal("guardian_missing", `${guardian}/harness-landlock-guardian is absent; build it with: make -C engine/guardian all`);
   run("cp", ["-a", guardian, join(app, "engine", "guardian", "build")], { timeoutMs: 60_000 });
-  chmodSync(join(app, "engine", "bridlewise.config.json"), 0o600);
+  // The configuration document's required mode, through the one mode owner (changed only when it differs, #293).
+  settleFileMode(join(app, "engine", ROOT_POLICY.configuration.basename), Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
   return app;
 }
 
@@ -244,25 +239,12 @@ function sd(app: string, env: NodeJS.ProcessEnv, verb: "start" | "stop"): void {
 
 // ── BL-GPU: the browser must not have spawned a GPU process ──
 
+/** The command lines of every live descendant of `root`, through the one procfs owner (process-facts.ts). */
 function descendantCommandLines(root: number): string[] {
-  const parent = new Map<number, number>();
-  for (const name of readdirSync("/proc")) {
-    if (!/^\d+$/u.test(name)) continue;
-    try {
-      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
-      parent.set(Number(name), Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]));
-    } catch { /* the process ended */ }
-  }
-  const lines: string[] = [];
-  const isDescendant = (pid: number): boolean => {
-    for (let p = parent.get(pid); p !== undefined && p > 1; p = parent.get(p)) if (p === root) return true;
-    return false;
-  };
-  for (const pid of parent.keys()) {
-    if (!isDescendant(pid)) continue;
-    try { lines.push(readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ")); } catch { /* ended */ }
-  }
-  return lines;
+  return allProcessIds().filter((pid) => ancestorsOf(pid).includes(root)).flatMap((pid) => {
+    const command = commandLineOf(pid);
+    return command === undefined ? [] : [command.join(" ")];
+  });
 }
 
 // ── The page layer: stillness, masks, the label ──

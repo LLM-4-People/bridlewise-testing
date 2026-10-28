@@ -1,0 +1,36 @@
+{
+  "kind": "issue-field",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Severity",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Severity",
+    "data_type": "single_select",
+    "visibility": "organization_members_only",
+    "description": "How bad it is (P0 worst)",
+    "options": [
+      {
+        "name": "P0",
+        "color": "red",
+        "priority": 1
+      },
+      {
+        "name": "P1",
+        "color": "orange",
+        "priority": 2
+      },
+      {
+        "name": "P2",
+        "color": "yellow",
+        "priority": 3
+      },
+      {
+        "name": "P3",
+        "color": "gray",
+        "priority": 4
+      }
+    ]
+  }
+}

@@ -26,9 +26,7 @@ The engine's runtime: the bootstrap, the provider and tool adapters, capability 
 - `tool-args.ts` — the tool-args module.
 - `tool-registry.ts` — the tool-registry module.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/runtime/`.
 

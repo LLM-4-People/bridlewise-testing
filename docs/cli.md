@@ -87,6 +87,7 @@ Use it to confirm the config is pinned and hashed, not to claim that a run is sa
 | `harness benchmark` | Run performance benchmarks | Writes benchmark results |
 | `harness eval` | Run evaluation scenarios | Writes results |
 | `harness flake` | Inspect or reproduce flaky-test evidence | Varies |
+| `harness community categories` | Audit the repository's Discussion categories against `docs/community/intake.json`: each live category exists with its name, answerability and description, a planned one that now exists is flagged to flip, an undeclared one is named. Token in `GH_TOKEN`; drift exits 1 | No |
 | `harness extension list` | List registered extensions | No |
 
 Examples:
@@ -107,7 +108,7 @@ npm run bridlewise -- harness extension list
 |---|---|---|
 | `harness new-module <path>` | Scaffold a module from the registered template | Yes |
 | `harness register` | Register modules in the architecture manifest | Yes |
-| `harness regenerate` | Regenerate projections; `--prune <test path>` removes a stale test entry | Yes |
+| `harness regenerate` | Regenerate projections; `--prune <test path>` removes the exception entry of a deleted test (the deletion itself is named by a `Test-deleted: <path>` commit trailer) | Yes |
 | `harness sync` | Converge generated hooks/projections; `--with-bundle` also rebuilds the engine bundle (its digest is never committed); `--prune <test path>` | Yes |
 | `harness index` | Rebuild the code-intelligence index | Yes |
 
