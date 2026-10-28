@@ -51,7 +51,7 @@ import { ensurePrivateStateDirectory } from "../../../src/filesystem/private-sta
 import { repositoryRegistry, repositoryRegistryArea } from "../../../src/workflow/repository-registry.ts";
 import { loadPromotionProfiles, type LoadedPromotionProfile } from "../../../src/workflow/promotion/profile.ts";
 import { planPromotion, type PromotionPlan } from "../../../src/workflow/promotion/projection.ts";
-import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../../support/test-git-identity.ts";
 
@@ -369,7 +369,7 @@ export function fixtureView(folders: Readonly<{ root: string; commandsDirectory:
       commands: planOptions.commands ?? commands,
       lockfiles: planOptions.lockfiles === false ? null : {
         runner: {
-          supervisor: testProcessSupervisorBinary(),
+          supervisor: ensureTestProcessSupervisor(),
           killGraceMs: 1_000,
           outputCharacters: 4_000,
           retries: { retries: planOptions.retries ?? 1, backoffMs: 1, ...(planOptions.sleep === undefined ? {} : { sleep: planOptions.sleep }) },

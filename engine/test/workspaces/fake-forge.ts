@@ -24,7 +24,7 @@ import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeTreeEntry,
 
 export type FakeForgeCall = Readonly<{ op: string; request: unknown }>;
 
-type FakePull = { number: number; head: string; base: string; title: string; body: string; draft: boolean; state: "open" | "closed"; merged: boolean; mergeCommitSha: string | null; comments: string[]; queuedHead: string | null };
+type FakePull = { number: number; head: string; base: string; title: string; body: string; draft: boolean; state: "open" | "closed"; merged: boolean; mergeCommitSha: string | null; comments: string[]; queuedHead: string | null; queuedAt: number };
 
 export type FakeForge = WorkspaceForge & Readonly<{
   bare: string;
@@ -34,6 +34,8 @@ export type FakeForge = WorkspaceForge & Readonly<{
   setVerified(verified: boolean): void;
   /** The head the next enqueue answers it queued (a forge that queued another head than asked), or null for the truth. */
   answerEnqueueAt(head: string | null): void;
+  /** The next merge-queue read fails with `error` (a forge that cannot answer), or null to answer truly. */
+  failMergeQueueWith(error: Error | null): void;
   /**
    * The queue merges pull request `number` into its base: a merge commit of
    * the base's tip and `head` (default: the head it was queued at — another
@@ -57,6 +59,9 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
   const pulls = new Map<number, FakePull>();
   let verified = true;
   let enqueueAnswer: string | null = null;
+  let mergeQueueFailure: Error | null = null;
+  // The queue's order: each enqueue takes the next position.
+  let queueClock = 0;
   const git = (argv: readonly string[], options: Readonly<{ input?: Buffer; environment?: Readonly<Record<string, string>>; allowed?: readonly number[] }> = {}): string =>
     gitOutput(repository, argv, options).stdout.toString("utf8").trim();
   const headOf = (branch: string): string | null => {
@@ -89,6 +94,9 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
     },
     answerEnqueueAt(head: string | null): void {
       enqueueAnswer = head;
+    },
+    failMergeQueueWith(error: Error | null): void {
+      mergeQueueFailure = error;
     },
     runQueue(number: number, head?: string): string {
       const pull = requirePull(number);
@@ -153,7 +161,7 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
       if (head === null || git(["rev-list", "--count", `refs/heads/${request.base}..${head}`]) === "0") {
         throw new HarnessError(`No commits between ${request.base} and ${request.head}`, "forge_validation_failed");
       }
-      const pull: FakePull = { number: pulls.size + 1, head: request.head, base: request.base, title: request.title, body: request.body, draft: true, state: "open", merged: false, mergeCommitSha: null, comments: [], queuedHead: null };
+      const pull: FakePull = { number: pulls.size + 1, head: request.head, base: request.base, title: request.title, body: request.body, draft: true, state: "open", merged: false, mergeCommitSha: null, comments: [], queuedHead: null, queuedAt: 0 };
       pulls.set(pull.number, pull);
       return view(pull);
     },
@@ -191,7 +199,19 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
             : null;
       if (refusal !== null) return deepFreeze({ kind: "refused", message: refusal });
       pull.queuedHead = current.headSha;
+      pull.queuedAt = ++queueClock;
       return deepFreeze({ kind: "enqueued", headSha: enqueueAnswer ?? current.headSha });
+    },
+    async mergeQueue(base: string) {
+      record("mergeQueue", { base });
+      if (mergeQueueFailure !== null) {
+        const failure = mergeQueueFailure;
+        mergeQueueFailure = null;
+        throw failure;
+      }
+      // A queued head is fetched from its branch on this forge (GitHub's is refs/pull/<n>/head).
+      return deepFreeze([...pulls.values()].filter((pull) => pull.base === base && view(pull).queued).toSorted((left, right) => left.queuedAt - right.queuedAt)
+        .map((pull) => ({ number: pull.number, headSha: pull.queuedHead!, fetchRef: `refs/heads/${pull.head}` })));
     },
   };
 }
