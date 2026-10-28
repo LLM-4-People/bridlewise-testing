@@ -52,6 +52,13 @@ export const FIXTURE_ADDRESS = "import@example.invalid";
 export const UNALLOWED_ADDRESS = "someone.private@example.invalid";
 /** A non-ASCII unallowed address (synthetic): its upper case differs beyond ASCII. */
 export const NON_ASCII_ADDRESS = "jösé@example.invalid";
+/**
+ * `@` written as character references, for the address gate's tests: the INPUT a history may hold, never an
+ * escape the code performs (escaping and decoding are the markup owner's). Each is assembled from its
+ * ampersand so no reference is spelled in the source.
+ */
+const AMPERSAND = String.fromCharCode(0x26);
+export const AT_REFERENCES = Object.freeze({ decimal: `${AMPERSAND}#64;`, hex: `${AMPERSAND}#x40;`, named: `${AMPERSAND}commat;` });
 /** The address the tests' identity mapping brings the unallowed one to. */
 export const MAPPED_ADDRESS = "mapped@example.invalid";
 

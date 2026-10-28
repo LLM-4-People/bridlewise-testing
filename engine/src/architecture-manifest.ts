@@ -5842,7 +5842,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-history-identities", path: "src/workflow/forge/history-identities.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "51c30856387a24effd1eda6015c58424a56b779a0885d4d18673137c1c284056" },
-      dependencies: ["node:fs","node:path","src/kernel/integrity.ts","src/repository-path/index.ts","src/workflow/forge/codes.ts"],
+      dependencies: ["../shared/markup.ts","node:fs","node:path","src/kernel/integrity.ts","src/repository-path/index.ts","src/workflow/forge/codes.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-history-import", path: "src/workflow/forge/history-import.ts", realm: "runtime", layer: "infrastructure",

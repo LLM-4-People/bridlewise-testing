@@ -43,7 +43,7 @@ import { addressDigest } from "../src/workflow/forge/history-identities.ts";
 import { historyToolPath, historyToolPin, resolveHistoryTool, type HistoryToolName } from "../src/workflow/forge/history-tools.ts";
 import { armTestKeyHome } from "../test/support/test-key-home.ts";
 import { createTempDir } from "../test/support/temp-dir.ts";
-import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, NON_ASCII_ADDRESS, pemLine, plantedRepository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "../test/forge/history-fixture.ts";
+import { AT_REFERENCES, CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, NON_ASCII_ADDRESS, pemLine, plantedRepository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "../test/forge/history-fixture.ts";
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
 const OPERATOR_HOME = process.env[POLICY.environmentVariable];
@@ -440,7 +440,7 @@ test("A MAPPED-FROM ADDRESS the rewrite cannot reach is refused BEFORE the rewri
     ["P8 a path", () => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, `people/${UNALLOWED_ADDRESS}`, "hello\n"); git(s, "add", "."); git(s, "commit", "-q", "-m", "a path"); return s; }],
     ["P9 a ref name", () => { const s = authoredSource(UNALLOWED_ADDRESS); git(s, "branch", `${UNALLOWED_ADDRESS}/topic`); return s; }],
     ["N8c a folder named after it whose tree another folder shares", () => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, "a/same.txt", "y\n"); write(s, `${UNALLOWED_ADDRESS}/same.txt`, "y\n"); git(s, "add", "."); git(s, "commit", "-q", "-m", "a shared tree"); return s; }],
-    ["an HTML entity", inFile(`${local}&#64;${domain}\n`)],
+    ["an HTML entity", inFile(`${local}${AT_REFERENCES.decimal}${domain}\n`)],
     ["quoted-printable =40", inFile(`${local}=40${domain}\n`)],
     ["a quoted-printable soft break before @", inFile(`${local}=\n@${domain}\n`)],
     ["base64", inFile(`${Buffer.from(`write to ${UNALLOWED_ADDRESS} please`).toString("base64")}\n`)],

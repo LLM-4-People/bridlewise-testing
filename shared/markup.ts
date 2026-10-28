@@ -46,6 +46,10 @@ const NAMED_ENTITIES: Readonly<Record<string, string>> = Object.freeze({
   gt: ">",
   quot: '"',
   apos: "'",
+  // An address's own punctuation (the history importer's address gate reads an address however it is written).
+  commat: "@",
+  period: ".",
+  lowbar: "_",
 });
 
 /** Text made safe for an HTML text node or a quoted attribute value. */
@@ -54,8 +58,9 @@ export function escapeHtml(text: string): string {
 }
 
 /**
- * Decode the character references an attribute value may carry: the five
- * named ones plus decimal and hexadecimal numeric references, in ONE pass.
+ * Decode the character references an attribute value or an address may carry:
+ * the five markup names, an address's punctuation (`commat`, `period`,
+ * `lowbar`), and decimal and hexadecimal numeric references, in ONE pass.
  * Anything else (an unknown name, a reference without `;`) stays as written.
  */
 export function decodeHtmlEntities(text: string): string {

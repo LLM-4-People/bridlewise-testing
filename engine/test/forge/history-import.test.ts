@@ -66,7 +66,7 @@ import { runCpuBounded } from "../../src/process/supervised-run.ts";
 import { boundedEnding, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
 import { armTestKeyHome } from "../support/test-key-home.ts";
 import { createTempDir } from "../support/temp-dir.ts";
-import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, NON_ASCII_ADDRESS, pemLine, plantedRepository, repository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "./history-fixture.ts";
+import { AT_REFERENCES, CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, NON_ASCII_ADDRESS, pemLine, plantedRepository, repository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "./history-fixture.ts";
 
 /** The catalogue's own row for each planted value (never a spelling the catalogue may rename). */
 const GITHUB = entryOf(GITHUB_TOKEN);
@@ -709,7 +709,7 @@ test("EVERY NAME: a path whose blob or tree another path shares is still read (r
   write(root, `people/${UNALLOWED_ADDRESS}.txt`, "x\n");
   write(root, `keys/${GITHUB_TOKEN}`, "x\n");
   write(root, "a/same.txt", "y\n");
-  write(root, `${UNALLOWED_ADDRESS.replace("@", "@dir.")}/same.txt`, "y\n");
+  write(root, `${UNALLOWED_ADDRESS.replaceAll("@", "@dir.")}/same.txt`, "y\n");
   git(root, "add", ".");
   git(root, "commit", "-q", "-m", "shared objects under several names");
   const inventory = enumerateHistory(repository(root));
@@ -731,9 +731,9 @@ test("A KNOWN ADDRESS in any spelling: every encoding, escape and obfuscation of
     .some((reading) => knownMatches(canonicalText(reading), known).length > 0);
   const base64 = (prefix: string): string => Buffer.from(`${prefix}write to ${UNALLOWED_ADDRESS} please`).toString("base64");
   for (const [name, text] of [
-    ["an HTML entity", `${local}&#64;${domain}`],
-    ["a hex entity", `${local}&#x40;${domain}`],
-    ["a named entity", `${local}&commat;${domain}`],
+    ["an HTML entity", `${local}${AT_REFERENCES.decimal}${domain}`],
+    ["a hex entity", `${local}${AT_REFERENCES.hex}${domain}`],
+    ["a named entity", `${local}${AT_REFERENCES.named}${domain}`],
     ["quoted-printable", `${local}=40${domain}`],
     ["a quoted-printable soft break before @", `${local}=\n@${domain}`],
     ["a quoted-printable soft break inside the local part", `${local.slice(0, 4)}=\r\n${local.slice(4)}@${domain}`],
@@ -757,7 +757,7 @@ test("A KNOWN ADDRESS in any spelling: every encoding, escape and obfuscation of
   assert.ok(!found(`${local}@other.invalid`), "another domain");
   assert.ok(!found(`${local} wrote about ${domain}`), "the parts in prose, without an @ or an at word between them");
   // A refusal or a quoted tool message withholds every address-shaped string.
-  assert.equal(withoutAddresses(`bad line: Somebody <${UNALLOWED_ADDRESS}> and ${UNALLOWED_ADDRESS.replace("@", "%40")}`), "bad line: Somebody <[address]> and [address]");
+  assert.equal(withoutAddresses(`bad line: Somebody <${UNALLOWED_ADDRESS}> and ${UNALLOWED_ADDRESS.replaceAll("@", "%40")}`), "bad line: Somebody <[address]> and [address]");
 });
 
 test("THE SHAPE IS BOUNDED: a long run of address characters, of percent signs, or of `@`s costs its length, not its square (CPU work, never wall time)", () => {
@@ -782,9 +782,9 @@ test("THE ADDRESS CENSUS RUNS BOUNDED, in a child under the one bounded run; kno
   const root = createTempDir("identity-known-");
   git(root, "init", "-q", "-b", "main");
   write(root, "plain.txt", `mail ${UNALLOWED_ADDRESS.toUpperCase()}\n`);
-  write(root, "entity.html", `mail ${UNALLOWED_ADDRESS.replace("@", "&#64;")}\n`);
-  write(root, "both.txt", `mail ${UNALLOWED_ADDRESS} or ${UNALLOWED_ADDRESS.replace("@", "\uff20")}\n`);
-  write(root, `people/${UNALLOWED_ADDRESS.replace("@", "%40")}`, "z\n");
+  write(root, "entity.html", `mail ${UNALLOWED_ADDRESS.replaceAll("@", AT_REFERENCES.decimal)}\n`);
+  write(root, "both.txt", `mail ${UNALLOWED_ADDRESS} or ${UNALLOWED_ADDRESS.replaceAll("@", "\uff20")}\n`);
+  write(root, `people/${UNALLOWED_ADDRESS.replaceAll("@", "%40")}`, "z\n");
   git(root, "add", ".");
   execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", "a change"], { cwd: root, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
   const inventory = enumerateHistory(repository(root));
@@ -796,7 +796,7 @@ test("THE ADDRESS CENSUS RUNS BOUNDED, in a child under the one bounded run; kno
   assert.equal(variant(blobOf("plain.txt")), false, "a plain spelling (any case) the shape census reads and the rewrite replaces");
   assert.equal(variant(git(root, "rev-parse", "HEAD").trim()), false, "the author header the mailmap rewrites");
   assert.equal(variant(blobOf("entity.html")), true, "an entity no rewrite replaces");
-  assert.equal(variant(blobOf(`people/${UNALLOWED_ADDRESS.replace("@", "%40")}`)), true, "a name (percent-encoded), which no rewrite reaches");
+  assert.equal(variant(blobOf(`people/${UNALLOWED_ADDRESS.replaceAll("@", "%40")}`)), true, "a name (percent-encoded), which no rewrite reaches");
   assert.equal(variant(blobOf("both.txt")), true, "a fullwidth spelling beside a plain one: more matches than the shape read");
   // It is a CHILD under the one bounded run: a CPU budget smaller than its work stops it, typed.
   const tiny: SubprocessBounds = { cpuBudgetMs: 30, minimumCpuRate: 0.05, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 10, killGraceMs: 500, outputBytes: 1 << 20 };

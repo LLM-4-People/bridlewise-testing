@@ -40,6 +40,7 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { decodeHtmlEntities } from "../../../../shared/markup.ts";
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { unicodeCaseFold } from "../../repository-path/index.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
@@ -257,14 +258,15 @@ export function knownMatches(canonical: string, known: readonly KnownAddress[]):
   return found;
 }
 
-/** The named character entities an address may be spelled with. */
-const ENTITIES: Readonly<Record<string, string>> = { commat: "@", period: ".", lowbar: "_", hyphen: "-", dash: "-", plus: "+", quot: "\"", apos: "'", amp: "&", lt: "<", gt: ">", nbsp: " " };
-/** A byte escape (`%XX`, quoted-printable `=XX` and its soft line break, `\xXX`). */
+/** A byte escape (`%XX`, quoted-printable `=XX` and its soft line break, `\\xXX`). */
 const BYTE_ESCAPE = /%([0-9A-Fa-f]{2})|=([0-9A-Fa-f]{2})|=\r?\n|\\x([0-9A-Fa-f]{2})/gu;
-/** A character escape (a numeric or named entity, `\uXXXX`, `\u{X}`, a backslash before a character). */
-const CHARACTER_ESCAPE = /&#(\d{1,7});|&#[xX]([0-9A-Fa-f]{1,6});|&([A-Za-z]{2,8});|\\u\{([0-9A-Fa-f]{1,6})\}|\\u([0-9A-Fa-f]{4})|\\([^\n])/gu;
+/** A backslash escape (`\\uXXXX`, `\\u{X}`, a backslash before a character). */
+const BACKSLASH_ESCAPE = /\\u\{([0-9A-Fa-f]{1,6})\}|\\u([0-9A-Fa-f]{4})|\\([^\n])/gu;
 
-/** `text` with every escape decoded: byte escapes as UTF-8 bytes (lossy), then entities and character escapes. */
+/**
+ * `text` with every escape decoded: byte escapes as UTF-8 bytes (lossy), then character references (by the
+ * ONE markup owner, `decodeHtmlEntities`), then backslash escapes.
+ */
 export function unescapedText(text: string): string {
   const parts: Buffer[] = [];
   let last = 0;
@@ -276,10 +278,7 @@ export function unescapedText(text: string): string {
   }
   const bytesDecoded = last === 0 ? text : Buffer.concat([...parts, Buffer.from(text.slice(last), "utf8")]).toString("utf8");
   const point = (value: number): string => (value <= 0x10ffff && (value < 0xd800 || value > 0xdfff) ? String.fromCodePoint(value) : "");
-  return bytesDecoded.replace(CHARACTER_ESCAPE, (whole, decimal?: string, hex?: string, name?: string, braced?: string, four?: string, escaped?: string) => {
-    if (decimal !== undefined) return point(Number.parseInt(decimal, 10));
-    if (hex !== undefined) return point(Number.parseInt(hex, 16));
-    if (name !== undefined) return ENTITIES[name.toLowerCase()] ?? whole;
+  return decodeHtmlEntities(bytesDecoded).replace(BACKSLASH_ESCAPE, (whole, braced?: string, four?: string, escaped?: string) => {
     if (braced !== undefined) return point(Number.parseInt(braced, 16));
     if (four !== undefined) return point(Number.parseInt(four, 16));
     return escaped ?? whole;
