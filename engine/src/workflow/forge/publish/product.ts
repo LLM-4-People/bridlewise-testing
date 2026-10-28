@@ -43,7 +43,8 @@ import { FORGE_APPS } from "../app-registry.ts";
 import { trunkRepository } from "../forge-config.ts";
 
 /** The environment variable the publish job hands the publisher App's installation token in (module-private until the workflow generator imports it). */
-const PUBLISHER_TOKEN_VARIABLE = "BRIDLEWISE_PUBLISHER_TOKEN";
+/** The environment variable a publisher job hands the publisher App's installation token in (every publisher action reads it). */
+export const PUBLISHER_TOKEN_VARIABLE = "BRIDLEWISE_PUBLISHER_TOKEN";
 
 const PROJECTION_RECEIPT_SCHEMA = schemaId("product-projection", 1);
 
