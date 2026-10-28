@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "26f23a96010549f666bf47ffd15f9f69a8b41e496467deaa538d9e7ad49191fd",
+      sourceSha256: "17547be4d6ba18f710db3ad411c7c1e8ad14ce90b1dbaf01d434878f9b0171de",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1633,10 +1633,10 @@ const ROOT_POLICY_VALUE = {
     metrics: ["overhead", "false-positive", "false-negative", "coverage", "conflict-and-cycle"],
     moduleArchitecture: {
       manifest: "src/architecture-manifest.ts",
-      graph: "exact-registered-edges-no-cycles-and-inward-layer-direction",
-      publicApi: "exact-declared-export-name-hash",
+      graph: "derived-edges-no-cycles-and-inward-layer-direction",
+      publicApi: "derived-from-source-never-committed",
       effects: "registered-owner-and-execution-boundary-only",
-      compositionRoots: "per-realm-versioned-arrays-owned-by-src/architecture-manifest.ts",
+      compositionRoots: "derived-from-the-module-entries-in-src/architecture-modules.ts",
       primaryAnalyzer: "babel-typed-pure-architecture-analysis",
       independentOracle: "separate-lexical-scanner-plus-typescript-no-emit-pipeline",
       analyzerDisagreement: "fail-closed",
@@ -2276,7 +2276,7 @@ const ROOT_POLICY_VALUE = {
       },
       dispositionRegistry: {
         manifestPath: "traceability/test-surface-dispositions.json",
-        schemaVersion: schemaId("test-surface-dispositions", 1),
+        schemaVersion: schemaId("test-surface-dispositions", 2),
         allowedDispositions: [
           "canonical-node-test",
           "qualified-external-oracle",
@@ -2284,7 +2284,10 @@ const ROOT_POLICY_VALUE = {
           "non-test-fixture",
           "unsupported-blocking",
         ],
-        everyRecognizableSourceRequiresExactEntry: true,
+        // A qualified Node test source is canonical WITHOUT an entry; only the
+        // exceptions are recorded (#221: adding a test rewrites nothing).
+        everyRecognizableSourceRequiresExactEntry: false,
+        qualifiedNodeSourceDefault: "canonical-node-test",
         benchmarkLocationImpliesDisposition: false,
         pythonImplicitExecutionAllowed: false,
         unqualifiedDisposition: "block-and-report-exact-source-and-disposition",

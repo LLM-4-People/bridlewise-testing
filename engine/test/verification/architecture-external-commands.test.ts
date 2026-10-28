@@ -11,6 +11,7 @@ import {
 } from "../../scripts/verification/architecture.ts";
 import {
   ARCHITECTURE_MANIFEST,
+  architectureManifestOf,
   EMPTY_COMPOSITION_ROOTS,
   type ArchitectureExternalCommand,
   type ArchitectureManifest,
@@ -54,10 +55,10 @@ function makeExternalCommand(overrides: Partial<ArchitectureExternalCommand> = {
 
 function makeManifest(externalCommands: readonly ArchitectureExternalCommand[]): ArchitectureManifest {
   return {
-    schemaVersion: "bridlewise-architecture-manifest/v3",
+    schemaVersion: "bridlewise-architecture-manifest/v5",
     sourceRoots: ["scripts/", "src/", "verification/"],
-    graphPolicy: "exact-registered-edges-no-cycles",
-    publicApiPolicy: "exact-declared-export-name-hash",
+    graphPolicy: "derived-edges-no-cycles",
+    publicApiPolicy: "derived-from-source-never-committed",
     analysisLimits: { maximumSourceBytes: 1_048_576, maximumAstNodes: 100_000 },
     responsibilityPolicy: "one-registered-cohesive-owner-per-responsibility",
     physicalLayoutStatus: "open-blocking-architecture-v1-migration-required",
@@ -242,7 +243,7 @@ test("architecture-external-commands: real repository matches the manifest and i
     sources.push({ path: command.path, source: readFileSync(command.path, "utf8") });
   }
   assert.ok(notPublished.length > 0, "the declared not-published set is empty — the boundary assertion would be vacuous");
-  const result = verifyArchitectureSources([], ARCHITECTURE_MANIFEST, sources);
+  const result = verifyArchitectureSources([], architectureManifestOf([]), sources);
   const boundaryViolations = result.violations.filter((violation) =>
     violation.startsWith("architecture-external-command-source-not-published:"));
   assert.deepEqual(

@@ -44,7 +44,6 @@ export type DiagnosticCategory =
   | "dead-branch"
   | "unused-export"
   | "duplicate-logic"
-  | "schema-drift"
   | "config-outside-contract"
   | "cycle"
   | "architecture"
@@ -54,7 +53,7 @@ export type DiagnosticCategory =
 
 export const DIAGNOSTIC_CATEGORIES = deepFreeze([
   "syntax", "type", "undefined-symbol", "dead-code", "dead-branch",
-  "unused-export", "duplicate-logic", "schema-drift", "config-outside-contract",
+  "unused-export", "duplicate-logic", "config-outside-contract",
   "cycle", "architecture", "weak-test", "security", "tool-error",
 ] as const);
 
