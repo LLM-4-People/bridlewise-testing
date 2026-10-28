@@ -25,7 +25,7 @@
     "secret_scanning_delegated_bypass": "enabled",
     "secret_scanning_delegated_alert_dismissal": "enabled",
     "private_vulnerability_reporting": "enabled",
-    "code_scanning_default_setup": "disabled",
+    "code_scanning_default_setup": "not_set",
     "enforcement": "enforced"
   }
 }

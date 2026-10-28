@@ -95,6 +95,8 @@ export type FakeGithub = Readonly<{
   userToken: (principal: string) => string;
   installApp: (input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
   pendingConversion: (code: string, input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
+  /** Make every later attach of a security configuration to `owner/name` FAIL (its status `failed`). */
+  failSecurityAttach: (owner: string, name: string) => void;
   /** The principal a request's token belongs to (undefined when unknown). */
   principalOf: (request: FakeRequest) => string | undefined;
   /** The release assets uploaded (or planted), by id. */
@@ -137,6 +139,20 @@ export function fakeGithub(): FakeGithub {
   let assetHost: ((request: FakeRequest) => FakeAnswer | Response) | undefined;
   let uploadsHost: ((request: FakeRequest) => FakeAnswer | Response | Promise<FakeAnswer | Response>) | undefined;
   let nextId = 1000;
+  /** Team memberships, by `org/team-slug`. */
+  const teamMembers = new Map<string, Set<string>>();
+  /** Code security: each configuration's attached repository ids, and its default for new repositories. */
+  const attachments = new Map<number, Map<number, string>>();
+  /** Repositories (by API path) where an attach FAILS, as GitHub's does for a feature it cannot enable there. */
+  const failingAttach = new Set<string>();
+  const configurationDefaults = new Map<number, string>();
+  /** A repository object's id (GitHub always answers one; a test that stored a repository without one gets a stable one). */
+  const repositoryIds = new Map<string, number>();
+  const repositoryId = (path: string): number => {
+    let id = repositoryIds.get(path);
+    if (id === undefined) { id = 500_000 + repositoryIds.size; repositoryIds.set(path, id); }
+    return id;
+  };
 
   /** The uploads host and the asset host (`null` when the request is the API's). */
   function assetHosts(request: FakeRequest): FakeAnswer | null | undefined {
@@ -268,6 +284,55 @@ export function fakeGithub(): FakeGithub {
       signed.set(token, Number(asset[1]));
       return { status: 302, headers: { location: `${address(FAKE_ASSETS_ORIGIN)}/assets/${token}` } };
     }
+    // Team members: the list, and a membership added or removed.
+    const membersOf = /^\/orgs\/([^/]+)\/teams\/([^/]+)\/members$/u.exec(request.path);
+    if (request.method === "GET" && membersOf !== null) return json(200, [...(teamMembers.get(`${membersOf[1]!}/${membersOf[2]!}`) ?? [])].sort().map((login) => ({ login })));
+    const membership = /^\/orgs\/([^/]+)\/teams\/([^/]+)\/memberships\/([^/]+)$/u.exec(request.path);
+    if (membership !== null && (request.method === "PUT" || request.method === "DELETE")) {
+      const key = `${membership[1]!}/${membership[2]!}`;
+      const members = teamMembers.get(key) ?? new Set<string>();
+      if (request.method === "PUT") members.add(membership[3]!); else members.delete(membership[3]!);
+      teamMembers.set(key, members);
+      return request.method === "PUT" ? json(200, { role: "member", state: "active" }) : { status: 204 };
+    }
+    // A repository answers its id.
+    if (request.method === "GET" && /^\/repos\/[^/]+\/[^/]+$/u.test(request.path) && objects.has(request.path)) {
+      return json(200, { id: repositoryId(request.path), ...(objects.get(request.path) as Record<string, unknown>) });
+    }
+    // Code security configurations: attach (selected repositories only), detach, defaults, and the attached list.
+    const security = /^\/orgs\/([^/]+)\/code-security\/configurations(?:\/(\d+))?\/(attach|defaults|repositories|detach)$/u.exec(request.path);
+    if (security !== null) {
+      const owner = security[1]!;
+      const id = security[2] === undefined ? undefined : Number(security[2]);
+      const body = (request.body ?? {}) as { scope?: string; selected_repository_ids?: number[]; default_for_new_repos?: string };
+      if (security[3] === "attach" && request.method === "POST" && id !== undefined) {
+        if (body.scope !== "selected") return json(422, { message: `this fake attaches only selected repositories, not ${String(body.scope)}` });
+        for (const set of attachments.values()) for (const repository of body.selected_repository_ids ?? []) set.delete(repository);
+        const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
+        const set = attachments.get(id) ?? new Map<number, string>();
+        for (const repository of body.selected_repository_ids ?? []) set.set(repository, failingAttach.has(byId.get(repository) ?? "") ? "failed" : "attached");
+        attachments.set(id, set);
+        return json(202, {});
+      }
+      if (security[3] === "detach" && request.method === "DELETE" && id === undefined) {
+        for (const set of attachments.values()) for (const repository of body.selected_repository_ids ?? []) set.delete(repository);
+        return { status: 204 };
+      }
+      if (security[3] === "defaults" && request.method === "PUT" && id !== undefined) {
+        configurationDefaults.set(id, String(body.default_for_new_repos));
+        return json(200, { default_for_new_repos: body.default_for_new_repos });
+      }
+      if (security[3] === "defaults" && request.method === "GET" && id === undefined) {
+        return json(200, [...configurationDefaults].map(([configuration, value]) => ({ default_for_new_repos: value, configuration: { id: configuration } })));
+      }
+      if (security[3] === "repositories" && request.method === "GET" && id !== undefined) {
+        const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
+        // GitHub's `status` filter (comma-separated; `all` or none lists every status).
+        const wanted = request.query.get("status");
+        const statuses = wanted === null || wanted === "all" ? undefined : new Set(wanted.split(","));
+        return json(200, [...(attachments.get(id) ?? [])].filter(([, status]) => statuses === undefined || statuses.has(status)).map(([repository, status]) => ({ status, repository: { id: repository, name: byId.get(repository)?.split("/").at(-1) ?? "", full_name: `${owner}/${byId.get(repository)?.split("/").at(-1) ?? ""}` } })));
+      }
+    }
     const conversion = /^\/app-manifests\/([^/]+)\/conversions$/u.exec(request.path);
     if (request.method === "POST" && conversion !== null) {
       const app = conversions.get(conversion[1]!);
@@ -385,6 +450,7 @@ export function fakeGithub(): FakeGithub {
       conversions.set(code, app);
       return app;
     },
+    failSecurityAttach: (owner, name) => { failingAttach.add(`/repos/${owner}/${name}`); },
     principalOf: (request: FakeRequest) => tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "")?.principal,
   });
 }
