@@ -50,6 +50,8 @@ export function entryOf(value: string): string {
 export const FIXTURE_ADDRESS = "import@example.invalid";
 /** An address the tests do NOT allow (a stand-in for a person's own address; never a real one). */
 export const UNALLOWED_ADDRESS = "someone.private@example.invalid";
+/** A non-ASCII unallowed address (synthetic): its upper case differs beyond ASCII. */
+export const NON_ASCII_ADDRESS = "jösé@example.invalid";
 /** The address the tests' identity mapping brings the unallowed one to. */
 export const MAPPED_ADDRESS = "mapped@example.invalid";
 

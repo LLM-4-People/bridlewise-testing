@@ -26,6 +26,7 @@
  *   - THE DOOR: credentials in a URL refused before anything runs; usage.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { constants } from "node:os";
 import { dirname, join } from "node:path";
@@ -37,11 +38,10 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { SECRET_TEXT_SIGNAL_CATALOG } from "../../src/privacy/secret-signals.ts";
 import { parseImportHistoryArguments } from "../../src/workflow/forge/cli.ts";
 import { gitleaksConfigText, gitleaksProjection } from "../../src/workflow/forge/gitleaks-config.ts";
-import { allowedAddresses, identityExpressions, identityUses, judgeIdentities, mappedFromAddresses, readIdentityMap } from "../../src/workflow/forge/history-identities.ts";
+import { addressDigest, addressSpans, allowedAddresses, foldAddress, insideTree, judgeAddresses, planAddressRewrite, readIdentityMap, type AddressOccurrence } from "../../src/workflow/forge/history-identities.ts";
 import {
-  addressResidue,
+  addressCensus,
   enumerateHistory,
-  historyIdentities,
   importHistory,
   judgeOracle,
   decodedTexts,
@@ -65,7 +65,7 @@ import { runCpuBounded } from "../../src/process/supervised-run.ts";
 import { boundedEnding, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
 import { armTestKeyHome } from "../support/test-key-home.ts";
 import { createTempDir } from "../support/temp-dir.ts";
-import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, pemLine, plantedRepository, repository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "./history-fixture.ts";
+import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, NON_ASCII_ADDRESS, pemLine, plantedRepository, repository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "./history-fixture.ts";
 
 /** The catalogue's own row for each planted value (never a spelling the catalogue may rename). */
 const GITHUB = entryOf(GITHUB_TOKEN);
@@ -78,6 +78,8 @@ test("the four planted values belong to four DISTINCT catalogue rows (a merge of
 });
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
+/** The harness checkout: the public tree a review or a mapping is refused inside. */
+const PUBLIC_TREE = join(import.meta.dirname, "..", "..", "..");
 /** An oracle that finds nothing (the catalogue's own tests). */
 const NO_ORACLE: OracleRunner = async () => "[]";
 
@@ -201,8 +203,9 @@ test("oracle judgement: contained is covered, wider or unknown is a gap, a dispo
 test("the import review: its schema is enforced (dispositions by digest, binaries by object id, never a value)", () => {
   const dir = createTempDir("history-import-review-");
   const good = join(dir, "good.json");
-  writeFileSync(good, JSON.stringify({ schema: IMPORT_REVIEW_SCHEMA, dispositions: [{ rule: "generic-api-key", secretSha256: "a".repeat(64), reason: "reviewed" }], binaries: [{ oid: "b".repeat(40), reason: "a logo" }] }));
-  const review = readImportReview(good);
+  writeFileSync(good, JSON.stringify({ schema: IMPORT_REVIEW_SCHEMA, dispositions: [{ rule: "generic-api-key", secretSha256: "a".repeat(64), reason: "reviewed" }], binaries: [{ oid: "b".repeat(40), reason: "a logo" }], addresses: [{ addressSha256: "c".repeat(64), reason: "an image name, not an address" }] }));
+  const review = readImportReview(good, PUBLIC_TREE);
+  assert.deepEqual([...review.addresses], ["c".repeat(64)]);
   assert.equal(review.dispositions.length, 1);
   assert.deepEqual([...review.binaries], ["b".repeat(40)]);
   assert.equal(review.sha256, sha256(readFileSync(good)));
@@ -212,11 +215,14 @@ test("the import review: its schema is enforced (dispositions by digest, binarie
     ["wrong-schema", { schema: "other", dispositions: [] }],
     ["binary-by-path", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], binaries: [{ oid: "assets/logo.png", reason: "x" }] }],
     ["binary-no-reason", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], binaries: [{ oid: "b".repeat(40), reason: "" }] }],
+    ["an-address", { schema: IMPORT_REVIEW_SCHEMA, dispositions: [], addresses: [{ addressSha256: UNALLOWED_ADDRESS, reason: "x" }] }],
   ] as const) {
     const path = join(dir, `${name}.json`);
     writeFileSync(path, JSON.stringify(body));
-    assert.throws(() => readImportReview(path), (error: Error & { code?: string }) => error.code === "history_import_review_invalid", name);
+    assert.throws(() => readImportReview(path, PUBLIC_TREE), (error: Error & { code?: string }) => error.code === "history_import_review_invalid", name);
   }
+  // The review names digests of secrets and addresses: it is never read from the public tree.
+  assert.throws(() => readImportReview(join(PUBLIC_TREE, "engine", "bridlewise.config.json"), PUBLIC_TREE), (error: Error & { code?: string }) => error.code === "history_import_review_public");
 });
 
 test("encodings: a token is found in UTF-16LE (with and without a BOM), UTF-16BE, UTF-32 and UTF-8 with a BOM; such a blob is stripped whole; the oracle reads it decoded", async () => {
@@ -298,14 +304,14 @@ function rescanOf(parts: Partial<Readonly<{ hits: readonly CatalogueHit[]; nameH
 }
 
 test("re-scan to zero: a catalogue hit, a name hit or an undisposed oracle finding is residue; a disposed finding is not", () => {
-  const none = { dispositions: [], binaries: new Set<string>(), sha256: null };
+  const none = { dispositions: [], binaries: new Set<string>(), addresses: new Set<string>(), sha256: null };
   const hit: CatalogueHit = { entry: GITHUB, value: GITHUB_TOKEN, oid: "c".repeat(40), type: "blob", binary: false, anchor: null };
   assert.deepEqual(purgeResidue(rescanOf({}), none), { left: {}, disposed: {} });
   assert.deepEqual(purgeResidue(rescanOf({ hits: [hit, hit] }), none).left, { [GITHUB]: 2 });
   assert.deepEqual(purgeResidue(rescanOf({ nameHits: [{ entry: MAKORA, kind: "path", oid: "d".repeat(40) }] }), none).left, { [`${MAKORA} (in a name)`]: 1 });
   const finding = { rule: "generic-api-key", secret: "Zx81Lq0Vb7Nm3Kp2", location: "blob e" };
   assert.deepEqual(purgeResidue(rescanOf({ oracle: [finding] }), none).left, { "generic-api-key (oracle)": 1 });
-  const reviewed = { dispositions: [{ rule: "generic-api-key", secretSha256: sha256("Zx81Lq0Vb7Nm3Kp2"), reason: "reviewed" }], binaries: new Set<string>(), sha256: null };
+  const reviewed = { dispositions: [{ rule: "generic-api-key", secretSha256: sha256("Zx81Lq0Vb7Nm3Kp2"), reason: "reviewed" }], binaries: new Set<string>(), addresses: new Set<string>(), sha256: null };
   assert.deepEqual(purgeResidue(rescanOf({ oracle: [finding] }), reviewed), { left: {}, disposed: { "generic-api-key": 1 } });
   assert.deepEqual(purgeResidue(rescanOf({ hits: [hit], oracle: [finding] }), reviewed).left, { [GITHUB]: 1 }, "a disposition never excuses a catalogue hit");
 });
@@ -571,63 +577,106 @@ test("the work-bounded run's bounds, each pinned by a test a mutation turns red 
   assert.equal(isProcessAlive(Number(readFileSync(later, "utf8"))), false, "the grandchild was stopped with the group");
 });
 
-test("THE IDENTITY GATE, its parts: every author, committer, tagger and trailer address is read; an unallowed one needs a mapping; the mapping is one validated mailmap file kept out of the public tree; no message echoes an address", () => {
-  const commit = Buffer.from([
-    "tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
-    `author Somebody <${UNALLOWED_ADDRESS}> 1753660800 +0200`,
-    `committer Import Test <${FIXTURE_ADDRESS}> 1753660800 +0200`,
-    "",
-    "a change",
-    "",
-    `Signed-off-by: Somebody <${UNALLOWED_ADDRESS}>`,
-    `Co-authored-by: Import Test <${FIXTURE_ADDRESS}>`,
-    "",
-  ].join("\n"));
-  const uses = identityUses("c".repeat(40), "commit", commit);
-  assert.deepEqual(uses.map((use) => [use.field, use.address]), [["author", UNALLOWED_ADDRESS], ["committer", FIXTURE_ADDRESS], ["trailer", UNALLOWED_ADDRESS], ["trailer", FIXTURE_ADDRESS]]);
-  const tag = identityUses("d".repeat(40), "tag", Buffer.from(`object ${"c".repeat(40)}\ntype commit\ntag v1\ntagger Somebody <${UNALLOWED_ADDRESS}> 1753660800 +0200\n\nv1\n`));
-  assert.deepEqual(tag.map((use) => use.field), ["tagger"]);
+test("THE ADDRESS GATE, its parts: every address shape is found (plain, percent-encoded, RFC 2047; Unicode; any case), compared under the one case fold; the mapping is one validated mailmap file outside the public tree (by path segment); the rewrite is planned per exact spelling", () => {
+  // The shapes the review found escaping, each found by the census's reader.
+  const shapes = [
+    `free text: contact ${UNALLOWED_ADDRESS} for details`,
+    `    Signed-off-by: Somebody <${UNALLOWED_ADDRESS}>`,
+    `Signed-off-by: ${UNALLOWED_ADDRESS}`,
+    `Reviewed-by: Somebody <${UNALLOWED_ADDRESS}> (on the list)`,
+    `Signed-off-by: Somebody <${UNALLOWED_ADDRESS}>\r`,
+    `people/${UNALLOWED_ADDRESS}`,
+    `refs/heads/${UNALLOWED_ADDRESS}/topic`,
+  ];
+  for (const text of shapes) assert.deepEqual(addressSpans(text).map((span) => foldAddress(span.address)), [UNALLOWED_ADDRESS], JSON.stringify(text));
+  const percent = addressSpans(`see ${UNALLOWED_ADDRESS.replace("@", "%40")} here`);
+  assert.deepEqual(percent.map((span) => [span.form, span.address, span.spelling]), [["percent", UNALLOWED_ADDRESS, UNALLOWED_ADDRESS.replace("@", "%40")]]);
+  const encodedWord = `=?UTF-8?Q?${UNALLOWED_ADDRESS.replace("@", "=40")}?=`;
+  assert.deepEqual(addressSpans(`reported as ${encodedWord}`).map((span) => [span.form, span.address, span.spelling]), [["rfc2047", UNALLOWED_ADDRESS, encodedWord]]);
+  const base64Word = `=?utf-8?B?${Buffer.from(NON_ASCII_ADDRESS, "utf8").toString("base64")}?=`;
+  assert.deepEqual(addressSpans(base64Word).map((span) => span.address), [NON_ASCII_ADDRESS]);
+  // Unicode: a non-ASCII address in any case is one address; a compatibility character is its letter.
+  assert.deepEqual(addressSpans(`maintainer ${NON_ASCII_ADDRESS.toUpperCase()}`).map((span) => foldAddress(span.address)), [foldAddress(NON_ASCII_ADDRESS)]);
+  assert.equal(foldAddress(NON_ASCII_ADDRESS.toUpperCase()), foldAddress(NON_ASCII_ADDRESS));
+  assert.equal(foldAddress("\u212Aate@example.invalid"), foldAddress("kate@example.invalid"), "the Kelvin sign folds to k");
+  assert.equal(foldAddress("STRASSE@EXAMPLE.INVALID"), foldAddress("straße@example.invalid"), "full case folding: ß is ss");
+  assert.equal(foldAddress("ﬁnn@example.invalid"), foldAddress("FINN@example.invalid"), "a ligature (NFKC) is its letters");
+  assert.equal(addressDigest(UNALLOWED_ADDRESS.toUpperCase()), addressDigest(UNALLOWED_ADDRESS), "a disposition names the folded address");
 
+  // The judgement: allowed, disposed by digest, mapped to an allowed address, or unresolved.
+  const occurrence = (address: string, oid: string, region: "identity-header" | "message" | "content" = "message", rewritable = true): AddressOccurrence =>
+    ({ key: foldAddress(address), address, spelling: address, form: "plain", name: region === "identity-header" ? "Somebody" : null, place: { kind: "object", oid, type: region === "content" ? "blob" : "commit", region, encoding: "utf-8", rewritable } });
   const allowed = allowedAddresses([FIXTURE_ADDRESS, MAPPED_ADDRESS.toUpperCase()]);
-  // Trailer-only: an allowed author with an unallowed trailer still needs a mapping.
-  const trailerOnly = identityUses("e".repeat(40), "commit", Buffer.from(`tree x\nauthor A <${FIXTURE_ADDRESS}> 1 +0000\ncommitter A <${FIXTURE_ADDRESS}> 1 +0000\n\nm\n\nCo-authored-by: B <${UNALLOWED_ADDRESS}>\n`));
-  assert.deepEqual(judgeIdentities(trailerOnly, allowed, undefined), { needingMapping: ["e".repeat(40)], unmapped: ["e".repeat(40)] });
-  assert.deepEqual(judgeIdentities([...uses, ...tag], allowed, undefined), { needingMapping: ["c".repeat(40), "d".repeat(40)], unmapped: ["c".repeat(40), "d".repeat(40)] });
-
-  // The mapping: a validated mailmap file outside the public tree.
-  const publicTree = join(import.meta.dirname, "..", "..", "..");
   const folder = createTempDir("identity-map-");
-  const good = join(folder, "identities.mailmap");
-  writeFileSync(good, `# the one mapping\nMapped Person <${MAPPED_ADDRESS}> Somebody <${UNALLOWED_ADDRESS}>\n`);
-  const map = readIdentityMap(good, publicTree);
-  assert.deepEqual(judgeIdentities([...uses, ...tag], allowed, map), { needingMapping: ["c".repeat(40), "d".repeat(40)], unmapped: [] }, "the named entry maps the author, the trailer and the tagger");
-  // A mapping to an address that is itself not allowed covers nothing.
+  const mapPath = join(folder, "identities.mailmap");
+  writeFileSync(mapPath, `# the one mapping\nMapped Person <${MAPPED_ADDRESS}> Somebody <${UNALLOWED_ADDRESS}>\n<${MAPPED_ADDRESS}> <${NON_ASCII_ADDRESS}>\n`);
+  const map = readIdentityMap(mapPath, PUBLIC_TREE);
+  const placeholder = "placeholder@example.invalid";
+  const all = [occurrence(FIXTURE_ADDRESS, "a".repeat(40)), occurrence(UNALLOWED_ADDRESS, "b".repeat(40), "identity-header"), occurrence(NON_ASCII_ADDRESS.toUpperCase(), "c".repeat(40)), occurrence(placeholder, "d".repeat(40), "content"), occurrence("other.person@example.invalid", "e".repeat(40), "content")];
+  const judged = judgeAddresses(all, allowed, new Set([addressDigest(placeholder)]), map);
+  assert.deepEqual([...judged.disposed], [placeholder]);
+  assert.deepEqual([...judged.mapped].sort(), [foldAddress(NON_ASCII_ADDRESS), UNALLOWED_ADDRESS].sort(), "the named entry maps the header, the address-only entry maps the upper-case non-ASCII spelling");
+  assert.deepEqual([...judged.unresolved], ["other.person@example.invalid"]);
+  assert.deepEqual(judgeAddresses(all, allowed, new Set(), undefined).unresolved.size, 4, "with no mapping and no review, every unallowed address is unresolved");
+  // The rewrite: a generated mailmap line per exact header spelling, a literal per exact spelling in rewritable text, a non-rewritable blob stripped.
+  const rewrite = planAddressRewrite([...judged.needing, occurrence(NON_ASCII_ADDRESS, "f".repeat(40), "content", false)], allowed, map);
+  assert.equal(rewrite.mailmap, `Mapped Person <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>\n`);
+  assert.equal(rewrite.expressions, `literal:${NON_ASCII_ADDRESS.toUpperCase()}==>${MAPPED_ADDRESS}\n`);
+  assert.deepEqual(rewrite.strippedBlobs, ["f".repeat(40)]);
+  // A spelling that differs only beyond lower-casing (full case folding: ß is ss) is the same address to the mapping.
+  const foldMap = join(folder, "fold.mailmap");
+  writeFileSync(foldMap, `<${MAPPED_ADDRESS}> <straße@example.invalid>\n`);
+  assert.deepEqual([...judgeAddresses([occurrence("STRASSE@EXAMPLE.INVALID", "9".repeat(40))], allowed, new Set(), readIdentityMap(foldMap, PUBLIC_TREE)).mapped], [foldAddress("straße@example.invalid")]);
+  // A mapping to an address that is itself not allowed resolves nothing.
   const elsewhere = join(folder, "elsewhere.mailmap");
   writeFileSync(elsewhere, `<also.private@example.invalid> <${UNALLOWED_ADDRESS}>\n`);
-  assert.deepEqual(judgeIdentities(trailerOnly, allowed, readIdentityMap(elsewhere, publicTree)).unmapped, ["e".repeat(40)]);
-  // The rewrite: one case-insensitive expression per mapped-from address the history carries.
-  assert.equal(identityExpressions([...uses, ...tag], allowed, map), `regex:(?i)someone\\.private\\@example\\.invalid==>${MAPPED_ADDRESS}\n`);
-  assert.deepEqual(mappedFromAddresses([...uses, ...tag], allowed), [UNALLOWED_ADDRESS]);
+  assert.equal(judgeAddresses([occurrence(UNALLOWED_ADDRESS, "b".repeat(40))], allowed, new Set(), readIdentityMap(elsewhere, PUBLIC_TREE)).unresolved.size, 1);
 
-  // A malformed line is refused by its number, never its text; a mapping inside the public tree is refused.
+  // A malformed line is refused by its number, never its text; the public tree is judged by path SEGMENT.
   const bad = join(folder, "bad.mailmap");
   writeFileSync(bad, `Mapped <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>\nnot a mailmap line ${UNALLOWED_ADDRESS}\n`);
-  assert.throws(() => readIdentityMap(bad, publicTree), (error: Error & { code?: string }) => error.code === "history_import_identity_map_invalid" && error.message.includes("line 2") && !error.message.includes(UNALLOWED_ADDRESS));
-  assert.throws(() => readIdentityMap(join(publicTree, "engine", "bridlewise.config.json"), publicTree), (error: Error & { code?: string }) => error.code === "history_import_identity_map_public");
+  assert.throws(() => readIdentityMap(bad, PUBLIC_TREE), (error: Error & { code?: string }) => error.code === "history_import_identity_map_invalid" && error.message.includes("line 2") && !error.message.includes(UNALLOWED_ADDRESS));
+  assert.throws(() => readIdentityMap(join(PUBLIC_TREE, "engine", "bridlewise.config.json"), PUBLIC_TREE), (error: Error & { code?: string }) => error.code === "history_import_identity_map_public");
+  const tree = createTempDir("public-tree-");
+  mkdirSync(join(tree, "..dir"));
+  writeFileSync(join(tree, "..dir", "m.mailmap"), `<${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>\n`);
+  assert.equal(insideTree(join(tree, "..dir", "m.mailmap"), tree), true, "a folder spelled ..dir is inside the tree");
+  assert.throws(() => readIdentityMap(join(tree, "..dir", "m.mailmap"), tree), (error: Error & { code?: string }) => error.code === "history_import_identity_map_public");
+  assert.equal(insideTree(mapPath, tree), false);
   assert.throws(() => allowedAddresses([]), (error: Error & { code?: string }) => error.code === "history_import_identity_map_invalid");
 });
 
-test("THE IDENTITY GATE on a real repository: the commits' identities are read from the objects, and an address left anywhere after a rewrite is found by object", () => {
+test("THE ADDRESS CENSUS on a real repository: every object in every reading (UTF-8, UTF-16LE/BE, latin1), every path and every ref name; regions of a commit; a blob filter-repo cannot rewrite in place is marked so", () => {
   const root = createTempDir("identity-history-");
   git(root, "init", "-q", "-b", "main");
   write(root, "AUTHORS", `Somebody <${UNALLOWED_ADDRESS}>\n`);
+  write(root, "contacts.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`owner = ${NON_ASCII_ADDRESS}\r\n`, "utf16le")]));
+  write(root, "be.txt", Buffer.from(`x ${UNALLOWED_ADDRESS}`, "utf16le").swap16());
+  write(root, `people/${UNALLOWED_ADDRESS}`, "hello\n");
+  write(root, "latin.txt", Buffer.from(`l ${NON_ASCII_ADDRESS}\n`, "latin1"));
+  write(root, "mixed.bin", Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0xfd]), Buffer.alloc(64, 0x7f), Buffer.from(` ${NON_ASCII_ADDRESS} `, "utf16le"), Buffer.alloc(64, 0xc3)]));
   git(root, "add", ".");
-  git(root, "commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>`);
+  execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", `a change\n\n    Signed-off-by: ${UNALLOWED_ADDRESS}`], { cwd: root, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
+  git(root, "branch", `${UNALLOWED_ADDRESS}/topic`);
   const inventory = enumerateHistory(repository(root));
-  const uses = historyIdentities(repository(root), inventory);
+  const census = addressCensus(repository(root), inventory);
   const head = git(root, "rev-parse", "HEAD").trim();
-  assert.deepEqual(uses.map((use) => [use.oid, use.field]), [[head, "author"], [head, "committer"], [head, "trailer"]]);
-  const blob = git(root, "rev-parse", "HEAD:AUTHORS").trim();
-  assert.deepEqual(addressResidue(repository(root), inventory, [UNALLOWED_ADDRESS]), [blob, head].sort(), "the blob and the commit still hold the address");
-  assert.deepEqual(addressResidue(repository(root), inventory, []), []);
+  const blobOf = (path: string): string => git(root, "rev-parse", `HEAD:${path}`).trim();
+  const at = (oid: string): readonly AddressOccurrence[] => census.filter((occurrence) => occurrence.place.kind === "object" && occurrence.place.oid === oid);
+  const regions = at(head).map((occurrence) => (occurrence.place as { region: string }).region);
+  assert.ok(regions.includes("identity-header") && regions.includes("message"), "the author header and the indented bare trailer");
+  assert.ok(at(head).some((occurrence) => occurrence.place.kind === "object" && occurrence.place.region === "identity-header" && occurrence.name === "Somebody"));
+  assert.ok(at(blobOf("AUTHORS")).some((occurrence) => occurrence.key === UNALLOWED_ADDRESS && occurrence.place.kind === "object" && occurrence.place.rewritable));
+  assert.ok(at(blobOf("contacts.txt")).some((occurrence) => occurrence.key === foldAddress(NON_ASCII_ADDRESS) && occurrence.place.kind === "object" && !occurrence.place.rewritable), "UTF-16LE, non-ASCII, not rewritable in place");
+  assert.ok(at(blobOf("be.txt")).some((occurrence) => occurrence.key === UNALLOWED_ADDRESS), "UTF-16BE without a BOM");
+  assert.ok(at(blobOf("latin.txt")).some((occurrence) => occurrence.key === foldAddress(NON_ASCII_ADDRESS)), "latin1");
+  assert.ok(at(blobOf("mixed.bin")).some((occurrence) => occurrence.key === foldAddress(NON_ASCII_ADDRESS)), "a non-ASCII UTF-16LE run inside a binary (only the UTF-16 reading of the whole bytes sees it)");
+  assert.ok(census.some((occurrence) => occurrence.place.kind === "path" && occurrence.key === UNALLOWED_ADDRESS), "a path");
+  assert.equal(census.filter((occurrence) => occurrence.place.kind === "ref").length, 1, "a ref name, by digest");
+  const refPlace = census.find((occurrence) => occurrence.place.kind === "ref")!.place as { refSha256: string };
+  assert.equal(refPlace.refSha256, sha256(`refs/heads/${UNALLOWED_ADDRESS}/topic`));
+  // `only` limits the objects (the receipt's); the paths and the ref names are still read.
+  // `only` limits the census to what is new (the receipt's): those objects, their paths, those ref names.
+  const onlyHead = addressCensus(repository(root), inventory, { objects: new Set([head]), refs: new Set() });
+  assert.ok(onlyHead.length > 0 && onlyHead.every((occurrence) => occurrence.place.kind === "object" && occurrence.place.oid === head));
 });

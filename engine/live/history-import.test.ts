@@ -34,10 +34,11 @@ import { createOwnedTemporaryDirectory } from "../src/filesystem/private-state.t
 import { sha256 } from "../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import { importHistory, IMPORT_REVIEW_SCHEMA, removedMarker } from "../src/workflow/forge/history-import.ts";
+import { addressDigest } from "../src/workflow/forge/history-identities.ts";
 import { historyToolPath, historyToolPin, resolveHistoryTool, type HistoryToolName } from "../src/workflow/forge/history-tools.ts";
 import { armTestKeyHome } from "../test/support/test-key-home.ts";
 import { createTempDir } from "../test/support/temp-dir.ts";
-import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, pemLine, plantedRepository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "../test/forge/history-fixture.ts";
+import { CORAL_KEY, entryOf, FIXTURE_ADDRESS, GIT, git, GITHUB_TOKEN, importOptions, MAKORA_KEY, MAPPED_ADDRESS, NON_ASCII_ADDRESS, pemLine, plantedRepository, SHORT_PASSWORD, UNALLOWED_ADDRESS, write } from "../test/forge/history-fixture.ts";
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
 const OPERATOR_HOME = process.env[POLICY.environmentVariable];
@@ -242,94 +243,208 @@ test("end to end, an undecodable object the review exempted is refused AFTER the
   assert.equal(git(target, "rev-parse", "refs/tags/v1").trim(), listed.undecodable[0]!.oid);
 });
 
-/** A one-commit source whose author is `address` (the committer and the trailers as given). */
-function identitySource(author: string, message: string): string {
-  const source = createTempDir("history-import-identity-src-");
+// ── THE ADDRESS GATE, end to end (every shape the independent review found escaping, P1–P17, kept as tests) ──
+
+/** Everything a reader of `repository` could see: every object's bytes, every path a tree records, every ref name. */
+function published(repository: string): Buffer {
+  const listed = git(repository, "rev-list", "--objects", "--all").split("\n").filter((line) => line.length > 0);
+  const parts = listed.flatMap((line) => [Buffer.from(line, "utf8"), execFileSync(GIT, ["cat-file", "-p", line.split(" ")[0]!], { cwd: repository })]);
+  parts.push(Buffer.from(git(repository, "for-each-ref", "--format=%(refname)"), "utf8"));
+  return Buffer.concat(parts);
+}
+
+/** Whether `bytes` hold `address` in any case or reading the review probed: UTF-8 or latin1 (case-folded), UTF-16LE/BE, percent-encoded. */
+function holdsAddress(bytes: Buffer, address: string): boolean {
+  const folded = (text: string): string => text.normalize("NFKC").toLocaleLowerCase("en-US");
+  const target = folded(address);
+  return folded(bytes.toString("utf8")).includes(target) || folded(bytes.toString("latin1")).includes(target)
+    || bytes.includes(Buffer.from(address, "utf16le")) || bytes.includes(Buffer.from(address, "utf16le").swap16())
+    || folded(bytes.toString("utf8")).includes(target.replace("@", "%40"));
+}
+
+/** A source with one base commit by the fixture identity. */
+function baseSource(): string {
+  const source = createTempDir("history-import-address-src-");
   git(source, "init", "-q", "-b", "main");
-  write(source, "README.md", "a history with identities\n");
+  write(source, "README.md", "a history with addresses\n");
   git(source, "add", ".");
-  execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${author}>`, "-m", message], { cwd: source, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
+  git(source, "commit", "-q", "-m", "base");
   return source;
 }
 
-/** A mapping file kept OUTSIDE the public tree (as the coordination repository keeps it). */
+/** A source whose one commit is authored by `address` (committed by the fixture identity), with `message`. */
+function authoredSource(address: string, message = "base"): string {
+  const source = createTempDir("history-import-authored-src-");
+  git(source, "init", "-q", "-b", "main");
+  write(source, "README.md", "a history with addresses\n");
+  git(source, "add", ".");
+  execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${address}>`, "-m", message], { cwd: source, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
+  return source;
+}
+
+/** A commit of `message` exactly as given (no cleanup of a CRLF, an indent or a trailer shape). */
+function commitMessage(source: string, message: string): void {
+  writeFileSync(join(source, ".message"), message);
+  git(source, "commit", "-q", "--allow-empty", "--cleanup=verbatim", "-F", join(source, ".message"));
+}
+
+/** The one identity mapping file, kept OUTSIDE the public tree (as the coordination repository keeps it). */
 function identityMapFile(lines: readonly string[]): string {
   const path = join(createTempDir("history-import-identity-map-"), "identities.mailmap");
   writeFileSync(path, `${lines.join("\n")}\n`);
   return path;
 }
 
-test("THE IDENTITY GATE: an unallowed author, or an unallowed trailer alone, is refused before anything is pushed, by commit id, never echoing the address; the dry run counts what needs a mapping", async () => {
-  const home = testImportHome();
-  const cases = [
-    ["author", identitySource(UNALLOWED_ADDRESS, "an ordinary change")],
-    ["trailer", identitySource(FIXTURE_ADDRESS, `an ordinary change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\nCo-authored-by: Another <${UNALLOWED_ADDRESS}>`)],
-  ] as const;
-  for (const [field, source] of cases) {
-    const target = bareTarget();
-    let message = "";
-    let folder = "";
-    await assert.rejects(importHistory({ source, target }, importOptions(home)), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
-      message = error.message;
-      folder = String(error.facts?.["runFolder"] ?? "");
-      return error.code === "history_import_identity_unallowed";
-    });
-    const head = git(source, "rev-parse", "HEAD").trim();
-    assert.ok(message.includes(head), `${field}: the refusal names the commit`);
-    assert.ok(!message.includes(UNALLOWED_ADDRESS), `${field}: the refusal never echoes the address`);
-    const listed = readFileSync(join(folder, "identities.json"), "utf8");
-    assert.ok(!listed.includes(UNALLOWED_ADDRESS), `${field}: the reviewer's file names objects and fields, never the address`);
-    assert.deepEqual((JSON.parse(listed) as { objects: { oid: string; fields: string[] }[] }).objects, [{ oid: head, fields: [field] }]);
-    assert.equal(git(target, "for-each-ref").trim(), "", `${field}: nothing was pushed`);
-  }
-  // The dry run: counts only, nothing rewritten or pushed, no target needed.
-  const both = identitySource(UNALLOWED_ADDRESS, `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>`);
-  git(both, "commit", "-q", "--allow-empty", "-m", "an allowed change");
-  const dry = await importHistory({ source: both, dryRun: true }, importOptions(home));
-  assert.equal(dry.identities.needingMapping, 1);
-  assert.equal(dry.identities.unmapped, 1);
-  assert.ok(!JSON.stringify(dry).includes(UNALLOWED_ADDRESS), "the dry run's report holds no address");
-  const mapped = await importHistory({ source: both, dryRun: true, identityMap: identityMapFile([`Mapped <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>`]) }, importOptions(home));
-  assert.deepEqual([mapped.identities.needingMapping, mapped.identities.unmapped], [1, 0], "with the mapping, the one commit needing it is covered");
-});
-
-test("THE IDENTITY MAPPING is applied by the importer itself, deterministically: the headers and every trailer are rewritten, no mapped-from address is left anywhere, and the old and new ids are recorded", async () => {
-  const home = testImportHome();
-  const source = identitySource(UNALLOWED_ADDRESS, `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\nThe author can be reached at ${UNALLOWED_ADDRESS.toUpperCase()}.`);
-  write(source, "AUTHORS", `Somebody <${UNALLOWED_ADDRESS}>\n`);
-  git(source, "add", ".");
-  execFileSync(GIT, ["commit", "-q", "-m", "the authors file"], { cwd: source, env: { ...process.env, GIT_AUTHOR_NAME: "Somebody", GIT_AUTHOR_EMAIL: UNALLOWED_ADDRESS, GIT_COMMITTER_NAME: "Somebody", GIT_COMMITTER_EMAIL: UNALLOWED_ADDRESS } });
-  const map = identityMapFile(["# the one identity mapping", `Mapped Person <${MAPPED_ADDRESS}> Somebody <${UNALLOWED_ADDRESS}>`]);
-  const runs = [];
-  for (let index = 0; index < 2; index += 1) {
-    const target = bareTarget();
-    const receipt = await importHistory({ source, target, identityMap: map }, importOptions(home));
-    assert.equal(receipt.identities.rewritten, 2, "both commits needed the mapping");
-    assert.ok(receipt.identities.commitMap.changed >= 2, "the commit map records the rewritten commits");
-    assert.ok(!holds(everything(target), UNALLOWED_ADDRESS) && !holds(everything(target), UNALLOWED_ADDRESS.toUpperCase()), "no mapped-from address reached the target, in any case or place");
-    const published = git(target, "log", "--all", "--format=%an <%ae>|%cn <%ce>|%B");
-    assert.ok(published.includes(`Mapped Person <${MAPPED_ADDRESS}>`), "the headers carry the mapped identity");
-    assert.ok(published.includes(`Signed-off-by: Somebody <${MAPPED_ADDRESS}>`), "the trailer carries the mapped address");
-    runs.push(receipt.refMap.map((ref) => `${ref.target} ${ref.oid}`).join("\n"));
-  }
-  assert.equal(runs[0], runs[1], "the rewrite is deterministic: the same source and mapping give the same ids");
-});
-
-test("THE IDENTITY RESIDUE CHECK: a mapped-from address the rewrite cannot reach (a binary blob filter-repo leaves alone) is refused after the rewrite, by object id, and nothing is pushed", async () => {
-  const home = testImportHome();
-  const source = identitySource(UNALLOWED_ADDRESS, "a change");
-  write(source, "assets/avatar.bin", Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(` contact ${UNALLOWED_ADDRESS}\n`)]));
-  git(source, "add", ".");
-  git(source, "commit", "-q", "-m", "a binary asset");
+/** The import of `source` is refused with `code`, naming objects (never `address`, in the message or in addresses.json), and nothing reaches the target. */
+async function refusedWithoutEcho(home: string, source: string, address: string, code: string, extra: Readonly<{ identityMap?: string; options?: ReturnType<typeof importOptions> }> = {}): Promise<Readonly<{ objects: readonly string[]; refs: number }>> {
   const target = bareTarget();
   let message = "";
   let folder = "";
-  await assert.rejects(importHistory({ source, target, identityMap: identityMapFile([`Mapped <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>`]) }, importOptions(home)), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
+  await assert.rejects(importHistory({ source, target, ...(extra.identityMap === undefined ? {} : { identityMap: extra.identityMap }) }, extra.options ?? importOptions(home)), (error: Error & { code?: string; facts?: Readonly<Record<string, unknown>> }) => {
     message = error.message;
     folder = String(error.facts?.["runFolder"] ?? "");
-    return error.code === "history_import_identity_residue";
+    return error.code === code;
   });
-  assert.ok(!message.includes(UNALLOWED_ADDRESS), "the refusal never echoes the address");
-  assert.ok(!readFileSync(join(folder, "identities.json"), "utf8").includes(UNALLOWED_ADDRESS));
-  assert.equal(git(target, "for-each-ref").trim(), "", "nothing was pushed");
+  assert.ok(!holdsAddress(Buffer.from(message, "utf8"), address), `${code}: the refusal never echoes the address`);
+  const listed = readFileSync(join(folder, "addresses.json"));
+  assert.ok(!holdsAddress(listed, address), `${code}: addresses.json names digests and objects, never the address`);
+  assert.equal(git(target, "for-each-ref").trim(), "", `${code}: nothing was pushed`);
+  const parsed = JSON.parse(listed.toString("utf8")) as { addresses: { addressSha256: string; objects: string[]; refs: number }[] };
+  assert.ok(parsed.addresses.some((entry) => entry.addressSha256 === addressDigest(address)), "the address is listed by its digest");
+  return { objects: parsed.addresses.flatMap((entry) => entry.objects), refs: parsed.addresses.reduce((sum, entry) => sum + entry.refs, 0) };
+}
+
+const MAP = (): string => identityMapFile([`Mapped Person <${MAPPED_ADDRESS}> <${UNALLOWED_ADDRESS}>`, `<${MAPPED_ADDRESS}> <${NON_ASCII_ADDRESS}>`]);
+
+test("THE ADDRESS GATE refuses, before anything is rewritten or pushed and by object id, an unallowed address in every shape and place the review found escaping (P1–P7, P12, P14, P16, the author, a trailer)", async () => {
+  const home = testImportHome();
+  const cases: readonly (readonly [string, () => string])[] = [
+    ["the author", () => authoredSource(UNALLOWED_ADDRESS)],
+    ["a trailer alone", () => { const s = baseSource(); commitMessage(s, `change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\n`); return s; }],
+    ["P1 free text in a message", () => { const s = baseSource(); commitMessage(s, `free text: contact ${UNALLOWED_ADDRESS} for details\n`); return s; }],
+    ["P2 a CRLF trailer", () => { const s = baseSource(); commitMessage(s, `change\r\n\r\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\r\n`); return s; }],
+    ["P2b a CRLF trailer through commit-tree", () => {
+      const s = baseSource();
+      const oid = execFileSync(GIT, ["-c", "user.name=Import Test", "-c", `user.email=${FIXTURE_ADDRESS}`, "commit-tree", git(s, "rev-parse", "HEAD^{tree}").trim(), "-p", git(s, "rev-parse", "HEAD").trim()], { cwd: s, input: `change\r\n\r\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\r\n` }).toString().trim();
+      git(s, "update-ref", "refs/heads/main", oid);
+      return s;
+    }],
+    ["P3 an indented trailer", () => { const s = baseSource(); commitMessage(s, `change\n\n    Signed-off-by: Somebody <${UNALLOWED_ADDRESS}>\n`); return s; }],
+    ["P4 a bare-address trailer", () => { const s = baseSource(); commitMessage(s, `change\n\nSigned-off-by: ${UNALLOWED_ADDRESS}\n`); return s; }],
+    ["P4b a trailer with a comment", () => { const s = baseSource(); commitMessage(s, `change\n\nReviewed-by: Somebody <${UNALLOWED_ADDRESS}> (on the list)\n`); return s; }],
+    ["P5 a tag message", () => { const s = baseSource(); git(s, "tag", "-a", "v1", "-m", `release by ${UNALLOWED_ADDRESS}`); return s; }],
+    ["P6 a note", () => { const s = baseSource(); git(s, "notes", "add", "-m", `noted by Somebody <${UNALLOWED_ADDRESS}>`, "HEAD"); return s; }],
+    ["P7 file content", () => { const s = baseSource(); write(s, "AUTHORS", `Somebody <${UNALLOWED_ADDRESS}>\n`); git(s, "add", "."); git(s, "commit", "-q", "-m", "authors"); return s; }],
+    ["P12 a mergetag continuation line", () => {
+      const s = baseSource();
+      const tree = git(s, "rev-parse", "HEAD^{tree}").trim();
+      const parent = git(s, "rev-parse", "HEAD").trim();
+      const body = `tree ${tree}\nparent ${parent}\nparent ${parent}\nauthor Import Test <${FIXTURE_ADDRESS}> 1700000000 +0000\ncommitter Import Test <${FIXTURE_ADDRESS}> 1700000000 +0000\nmergetag object ${parent}\n type commit\n tag v9\n tagger Somebody <${UNALLOWED_ADDRESS}> 1700000000 +0000\n \n a merged tag\n\nmerge\n`;
+      git(s, "update-ref", "refs/heads/main", execFileSync(GIT, ["hash-object", "-t", "commit", "-w", "--literally", "--stdin"], { cwd: s, input: body }).toString().trim());
+      return s;
+    }],
+    ["P16 a UTF-16LE tag message", () => {
+      const s = baseSource();
+      const body = Buffer.concat([Buffer.from(`object ${git(s, "rev-parse", "HEAD").trim()}\ntype commit\ntag v2\ntagger Import Test <${FIXTURE_ADDRESS}> 1700000000 +0000\n\n`), Buffer.from(`release\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\n`, "utf16le")]);
+      git(s, "update-ref", "refs/tags/v2", execFileSync(GIT, ["hash-object", "-t", "tag", "-w", "--stdin"], { cwd: s, input: body }).toString().trim());
+      return s;
+    }],
+  ];
+  for (const [name, make] of cases) {
+    const source = make();
+    const { objects } = await refusedWithoutEcho(home, source, UNALLOWED_ADDRESS, "history_import_identity_unallowed");
+    assert.ok(objects.length > 0, `${name}: the refusal names the object`);
+  }
+  // P14: a compatibility spelling (the Kelvin sign) is folded before it is compared: still not on the list.
+  const kelvin = "\u212Amport.private@example.invalid";
+  await refusedWithoutEcho(home, authoredSource(kelvin), kelvin, "history_import_identity_unallowed", { options: importOptions(home, ["kmport@example.invalid"]) });
+});
+
+test("THE ADDRESS MAPPING is applied by the importer itself in its one rewrite, for every shape it can reach (P0, P10, P11, P13, P13b, P17): nothing of the mapped-from address reaches the target, in any case, reading or encoding; the rewrite is deterministic", async () => {
+  const home = testImportHome();
+  const cases: readonly (readonly [string, string, () => string])[] = [
+    ["P0 the author", UNALLOWED_ADDRESS, () => authoredSource(UNALLOWED_ADDRESS)],
+    ["P10 a UTF-16LE file (stripped whole)", UNALLOWED_ADDRESS, () => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, "contacts.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`owner = ${UNALLOWED_ADDRESS}\r\n`, "utf16le")])); git(s, "add", "."); git(s, "commit", "-q", "-m", "utf16"); return s; }],
+    ["P11 RFC 2047 and percent-encoded in a message", UNALLOWED_ADDRESS, () => { const s = authoredSource(UNALLOWED_ADDRESS); commitMessage(s, `change\n\nreported as =?UTF-8?Q?${UNALLOWED_ADDRESS.replace("@", "=40")}?= and ${UNALLOWED_ADDRESS.replace("@", "%40")}\n`); return s; }],
+    ["P13 a non-ASCII address, upper case, in a file", NON_ASCII_ADDRESS, () => { const s = authoredSource(NON_ASCII_ADDRESS); write(s, "MAINTAINERS", `maintainer ${NON_ASCII_ADDRESS.toUpperCase()}\n`); git(s, "add", "."); git(s, "commit", "-q", "-m", "maintainers"); return s; }],
+    ["P13b a non-ASCII address in a binary blob (stripped whole)", NON_ASCII_ADDRESS, () => { const s = authoredSource(NON_ASCII_ADDRESS); write(s, "bin.dat", Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(` ${NON_ASCII_ADDRESS}\n`, "utf8")])); git(s, "add", "."); git(s, "commit", "-q", "-m", "binary"); return s; }],
+    ["P17 a non-ASCII trailer in upper case", NON_ASCII_ADDRESS, () => authoredSource(NON_ASCII_ADDRESS, `base\n\nSigned-off-by: Jose <${NON_ASCII_ADDRESS.toUpperCase()}>`)],
+  ];
+  for (const [name, address, make] of cases) {
+    const source = make();
+    const target = bareTarget();
+    const receipt = await importHistory({ source, target, identityMap: MAP() }, importOptions(home));
+    assert.ok(!holdsAddress(published(target), address) && !holdsAddress(published(target), address.toUpperCase()), `${name}: the mapped-from address reached the target`);
+    assert.ok(holdsAddress(published(target), MAPPED_ADDRESS), `${name}: the mapped address is published in its place`);
+    assert.ok(receipt.identities.mappedAddresses >= 1 && receipt.identities.rewrittenObjects >= 1, name);
+  }
+  // Deterministic: the same source and mapping give the same ids.
+  const source = authoredSource(UNALLOWED_ADDRESS, `a change\n\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>`);
+  const ids = [];
+  for (let index = 0; index < 2; index += 1) {
+    const receipt = await importHistory({ source, target: bareTarget(), identityMap: MAP() }, importOptions(home));
+    ids.push(receipt.refMap.map((ref) => `${ref.target} ${ref.oid}`).join("\n"));
+    assert.ok(receipt.identities.commitMap.changed >= 1, "the commit map records the rewritten commits");
+  }
+  assert.equal(ids[0], ids[1]);
+});
+
+test("THE CENSUS AFTER THE REWRITE has teeth: a mapped address the rewrite cannot reach (P8 a path, P9 a ref name) is refused before the push; one the rewrite drops (a mergetag header, a UTF-16 tag message) is proven gone by it and never published", async () => {
+  const home = testImportHome();
+  const unreachable: readonly (readonly [string, () => string])[] = [
+    ["P8 a path", () => { const s = authoredSource(UNALLOWED_ADDRESS); write(s, `people/${UNALLOWED_ADDRESS}`, "hello\n"); git(s, "add", "."); git(s, "commit", "-q", "-m", "a path"); return s; }],
+    ["P9 a ref name", () => { const s = authoredSource(UNALLOWED_ADDRESS); git(s, "branch", `${UNALLOWED_ADDRESS}/topic`); return s; }],
+  ];
+  for (const [name, make] of unreachable) {
+    const { objects, refs } = await refusedWithoutEcho(home, make(), UNALLOWED_ADDRESS, "history_import_identity_residue", { identityMap: MAP() });
+    assert.ok(objects.length > 0 || refs > 0, `${name}: the refusal names the object (or counts the ref name)`);
+  }
+  const dropped: readonly (readonly [string, () => string])[] = [
+    ["a mergetag header", () => {
+      const s = authoredSource(UNALLOWED_ADDRESS);
+      const tree = git(s, "rev-parse", "HEAD^{tree}").trim();
+      const parent = git(s, "rev-parse", "HEAD").trim();
+      const body = `tree ${tree}\nparent ${parent}\nparent ${parent}\nauthor Import Test <${FIXTURE_ADDRESS}> 1700000000 +0000\ncommitter Import Test <${FIXTURE_ADDRESS}> 1700000000 +0000\nmergetag object ${parent}\n type commit\n tag v9\n tagger Somebody <${UNALLOWED_ADDRESS}> 1700000000 +0000\n \n a merged tag\n\nmerge\n`;
+      git(s, "update-ref", "refs/heads/main", execFileSync(GIT, ["hash-object", "-t", "commit", "-w", "--literally", "--stdin"], { cwd: s, input: body }).toString().trim());
+      return s;
+    }],
+    ["a UTF-16LE tag message", () => {
+      const s = authoredSource(UNALLOWED_ADDRESS);
+      const body = Buffer.concat([Buffer.from(`object ${git(s, "rev-parse", "HEAD").trim()}\ntype commit\ntag v2\ntagger Import Test <${FIXTURE_ADDRESS}> 1700000000 +0000\n\n`), Buffer.from(`release\nSigned-off-by: Somebody <${UNALLOWED_ADDRESS}>\n`, "utf16le")]);
+      git(s, "update-ref", "refs/tags/v2", execFileSync(GIT, ["hash-object", "-t", "tag", "-w", "--stdin"], { cwd: s, input: body }).toString().trim());
+      return s;
+    }],
+  ];
+  for (const [name, make] of dropped) {
+    const target = bareTarget();
+    await importHistory({ source: make(), target, identityMap: MAP() }, importOptions(home));
+    assert.ok(!holdsAddress(published(target), UNALLOWED_ADDRESS), `${name}: the address reached the target`);
+  }
+});
+
+test("THE RECEIPT passes the same census: a receipt identity not on the allowed list is refused before the push", async () => {
+  const home = testImportHome();
+  const options = { ...importOptions(home), allowedIdentities: [FIXTURE_ADDRESS] };
+  await refusedWithoutEcho(home, baseSource(), POLICY.identity.email, "history_import_identity_residue", { options });
+});
+
+test("THE REVIEW disposes of an address-shaped string that is not a person's (by the digest of its folded form), and the dry run counts every address and what resolves it", async () => {
+  const home = testImportHome();
+  const placeholder = "Placeholder@Example.invalid";
+  const source = authoredSource(UNALLOWED_ADDRESS);
+  write(source, "docs/usage.md", `send the report to ${placeholder}\n`);
+  git(source, "add", ".");
+  git(source, "commit", "-q", "-m", "usage");
+  const dry = await importHistory({ source, dryRun: true }, importOptions(home));
+  assert.deepEqual([dry.identities.unallowedAddresses, dry.identities.mappedAddresses, dry.identities.disposedAddresses, dry.identities.unresolvedAddresses], [2, 0, 0, 2]);
+  assert.ok(!holdsAddress(Buffer.from(JSON.stringify(dry)), UNALLOWED_ADDRESS) && !holdsAddress(Buffer.from(JSON.stringify(dry)), placeholder), "the dry run's report holds no address");
+  const reviewPath = join(createTempDir("history-import-address-review-"), "review.json");
+  writeFileSync(reviewPath, JSON.stringify({ schema: IMPORT_REVIEW_SCHEMA, dispositions: [], addresses: [{ addressSha256: addressDigest(placeholder.toLowerCase()), reason: "a documentation placeholder, not a person's address" }] }));
+  const mapped = await importHistory({ source, dryRun: true, review: reviewPath, identityMap: MAP() }, importOptions(home));
+  assert.deepEqual([mapped.identities.unallowedAddresses, mapped.identities.mappedAddresses, mapped.identities.disposedAddresses, mapped.identities.unresolvedAddresses], [2, 1, 1, 0]);
+  const target = bareTarget();
+  const receipt = await importHistory({ source, target, review: reviewPath, identityMap: MAP() }, importOptions(home));
+  assert.equal(receipt.identities.disposedAddresses, 1);
+  assert.ok(holdsAddress(published(target), placeholder), "a disposed string is published as it was");
+  assert.ok(!holdsAddress(published(target), UNALLOWED_ADDRESS));
 });

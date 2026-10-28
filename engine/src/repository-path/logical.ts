@@ -200,6 +200,17 @@ export function portableRepositoryPathKey(path: ValidRepositoryPath): string {
   return path.portabilityKey;
 }
 
+/**
+ * THE ONE UNICODE CASE FOLD (the generated Unicode CaseFolding table, full
+ * folding, applied to the NFD form and recomposed to NFC): the key two
+ * spellings compare equal under when only their case differs. Repository
+ * paths compare by it, and so does every other text the harness compares
+ * case-insensitively (the history importer's addresses).
+ */
+export function unicodeCaseFold(input: string): string {
+  return canonicalCaseKey(input);
+}
+
 function canonicalCaseKey(input: string): string {
   let result = "";
   for (const character of input.normalize("NFD")) {

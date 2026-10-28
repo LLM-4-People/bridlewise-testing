@@ -35,7 +35,7 @@ conversion.
 - `app-keys.ts` — THE APP KEY CUSTODY, the one credential module every App key passes through (the runbook's "broker" is the key home): `<key home>/forge-apps/<role>.json` (0600, atomic, durable). `storeAppKey` is the first step after a conversion, for every custody. A host App's custody (`keyHomeCustody`) answers the identity and signs, and never hands the key out. An environment App's key is HELD only until `pushHeldKey` puts it in its GitHub environment; then the record keeps the identity and the push time, and a failed push leaves the key held for the next run. `appKeyState` answers absent, held or done.
 - `credentials.ts` — THE FIVE CREDENTIALS: `appInstallationCredential` (the installation looked up once, the token minted narrowed to one repository and the action's permissions, checked to be exactly what was asked — else `forge_token_scope_mismatch` —, cached in memory and renewed `renewBeforeMs` before it expires), `appJwtCredential` / `appJwt` (RS256, 9 minutes, `iss` = the client id), `environmentCredential`, `memoryCredential` and `anonymousCredential` (the manifest conversion only).
 - `history-import.ts` — THE HISTORY IMPORTER (above): `importHistory`, and its steps for the tests — `enumerateHistory`, `scanHistory` (one read of every blob, commit and tag, and of every path and ref name, for the catalogue's spans and the oracle's chunked findings), `judgeOracle` (covered, disposed or a gap), `planPurge` (the expressions, deterministic), `planRefs` (kept namespaces, everything else under `refs/heads/imported/`), `purgeResidue` (what the re-scan left), `decodedTexts`, `receiptRefusal` and `recordedLocation`, `readImportReview`, `admitImportHome`.
-- `history-identities.ts` — THE IDENTITY GATE's pure parts: every identity a commit or tag carries (`identityUses`), the one mapping file read and validated (`readIdentityMap`, refused inside the public tree), the judgement against the allowed list (`judgeIdentities`), and the rewrite's expressions (`identityExpressions`).
+- `history-identities.ts` — THE ADDRESS GATE's pure parts: the address shapes (`addressSpans`: plain, percent-encoded, RFC 2047), the one fold (`foldAddress`: NFKC and the Unicode case fold) and the digest a disposition names (`addressDigest`), the public-tree check by path segment (`insideTree`), the one mapping file (`readIdentityMap`), the judgement (`judgeAddresses`) and the rewrite plan (`planAddressRewrite`).
 - `history-tools.ts` — THE PINNED TOOLS: gitleaks 8.30.1 and git-filter-repo 2.47.0, each pinned by the sha256 of its release archive and of the file run (an AUTHORED PINS region), `resolveHistoryTool` (absent → the provisioning command; other bytes → refused), `runBounded` / `runHistoryTool` (a process group bounded by CPU time and a stall check, never wall time; stopped only through the owned-process `terminate`).
 - `gitleaks-config.ts` — THE ORACLE'S CONFIGURATION, projected from the catalogue: gitleaks' default rules plus one `bridlewise-<row>` rule per catalogue row RE2 can express; a row with a lookaround or a JavaScript-only escape is named in the header, never approximated.
 
@@ -104,18 +104,27 @@ receipt itself (no absolute or home path: a local repository is recorded as
 `local:<name>`; no catalogue hit), commits it on `refs/heads/ledger`, and
 pushes every ref with an explicit refspec, atomically and never forced, into
 an EMPTY target, then reads the target back. Before anything is rewritten or
-pushed, THE IDENTITY GATE (`history-identities.ts`) judges every address a
-commit or tag carries (author, committer, tagger, every trailer) against the
-ONE allowed list (`forge.historyImport.allowedIdentities`). An address not on
-it must be mapped by the ONE identity mapping (`--identity-map`: a
-mailmap-style file kept outside the public tree, since it holds the address it
-replaces), applied by the importer in the same rewrite (`--mailmap` for the
-headers, the same expressions everywhere else). An unmapped one is refused
-(`history_import_identity_unallowed`), naming the commits by id, never the
-address. After the rewrite, every address must be allowed and no mapped-from
-address may be left in any object, and filter-repo's commit map (old id → new
+pushed, THE ADDRESS GATE (`history-identities.ts`, the census in
+`history-import.ts`) judges EVERY published byte: every address-shaped string
+(plain, percent-encoded, or in an RFC 2047 encoded word) in every blob, commit
+and tag (read as UTF-8, UTF-16LE/BE at both alignments and latin1), in every
+path and in every ref name, compared under the ONE Unicode case fold (after
+NFKC) against the ONE allowed list (`forge.historyImport.allowedIdentities`).
+An address not on it must be MAPPED by the ONE identity mapping
+(`--identity-map`, a mailmap-style file) or DISPOSED in the review (by the
+digest of its folded form, with the reason); both files are refused inside the
+public tree (compared by path segment, after resolving links). Anything else
+is refused (`history_import_identity_unallowed`), naming objects by id and
+listing each address by its digest in `addresses.json`, never the address. The
+importer applies the mapping in its one rewrite: a generated mailmap of the
+exact header spellings, a literal expression for every exact spelling in text
+filter-repo rewrites in place, and a blob it cannot rewrite in place stripped
+whole. The SAME census then judges the rewritten history and the receipt: an
+address no rewrite reaches (a path, a ref name) is refused
+(`history_import_identity_residue`). filter-repo's commit map (old id → new
 id) is kept beside the receipt. `--dry-run` stops after the scans and answers
-the counts: the hits, the gaps, and the commits that need a mapping. A secret in a path or a ref name,
+the counts: the hits, the gaps, and every unallowed address by what resolves
+it. A secret in a path or a ref name,
 or a credential in a URL, is refused. The two tools are pinned by sha256 and
 checked before every run, and every tool process runs as a PROCESS GROUP
 under the one supervisor's work-bounded mode: the group's CPU time (members

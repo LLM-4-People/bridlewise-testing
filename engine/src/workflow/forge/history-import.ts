@@ -10,13 +10,16 @@
  * 2. ENUMERATE every object reachable from every ref (`rev-list --objects
  *    --all`: branches, tags, notes, `refs/pull/*`, a stash) and every name
  *    (each path and each ref name).
- * 2b. JUDGE EVERY IDENTITY to be published (`history-identities.ts`): the
- *    author, committer, tagger and every trailer address of every commit and
- *    tag, against the ONE allowed list (`forge.historyImport.allowedIdentities`).
- *    An address not on it must be mapped by the ONE declared mapping (a
- *    mailmap-style file outside the public tree, `--identity-map`), applied in
- *    the same rewrite; one with no such mapping is refused, by object id,
- *    never echoing the address.
+ * 2b. THE ADDRESS GATE (`addressCensus`, `history-identities.ts`): EVERY
+ *    published byte is judged, not only the identity headers: every
+ *    address-shaped string (plain, percent-encoded, in an RFC 2047 encoded
+ *    word) in every blob, commit and tag (read as UTF-8, UTF-16LE/BE at both
+ *    alignments and latin1), in every path and in every ref name, folded
+ *    (NFKC and the Unicode case fold) and compared against the ONE allowed
+ *    list (`forge.historyImport.allowedIdentities`). An address not on it is
+ *    MAPPED by the ONE mapping (`--identity-map`) or DISPOSED by the review
+ *    (by its digest); anything else is refused, by object id, the address
+ *    never echoed (`addresses.json` lists digests and objects).
  * 3. SCAN every blob, commit and tag object, read ONCE and decoded into
  *    every text it holds before any matching (`decodedTexts`: a BOM's
  *    encoding, else strict UTF-8, plus UTF-16 by the NULs' shape; an object
@@ -35,10 +38,11 @@
  *    inside its line (a lone `1` would shred the history); a blob holding a
  *    hit filter-repo cannot rewrite in place (a NUL in its first bytes, any
  *    encoding but UTF-8) is stripped whole and named in the receipt.
- * 5. RE-SCAN to zero with both scanners (`purgeResidue`), and the identities:
- *    every address now allowed, no mapped-from address anywhere in any object,
- *    and the rewrite's commit map (old id → new id) kept beside the receipt;
- *    anything left is a refusal.
+ * 5. RE-SCAN to zero with both scanners (`purgeResidue`), and the SAME
+ *    address census over the rewritten history (an address no rewrite
+ *    reaches — a path, a ref name — is refused), and again over the receipt
+ *    before the push; filter-repo's commit map (old id → new id) is kept
+ *    beside the receipt; anything left is a refusal.
  * 6. RECEIPT: the refs before and after, the object counts, the hits per entry
  *    and per oracle rule (never a value), the expressions' digest, the
  *    stripped blobs and the tools' pins; a local repository is recorded by
@@ -48,8 +52,8 @@
  *    (`<folder>/<run id>.json`).
  * A DRY RUN (`--dry-run`) stops after the scans and answers the counts: the
  * catalogue hits, the oracle gaps, the undecodable objects, the names holding a
- * secret, and the commits and tags that need an identity mapping (and those
- * the mapping does not cover). It rewrites and pushes nothing.
+ * secret, and every unallowed address by what resolves it (the mapping, the
+ * review, or nothing). It rewrites and pushes nothing.
  *
  * 7. PUSH every ref with an explicit refspec, atomically and never forced,
  *    into a target that must be EMPTY (the importer never rewrites a
@@ -84,7 +88,7 @@ import { COMMAND_ENVIRONMENT, GIT_NETWORK_ENVIRONMENT, projectEnvironment } from
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { FORGE_LOG_CATEGORY, ForgeError, type ForgeCode, type ForgeFacts } from "./codes.ts";
 import { GITLEAKS_CATALOGUE_RULE_PREFIX, gitleaksConfigText } from "./gitleaks-config.ts";
-import { allowedAddresses, comparableAddress, identityExpressions, identityUses, judgeIdentities, mappedFromAddresses, readIdentityMap, type IdentityField, type IdentityUse } from "./history-identities.ts";
+import { addressDigest, addressSpans, allowedAddresses, foldAddress, judgeAddresses, occurrenceObjects, planAddressRewrite, readIdentityMap, refDigest, refuseInsidePublicTree, type AddressJudgement, type AddressOccurrence, type AddressPlace } from "./history-identities.ts";
 import { hostProgramVersion, resolveHistoryTool, runHistoryTool, type ResolvedHistoryTool } from "./history-tools.ts";
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
@@ -203,40 +207,95 @@ function* objectBatches(repository: GitRepository, objects: readonly HistoryObje
   if (batch.length > 0) yield read(batch);
 }
 
-// ── Identities ───────────────────────────────────────────────────────────
+// ── Addresses (the identity gate) ────────────────────────────────────────
 
-/** Every identity the commits and tags of `inventory` carry (`identityUses`), read once in batches. */
-export function historyIdentities(repository: GitRepository, inventory: HistoryInventory): readonly IdentityUse[] {
-  const uses: IdentityUse[] = [];
-  const objects = inventory.objects.filter((object) => object.type === "commit" || object.type === "tag");
-  for (const batch of objectBatches(repository, objects)) {
-    for (const { object, bytes } of batch) uses.push(...identityUses(object.oid, object.type as "commit" | "tag", bytes));
-  }
-  return deepFreeze(uses);
-}
+const IDENTITY_HEADER = /^(author|committer|tagger) (.*?) ?<([^<>\n]*)>/u;
 
-/** The objects of `inventory` that still hold one of `addresses` (comparable) anywhere in their bytes: none may after the rewrite. */
-export function addressResidue(repository: GitRepository, inventory: HistoryInventory, addresses: readonly string[]): readonly string[] {
-  if (addresses.length === 0) return [];
-  const left: string[] = [];
-  for (const batch of objectBatches(repository, inventory.objects.filter((object) => object.type !== "tree"))) {
-    for (const { object, bytes } of batch) {
-      const text = bytes.toString("latin1").toLowerCase();
-      if (addresses.some((address) => text.includes(address))) left.push(object.oid);
+/** Every reading of `bytes` the address census searches: the strict decodes, and always latin1 and UTF-16LE/BE at both alignments (lossy: an address in a UTF-16 run of any script is still read). */
+function addressTexts(bytes: Buffer): readonly DecodedText[] {
+  const texts = [...decodedTexts(bytes).texts];
+  const add = (encoding: string, text: string): void => {
+    if (!texts.some((one) => one.text === text)) texts.push({ encoding, text, rewritable: false });
+  };
+  add("latin1", bytes.toString("latin1"));
+  if (bytes.includes(0)) {
+    for (const offset of [0, 1]) {
+      const slice = bytes.subarray(offset, offset + Math.floor((bytes.length - offset) / 2) * 2);
+      add(`utf-16le@${String(offset)}`, slice.toString("utf16le"));
+      add(`utf-16be@${String(offset)}`, Buffer.from(slice).swap16().toString("utf16le"));
     }
   }
-  return deepFreeze(left.sort());
+  return texts;
 }
 
-/** Writes `identities.json` (each object's id and the fields that carry an unallowed address: never the address) and refuses with `code`. */
-function refuseIdentities(runFolder: string, uses: readonly IdentityUse[], allowed: ReadonlySet<string>, objects: readonly string[], code: ForgeCode, message: string): never {
-  const fields = new Map<string, Set<IdentityField>>();
-  const named = new Set(objects);
-  for (const use of uses) {
-    if (named.has(use.oid) && !allowed.has(comparableAddress(use.address))) fields.set(use.oid, (fields.get(use.oid) ?? new Set()).add(use.field));
+/** Where in a commit or tag object's text an offset sits: an identity header (with the name it carries), another header, or the message. */
+function commitRegion(text: string, offset: number): Readonly<{ region: "identity-header" | "header" | "message"; name: string | null }> {
+  const split = text.indexOf("\n\n");
+  if (split >= 0 && offset > split) return { region: "message", name: null };
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const lineEnd = text.indexOf("\n", offset);
+  const line = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+  const header = IDENTITY_HEADER.exec(line);
+  if (header !== null) {
+    const open = lineStart + line.indexOf("<");
+    if (offset > open && offset <= open + 1 + header[3]!.length) return { region: "identity-header", name: header[2]! };
   }
-  writePrivate(join(runFolder, "identities.json"), `${JSON.stringify({ objects: objects.map((oid) => ({ oid, fields: [...(fields.get(oid) ?? [])].sort() })) }, null, 2)}\n`);
-  refuse(runFolder, `${message} (first: ${objects.slice(0, 8).join(", ")}; every one, with the fields that carry it, is in identities.json)`, code, { objects: objects.length });
+  return { region: "header", name: null };
+}
+
+/**
+ * THE ADDRESS CENSUS of a history: every address-shaped string
+ * (`addressSpans`) in every blob, commit and tag (every reading:
+ * `addressTexts`), in every path a tree records, and in every ref name; each
+ * with its folded key, the exact spelling, and its place (a commit or tag's
+ * region; whether filter-repo rewrites that text in place). `only`, when
+ * given, limits the census to what is new since the rest was judged (the
+ * receipt's): those objects, the paths that name them, and those ref names.
+ */
+export function addressCensus(repository: GitRepository, inventory: HistoryInventory, only?: Readonly<{ objects: ReadonlySet<string>; refs: ReadonlySet<string> }>): readonly AddressOccurrence[] {
+  const found = new Map<string, AddressOccurrence>();
+  const add = (address: string, spelling: string, form: AddressOccurrence["form"], name: string | null, place: AddressPlace): void => {
+    const occurrence: AddressOccurrence = { key: foldAddress(address), address, spelling, form, name, place };
+    found.set(JSON.stringify([occurrence.key, spelling, place]), occurrence);
+  };
+  const objects = inventory.objects.filter((object) => object.type !== "tree" && (only === undefined || only.objects.has(object.oid)));
+  for (const batch of objectBatches(repository, objects)) {
+    for (const { object, bytes } of batch) {
+      const type = object.type as "blob" | "commit" | "tag";
+      const nulProbe = type === "blob" && bytes.subarray(0, POLICY.binaryProbeBytes).includes(0);
+      for (const decoded of addressTexts(bytes)) {
+        for (const span of addressSpans(decoded.text)) {
+          const where = type === "blob" ? { region: "content" as const, name: null } : commitRegion(decoded.text, span.start);
+          add(span.address, span.spelling, span.form, where.name, { kind: "object", oid: object.oid, type, region: where.region, encoding: decoded.encoding, rewritable: decoded.rewritable && !nulProbe });
+        }
+      }
+    }
+  }
+  for (const { path, oid } of inventory.paths.filter((entry) => only === undefined || only.objects.has(entry.oid))) {
+    for (const span of addressSpans(path)) add(span.address, span.spelling, span.form, null, { kind: "path", oid });
+  }
+  for (const ref of Object.keys(inventory.refs).filter((name) => only === undefined || only.refs.has(name))) {
+    for (const span of addressSpans(ref)) add(span.address, span.spelling, span.form, null, { kind: "ref", refSha256: refDigest(ref) });
+  }
+  return deepFreeze([...found.values()]);
+}
+
+/**
+ * Writes `addresses.json` (each unresolved address by its digest, never the
+ * address, with the objects and the trees whose paths carry it, and how many
+ * ref names) and refuses with `code`.
+ */
+function refuseAddresses(runFolder: string, occurrences: readonly AddressOccurrence[], keys: ReadonlySet<string>, code: ForgeCode, message: string): never {
+  const named = occurrences.filter((occurrence) => keys.has(occurrence.key));
+  const byKey = new Map<string, AddressOccurrence[]>();
+  for (const occurrence of named) byKey.set(occurrence.key, [...(byKey.get(occurrence.key) ?? []), occurrence]);
+  const listed = [...byKey].map(([key, list]) => {
+    const where = occurrenceObjects(list);
+    return { addressSha256: addressDigest(key), objects: where.objects, refs: where.refs, places: [...new Set(list.map(({ place }) => (place.kind === "object" ? `${place.type}:${place.region}` : place.kind)))].sort() };
+  }).sort((a, b) => (a.addressSha256 < b.addressSha256 ? -1 : 1));
+  writePrivate(join(runFolder, "addresses.json"), `${JSON.stringify({ addresses: listed }, null, 2)}\n`);
+  const where = occurrenceObjects(named);
+  refuse(runFolder, `${message}: ${String(byKey.size)} address(es) in ${String(where.objects.length)} object(s)${where.refs > 0 ? ` and ${String(where.refs)} ref name(s)` : ""} (first: ${where.objects.slice(0, 8).join(", ")}; each address by its digest, with its objects, is in addresses.json)`, code, { addresses: byKey.size, objects: where.objects.length, refs: where.refs });
 }
 
 // ── Scan (the catalogue) ─────────────────────────────────────────────────
@@ -586,18 +645,25 @@ const REVIEW = z.strictObject({
   })),
   /** Objects no encoding decodes (an image, a database), each named by its object id, with why its bytes may enter the forge. */
   binaries: z.array(z.strictObject({ oid: z.string().regex(GIT_OID), reason: z.string().min(1) })).optional(),
+  /** Address-shaped strings a person reviewed and let through (not a person's address: a placeholder, an image name), each by the sha256 of its folded form (`addressDigest`), never the address. */
+  addresses: z.array(z.strictObject({ addressSha256: z.string().regex(/^[0-9a-f]{64}$/u), reason: z.string().min(1) })).optional(),
 });
 
 /** A reviewed oracle false positive: its rule, the sha256 of its value (never the value) and why it is not a secret. */
 export type OracleDisposition = z.infer<typeof REVIEW>["dispositions"][number];
 
-/** A person's reviewed decisions for one import: the oracle dispositions and the undecodable objects exempted. */
-export type ImportReview = Readonly<{ dispositions: readonly OracleDisposition[]; binaries: ReadonlySet<string>; sha256: string | null }>;
+/** A person's reviewed decisions for one import: the oracle dispositions, the undecodable objects exempted, and the address-shaped strings let through (by digest). */
+export type ImportReview = Readonly<{ dispositions: readonly OracleDisposition[]; binaries: ReadonlySet<string>; addresses: ReadonlySet<string>; sha256: string | null }>;
 
-const NO_REVIEW: ImportReview = deepFreeze({ dispositions: [], binaries: new Set<string>(), sha256: null });
+const NO_REVIEW: ImportReview = deepFreeze({ dispositions: [], binaries: new Set<string>(), addresses: new Set<string>(), sha256: null });
 
-/** The review file at `path` (`history_import_review_invalid` when it is not the schema). */
-export function readImportReview(path: string): ImportReview {
+/**
+ * The review file at `path` (`history_import_review_invalid` when it is not the schema). It names what must
+ * never be published (digests of secrets and of addresses), so it is refused inside `publicTree`
+ * (`history_import_review_public`).
+ */
+export function readImportReview(path: string, publicTree: string): ImportReview {
+  refuseInsidePublicTree(path, publicTree, "import review", "history_import_review_public");
   let bytes: Buffer;
   let parsed: unknown;
   try {
@@ -608,7 +674,7 @@ export function readImportReview(path: string): ImportReview {
   }
   const checked = REVIEW.safeParse(parsed);
   if (!checked.success) throw new ForgeError("history_import_review_invalid", `the import review ${path} is not ${IMPORT_REVIEW_SCHEMA}: ${checked.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
-  return Object.freeze({ dispositions: deepFreeze(checked.data.dispositions), binaries: new Set((checked.data.binaries ?? []).map((entry) => entry.oid)), sha256: sha256(bytes) });
+  return Object.freeze({ dispositions: deepFreeze(checked.data.dispositions), binaries: new Set((checked.data.binaries ?? []).map((entry) => entry.oid)), addresses: new Set((checked.data.addresses ?? []).map((entry) => entry.addressSha256)), sha256: sha256(bytes) });
 }
 
 /** An oracle finding no catalogue value contains (and no disposition excuses): the catalogue lacks the format, or its projection diverged. */
@@ -766,14 +832,25 @@ export type HistoryImportReceipt = Readonly<{
   findings: Readonly<{
     catalogue: Readonly<Record<string, number>>;
     oracle: Readonly<{ covered: Readonly<Record<string, number>>; disposed: Readonly<Record<string, number>> }>;
-    review: Readonly<{ dispositions: number; binaries: number; sha256: string | null }>;
+    review: Readonly<{ dispositions: number; binaries: number; addresses: number; sha256: string | null }>;
   }>;
   purge: Readonly<{ expressionsSha256: string; expressions: number; strippedBlobs: readonly string[]; firstChangedCommits: readonly string[] }>;
   /** After the purge: no catalogue hit and no oracle finding left, except the reviewed dispositions (counted per rule); the exempted undecodable objects. */
   after: Readonly<{ objects: Readonly<Record<HistoryObjectType, number>>; catalogueHits: 0; oracleGaps: 0; oracleDisposed: Readonly<Record<string, number>>; undecodableExempted: number }>;
   refMap: readonly RefMapping[];
   /** The identity gate: the allowed list's and the mapping's digests (never an address), how many commits and tags the mapping rewrote, and the rewrite's commit map (kept as `commit-map` beside the receipt). */
-  identities: Readonly<{ allowedSha256: string; mapSha256: string | null; rewritten: number; commitMap: Readonly<{ sha256: string; changed: number }> }>;
+  identities: Readonly<{
+    allowedSha256: string;
+    mapSha256: string | null;
+    /** Distinct unallowed addresses the census found, how many the review disposed and how many the mapping rewrote. */
+    unallowedAddresses: number;
+    disposedAddresses: number;
+    mappedAddresses: number;
+    /** Objects the mapping rewrote, and blobs stripped whole because no rewrite reaches their occurrence in place. */
+    rewrittenObjects: number;
+    strippedBlobs: number;
+    commitMap: Readonly<{ sha256: string; changed: number }>;
+  }>;
   tools: Readonly<{
     git: string;
     python: string;
@@ -924,8 +1001,38 @@ export type HistoryImportDryRun = Readonly<{
   namesHoldingSecrets: number;
   oracleGaps: number;
   undecodableUnreviewed: number;
-  identities: Readonly<{ needingMapping: number; unmapped: number; unmappedObjects: readonly string[]; mapSha256: string | null }>;
+  /**
+   * The address gate's counts: distinct unallowed addresses (and how many are disposed, mapped, or resolved by
+   * nothing), the objects carrying an address that needs the mapping, the objects and ref names carrying an
+   * unresolved one (the objects by id), and the mapping's digest.
+   */
+  identities: Readonly<{
+    unallowedAddresses: number;
+    disposedAddresses: number;
+    mappedAddresses: number;
+    unresolvedAddresses: number;
+    needingMapping: number;
+    unresolvedObjects: readonly string[];
+    unresolvedRefs: number;
+    mapSha256: string | null;
+  }>;
 }>;
+
+/** The dry run's identity counts (ids and counts only). */
+function dryRunIdentities(addresses: readonly AddressOccurrence[], judgement: AddressJudgement, map: { sha256: string } | undefined): HistoryImportDryRun["identities"] {
+  const needing = occurrenceObjects(judgement.needing.filter((occurrence) => judgement.mapped.has(occurrence.key)));
+  const unresolved = occurrenceObjects(addresses.filter((occurrence) => judgement.unresolved.has(occurrence.key)));
+  return {
+    unallowedAddresses: judgement.unallowed.size,
+    disposedAddresses: judgement.disposed.size,
+    mappedAddresses: judgement.mapped.size,
+    unresolvedAddresses: judgement.unresolved.size,
+    needingMapping: needing.objects.length,
+    unresolvedObjects: unresolved.objects,
+    unresolvedRefs: unresolved.refs,
+    mapSha256: map?.sha256 ?? null,
+  };
+}
 
 /**
  * Refuses (`history_import_undecodable`) when `scan` holds an undecodable
@@ -963,7 +1070,7 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   const identityMap = request.identityMap === undefined ? undefined : readIdentityMap(request.identityMap, options.publicTree);
   const gitleaks = resolveHistoryTool(options.home, "gitleaks");
   const filterRepo = resolveHistoryTool(options.home, "git-filter-repo");
-  const review = request.review === undefined ? NO_REVIEW : readImportReview(request.review);
+  const review = request.review === undefined ? NO_REVIEW : readImportReview(request.review, options.publicTree);
   const id = `${new Date().toISOString().replace(/[-:]/gu, "").replace(/\.\d+Z$/u, "Z")}-${Buffer.from(randomBytes(4)).toString("hex")}`;
   // Each step: an info record (the run and the step; never a value) and the caller's progress line.
   const progress = (step: string): void => {
@@ -991,9 +1098,9 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   const before = enumerateHistory(mirror);
   if (Object.keys(before.refs).length === 0) refuse(runFolder, `${request.source} holds no ref; there is nothing to import`, "history_import_source_empty");
   const mappings = planRefs(before.refs);
-  progress("judging every identity (author, committer, tagger, trailers)");
-  const identities = historyIdentities(mirror, before);
-  const identityJudgement = judgeIdentities(identities, allowed, identityMap);
+  progress("judging every address (every object in every reading, every path, every ref name)");
+  const addresses = addressCensus(mirror, before);
+  const addressJudgement = judgeAddresses(addresses, allowed, review.addresses, identityMap);
   const oracle = gitleaksOracle(gitleaks, runFolder);
   const both = await scanHistory(mirror, before, oracle);
   const scan = both.catalogue;
@@ -1009,16 +1116,16 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
       namesHoldingSecrets: scan.nameHits.length,
       oracleGaps: judgeOracle(both.oracle, values, review.dispositions).gaps.length,
       undecodableUnreviewed: scan.undecodable.filter((oid) => !review.binaries.has(oid)).length,
-      identities: { needingMapping: identityJudgement.needingMapping.length, unmapped: identityJudgement.unmapped.length, unmappedObjects: identityJudgement.unmapped, mapSha256: identityMap?.sha256 ?? null },
+      identities: dryRunIdentities(addresses, addressJudgement, identityMap),
     });
     writePrivate(join(runFolder, "dry-run.json"), `${canonicalJson(report)}\n`);
     for (const entry of ["mirror.git", "gitleaks.toml"]) rmSync(join(runFolder, entry), { recursive: true, force: true });
-    progress(`dry run done: ${String(identityJudgement.needingMapping.length)} commit(s)/tag(s) need an identity mapping (${String(identityJudgement.unmapped.length)} without one), ${String(scan.hits.length)} catalogue hit(s)`);
+    progress(`dry run done: ${String(report.identities.unallowedAddresses)} unallowed address(es) (${String(report.identities.mappedAddresses)} mapped, ${String(report.identities.disposedAddresses)} disposed, ${String(report.identities.unresolvedAddresses)} unresolved) in ${String(report.identities.needingMapping)} object(s) needing the mapping; ${String(scan.hits.length)} catalogue hit(s)`);
     return report;
   }
-  if (identityJudgement.unmapped.length > 0) {
-    refuseIdentities(runFolder, identities, allowed, identityJudgement.unmapped, "history_import_identity_unallowed",
-      `${String(identityJudgement.unmapped.length)} commit(s)/tag(s) carry an address that is not on the allowed identities (forge.historyImport.allowedIdentities) and that the identity mapping does not bring to one${identityMap === undefined ? " (no --identity-map was given)" : ""}`);
+  if (addressJudgement.unresolved.size > 0) {
+    refuseAddresses(runFolder, addresses, addressJudgement.unresolved, "history_import_identity_unallowed",
+      `addresses not on the allowed identities (forge.historyImport.allowedIdentities), not mapped to one${identityMap === undefined ? " (no --identity-map was given)" : ""} and not disposed in the review`);
   }
   if (scan.nameHits.length > 0) {
     refuse(runFolder, `${String(scan.nameHits.length)} name(s) hold a secret (${Object.entries(countByEntry(scan.nameHits)).map(([entry, count]) => `${entry}: ${String(count)}`).join(", ")}; objects ${[...new Set(scan.nameHits.map((hit) => hit.oid))].slice(0, 8).join(", ")}); rename them in the source first`, "history_import_secret_in_name");
@@ -1037,17 +1144,20 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   progress(`purging ${String(scan.hits.length)} hit(s)`);
   const plan = planPurge(scan.hits);
   const expressionsPath = join(runFolder, "purge-expressions");
-  // The identity rewrite rides the same one rewrite: --mailmap for the headers, the same expressions for every other occurrence.
-  const identityRewrite = identityMap === undefined || identityJudgement.needingMapping.length === 0 ? "" : identityExpressions(identities, allowed, identityMap);
-  writePrivate(expressionsPath, `${plan.expressions}${identityRewrite}`);
+  // The mapped addresses ride the same one rewrite: a generated mailmap (exact spellings) for the identity
+  // headers, literal expressions for every exact spelling in text filter-repo rewrites in place, and the blobs
+  // it cannot rewrite stripped whole. What no rewrite reaches is refused by the census after it.
+  const addressRewrite = planAddressRewrite(addressJudgement.needing, allowed, identityMap);
+  writePrivate(expressionsPath, `${plan.expressions}${addressRewrite.expressions}`);
   const mailmapPath = join(runFolder, "identity-mailmap");
-  if (identityRewrite.length > 0) writePrivate(mailmapPath, identityMap!.text);
+  if (addressRewrite.mailmap.length > 0) writePrivate(mailmapPath, addressRewrite.mailmap);
+  const strippedBlobs = [...new Set([...plan.strippedBlobs, ...addressRewrite.strippedBlobs])].sort();
   const stripPath = join(runFolder, "strip-blob-ids");
-  writePrivate(stripPath, plan.strippedBlobs.map((oid) => `${oid}\n`).join(""));
+  writePrivate(stripPath, strippedBlobs.map((oid) => `${oid}\n`).join(""));
   await runHistoryTool(filterRepo, [
     "--sensitive-data-removal", "--replace-text", expressionsPath, "--replace-message", expressionsPath,
-    ...(plan.strippedBlobs.length > 0 ? ["--strip-blobs-with-ids", stripPath] : []),
-    ...(identityRewrite.length > 0 ? ["--mailmap", mailmapPath] : []),
+    ...(strippedBlobs.length > 0 ? ["--strip-blobs-with-ids", stripPath] : []),
+    ...(addressRewrite.mailmap.length > 0 ? ["--mailmap", mailmapPath] : []),
   ], { cwd: mirrorPath, env: projectEnvironment(process.env, GIT_NETWORK_ENVIRONMENT) });
 
   progress("re-scanning to zero");
@@ -1060,15 +1170,14 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   // The rewrite gives a commit or tag a new id whenever anything it reaches changed: an undecodable one the
   // review exempted by its old id is a NEW object to review (listed, with the stage, in undecodable.json).
   refuseUnreviewedUndecodable(runFolder, after, rescanned.catalogue, review, "after the rewrite");
-  // Every address now allowed, and no mapped-from address left anywhere (a message's free text, a file).
-  const identitiesAfter = historyIdentities(mirror, after);
-  const unallowedAfter = judgeIdentities(identitiesAfter, allowed, undefined).needingMapping;
-  if (unallowedAfter.length > 0) {
-    refuseIdentities(runFolder, identitiesAfter, allowed, unallowedAfter, "history_import_identity_residue", `${String(unallowedAfter.length)} rewritten commit(s)/tag(s) still carry an address not on the allowed identities`);
-  }
-  const leftAddresses = addressResidue(mirror, after, mappedFromAddresses(identities, allowed));
-  if (leftAddresses.length > 0) {
-    refuseIdentities(runFolder, identitiesAfter, allowed, leftAddresses, "history_import_identity_residue", `${String(leftAddresses.length)} rewritten object(s) still hold a mapped-from address`);
+  // THE SAME CENSUS over the rewritten history: every address allowed or disposed; anything the rewrite did
+  // not reach (a path, a ref name, a header other than an identity, an encoding it does not rewrite) is refused.
+  progress("judging every address again (the rewritten history)");
+  const addressesAfter = addressCensus(mirror, after);
+  const leftAfter = judgeAddresses(addressesAfter, allowed, review.addresses, undefined).unallowed;
+  const leftKeys = new Set([...leftAfter].filter((key) => !review.addresses.has(addressDigest(key))));
+  if (leftKeys.size > 0) {
+    refuseAddresses(runFolder, addressesAfter, leftKeys, "history_import_identity_residue", "the rewritten history still carries addresses not on the allowed identities (in a place no rewrite reaches: a path, a ref name, a header other than an identity, or an encoding it does not rewrite in place; rename them in the source, or dispose of them in the review)");
   }
   // The rewrite's own record of every commit's old and new id, kept beside the receipt (ids only).
   const commitMapText = readCommitMap(mirror);
@@ -1085,15 +1194,19 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
     findings: {
       catalogue: countByEntry(scan.hits),
       oracle: { covered: judgement.covered, disposed: judgement.disposed },
-      review: { dispositions: review.dispositions.length, binaries: review.binaries.size, sha256: review.sha256 },
+      review: { dispositions: review.dispositions.length, binaries: review.binaries.size, addresses: review.addresses.size, sha256: review.sha256 },
     },
-    purge: { expressionsSha256: sha256(plan.expressions), expressions: plan.expressionCount, strippedBlobs: plan.strippedBlobs, firstChangedCommits: firstChangedCommits(mirror) },
+    purge: { expressionsSha256: sha256(plan.expressions), expressions: plan.expressionCount, strippedBlobs, firstChangedCommits: firstChangedCommits(mirror) },
     after: { objects: objectCounts(after), catalogueHits: 0, oracleGaps: 0, oracleDisposed: residue.disposed, undecodableExempted: rescanned.catalogue.undecodable.length },
     refMap: afterMappings,
     identities: {
       allowedSha256: sha256([...allowed].sort().join("\n")),
       mapSha256: identityMap?.sha256 ?? null,
-      rewritten: identityRewrite.length > 0 ? identityJudgement.needingMapping.length : 0,
+      unallowedAddresses: addressJudgement.unallowed.size,
+      disposedAddresses: addressJudgement.disposed.size,
+      mappedAddresses: addressJudgement.mapped.size,
+      rewrittenObjects: addressRewrite.rewrittenObjects,
+      strippedBlobs: addressRewrite.strippedBlobs.length,
       commitMap: { sha256: sha256(commitMapText), changed: commitMapText.split("\n").slice(1).filter((line) => { const [old, now] = line.split(" "); return old !== undefined && now !== undefined && old !== now; }).length },
     },
     tools: {
@@ -1114,11 +1227,16 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   if (unsafe !== undefined) refuse(runFolder, `the receipt cannot be pushed: ${unsafe}`, "history_import_receipt_unsafe");
   progress(`recording the receipt and pushing ${String(afterMappings.length + 1)} ref(s)`);
   const receiptCommit = recordReceipt(mirror, receipt, runFolder);
-  // The receipt commit is published too: its own identity passes the same gate.
-  const receiptIdentities = identityUses(receiptCommit, "commit", gitOutput(mirror, ["cat-file", "commit", receiptCommit]).stdout);
-  const unallowedReceipt = judgeIdentities(receiptIdentities, allowed, undefined).needingMapping;
-  if (unallowedReceipt.length > 0) {
-    refuseIdentities(runFolder, receiptIdentities, allowed, unallowedReceipt, "history_import_identity_residue", "the receipt commit's identity (historyImport.identity in the root policy) is not on the allowed identities");
+  // The receipt is published too: its commit, its tree and its blob, and its ref name pass the same census.
+  const withReceipt = enumerateHistory(mirror);
+  const known = new Set(after.objects.map((object) => object.oid));
+  const receiptAddresses = addressCensus(mirror, withReceipt, {
+    objects: new Set(withReceipt.objects.map((object) => object.oid).filter((oid) => !known.has(oid))),
+    refs: new Set(Object.keys(withReceipt.refs).filter((ref) => !(ref in after.refs))),
+  });
+  const leftReceipt = judgeAddresses(receiptAddresses, allowed, review.addresses, undefined).unresolved;
+  if (leftReceipt.size > 0) {
+    refuseAddresses(runFolder, receiptAddresses, leftReceipt, "history_import_identity_residue", "the receipt carries addresses not on the allowed identities (the receipt commit's identity is historyImport.identity in the root policy)");
   }
   pushHistory(mirror, target!, [...afterMappings, { source: POLICY.receipt.ref, target: POLICY.receipt.ref, oid: receiptCommit }]);
 
