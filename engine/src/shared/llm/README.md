@@ -33,6 +33,7 @@ and no module re-implements a provider adapter.
   (the credential's destination rule). A user's provider key is
   held by the client for its own calls (masked at the mint and in its
   diagnostics), never registered process-wide.
+- `provider-failure.ts` — one safe provider failure classifier for HTTP, native events and socket adapters.
 - `provider-http.ts` — the authenticated provider request lifetime: it
   prepares every request under the one outbound HTTP policy
   (`shared/outbound-http.ts`) BEFORE any observer sees it, dispatches through
@@ -41,6 +42,9 @@ and no module re-implements a provider adapter.
   `InvalidResponseError`; every other refusal is a non-retryable bad request
   carrying the policy's code, e.g. `outbound_redirect_refused`).
 - `errors.ts` — the typed LLM error hierarchy.
+- `responses-endpoints.ts` — endpoint-specific Responses admissions.
+- `responses-preparation.ts` — private native composition.
+- `responses-tracking.ts` — bounded, provider-scoped response ownership; this never cancels remote work.
 - `responses.ts` — native Responses request schemas, lossless resources, usage,
   display/tool projections, and authoritative transcript replay. Owns
   `RESPONSE_MCP_ITEM_TYPES`, the protocol's native MCP item discriminants

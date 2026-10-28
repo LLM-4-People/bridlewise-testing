@@ -16,29 +16,26 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { harnessRegenerate } from "../../src/workflow/harness-commands.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
-/** Folders a regenerate never commits (caches, dependencies, build output, runtime state). */
-const UNCOMMITTED = new Set(["node_modules", ".bridlewise", "dist", ".git"]);
-
-/** sha256 of every committed-kind file under `root`, by repository-relative path (the test inventory is a cache, never committed). */
+/**
+ * sha256 of every file a commit could record in the copy at `root`, by repository-relative path: git's own
+ * answer (`ls-files --cached --others --exclude-standard`: tracked, plus untracked and not ignored), never a
+ * hand-kept list of folders to skip. The test inventory is a cache, never committed.
+ */
 function snapshot(root: string): ReadonlyMap<string, string> {
   const files = new Map<string, string>();
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (UNCOMMITTED.has(entry.name)) continue;
-      const absolute = join(directory, entry.name);
-      if (entry.isDirectory()) walk(absolute);
-      else if (entry.isFile()) files.set(relative(root, absolute).split("\\").join("/"), sha256(readFileSync(absolute)));
-    }
-  };
-  walk(root);
+  const listed = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 });
+  for (const path of new Set(listed.split("\0").filter((entry) => entry.length > 0))) {
+    const absolute = join(root, path);
+    if (existsSync(absolute) && statSync(absolute).isFile()) files.set(path, sha256(readFileSync(absolute)));
+  }
   files.delete("engine/traceability/s1-test-inventory.json");
   return files;
 }

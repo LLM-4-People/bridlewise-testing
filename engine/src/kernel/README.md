@@ -5,6 +5,7 @@ The engine's trusted kernel: the typed error hierarchy, canonical integrity and 
 ## What each file does
 
 - `architecture-external-commands.ts` — the external-command inventory the architecture manifest declares (blocked Python/shell commands with their qualified source digests), kept beside the manifest so the hash-binding registry can derive the published source pins without importing the generated manifest into the measured surface.
+- `config-write-lock.ts` — THE CONFIG FILE'S CROSS-PROCESS WRITE LOCK.
 - `contracts.ts` — the contracts module.
 - `engine-root.ts` — THE engine checkout's root (`engineRoot`, `pinnedRepositoryRoot`: above the root-policy owner's declared location), asked by the config document's location and the key home's admission.
 - `errors.ts` — the errors module.
@@ -29,6 +30,7 @@ The engine's trusted kernel: the typed error hierarchy, canonical integrity and 
 - `config.ts` — the engine configuration owner: the resolved values the engine reads.
 - `config-contracts.ts` — the config schema contracts: types and validation for the configuration document.
 - `verification-paths.ts` — the verification-paths module.
+- `web-performance-budgets.ts` — THE WEB-UI PERFORMANCE BUDGETS, ONE LIST (a module of its own: the root policy's literal holds only imports before it, so its static reading stays whole — S1's freeze boundary): each budget's name in the config section `webUi.performance` with the kind of…
 
 ## Where it lives
 

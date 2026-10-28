@@ -4,6 +4,8 @@ The timeline domain: the append-only ledger of runs and effects, its schema, and
 
 ## What each file does
 
+- `effect-documents.ts` — one document vocabulary and fitting path for every real effect sink: an effect's documents projected within the ledger's size limit.
+- `effect-sink.ts` — one installed sink mapping for optional completions and required intent/terminal pairs, snapshotting each record once before hashing and projection.
 - `ledger-primitives.ts` — the ledger-primitives module.
 - `ledger-dig.ts` — the read-only ledger reader behind the trace CLI
   (`scripts/trace.ts`): opens its own `node:sqlite` connection with
@@ -12,6 +14,7 @@ The timeline domain: the append-only ledger of runs and effects, its schema, and
   provider payloads, the failures) with the formatting and summary the CLI
   prints. Its SQL belongs here because the timeline ledger is engine-owned —
   beside the store's SQL, not in the web server tree.
+- `provider-recording.ts` — paired evidence for a provider stream: its intent is acknowledged before the call, and exhausting, returning or throwing settle its terminal record once.
 - `recorded-effect.ts` — `recordEffect`/`recordEffectAsync` — wrap work so that performing it IS recording it. Each settled effect reports its kind, name, outcome, real duration, the CPU time it consumed and the heap growth it caused (`cpuMs`/`heapDeltaBytes`, measured by the shared delta probe), its redacted invocation arguments (`argsOf` — read once at emit time, carried on success, result-failure and thrown paths alike), and any documents it captured about its own work.
 - `recording-context.ts` — The ambient recording context — who is acting, and within what.
 - `rollback.ts` — the rollback module.

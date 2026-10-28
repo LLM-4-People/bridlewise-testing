@@ -111,6 +111,7 @@ server has no DNS.
 
 ## What each file does
 
+- `host-facts.ts` — THE HOST'S FACTS ABOUT ITSELF — where the harness is, which folders of this repository are the harness's own code, and which files are this server's own state — fed into the ONE keep-out list (`engine/src/filesystem/self-protection/keep-out.ts`) by every…
 - `safety-bridge.ts` — the pre-dispatch hallucination gate: the single web-UI
   owner that checks a tool call before the model can invoke it.
 - `safety-runtime-bridge.ts` — the single composition point for the engine's

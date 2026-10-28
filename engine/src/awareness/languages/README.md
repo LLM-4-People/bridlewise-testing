@@ -9,6 +9,10 @@ here and registering it in `index.ts`.
 
 - `index.ts` — the language adapter registry: dispatches each file to the
   adapter whose extensions include the file's.
+- `python-tree-sitter.ts` — python adapter (tree-sitter) — REAL AST parser, no regex.
+- `python.ts` — python adapter — line + regex based.
+- `rust-tree-sitter.ts` — rust adapter (tree-sitter) — REAL AST parser, no regex.
+- `rust.ts` — rust adapter — line + regex based.
 - `typescript.ts` — the TypeScript/JavaScript adapter, using `@babel/parser`
   (a real parser, already a dependency).
 - `go.ts` / `python.ts` / `rust.ts` — the line+regex Go/Python/Rust

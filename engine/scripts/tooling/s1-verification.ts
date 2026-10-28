@@ -41,7 +41,7 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { reportBestEffortFailure } from "../../src/shared/debug/debug-system.ts";
 import { ARCHITECTURE_MANIFEST, architectureManifestOf } from "../../src/architecture-manifest.ts";
-import { ARCHITECTURE_MODULES } from "../../src/architecture-modules.ts";
+import { ARCHITECTURE_DIRECTORY_DEFAULTS, ARCHITECTURE_MODULES } from "../../src/architecture-modules.ts";
 import { ARCHITECTURE_MODULES_PATH } from "../../src/workflow/architecture-module-entries.ts";
 import { DATA_CLASSIFICATION, FORENSIC_CLASSIFICATIONS } from "../../src/privacy/classification-catalog.ts";
 import { configDocumentPath, getConfigDocumentSchema, inspectConfigDocument } from "../../src/kernel/config.ts";
@@ -1111,10 +1111,11 @@ function allowedEffectIdentifiersForPath(path: string): ReadonlySet<string> {
 function architectureRegistryProductBoundaryProjection(path: string, source: string): string {
   if (path !== ARCHITECTURE_MODULES_PATH) return source;
   let projected = source;
-  const allowedReferences = ARCHITECTURE_MODULES
-    .map((module) => module.path)
-    .filter((modulePath) => isHistoricalResearchEvidencePath(modulePath) &&
-      containsExternalApplicationReference(modulePath));
+  // The decisions name registered historical research sources by path (a module line) and by folder (a
+  // folder default): both are the registry's own references, never product content.
+  const allowedReferences = [...ARCHITECTURE_MODULES.map((module) => module.path), ...ARCHITECTURE_DIRECTORY_DEFAULTS.map((entry) => entry.directory)]
+    .filter((reference) => isHistoricalResearchEvidencePath(reference) &&
+      containsExternalApplicationReference(reference));
   for (const reference of allowedReferences) {
     projected = projected.replaceAll(
       JSON.stringify(reference),

@@ -7,6 +7,7 @@ dedups, compresses, stores, and reverses it on read.
 
 ## What each file does
 
+- `decompression.ts` — EXP454 — decompression (transparent to modules).
 - `index.ts` — the public API: `store`/`retrieve`.
 - `lower-layer.ts` — the lower layer itself: the store→dedup→compress→keep
   pipeline.

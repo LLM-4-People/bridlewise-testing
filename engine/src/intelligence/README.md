@@ -8,6 +8,7 @@ The intelligence domain: the repository map, dependency graph, symbol search, an
 - `action-affinity.ts` — the action-affinity module.
 - `data-flow.ts` — the data-flow module.
 - `dependency-graph.ts` — the dependency-graph module.
+- `repository-stat-scan.ts` — the stat-scan half of the repository map: the walk limits, the stat-cache baseline types, and the readdir+lstat-only scan + diff that answer "did anything actually change?" WITHOUT reading or parsing a single file.
 - `retrieval.ts` — the codebase-file retrieval module.
 - `farm-child.ts` — Crash-isolated extract child (init tree-sitter at spawn).
 - `js-tokenizer.ts` — the JS/TS tokenizer (`tokenizeWithPositions`, `Token`): identifiers, punctuation, string and template literals (a `${…}` substitution skipped whole, its own strings and templates included), numbers and regex literals (a `/` opens one after an operator, `=>`, a keyword expecting an operand or a statement head's `)`) with their positions, comments dropped. Read by the symbol extractor, the data-flow and TypeScript quality-pack analyses, and the reachability walk (`src/workflow/reachability.ts`: a specifier in a comment or another string is never an edge); kept apart so a consumer that needs tokens loads no tree-sitter.

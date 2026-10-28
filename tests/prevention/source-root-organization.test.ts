@@ -83,9 +83,10 @@ const PRODUCT_ROOTS: readonly ProductRootSpec[] = [
   },
   {
     root: "engine/src",
-    // cli.mjs is the bash-facing CLI; architecture-manifest.ts is the generated
-    // dependency-edge manifest the regenerator and the architecture verifiers reference by path.
-    entries: new Set(["cli.ts", "cli.mjs", "index.ts", "bundle-entry.ts", "architecture-manifest.ts"]),
+    // cli.mjs is the bash-facing CLI; architecture-manifest.ts is the authored architecture
+    // policy, and architecture-modules.ts its one-line-per-module decisions; the registrar and the
+    // architecture verifiers reference both by path.
+    entries: new Set(["cli.ts", "cli.mjs", "index.ts", "bundle-entry.ts", "architecture-manifest.ts", "architecture-modules.ts"]),
     sourceExts: /\.(ts|mjs)$/,
   },
   {

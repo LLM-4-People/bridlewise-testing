@@ -6,12 +6,14 @@ The shared domain: the agnostic helpers every engine domain consumes, owned once
 
 - `abort-signals.ts` — Canonical AbortSignal combination helpers, and the
   one abortable delay (`abortableDelay`).
+- `ambient-load.ts` — THE RUN-START AMBIENT LOAD — one reading, per CPU, or explicit absence.
 - `backoff.ts` — THE retry backoff formula (`backoffDelayMs`: base, factor, cap, jitter) — the LLM client and the MCP registry both ask it.
 - `best-effort.ts` — Canonical best-effort operation helpers: `bestEffort`,
   `bestEffortAsync`, and `bestEffortBoxed` (the value boxed, for an operation
   whose `undefined` result is meaningful). (`guarded`, the event loop's door,
   is the fault policy's own: `src/process/fault-policy.ts`.)
 - `budget-verdict.ts` — The runtime budget's DECISION, as a pure function of a recorded summary.
+- `dependency-spans.ts` — ordered records linked by explicit, namespaced identities form atomic spans.
 - `dev-mode-env.ts` — the dev-mode-env module.
 - `flake-reproduction.ts` — THE RECORDS THAT EXPLAIN A FLAKY SUSPECT (FLAKE-REPRO): the schemas, file names, folder (`ROOT_POLICY.workflow.flakeReproductions`), serializers and reader of the reproductions (deterministic or statistical, with their one set of conditions, digests, counts and loads) and of the identity moves `harness flake` writes. The flaky verdict explains a suspect only with such a record.
 - `git-churn-config.ts` — Canonical configuration owner for the shared git-churn helper.
@@ -19,6 +21,7 @@ The shared domain: the agnostic helpers every engine domain consumes, owned once
 - `identity.ts` — Canonical `BigIntStats` identity comparison.
 - `json-pointer.ts` — Canonical JSON Pointer (RFC 6901) helpers.
 - `long-task-timing.ts` — the long-task-timing module.
+- `measurement-registry.ts` — THE METRIC REGISTRY — the single declaration of every signal the floor judges, records or quotes.
 - `module-location.ts` — The single owner of where an engine module lives, resolved from the tree.
 - `numeric-helpers.ts` — the numeric-helpers module.
 - `outbound-http.ts` — THE outbound door: every HTTP request and WebSocket
@@ -61,6 +64,8 @@ The shared domain: the agnostic helpers every engine domain consumes, owned once
 - `source-scan.ts` — Experiment source-directory exclusion — the single source of truth.
 - `source-structure.ts` — STRUCTURAL SCOPES FOR SOURCE ASSERTIONS — the shared owner that makes a.
 - `stats.ts` — Canonical statistical helpers.
+- `string-values.ts` — shared structural traversal; own keys, aliases and cycles survive.
+- `test-costs.ts` — WHAT ONE TEST MODULE COST A WORKER — the single owner of the per-file collect and occupancy figures the suite's run-cost gates judge.
 - `tree-identity.ts` — TREE IDENTITY — the answers a measurement record binds to: WHICH commit the.
 - `type-guards.ts` — Canonical type-guard and exhaustiveness helpers.
 - `fault-description.ts` — `describeFault(value)`: the one TOTAL description of a thrown or rejected value (an Error, `undefined`, a Symbol, a null-prototype object, a throwing getter — one hostile getter loses only its own field) as plain strings, and `faultLine`/`describeFaultLine`: the one `Name [code]: message` spelling (the fault policy's report, a refusal reason, the database threads' restart report); a leaf module, so the fault policy, `guarded` and the debug system use it without a cycle.

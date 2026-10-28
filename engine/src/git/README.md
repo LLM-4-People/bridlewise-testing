@@ -4,6 +4,7 @@ The git domain: the read-only git port and the contracts the custody layer build
 
 ## What each file does
 
+- `flake-cause-fixes.ts` — DECLARED CAUSE FIXES — the flaky-test memory's declarations, read from git, with the recorded reproductions that make them count (the verdict itself is pure: src/shared/run-history.ts `flakyVerdictWithin`; the FLAKE-REPRO decision).
 - `git-adapter.ts` — the git-adapter module.
 - `git-config.ts` — Git operational defaults — canonical owner for git-domain configurable.
 - `git-port.ts` — the git-port module; also the ONE spelling of a full git object name (`GIT_OBJECT_NAME_PATTERN`, anchored as `GIT_OBJECT_NAME`: SHA-1 or SHA-256 hex), which every object-id check in the engine imports.

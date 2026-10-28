@@ -38,6 +38,7 @@
 import { fileURLToPath } from "node:url";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { canonicalJson } from "../../src/kernel/integrity.ts";
 import { isScannedRecognizableTestSource } from "../../src/kernel/test-surface-manifest.ts";
 import { pendingCommitParents, repositoryToplevel } from "../../src/git/repository-ownership.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
@@ -147,7 +148,7 @@ if (isEntryPoint(import.meta.url)) {
     for (const { commit, problems } of refused) {
       process.stderr.write(`${commit}:\n${problems.map((problem) => `  - ${problem}`).join("\n")}\n`);
     }
-    process.stdout.write(`${JSON.stringify({ range, refusedCommits: refused.length })}\n`);
+    process.stdout.write(`${canonicalJson({ range, refusedCommits: refused.length })}\n`);
     if (refused.length > 0) {
       process.stderr.write(
         `\nA test deletion is a decision the deleting commit names: one "${TEST_DELETED_TRAILER}: <path>" trailer per test source it takes off the surface, ` +

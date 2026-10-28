@@ -31,6 +31,7 @@ import { InputError } from "../../src/kernel/errors.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { deadMarkdownLinks } from "../../src/workflow/record-links.ts";
+import { verifyS1Structure } from "../tooling/s1-verification.ts";
 import { findCatchBlocks } from "./catch-blocks.ts";
 import { judgeRatchet, parseRatchetBaseline, RATCHET_SCHEMA, type RatchetEntry } from "./ratchet.ts";
 import { readSourceView, type SourceView } from "./source-view.ts";
@@ -118,11 +119,29 @@ function webUnhandledCatchFindings(repositoryRoot: string): readonly RatchetFind
 // every owned Markdown document names a file or folder of the tree, or a
 // recorded evidence path (`evidence:<path>`), keyed `<document>: <target>`.
 
+// ── The derived architecture judge (scripts/tooling/s1-verification.ts) ──
+// Every module of the census is judged by its decision or its folder's
+// default: its layer against its imports, its effects against what its source
+// does, its sinks against the governed set. A module that takes a folder
+// default which does not fit it is a NEW finding here, refused by
+// `harness check` — a silent default never passes. The judge's own findings
+// (`architecture-*`, `governed-*`) are the keys; the debt that predates the
+// derivation is the baseline, and it only shrinks.
+
+/** The engine's census judged by S1's architecture and governed-source verifiers: each finding as its own key. */
+function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFinding[] {
+  const engineRoot = join(repositoryRoot, "engine");
+  return verifyS1Structure(engineRoot).violations
+    .filter((violation) => violation.startsWith("architecture-") || violation.startsWith("governed-"))
+    .map((violation) => ({ key: violation, where: violation.slice(violation.indexOf(":") + 1) }));
+}
+
 /** Each registered baseline's guard scan, by the id the root policy declares its path under. */
 const SCANS: Readonly<Record<string, RatchetBaselineSpec["findings"]>> = Object.freeze({
   "inline-literal-defaults": inlineLiteralDefaultFindings,
   "web-unhandled-catch": webUnhandledCatchFindings,
   "dead-markdown-links": deadMarkdownLinks,
+  "architecture-judge": architectureJudgeFindings,
 });
 
 /**
