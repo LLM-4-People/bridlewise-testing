@@ -446,8 +446,11 @@ export async function verifyBuiltProjection(context: PromotionContext, run: Appl
  * FIRST-PARENT line. Every landing on the source branch is a merge commit,
  * so the first-parent line is exactly its published history; a commit
  * merged in from a side branch is not a landing. That holds because the
- * trunk's ruleset allows the merge method only, pinned in settings-as-code
- * (#486): a squash or rebase landing would weaken this rule. Only then is the source's own content (its profile, its
+ * forge allows the merge method only, in three declared settings that
+ * `MERGE_ONLY` (forge/declarations.ts, #486) pins together: the
+ * repositories' merge buttons, the baseline's pull-request rule and the
+ * trunk's merge queue. A plan allowing squash or rebase again is a loosening
+ * that is never applied unacknowledged. Only then is the source's own content (its profile, its
  * promoter) read. A branch whose own profile names itself the source proves
  * nothing.
  */

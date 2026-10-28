@@ -51,7 +51,7 @@ const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> =
 });
 const input = (items: ProjectionInput["items"], source = SOURCE): ProjectionInput => ({
   schema: PROJECTION_INPUT_SCHEMA, source, ledger: null, repositoryUrl: "https://github.com/owner/repo",
-  items, lanes: [{ lane: "floor", color: "1d76db", description: "Tracker lane: open work" }], decisions: [], recordedEvidence: [],
+  items, lanes: [{ lane: "floor", color: "1d76db", description: "Tracker lane: open work" }], decisions: [], recordedEvidence: [], mainRuns: [],
 });
 const INPUT = input([
   item("A-PARENT", { title: "The parent", type: "Workstream" }),
@@ -183,7 +183,7 @@ test("each confined program's modules are its entry's import closure, derived, n
     for (const reached of ["workflow/tracker-status.ts", "workflow/forge/repository-reference.ts"]) assert.ok(modules.includes(join(ENGINE_ROOT, "src", reached)), `${program.exportName}: ${reached}`);
     assert.ok(modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path.startsWith(join(REPOSITORY_ROOT, "shared/"))), `${program.exportName} links only the engine's source and shared/`);
   }
-  assert.ok(confinedModules(PROJECTION_PROGRAM).includes(join(REPOSITORY_ROOT, "shared/markdown.ts")), "the projection reaches the one Markdown parser");
+  for (const shared of ["shared/markdown.ts", "shared/markup.ts"]) assert.ok(confinedModules(PROJECTION_PROGRAM).includes(join(REPOSITORY_ROOT, shared)), `the projection reaches ${shared}`);
 });
 
 test("the first run creates in phase order, verifies, and its receipt names every write", async () => {
