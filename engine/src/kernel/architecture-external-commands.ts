@@ -20,7 +20,7 @@
  */
 import type { ArchitectureExternalCommand } from "../architecture-manifest.ts";
 
-import { canonicalHash, deepFreeze } from "./integrity.ts";
+import { canonicalHash, deepFreeze, sha256 } from "./integrity.ts";
 
 type ExternalCommandInput = Omit<ArchitectureExternalCommand, "disposition" | "exposure" | "language" | "publication">;
 
@@ -36,7 +36,8 @@ function blockedPythonCommand(input: ExternalCommandInput): ArchitectureExternal
 
 /**
  * A declared external command whose source the PUBLIC SNAPSHOT deliberately
- * does not carry. The architecture verifier still refuses it (named
+ * does not carry. Every reader still refuses it through
+ * `externalCommandSourceFinding` below (named
  * `architecture-external-command-source-not-published`) and refuses it again
  * if the source appears; this is a boundary declaration, not a skip.
  */
@@ -250,6 +251,45 @@ export const ARCHITECTURE_EXTERNAL_COMMANDS: readonly ArchitectureExternalComman
     sourceSha256: "8d20dcf7a41dc4b936a0f256f8200b07d13700dfec779ca6bdc7b2a2b2c58924",
   }),
 ]);
+
+/**
+ * THE ONE PUBLICATION RULE — what a command's source (or its absence) means.
+ *
+ * Every reader of the inventory's sources (the architecture verifier, the
+ * command-effect inventory, `harness check`'s architecture step and the S1
+ * verification) asks this function and nothing else, so the boundary cannot
+ * drift between them:
+ *
+ * - `not-published` + absent → `declared-absent`, still NAMED
+ *   (`architecture-external-command-source-not-published:<path>`): the
+ *   boundary is refused by name on every run, never skipped;
+ * - `not-published` + present → `unexpectedly-published`;
+ * - `published` + absent → `missing`; bytes off the pin → `hash-drift`.
+ *
+ * A reader passes `undefined` exactly when the source does not exist; an
+ * unreadable source is the reader's own refusal, never an absence.
+ */
+export type ExternalCommandSourceFinding =
+  | Readonly<{ kind: "current" }>
+  | Readonly<{
+    kind: "declared-absent" | "unexpectedly-published" | "missing" | "hash-drift";
+    violation: string;
+  }>;
+
+export function externalCommandSourceFinding(
+  command: ArchitectureExternalCommand,
+  source: string | undefined,
+): ExternalCommandSourceFinding {
+  const named = (kind: "declared-absent" | "unexpectedly-published" | "missing" | "hash-drift", name: string) =>
+    deepFreeze({ kind, violation: `architecture-external-command-source-${name}:${command.path}` });
+  if (command.publication === "not-published") {
+    return source === undefined
+      ? named("declared-absent", "not-published")
+      : named("unexpectedly-published", "unexpectedly-published");
+  }
+  if (source === undefined) return named("missing", "missing");
+  return sha256(source) === command.sourceSha256 ? deepFreeze({ kind: "current" }) : named("hash-drift", "hash-drift");
+}
 
 /**
  * THE POPULATION PIN — a CONSERVATION identity over the sorted PUBLISHED set

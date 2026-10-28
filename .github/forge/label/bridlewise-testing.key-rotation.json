@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "key-rotation",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "key-rotation",
+    "color": "d93f0b",
+    "description": "An App key reaches its rotation age"
+  }
+}

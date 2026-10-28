@@ -1279,7 +1279,7 @@ describe("exposure is declared and reachable", () => {
       // fields and the signals read them directly. 26 → 29: the per-test
       // limits (TEST-CPU-CLASSES): the default CPU ceiling, the classes
       // (one array leaf) and the hang backstop, all served read-only.
-      testExecution: 29,
+      testExecution: 30, // 29 → 30: the instrument lock's poll interval became the per-run caps (memoryMaxPercent, cpuWeight; NO-LOAD-BLOCK)
       // 1 → 3: the ONE command runner's errored-class retries (PROMO-1).
       // 3 → 2: the typecheck's wall limit (`typecheckTimeoutMs`) deleted; a
       // typecheck is bounded by CPU work and one hang backstop (NO-LOAD-BLOCK A-17).
@@ -1311,7 +1311,7 @@ describe("exposure is declared and reachable", () => {
       sectionCounts[section] = declared.size - before;
     }
     expect(sectionCounts, "each section must declare exactly its measured leaves — a new leaf reds its own section here").toEqual(expectedSectionCounts);
-    expect(declared.size, "the class's twelve sections declare seventy-two leaves in total").toBe(72);
+    expect(declared.size, "the class's twelve sections declare seventy-three leaves in total").toBe(73);
 
     // The class's rows live in THREE modules (testExecution,
     // harnessCommands, agents) spanning FIVE sections — the census binds
@@ -1347,7 +1347,8 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.engineSuiteKillGrace", "testExecution.engineSuiteWatchdog.killGraceMs"],
       ["testExecution.instrumentLockFile", "testExecution.instrumentLock.cacheRelativeLockPath"],
       ["testExecution.instrumentLockHeavyAt", "testExecution.instrumentLock.minimumTestFiles"],
-      ["testExecution.instrumentLockPoll", "testExecution.instrumentLock.pollIntervalMs"],
+      ["testExecution.perRunMemoryCap", "testExecution.instrumentLock.perRun.memoryMaxPercent"],
+      ["testExecution.perRunCpuWeight", "testExecution.instrumentLock.perRun.cpuWeight"],
       ["testExecution.flakeReproductionRuns", "testExecution.flakeReproduction.statisticalRuns"],
       ["testExecution.flakeReproductionSignificance", "testExecution.flakeReproduction.significance"],
       ["testExecution.instrumentLockWholeInstruments", "testExecution.instrumentLock.wholeInstruments"],
@@ -1410,7 +1411,7 @@ describe("exposure is declared and reachable", () => {
       integrationSuiteCpuBudget: { phase: "accumulation", minimumJudgedRuns: 6, maxPopulationDriftFraction: 0.031 },
       webSuiteWatchdog: { stallTimeoutMs: 240_000, hardCeilingMs: 1_500_000, killGraceMs: 2_000 },
       engineSuiteWatchdog: { stallTimeoutMs: 250_000, hardCeilingMs: 1_600_000, killGraceMs: 4_000 },
-      instrumentLock: { cacheRelativeLockPath: "planted/instrument.lock", minimumTestFiles: 3, wholeInstruments: ["playwright", "coverage"], pollIntervalMs: 500 },
+      instrumentLock: { cacheRelativeLockPath: "planted/instrument.lock", minimumTestFiles: 3, wholeInstruments: ["playwright", "coverage"], perRun: { memoryMaxPercent: 37, cpuWeight: 42 } },
       flakeReproduction: { statisticalRuns: 7, significance: 0.02, deterministicShims: ["engine/test/support/planted-shim.ts"] },
     });
     const expectSignal = (signalId: string, expected: unknown) => {
@@ -1418,7 +1419,8 @@ describe("exposure is declared and reachable", () => {
     };
     expectSignal("testExecution.instrumentLockFile", "<cache>/planted/instrument.lock");
     expectSignal("testExecution.instrumentLockHeavyAt", "a run of 3 or more test files is heavy");
-    expectSignal("testExecution.instrumentLockPoll", "a waiting run looks again every 500 ms");
+    expectSignal("testExecution.perRunMemoryCap", "a heavy run may use at most 37% of the host's memory");
+    expectSignal("testExecution.perRunCpuWeight", "a heavy run's CPU weight is 42");
     expectSignal("testExecution.flakeReproductionRuns", "7 runs on each side of a statistical reproduction");
     expectSignal("testExecution.flakeReproductionSignificance", "a reproduction counts only when a no-op fix shows its counts at most 0.02 of the time");
     expectSignal("testExecution.instrumentLockWholeInstruments", "heavy by kind: playwright, coverage");

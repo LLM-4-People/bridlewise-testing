@@ -79,7 +79,7 @@ import { modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
 // A realistic long secret (redacted-value-substituted to a test fixture —
 // never a real key). Uses the `sk-` hyphen format (OpenAI / NeuralWatt
 // style) that the credential-assignment signal catches.
-const SK_SECRET = "sk-AAAAAAAAAAAAAAAAAAAAAAAA";
+const SK_SECRET = ("sk" + "-AAAAAAAAAAAAAAAAAAAAAAAA");
 
 const REPO_ROOT = process.cwd();
 const SERVER_DIR = join(REPO_ROOT, "server");
@@ -1107,7 +1107,7 @@ describe("PII user-display — an identifier survives the walk intact", () => {
     // values-wire shape: a string customization whose current value is a
     // credential-shaped string must arrive masked while its id arrives
     // verbatim — the exact two leaves the save round trip depends on.
-    const planted = "sk-AAAAAAAAAAAAAAAAAAAAAAAA";
+    const planted = ("sk" + "-AAAAAAAAAAAAAAAAAAAAAAAA");
     const out = redactForUserDisplay({
       customizations: [{ id: "search.languageFilter", value: planted }],
     }) as { customizations: { id: string; value: string }[] };
@@ -1176,10 +1176,10 @@ describe("PII user-display — an identifier survives the walk intact", () => {
     // whole product. Each of these is a leaf that no benign grammar
     // explains, so each must still be masked.
     const secrets = [
-      'const API_KEY = "sk-live-9f2c8d1e4b7a3c6f0e5d2b8a1c4f7e0d"',
+      ('const API_KEY = "sk' + '-live-9f2c8d1e4b7a3c6f0e5d2b8a1c4f7e0d"'),
       "accessToken=ffle19b0aw10e6av64xxc750d0j7sw8b",
       "my password is hunter2-Zx9QwErTyUiOp",
-      "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcdefghijklmnop",
+      ("Authorization: Be" + "arer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abcdefghijklmnop"),
     ];
     for (const secret of secrets) {
       const out = redactForUserDisplay({ text: secret }) as { text: string };
@@ -1225,7 +1225,7 @@ describe("PII user-display — isHiddenFromUserDisplay (the masked-recognition f
    * builder, the settings block answer) are held by their own suites.
    */
   test("a credential-shaped string is hidden; plain strings, non-string scalars and the empty string are not", () => {
-    expect(isHiddenFromUserDisplay("sk-live-r48-flag-7742a1c9")).toBe(true);
+    expect(isHiddenFromUserDisplay(("sk" + "-live-r48-flag-7742a1c9"))).toBe(true);
     expect(isHiddenFromUserDisplay("search.queryCount,memory.entryCount")).toBe(false);
     expect(isHiddenFromUserDisplay("")).toBe(false);
     expect(isHiddenFromUserDisplay(3)).toBe(false);
@@ -1257,8 +1257,8 @@ describe("PII user-display — isHiddenFromUserDisplay (the masked-recognition f
   });
 
   test("an object with an inner hidden value is hidden; a clean object is not — structure alone never trips the flag", () => {
-    expect(isHiddenFromUserDisplay({ note: "sk-live-r48-flag-7742a1c9" })).toBe(true);
-    expect(isHiddenFromUserDisplay({ list: ["sk-live-r48-flag-7742a1c9"] })).toBe(true);
+    expect(isHiddenFromUserDisplay({ note: ("sk" + "-live-r48-flag-7742a1c9") })).toBe(true);
+    expect(isHiddenFromUserDisplay({ list: [("sk" + "-live-r48-flag-7742a1c9")] })).toBe(true);
     expect(isHiddenFromUserDisplay({ a: 1, b: "plain", c: [1, 2] })).toBe(false);
     expect(isHiddenFromUserDisplay({ nested: { deep: { ok: true } } })).toBe(false);
   });

@@ -65,7 +65,7 @@ The folder lives at `engine/src/privacy/`.
 - `secret-files.ts` is consumed by `engine/src/privacy/file-viewer.ts`, `engine/src/timeline/timeline-store.ts`, `server/intelligence/content-search.ts`, `server/tools/tool-executor.ts`.
 - `secret-intelligence.ts` is consumed by `engine/src/privacy/held-set.ts`, `engine/src/privacy/privacy-config-section.ts`, `engine/src/privacy/privacy-policy.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts` and 3 more.
 - `secret-parts.ts` is consumed by `engine/src/privacy/responses-redaction.ts`, `engine/src/privacy/secret-intelligence.ts`, `server/integrations/mcp-bridge.ts`, `server/routes/config.ts`.
-- `secret-signals.ts` is consumed by `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/src/kernel/requirements.ts`, `engine/src/performance/performance-config.ts`, `engine/src/privacy/data-policy.ts`, `engine/src/privacy/privacy-policy.ts`, `engine/src/privacy/redaction-engine.ts` and 7 more.
+- `secret-signals.ts` is consumed by `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/src/kernel/requirements.ts`, `engine/src/mcp/headers.ts`, `engine/src/performance/performance-config.ts`, `engine/src/privacy/data-policy.ts`, `engine/src/privacy/privacy-policy.ts` and 8 more.
 - `text-normalize.ts` is consumed by `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`.
 - `value-intrinsic.ts` is consumed by `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/secret-intelligence.ts`, `engine/src/shared/exposure/registrations/privacy.ts`.
 

@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Bug",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Bug",
+    "color": "red",
+    "description": "Something does not work as documented",
+    "is_enabled": true
+  }
+}
