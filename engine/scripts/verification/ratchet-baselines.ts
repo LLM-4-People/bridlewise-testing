@@ -141,7 +141,7 @@ function webUnhandledCatchFindings(repositoryRoot: string): readonly RatchetFind
  * subprocess (`--root . --structure`) and never imports it. A tree that holds
  * this baseline but not the instrument is refused by name, never passed.
  */
-export const ARCHITECTURE_JUDGE_INSTRUMENT = "engine/scripts/tooling/s1-verification.ts";
+const ARCHITECTURE_JUDGE_INSTRUMENT = "engine/scripts/tooling/s1-verification.ts";
 
 /**
  * The architecture judge's baseline: a FIXED path declared here, never a policy-editable one, so no edit
@@ -154,7 +154,7 @@ export const ARCHITECTURE_JUDGE_BASELINE = VERIFICATION_PATHS.architectureJudgeB
 let architectureJudgeShown: Readonly<Record<string, readonly string[]>> = {};
 
 /** Every TREE-STRUCTURAL finding of the engine's structural judge (S1 over the census), each as its own key. */
-export function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFinding[] {
+function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFinding[] {
   const instrument = join(repositoryRoot, ARCHITECTURE_JUDGE_INSTRUMENT);
   if (!existsSync(instrument)) {
     throw new InputError(`the architecture judge's instrument ${ARCHITECTURE_JUDGE_INSTRUMENT} is not in this tree`, "ratchet_instrument_absent");
@@ -189,6 +189,7 @@ export const RATCHET_BASELINES: readonly RatchetBaselineSpec[] = (() => {
   }
   return Object.freeze([
     ...declared.map(([id, path]): RatchetBaselineSpec => Object.freeze({ id, path, findings: SCANS[id]! })),
+    Object.freeze({ id: "architecture-judge", path: ARCHITECTURE_JUDGE_BASELINE, findings: architectureJudgeFindings, instrument: ARCHITECTURE_JUDGE_INSTRUMENT }),
   ]);
 })();
 
