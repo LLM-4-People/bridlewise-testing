@@ -38,6 +38,8 @@
  */
 
 import { globSync, statSync } from "node:fs";
+
+import { InputError } from "../../src/kernel/errors.ts";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,14 +52,13 @@ import { enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./tes
 import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
-/** What `node --test` runs when it is given a folder: its own default test-file names. */
-const NODE_TEST_FILE = /(?:^|\/)(?:test|.+[.\-_]test)\.(?:cjs|mjs|js|cts|mts|ts)$/u;
-
 /**
- * The test files the arguments name, absolute: a file, every test file
- * under a folder (node --test's own default names), or what a glob
- * matches; flags are skipped. The bounds install only in these files'
- * processes, never in a process they start.
+ * The test files the arguments name, absolute: a file as given, or what a
+ * glob matches (node --test expands a glob itself, the same way); flags are
+ * skipped. A FOLDER is refused, typed: node 24 does not expand one (it
+ * reports the folder as a failing test), so it names no file to bound. The
+ * bounds install only in these files' processes, never in a process they
+ * start.
  */
 export function testFilesNamed(args: readonly string[], cwd: string): readonly string[] {
   const files = new Set<string>();
@@ -67,7 +68,7 @@ export function testFilesNamed(args: readonly string[], cwd: string): readonly s
     const facts = statSync(path, { throwIfNoEntry: false });
     if (facts?.isFile() === true) files.add(path);
     else if (facts?.isDirectory() === true) {
-      for (const found of globSync("**/*", { cwd: path })) if (NODE_TEST_FILE.test(found)) files.add(resolve(path, found));
+      throw new InputError(`${arg} is a folder: node --test does not expand a folder, so name its test files or a glob of them`, "test_guards_folder_argument");
     } else {
       for (const found of globSync(arg, { cwd })) files.add(resolve(cwd, found));
     }
@@ -75,22 +76,35 @@ export function testFilesNamed(args: readonly string[], cwd: string): readonly s
   return [...files].toSorted();
 }
 
+/**
+ * The files this door runs, or a typed refusal when the arguments name NONE:
+ * node --test would then discover its whole default set itself, and none of
+ * those files would run under the suite's bounds (a flags-only run such as
+ * `--test-name-pattern=x`, or no argument at all). Never an unbounded run.
+ */
+export function boundedTestFiles(args: readonly string[], cwd: string): readonly string[] {
+  const files = testFilesNamed(args, cwd);
+  if (files.length === 0) {
+    throw new InputError(
+      "the test door requires an explicit test file or pattern: with none, node --test discovers its whole default set itself, " +
+        "outside the suite's bounds (and fails on the non-test .mjs scripts under verification/). " +
+        "Name the files, e.g. `test/editor/binary-guard.test.ts`, or a glob of them.",
+      "test_guards_no_test_file",
+    );
+  }
+  return files;
+}
+
 export async function main(): Promise<void> {
   const runner = `engine ${process.env.npm_lifecycle_event ?? "node --test"}`;
-  // The subset door (`test:unit`) must take an explicit file or pattern. With
-  // no argument, `node --test` discovers the WHOLE tree — including
-  // `verification/benchmarks/**` `.mjs` scripts that are not node:test files —
-  // and fails on them. Refuse the no-argument invocation here, at the one
-  // wrapper every subset run passes through, rather than letting the runner
-  // fail opaquely on a non-test file it discovered by default.
-  const lifecycleEvent = process.env.npm_lifecycle_event;
-  if (lifecycleEvent === "test:unit" && process.argv.slice(2).length === 0) {
-    process.stderr.write(
-      "[test-guards] test:unit requires an explicit test file or pattern " +
-        "(e.g. `npm run test:unit test/editor/binary-guard.test.ts`). With no " +
-        "argument, node --test discovers the whole tree — including non-test " +
-        "`.mjs` scripts under verification/ — and fails on them.\n",
-    );
+  // THE FILES FIRST, and none is a refusal (`boundedTestFiles`): every file
+  // this door runs runs under the suite's bounds, and node --test never
+  // discovers files of its own.
+  let files: readonly string[];
+  try {
+    files = boundedTestFiles(process.argv.slice(2), process.cwd());
+  } catch (error) {
+    process.stderr.write(`[test-guards] ${error instanceof Error ? error.message : String(error)}\n`);
     // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
     process.exitCode = 1;
     return;
@@ -113,7 +127,7 @@ export async function main(): Promise<void> {
   // ended only by the hang backstop, exactly as in the suite. A targeted run
   // used to run with neither, so a CPU-class failure could never be seen —
   // nor reproduced through `harness flake reproduce`, which runs here.
-  const bounds = { ...engineTestBoundsFrom(testExecution, engineRoot), files: testFilesNamed(process.argv.slice(2), process.cwd()) };
+  const bounds = { ...engineTestBoundsFrom(testExecution, engineRoot), files };
   // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
   const supervisor = ensureTestProcessSupervisor();
   const run = await superviseCommand({

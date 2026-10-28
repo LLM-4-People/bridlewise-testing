@@ -46,7 +46,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { testFilesNamed } from "../../scripts/tooling/test-guards.ts";
+import { boundedTestFiles, testFilesNamed } from "../../scripts/tooling/test-guards.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
@@ -221,11 +221,18 @@ test("the subset door runs its test files under the SUITE'S OWN bounds: a per-te
   assert.match(run.stdout, /cpu-work \d+ ms; wall \d+ ms \(recorded, not judged\)/u, "the suite's CPU judgement read the test");
 });
 
-test("the subset door's files: a file as given, a folder's test files by node --test's own names, a glob's matches; flags are skipped", () => {
+test("the subset door's files: a file as given and a glob's matches, flags skipped; a FOLDER is refused typed (node 24 does not expand one), and a run naming NO file is refused before node could discover files of its own", () => {
   const dir = createTempDir("subset-door-files-");
   mkdirSync(join(dir, "nested"));
-  for (const name of ["a.test.ts", "nested/b.test.mjs", "nested/helper.ts", "c-test.js"]) writeFileSync(join(dir, name), "");
-  assert.deepEqual(testFilesNamed([join(dir, "a.test.ts")], dir), [join(dir, "a.test.ts")]);
-  assert.deepEqual(testFilesNamed([dir, "--test-name-pattern=x"], ROOT), [join(dir, "a.test.ts"), join(dir, "c-test.js"), join(dir, "nested", "b.test.mjs")]);
+  for (const name of ["a.test.ts", "nested/b.test.mjs", "nested/helper.ts"]) writeFileSync(join(dir, name), "");
+  assert.deepEqual(testFilesNamed([join(dir, "a.test.ts"), "--test-name-pattern=x"], dir), [join(dir, "a.test.ts")]);
   assert.deepEqual(testFilesNamed(["nested/*.mjs"], dir), [join(dir, "nested", "b.test.mjs")]);
+  assert.throws(() => testFilesNamed([dir], ROOT), (error: unknown) => (error as { code?: string }).code === "test_guards_folder_argument");
+  assert.throws(() => boundedTestFiles(["--test-name-pattern=x"], dir), (error: unknown) => (error as { code?: string }).code === "test_guards_no_test_file");
+  // Driven through the door: flags only is refused, and node --test never ran.
+  const { NODE_TEST_CONTEXT: _ownContext, ...env } = process.env;
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/tooling/test-guards.ts", "--test-name-pattern=x"], { cwd: ROOT, encoding: "utf8", env, timeout: DEFAULT_TEST_HANG_BACKSTOP_MS });
+  assert.equal(run.status, 1, run.stdout.slice(-400));
+  assert.ok(run.stderr.includes("requires an explicit test file or pattern"), run.stderr.slice(-400));
+  assert.equal(run.stdout, "", "node --test never ran, so it discovered nothing unbounded");
 });
