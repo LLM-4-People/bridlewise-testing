@@ -20,6 +20,7 @@ import { createWorkingCopy } from "../../src/git/working-copy.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, removeOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
 import { buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { applyCheckoutFiles, installedDependencyLinks } from "../../src/workflow/checkout-setup.ts";
+import { GENERATOR_INPUTS_BEYOND_ENGINE } from "../../src/workflow/harness-commands.ts";
 
 export const TEST_REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const REPOSITORY_LOCAL_TEMPORARY_ROOT = join(
@@ -140,13 +141,19 @@ export function createRepositoryWorkingCopy(
 }
 
 /**
- * The population a generator test needs: the engine and the repository-root
- * `shared/` its sources import. The web tree (about half the bytes) is never
- * read by the engine's generators; in a mirrored copy it stays in the index as
- * skip-worktree, so the tracked set is still the checkout's.
+ * The population a generator test needs: the engine, the repository-root
+ * `shared/` its sources import, and every path a generator arm declares it
+ * needs beyond them (`GENERATOR_INPUTS_BEYOND_ENGINE`, from each arm's owner:
+ * the forge arm's community sources, `.github/` and lockfiles; the community
+ * arm's sources and outputs). DERIVED, never listed here: an arm that comes
+ * to read a new path declares it, and every copy carries it. The rest of the
+ * web tree (most of the bytes) is read by no generator; in a mirrored copy it
+ * stays in the index as skip-worktree, so the tracked set is still the
+ * checkout's.
  */
 export function engineGeneratorPopulation(repositoryPath: string): boolean {
-  return repositoryPath.startsWith("engine/") || repositoryPath.startsWith("shared/");
+  if (repositoryPath.startsWith("engine/") || repositoryPath.startsWith("shared/")) return true;
+  return Object.values(GENERATOR_INPUTS_BEYOND_ENGINE).some((input) => input !== null && input(repositoryPath));
 }
 
 function engineRelativePath(repositoryRoot: string): string {

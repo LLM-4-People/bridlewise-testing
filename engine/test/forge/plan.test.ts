@@ -185,7 +185,7 @@ function wholeGithub(): FakeGithub {
   fake.route("PUT", /^\/repos\/[^/]+\/[^/]+\/environments\/([^/]+)$/u, (request, match) => {
     const body = request.body as { reviewers?: { type: string; id: number }[] } & Record<string, unknown>;
     const stored = { name: match[1]!, deployment_branch_policy: body.deployment_branch_policy, can_admins_bypass: body.can_admins_bypass,
-      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
+      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", prevent_self_review: body.prevent_self_review === true, reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
     fake.objects.set(request.path, stored);
     return { status: 200, body: stored };
   });
@@ -364,7 +364,7 @@ test("the strictness order is TOTAL: what is not proven stricter or equal is a l
   assert.deepEqual(looseningOf("ruleset", { ...live, enforcement: "evaluate" }, { ...live, enforcement: "disabled" }), [], "evaluate is stricter than disabled");
   // Near misses: wider refs, an extra check, strict on, a new rule, a neutral setting, a kind set where none was: none weakens.
   assert.deepEqual(looseningOf("ruleset", ruleset({ ref_name: { include: ["~ALL"], exclude: [] } }, checks(ci, { context: "More" }), { type: "deletion" }), live), []);
-  assert.deepEqual(looseningOf("repository-settings", { has_wiki: true, allow_squash_merge: true }, { has_wiki: false, allow_squash_merge: false }), []);
+  assert.deepEqual(looseningOf("repository-settings", { has_wiki: true, allow_auto_merge: true }, { has_wiki: false, allow_auto_merge: false }), []);
   assert.deepEqual(looseningOf("custom-property-values", { kind: "trunk" }, {}), []);
   assert.deepEqual(looseningOf("label", { color: "000000" }, { color: "ffffff" }), [], "a label guards nothing");
 });

@@ -478,7 +478,7 @@ test("native client snapshots raw input before first stream pull", async () => {
 
 // Discovery uses the same HTTP/error owner, with one deadline covering the
 // response body as well as headers. These exercise real abortable sockets.
-test("model discovery bounds the whole request and distinguishes cancellation", { timeout: 15_000 }, async (t) => {
+test("model discovery bounds the whole request and distinguishes cancellation", async (t) => {
   const { createServer } = await import("node:http");
   const { fetchProviderModels } = await import("../../src/shared/llm/client.ts");
   const observed: string[]=[]; let holding="";
@@ -521,7 +521,7 @@ test("model discovery bounds the whole request and distinguishes cancellation", 
   } finally {t.mock.timers.reset();}
 });
 
-test("nonstreaming completions retain one deadline through body read and release it on success", { timeout: 15_000 }, async (t) => {
+test("nonstreaming completions retain one deadline through body read and release it on success", async (t) => {
   const {createServer}=await import("node:http");
   let calls=0, holding="";
   const receipts = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>(), readers = new Map<string, ReturnType<typeof Promise.withResolvers<void>>>();

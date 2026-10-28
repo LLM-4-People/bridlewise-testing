@@ -66,6 +66,22 @@ export const TEMPLATED_FILES = Object.freeze([
   ".github/PULL_REQUEST_TEMPLATE.md",
 ] as const);
 
+/**
+ * Every repository path the community-files arm reads or writes: its sources
+ * (`docs/community/`), the files it renders from them, its forms, and the
+ * places GitHub reads a health file from, which it judges for shadows. The
+ * population of a generator test's repository copy is derived from this
+ * (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+ */
+export function communityFilesInput(path: string): boolean {
+  if (path.startsWith(`${COMMUNITY_DIRECTORY}/`) || path.startsWith(`${ISSUE_FORMS_DIRECTORY}/`) || path.startsWith(`${DISCUSSION_FORMS_DIRECTORY}/`)) return true;
+  if ((TEMPLATED_FILES as readonly string[]).includes(path)) return true;
+  const slash = path.lastIndexOf("/");
+  const location = slash === -1 ? "" : path.slice(0, slash);
+  const name = path.slice(slash + 1).toLowerCase().replace(/\.[^.]*$/u, "");
+  return (HEALTH_LOCATIONS as readonly string[]).includes(location) && (HEALTH_NAMES as readonly string[]).includes(name);
+}
+
 /** Where GitHub looks for a community health file, repository-relative (`""` is the root). */
 const HEALTH_LOCATIONS = Object.freeze(["", ".github", "docs"] as const);
 /** The health-file names GitHub reads (compared lower-cased, without extension); the template ones may also be folders. */
