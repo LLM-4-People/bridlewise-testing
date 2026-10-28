@@ -22,7 +22,7 @@ function gitTop(prefix: string): string {
   execFileSync("git", ["init", "-q"], { cwd: top });
   return top;
 }
-import { SETTINGS } from "./forge-settings.ts";
+import { SETTINGS, SOURCES } from "./forge-settings.ts";
 
 test("every address is derived from the organisation, the web origin and the trunk", () => {
   assert.deepEqual(repositoryIdentity(SETTINGS), {
@@ -60,9 +60,9 @@ test("the identity's copies are generated, a field each: package.json and CITATI
   writeFileSync(join(top, "CITATION.cff"), 'cff-version: 1.2.0\nrepository-code: "https://github.com/LLM-4-People/old"\nurl: "https://example.org"\n');
   const renamed = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "bridlewise" } : repository) };
   // The copies are part of the forge-files arm: stale until written, then current.
-  assert.deepEqual([...syncForgeFiles(top, renamed, false).changed].filter((path) => !path.startsWith(".github/")), ["CITATION.cff", "package.json"]);
-  syncForgeFiles(top, renamed, true);
-  assert.deepEqual([...syncForgeFiles(top, renamed, false).changed], []);
+  assert.deepEqual([...syncForgeFiles(top, { ...SOURCES, settings: renamed }, false).changed].filter((path) => !path.startsWith(".github/")), ["CITATION.cff", "package.json"]);
+  syncForgeFiles(top, { ...SOURCES, settings: renamed }, true);
+  assert.deepEqual([...syncForgeFiles(top, { ...SOURCES, settings: renamed }, false).changed], []);
   const written = JSON.parse(readFileSync(join(top, "package.json"), "utf8")) as typeof manifest;
   assert.deepEqual(Object.keys(written), Object.keys(manifest), "every field stays where the file has it");
   assert.deepEqual({ repository: written.repository, homepage: written.homepage, bugs: written.bugs, license: written.license },

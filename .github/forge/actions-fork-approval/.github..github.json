@@ -1,0 +1,12 @@
+{
+  "kind": "actions-fork-approval",
+  "scope": {
+    "kind": "repo",
+    "repository": ".github"
+  },
+  "key": ".github",
+  "unavailableOnPlan": [],
+  "desired": {
+    "approval_policy": "first_time_contributors"
+  }
+}

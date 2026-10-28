@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "dependencies",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "dependencies",
+    "color": "0366d6",
+    "description": "A dependency update"
+  }
+}
