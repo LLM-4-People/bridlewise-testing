@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import { z } from "zod";
@@ -11,7 +12,7 @@ import {
   FUNCTION_MANIFEST_SCHEMA_VERSION,
   type FunctionManifestExclusion,
 } from "../../src/performance/function-manifest.ts";
-import { ARCHITECTURE_MANIFEST, type ArchitectureModule } from "../../src/architecture-manifest.ts";
+import { type ArchitectureModule } from "../../src/architecture-manifest.ts";
 import { DEFAULT_PERFORMANCE_CONFIG, parsePerformanceConfig } from "../../src/performance/performance-config.ts";
 import { makePerfConfig } from "../support/factories.ts";
 
@@ -44,7 +45,7 @@ const sampleSources = new Map<string, string>([
   ["src/b.ts", MOD_B_SOURCE],
 ]);
 
-function repositoryModuleSources(modules: readonly ArchitectureModule[] = ARCHITECTURE_MANIFEST.modules): Map<string, string> {
+function repositoryModuleSources(modules: readonly ArchitectureModule[] = REPOSITORY_MANIFEST.modules): Map<string, string> {
   const map = new Map<string, string>();
   for (const module of modules) {
     map.set(module.path, readFileSync(module.path, "utf8"));
@@ -298,10 +299,10 @@ test("function-manifest: scope excludedModules filters entries", () => {
   assert.ok(manifest.entries.length > 0);
 });
 
-test("function-manifest: generates from real ARCHITECTURE_MANIFEST", () => {
+test("function-manifest: generates from the real architecture manifest", () => {
   const manifest = generateFunctionManifest({
     config: makePerfConfig(),
-    architectureModules: ARCHITECTURE_MANIFEST.modules,
+    architectureModules: REPOSITORY_MANIFEST.modules,
     moduleSources: repositoryModuleSources(),
   });
   assert.ok(manifest.totalFunctions > 100);
@@ -399,6 +400,9 @@ test("function-manifest: a module without provided source yields zero functions"
 // reds here, and the hub-side guard (tests/prevention/recording-choke-points.test.ts
 // class G) holds the other half: no value re-export bypasses the decoration.
 import { ENGINE_SPAN_EXCLUSIONS } from "../../src/performance/engine-instrumentation.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 test("function-manifest: every engine-span exclusion names a real inventoried function with the review fields", () => {
   const exclusions: FunctionManifestExclusion[] = Object.entries(ENGINE_SPAN_EXCLUSIONS).map(([key, entry]) => {
@@ -418,11 +422,11 @@ test("function-manifest: every engine-span exclusion names a real inventoried fu
   // half of the next test, never silently tolerated.
   const manifest = generateFunctionManifest({
     config: makePerfConfig(),
-    architectureModules: ARCHITECTURE_MANIFEST.modules,
+    architectureModules: REPOSITORY_MANIFEST.modules,
     moduleSources: repositoryModuleSources(),
     exclusions,
   });
-  const result = validateFunctionManifest(manifest, ARCHITECTURE_MANIFEST.modules);
+  const result = validateFunctionManifest(manifest, REPOSITORY_MANIFEST.modules);
   // An entry-less exclusion is expected for the re-exported class; every
   // OTHER violation (no evidence, no rationale, not marked) is a defect.
   const real = result.violations.filter((v) => !v.includes("function_manifest_exclusion_without_entry"));
@@ -456,7 +460,7 @@ test("function-manifest: an exclusion naming nothing the tree really exports is 
       scope: "engine-auto-instrumentation",
     },
   ];
-  const timelineTypesModule = ARCHITECTURE_MANIFEST.modules.find((m) => m.id === "timeline-types")!;
+  const timelineTypesModule = REPOSITORY_MANIFEST.modules.find((m) => m.id === "timeline-types")!;
   const manifest = generateFunctionManifest({
     config: makePerfConfig(),
     architectureModules: [timelineTypesModule],
@@ -475,7 +479,7 @@ test("function-manifest: an exclusion naming nothing the tree really exports is 
   for (const [key] of Object.entries(ENGINE_SPAN_EXCLUSIONS)) {
     const [moduleId, functionId] = key.split(":") as [string, string];
     assert.ok(
-      ARCHITECTURE_MANIFEST.modules.some((m) => m.id === moduleId),
+      REPOSITORY_MANIFEST.modules.some((m) => m.id === moduleId),
       `exclusion ${key} names an architecture module the manifest does not declare`,
     );
     const value = (hub as unknown as Record<string, unknown>)[functionId];

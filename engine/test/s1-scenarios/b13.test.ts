@@ -4,10 +4,13 @@ import { join } from "node:path";
 import test from "node:test";
 import { verifyS1Structure } from "../../scripts/tooling/s1-verification.ts";
 import { analyzeArchitectureSource, verifyArchitectureSources } from "../../scripts/verification/architecture.ts";
-import { ARCHITECTURE_MANIFEST, EMPTY_COMPOSITION_ROOTS, type ArchitectureManifest } from "../../src/architecture-manifest.ts";
+import { EMPTY_COMPOSITION_ROOTS, type ArchitectureManifest } from "../../src/architecture-manifest.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { ARCHITECTURE_SOURCE_EXTENSIONS } from "../../src/shared/source-extensions.ts";
 import { makeRuntimeCandidate, createOwnedTemporaryDirectory, removeOwnedTemporaryDirectories, historicalApplicationName, appendCandidateSource, mountedRootBoundaryEvidence, repositoryArchitectureSources, REPOSITORY_ROOT, candidateModulePath, assertArchitectureBaselineClean } from "../support/s1-scenario-shared.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
   "S1-B13-CONTROL": assertArchitectureBaselineClean,
@@ -99,16 +102,16 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       const unregistered = verifyArchitectureSources([
         ...repositoryArchitectureSources(),
         { path: `verification/unregistered-extension${extension}`, source },
-      ]).violations;
+      ], REPOSITORY_MANIFEST).violations;
       assert.ok(unregistered.includes("architecture-module-registration-drift"));
     }
 
     for (const extension of [".jsx", ".tsx"] as const) {
       const path = `verification/registered-extension${extension}`;
       const source = 'export const registeredExtension = <Widget value={1} />;';
-      const template = ARCHITECTURE_MANIFEST.modules.find((module) => module.path === kernelErrors)!;
+      const template = REPOSITORY_MANIFEST.modules.find((module) => module.path === kernelErrors)!;
       const fixtureManifest: ArchitectureManifest = {
-        ...ARCHITECTURE_MANIFEST,
+        ...REPOSITORY_MANIFEST,
         compositionRoots: EMPTY_COMPOSITION_ROOTS,
         modules: [{
           ...template,
@@ -122,46 +125,16 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       assert.equal(registered.includes(`architecture-independent-import-disagreement:${path}`), false);
     }
 
-    const unregisteredCoreRoot = makeRuntimeCandidate();
-    writeFileSync(
-      join(unregisteredCoreRoot, "src", "unregistered-core.ts"),
-      "export const unregisteredCore = true;\n",
-    );
-    assert.ok(verifyS1Structure(unregisteredCoreRoot).violations.includes(
-      "architecture-module-registration-drift",
-    ));
-
-    const unregisteredVerificationRoot = makeRuntimeCandidate();
-    const unregisteredVerificationDirectory = join(
-      unregisteredVerificationRoot,
-      "verification",
-      "benchmarks",
-      "architecture-mutant",
-    );
-    mkdirSync(unregisteredVerificationDirectory, { recursive: true });
-    writeFileSync(
-      join(unregisteredVerificationDirectory, "unregistered-verifier.ts"),
-      "export const unregisteredVerifier = true;\n",
-    );
-    assert.ok(verifyS1Structure(unregisteredVerificationRoot).violations.includes(
-      "architecture-module-registration-drift",
-    ));
-
-    const unregisteredMjsRoot = makeRuntimeCandidate();
-    const unregisteredMjsDirectory = join(
-      unregisteredMjsRoot,
-      "verification",
-      "benchmarks",
-      "architecture-mutant",
-    );
-    mkdirSync(unregisteredMjsDirectory, { recursive: true });
-    writeFileSync(
-      join(unregisteredMjsDirectory, "unregistered-runner.mjs"),
-      "export const unregisteredRunner = true;\n",
-    );
-    assert.ok(verifyS1Structure(unregisteredMjsRoot).violations.includes(
-      "architecture-module-registration-drift",
-    ));
+    // A NEW SOURCE IS A MODULE THE DAY IT LANDS (#221): the census is the registration and its folder classifies it,
+    // so a plain new module in src/ or verification/ (.ts or .mjs) is no registration drift, and nothing is written.
+    for (const [directory, file] of [["src", "unregistered-core.ts"], ["verification/benchmarks/architecture-mutant", "unregistered-verifier.ts"], ["verification/benchmarks/architecture-mutant", "unregistered-runner.mjs"]] as const) {
+      const newModuleRoot = makeRuntimeCandidate();
+      mkdirSync(join(newModuleRoot, directory), { recursive: true });
+      writeFileSync(join(newModuleRoot, directory, file), "export const newModule = true;\n");
+      const judged = verifyS1Structure(newModuleRoot).violations;
+      assert.equal(judged.includes("architecture-module-registration-drift"), false, `${directory}/${file}`);
+      assert.equal(judged.some((violation) => violation.startsWith("architecture-") && violation.includes(file)), false, `${directory}/${file}: ${JSON.stringify(judged.filter((violation) => violation.includes(file)))}`);
+    }
 
     const externalArchitectureRoot = createOwnedTemporaryDirectory("architecture-external-");
     const rootNameCanary = "ROOT_DIRECTORY_NAME_CANARY_must_not_escape";
@@ -556,16 +529,16 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     ));
 
     const thirdRootPath = "scripts/tooling/recorded-command.ts";
-    const modulesWithThirdRoot = ARCHITECTURE_MANIFEST.modules.map((module) =>
+    const modulesWithThirdRoot = REPOSITORY_MANIFEST.modules.map((module) =>
       module.path === thirdRootPath
         ? { ...module, compositionRoot: true as const, executionBoundary: "composition-root" as const }
         : module
     );
     const registeredThirdRoot: ArchitectureManifest = {
-      ...ARCHITECTURE_MANIFEST,
+      ...REPOSITORY_MANIFEST,
       compositionRoots: {
-        ...ARCHITECTURE_MANIFEST.compositionRoots,
-        builder: [...ARCHITECTURE_MANIFEST.compositionRoots.builder, thirdRootPath].toSorted(),
+        ...REPOSITORY_MANIFEST.compositionRoots,
+        builder: [...REPOSITORY_MANIFEST.compositionRoots.builder, thirdRootPath].toSorted(),
       },
       modules: modulesWithThirdRoot,
     };
@@ -576,7 +549,7 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     );
     const omittedThirdRoot: ArchitectureManifest = {
       ...registeredThirdRoot,
-      compositionRoots: ARCHITECTURE_MANIFEST.compositionRoots,
+      compositionRoots: REPOSITORY_MANIFEST.compositionRoots,
     };
     assert.ok(verifyArchitectureSources(
       repositoryArchitectureSources(omittedThirdRoot),

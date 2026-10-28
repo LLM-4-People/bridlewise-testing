@@ -38,6 +38,9 @@ import {
   clearArchitectureSourceCache,
   verifyArchitectureSources,
 } from "../../scripts/verification/architecture.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 const REPOSITORY_ROOT = process.cwd();
 const BOUNDARY_PREFIXES = [
@@ -54,7 +57,7 @@ const BOUNDARY_PREFIXES = [
 function repositorySources(
   substitutions: Readonly<Record<string, string>> = {},
 ): readonly Readonly<{ path: string; source: string }>[] {
-  return ARCHITECTURE_MANIFEST.modules.map((module) => ({
+  return REPOSITORY_MANIFEST.modules.map((module) => ({
     path: module.path,
     source: substitutions[module.path] ?? readFileSync(join(REPOSITORY_ROOT, module.path), "utf8"),
   }));
@@ -65,7 +68,7 @@ function boundaryViolations(sources: readonly Readonly<{ path: string; source: s
   // so it cannot collide, but clearing keeps the reading independent of what
   // earlier tests in this process left behind.
   clearArchitectureSourceCache();
-  return verifyArchitectureSources(sources, ARCHITECTURE_MANIFEST).violations
+  return verifyArchitectureSources(sources, REPOSITORY_MANIFEST).violations
     .filter((violation) => BOUNDARY_PREFIXES.some((prefix) => violation.startsWith(prefix)));
 }
 
@@ -95,7 +98,7 @@ test("scan census: the clean tree has no dependency the scan refuses to walk", (
 test("scan census: the covered population is every registered module, and it is not empty", () => {
   // A guard that names its subject has already chosen how much to check. State
   // the number, and refuse a universe that has collapsed.
-  const modules = ARCHITECTURE_MANIFEST.modules.length;
+  const modules = REPOSITORY_MANIFEST.modules.length;
   const dependencyEdges = repositorySources()
     .reduce((total, module) => total + analyzeArchitectureSource(module.path, module.source).dependencies.length, 0);
   assert.ok(modules >= 700, `architecture verification must cover the whole manifest; covered ${modules}`);
@@ -249,7 +252,7 @@ test("scan census: the refusal reads the CURRENT policy, not a copy of it", () =
 });
 
 test("scan census: every erased-reference syntax retains exact excluded and unknown targets", () => {
-  const host = ARCHITECTURE_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
+  const host = REPOSITORY_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
   assert.ok(host);
   const forms = [
     (target: string) => `import type { T } from "${target}";`,
@@ -267,7 +270,7 @@ test("scan census: every erased-reference syntax retains exact excluded and unkn
   ];
   for (const target of targets) for (const form of forms) {
     const source = form(`../../${target}`);
-    const result = verifyArchitectureSources([{ path: host.path, source }], { ...ARCHITECTURE_MANIFEST, modules: [host] });
+    const result = verifyArchitectureSources([{ path: host.path, source }], { ...REPOSITORY_MANIFEST, modules: [host] });
     const exclusion = repositoryScanExclusionFor(target);
     const expected = exclusion
       ? `architecture-scan-excluded-dependency:${host.path}->${target}:${exclusion.reason}:${exclusion.segment}`
@@ -277,7 +280,7 @@ test("scan census: every erased-reference syntax retains exact excluded and unkn
   }
   for (const target of ["node:fs", "@types/example", "/tmp/node_modules/example.ts"]) {
     const source = `export type T = import(${JSON.stringify(target)}).T;`;
-    const result = verifyArchitectureSources([{ path: host.path, source }], { ...ARCHITECTURE_MANIFEST, modules: [host] });
+    const result = verifyArchitectureSources([{ path: host.path, source }], { ...REPOSITORY_MANIFEST, modules: [host] });
     assert.deepEqual(result.violations.filter(violation => BOUNDARY_PREFIXES.some(prefix => violation.startsWith(prefix))), []);
   }
 });

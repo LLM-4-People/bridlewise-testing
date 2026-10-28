@@ -1,6 +1,7 @@
+import { InputError } from "./kernel/errors.ts";
 import { deepFreeze } from "./kernel/integrity.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "./kernel/architecture-external-commands.ts";
-import { ARCHITECTURE_MODULES } from "./architecture-modules.ts";
+import { ARCHITECTURE_DIRECTORY_DEFAULTS, ARCHITECTURE_MODULES } from "./architecture-modules.ts";
 
 export type ArchitectureRealm = "builder" | "runtime" | "shared" | "safety";
 export type ArchitectureLayer =
@@ -103,7 +104,7 @@ export type ArchitectureFinding = Readonly<{
 }>;
 
 export type ArchitectureManifest = Readonly<{
-  schemaVersion: "bridlewise-architecture-manifest/v4";
+  schemaVersion: "bridlewise-architecture-manifest/v5";
   sourceRoots: readonly ["scripts/", "src/", "verification/"];
   graphPolicy: "derived-edges-no-cycles";
   publicApiPolicy: "derived-from-source-never-committed";
@@ -115,6 +116,14 @@ export type ArchitectureManifest = Readonly<{
   modules: readonly ArchitectureModule[];
   findings: readonly ArchitectureFinding[];
 }>;
+
+/**
+ * The architecture's POLICY: everything but the module list and the
+ * composition roots, which are a function of the tree
+ * ({@link architectureManifestOf}; for a checkout,
+ * `repositoryArchitectureManifest`, scripts/verification/architecture.ts).
+ */
+export type ArchitecturePolicy = Omit<ArchitectureManifest, "modules" | "compositionRoots">;
 
 /**
  * Empty composition roots for every realm — the typed "no composition roots"
@@ -145,37 +154,79 @@ const LAYERS: Readonly<Record<ArchitectureLayer, readonly ArchitectureLayer[]>> 
 });
 
 /**
- * What is AUTHORED about a module: one line of `src/architecture-modules.ts`
- * (its one form: src/workflow/architecture-module-entries.ts). The optional
- * fields take their {@link moduleContract} default when left out. What the
- * source says (exports, imports) is not here: the architecture check derives
- * it every time, so it is never committed (#221).
+ * A FOLDER'S CLASSIFICATION: the realm, layer and owner every module under
+ * `directory` takes unless a deeper folder or its own entry says otherwise.
+ * One line of `src/architecture-modules.ts`.
  */
-export type ArchitectureModuleEntry = Omit<ArchitectureModule, "allowedDependencyLayers" | "compositionRoot" | "configPaths" |
-  "effects" | "executionBoundary" | "ports" | "projectionOwners" | "stateOwners" |
-  "authorityFamilies" | "authorityIdentifiers" | "responsibilities"> &
-  Partial<Pick<ArchitectureModule, "compositionRoot" | "configPaths" | "effects" | "executionBoundary" |
-  "ports" | "projectionOwners" | "stateOwners" | "authorityFamilies" | "authorityIdentifiers" |
-  "responsibilities">>;
+export type ArchitectureDirectoryDefault = Readonly<{
+  directory: string;
+  realm: ArchitectureRealm;
+  layer: ArchitectureLayer;
+  owner: string;
+}>;
 
-function moduleContract(input: ArchitectureModuleEntry): ArchitectureModule {
-  return {
-    ...input,
-    allowedDependencyLayers: LAYERS[input.layer],
-    compositionRoot: input.compositionRoot ?? false,
-    executionBoundary: input.executionBoundary ?? "pure",
-    ports: input.ports ?? { requires: [], provides: [] },
-    effects: input.effects ?? [],
-    configPaths: input.configPaths ?? [],
-    stateOwners: input.stateOwners ?? [],
-    projectionOwners: input.projectionOwners ?? [],
-    authorityFamilies: input.authorityFamilies ?? [],
-    authorityIdentifiers: input.authorityIdentifiers ?? [],
-    responsibilities: input.responsibilities ?? [input.id],
-  };
+/**
+ * What is decided about ONE module beyond its folder's classification: one
+ * line of `src/architecture-modules.ts` (its one form:
+ * src/workflow/architecture-module-entries.ts), present only when something
+ * differs from what the path derives — an id other than the path's
+ * ({@link architectureModuleId}), a realm, layer or owner other than its
+ * folder's, or a role, effect, port, owned state or authority. A plain new
+ * module has no entry: adding modules A and B in two branches touches
+ * nothing here (#221). What the source says (exports, imports) is never
+ * committed: the architecture check derives it.
+ */
+export type ArchitectureModuleEntry = Readonly<{ path: string } & Partial<Pick<ArchitectureModule,
+  "id" | "realm" | "layer" | "owner" | "executionBoundary" | "compositionRoot" | "ports" | "effects" | "configPaths" |
+  "stateOwners" | "projectionOwners" | "authorityFamilies" | "authorityIdentifiers" | "responsibilities">>>;
+
+/** The id a module takes from its path: the extension dropped, every run of other characters a hyphen. */
+export function architectureModuleId(path: string): string {
+  const dot = path.lastIndexOf(".");
+  const stem = dot > 0 ? path.slice(0, dot) : path;
+  return stem.replace(/[^A-Za-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "");
 }
 
-const MODULES: readonly ArchitectureModule[] = ARCHITECTURE_MODULES.map(moduleContract);
+/** The classification `path` takes from the deepest folder default above it, or `undefined` when no folder declares one. */
+export function architectureDirectoryDefault(
+  path: string,
+  defaults: readonly ArchitectureDirectoryDefault[] = ARCHITECTURE_DIRECTORY_DEFAULTS,
+): ArchitectureDirectoryDefault | undefined {
+  let best: ArchitectureDirectoryDefault | undefined;
+  for (const entry of defaults) {
+    if (path.startsWith(entry.directory) && (best === undefined || entry.directory.length > best.directory.length)) best = entry;
+  }
+  return best;
+}
+
+function moduleContract(path: string, entry: ArchitectureModuleEntry | undefined, defaults: readonly ArchitectureDirectoryDefault[]): ArchitectureModule {
+  const folder = architectureDirectoryDefault(path, defaults);
+  const realm = entry?.realm ?? folder?.realm;
+  const layer = entry?.layer ?? folder?.layer;
+  const owner = entry?.owner ?? folder?.owner;
+  if (realm === undefined || layer === undefined || owner === undefined) {
+    throw new InputError(`no folder of src/architecture-modules.ts classifies ${path}, and it has no entry that does`, "architecture_module_unclassified");
+  }
+  const id = entry?.id ?? architectureModuleId(path);
+  return {
+    id,
+    path,
+    realm,
+    layer,
+    owner,
+    allowedDependencyLayers: LAYERS[layer],
+    compositionRoot: entry?.compositionRoot ?? false,
+    executionBoundary: entry?.executionBoundary ?? "pure",
+    ports: entry?.ports ?? { requires: [], provides: [] },
+    effects: entry?.effects ?? [],
+    configPaths: entry?.configPaths ?? [],
+    stateOwners: entry?.stateOwners ?? [],
+    projectionOwners: entry?.projectionOwners ?? [],
+    authorityFamilies: entry?.authorityFamilies ?? [],
+    authorityIdentifiers: entry?.authorityIdentifiers ?? [],
+    responsibilities: entry?.responsibilities ?? [id],
+  };
+}
 
 /** Each realm's composition roots: the modules whose entry declares the role, sorted — derived, never a second list. */
 function compositionRootsOf(modules: readonly ArchitectureModule[]): Readonly<Record<ArchitectureRealm, readonly string[]>> {
@@ -184,15 +235,29 @@ function compositionRootsOf(modules: readonly ArchitectureModule[]): Readonly<Re
   return { builder: roots("builder"), runtime: roots("runtime"), shared: roots("shared"), safety: roots("safety") };
 }
 
-export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
-  schemaVersion: "bridlewise-architecture-manifest/v4",
+/**
+ * THE MANIFEST OF A TREE: one module per source path (sorted), each
+ * classified by its entry or its folder, with the composition roots its
+ * entries declare. Pure: the paths are the caller's census of the tree.
+ */
+export function architectureManifestOf(
+  sourcePaths: readonly string[],
+  entries: readonly ArchitectureModuleEntry[] = ARCHITECTURE_MODULES,
+  defaults: readonly ArchitectureDirectoryDefault[] = ARCHITECTURE_DIRECTORY_DEFAULTS,
+): ArchitectureManifest {
+  const byPath = new Map(entries.map((entry) => [entry.path, entry] as const));
+  const modules = [...new Set(sourcePaths)].toSorted().map((path) => moduleContract(path, byPath.get(path), defaults));
+  return deepFreeze({ ...ARCHITECTURE_MANIFEST, compositionRoots: compositionRootsOf(modules), modules });
+}
+
+export const ARCHITECTURE_MANIFEST: ArchitecturePolicy = deepFreeze({
+  schemaVersion: "bridlewise-architecture-manifest/v5",
   sourceRoots: ["scripts/", "src/", "verification/"],
   graphPolicy: "derived-edges-no-cycles",
   publicApiPolicy: "derived-from-source-never-committed",
   analysisLimits: { maximumSourceBytes: 1_048_576, maximumAstNodes: 100_000 },
   responsibilityPolicy: "one-registered-cohesive-owner-per-responsibility",
   physicalLayoutStatus: "open-blocking-architecture-v1-migration-required",
-  compositionRoots: compositionRootsOf(MODULES),
   // THE PUBLIC SNAPSHOT PUBLISHES A SUBSET OF THE PRIVATE FLOOR'S EXTERNAL
   // RESEARCH COMMANDS. `publication: "not-published"` declares a source this
   // tree deliberately does not carry: the verifier still refuses it, by name,
@@ -367,5 +432,4 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     regression: "explicit-root-exact-write-set-and-default-cwd-confusion-matrix-x3",
     removalVerification: "independent-universal-tool-root-fencing-and-incident-replay",
   }],
-  modules: MODULES,
 });

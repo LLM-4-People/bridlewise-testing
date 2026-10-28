@@ -21,7 +21,7 @@ import {
   externalCommandSourceFinding,
   PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
 } from "../kernel/architecture-external-commands.ts";
-import { readExternalCommandSources, verifyExternalCommands } from "../../scripts/verification/architecture.ts";
+import { readExternalCommandSources, repositoryArchitectureManifest, verifyExternalCommands } from "../../scripts/verification/architecture.ts";
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
 import {
   generatedOutputPaths,
@@ -389,7 +389,7 @@ export async function harnessCheck(
     step: "module-registrar",
     status: registrarInSync(moduleRegistrarReport) ? "pass" : "fail",
     message: registrarInSync(moduleRegistrarReport)
-      ? "all modules registered and no drift"
+      ? "the module decisions agree with the tree"
       : registrarDriftMessage(moduleRegistrarReport),
     details: moduleRegistrarReport,
   }));
@@ -1923,7 +1923,8 @@ export function harnessNewModule(
   const output: HarnessNewModuleOutput = deepFreeze({
     modulePath: normalizedPath,
     created,
-    registered: registrarReport.unregisteredModules === 0,
+    // Every source module under the source roots IS registered (its folder classifies it): the census is the registration.
+    registered: created || existsSync(absolutePath),
     registrarReport,
   });
   return wrapResult("new-module", output);
@@ -1950,14 +1951,14 @@ export async function runTypecheck(root: string, bounds: SubprocessBounds = SUBP
   return deepFreeze({ step: "typecheck", status: "fail", message: `typecheck failed: ${ending}${said.length === 0 ? "" : `\n${said}`}`, details: null });
 }
 
-/** The registrar's verdict: every module registered, none drifted, the entries file in its one form. */
+/** The registrar's verdict: no decision drifted from the tree, the decisions file in its one form. */
 function registrarInSync(report: ModuleRegistrarReport): boolean {
-  return report.unregisteredModules === 0 && report.driftedModules === 0 && report.entriesCurrent;
+  return report.driftedModules === 0 && report.entriesCurrent;
 }
 
 function registrarDriftMessage(report: ModuleRegistrarReport): string {
-  return `${report.unregisteredModules} unregistered, ${report.driftedModules} drifted` +
-    (report.entriesCurrent ? "" : `, ${ARCHITECTURE_MODULES_PATH} not in its one form (sorted, one entry per line: run harness sync)`);
+  return `${report.driftedModules} drifted (${report.drift.map((module) => module.path).join(", ")})` +
+    (report.entriesCurrent ? "" : `, ${ARCHITECTURE_MODULES_PATH} not in its one form (sorted, one line each: run harness sync)`);
 }
 
 /**
@@ -1995,7 +1996,7 @@ function externalCommandCheckViolations(root: string): readonly string[] {
     const finding = externalCommandSourceFinding(command, sourceByPath.get(command.path));
     if (finding.kind === "declared-absent") declaredAbsence.add(finding.violation);
   }
-  const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module] as const));
+  const moduleByPath = new Map(repositoryArchitectureManifest(root).modules.map((module) => [module.path, module] as const));
   const verifierViolations: string[] = [];
   verifyExternalCommands(
     ARCHITECTURE_MANIFEST,

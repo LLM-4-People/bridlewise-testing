@@ -421,7 +421,7 @@ function architectureFixture(path: string, source: string): readonly string[] {
     responsibilities: [`fixture-${path}`],
   };
   const manifest: ArchitectureManifest = {
-    schemaVersion: "bridlewise-architecture-manifest/v4",
+    schemaVersion: "bridlewise-architecture-manifest/v5",
     sourceRoots: ["scripts/", "src/", "verification/"],
     graphPolicy: "derived-edges-no-cycles",
     publicApiPolicy: "derived-from-source-never-committed",

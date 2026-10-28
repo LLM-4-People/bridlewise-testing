@@ -1,41 +1,53 @@
 /**
- * THE ARCHITECTURE'S MODULE ENTRIES, AS TEXT: their one reader and their one
- * form.
+ * THE ARCHITECTURE'S MODULE DECISIONS, AS TEXT: their one reader and their
+ * one form.
  *
- * `src/architecture-modules.ts` holds what is AUTHORED about each module (its
- * realm, layer, owner, roles, effects, ports, owned state and authority) as
- * ONE ENTRY PER LINE, SORTED BY PATH (#221): two branches that register,
- * remove or reclassify different modules touch different lines and merge.
- * What the source itself says (its exports, its imports) is never written
- * there: the architecture check derives it from the source every time, so no
- * per-module count, name hash or edge list can conflict or go stale.
+ * `src/architecture-modules.ts` holds what is AUTHORED about the modules, and
+ * only that: one line per folder classification (realm, layer, owner every
+ * module under it takes) and one line per module whose id, classification,
+ * role, effects, ports, owned state or authority differs from what its path
+ * and folder derive. Both lists are sorted. A module that is only what its
+ * folder says has no line, so adding modules A and B in two branches changes
+ * nothing here (#221), and two branches that decide about different modules
+ * touch different lines.
  *
- * The module registrar (`harness sync`) is the file's writer: it reads the
- * entries here (from the TEXT, never by importing the module it rewrites),
- * adds, removes or marks entries, and writes them back in the one form
- * {@link architectureModulesText} renders. `harness check` refuses a file
- * that is not in that form. A reader that only needs the entries' facts (a
- * guard mapping the web hub's namespaces to module ids) reads them here too,
- * without executing the module or carrying it into a browser-side closure.
+ * What the source itself says (its exports, its imports) is never written:
+ * the architecture check derives it every time. The module list itself is the
+ * tree's (`architectureManifestOf`).
+ *
+ * The module registrar (`harness sync`) writes the file: it removes the entry
+ * of a deleted module, marks a detected entry point a composition root, and
+ * writes both lists in the one form {@link architectureModulesText} renders
+ * (a field equal to what is derived is dropped, an entry left with nothing is
+ * dropped). It reads the TEXT here, never the module it rewrites; a guard
+ * that needs the decisions reads them here too, without executing the module.
  */
 import { parse as parseModule } from "@babel/parser";
 import { z } from "zod";
 
-import type { ArchitectureModuleEntry } from "../architecture-manifest.ts";
+import { architectureDirectoryDefault, architectureModuleId, type ArchitectureDirectoryDefault, type ArchitectureModuleEntry } from "../architecture-manifest.ts";
 import { InputError } from "../kernel/errors.ts";
 import { astNode, astNodeArray, type AstNode } from "../quality-packs/prevention/ast-helpers.ts";
 
-/** The authored module entries, engine-relative. */
+/** The authored module decisions, engine-relative. */
 export const ARCHITECTURE_MODULES_PATH = "src/architecture-modules.ts";
 
+const REALM = z.enum(["builder", "runtime", "shared", "safety"]);
+const LAYER = z.enum(["trusted-kernel", "domain", "ports", "application", "infrastructure", "interface", "verification"]);
 const NAMES = z.array(z.string().min(1));
-/** Every authored field, in the one order a line renders them; the optional ones are written only when not their default. */
-const ENTRY_SCHEMA = z.strictObject({
-  id: z.string().min(1),
-  path: z.string().min(1),
-  realm: z.enum(["builder", "runtime", "shared", "safety"]),
-  layer: z.enum(["trusted-kernel", "domain", "ports", "application", "infrastructure", "interface", "verification"]),
+const DIRECTORY_SCHEMA = z.strictObject({
+  directory: z.string().regex(/^(?:[^/]+\/)+$/u),
+  realm: REALM,
+  layer: LAYER,
   owner: z.string().min(1),
+});
+/** Every authored field of a module, in the one order a line renders them. */
+const ENTRY_SCHEMA = z.strictObject({
+  path: z.string().min(1),
+  id: z.string().min(1).optional(),
+  realm: REALM.optional(),
+  layer: LAYER.optional(),
+  owner: z.string().min(1).optional(),
   executionBoundary: z.enum(["pure", "read-adapter", "effect-adapter", "interface", "composition-root", "verification"]).optional(),
   compositionRoot: z.boolean().optional(),
   ports: z.strictObject({ requires: NAMES, provides: NAMES }).optional(),
@@ -52,26 +64,31 @@ const ENTRY_SCHEMA = z.strictObject({
 });
 const FIELD_ORDER = Object.keys(ENTRY_SCHEMA.shape) as readonly (keyof ArchitectureModuleEntry)[];
 
+/** The module decisions read from the file's text. */
+export type ArchitectureModuleDecisions = Readonly<{
+  defaults: readonly ArchitectureDirectoryDefault[];
+  entries: readonly ArchitectureModuleEntry[];
+}>;
+
 const HEADER = `/**
- * THE ARCHITECTURE'S MODULES: one authored entry per line, sorted by path.
+ * THE ARCHITECTURE'S MODULE DECISIONS: one line each, sorted.
  *
- * Each line is what is decided about one module: its realm, layer and owner,
- * and, when not the default, its execution boundary and composition-root
- * role, ports, effects, config paths, owned state and projections, authority
- * and responsibilities. What its source says (exports, imports) is derived
+ * A folder line classifies every module under it (the deepest folder wins).
+ * A module line records only what differs from what its path and folder
+ * derive: an id, a realm, layer or owner, a composition-root role or
+ * execution boundary, ports, effects, config paths, owned state and
+ * projections, authority, responsibilities. A module that is only what its
+ * folder says has no line. What a source says (exports, imports) is derived
  * by the architecture check and never written here.
  *
- * \`harness sync\` (the module registrar) adds the line of a new source module
- * (classified like its nearest registered neighbour), removes the line of a
- * deleted one, marks a detected entry point a composition root, and writes
- * this file in its one form (src/workflow/architecture-module-entries.ts);
+ * \`harness sync\` (the module registrar) removes the line of a deleted
+ * module, marks a detected entry point a composition root, and writes this
+ * file in its one form (src/workflow/architecture-module-entries.ts);
  * \`harness check\` refuses any other. Edit a line to change a decision.
  */
-import type { ArchitectureModuleEntry } from "./architecture-manifest.ts";
+import type { ArchitectureDirectoryDefault, ArchitectureModuleEntry } from "./architecture-manifest.ts";
 
-export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
 `;
-const FOOTER = "];\n";
 
 function refused(message: string): InputError {
   return new InputError(`${ARCHITECTURE_MODULES_PATH}: ${message}`, "architecture_modules_invalid");
@@ -89,63 +106,84 @@ function literalValue(node: AstNode | undefined): unknown {
       return Object.fromEntries(astNodeArray(node.properties).map((property) => {
         const key = astNode(property.key);
         if (property.type !== "ObjectProperty" || property.computed === true || (key?.type !== "Identifier" && key?.type !== "StringLiteral")) {
-          throw refused(`an entry property is not a plain key: ${String(property.type)}`);
+          throw refused(`a property is not a plain key: ${String(property.type)}`);
         }
         return [String(key.type === "Identifier" ? key.name : key.value), literalValue(astNode(property.value))];
       }));
     default:
-      throw refused(`an entry holds a ${String(node?.type)}, not a literal`);
+      throw refused(`a line holds a ${String(node?.type)}, not a literal`);
   }
 }
 
-/**
- * The entries of `text` (the file's contents), in file order, each checked
- * against the authored fields: an entry that is not a plain literal, misses a
- * field or carries an unknown one is refused (`architecture_modules_invalid`).
- */
-export function readArchitectureModuleEntries(text: string): readonly ArchitectureModuleEntry[] {
-  const program = parseModule(text, { sourceType: "module", plugins: ["typescript"], errorRecovery: false }).program;
+function exportedArray(program: AstNode, name: string): readonly AstNode[] {
   const declarations = astNodeArray(program.body).flatMap((statement) =>
     statement.type === "ExportNamedDeclaration" && astNode(statement.declaration)?.type === "VariableDeclaration"
       ? astNodeArray(astNode(statement.declaration)!.declarations)
       : []);
-  const modules = declarations.find((declaration) => astNode(declaration.id)?.name === "ARCHITECTURE_MODULES");
-  const array = astNode(modules?.init);
-  if (array?.type !== "ArrayExpression") throw refused("no `export const ARCHITECTURE_MODULES = [...]` array");
-  return astNodeArray(array.elements).map((element) => {
-    const parsed = ENTRY_SCHEMA.safeParse(literalValue(element));
-    if (!parsed.success) throw refused(`an entry is not an architecture module entry: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
-    return parsed.data as ArchitectureModuleEntry;
-  });
+  const array = astNode(declarations.find((declaration) => astNode(declaration.id)?.name === name)?.init);
+  if (array?.type !== "ArrayExpression") throw refused(`no \`export const ${name} = [...]\` array`);
+  return astNodeArray(array.elements);
 }
 
-/** Is `value` the default `moduleContract` gives the field when the entry leaves it out? */
-function isDefault(entry: ArchitectureModuleEntry, field: keyof ArchitectureModuleEntry): boolean {
+function parsed<T>(schema: z.ZodType<T>, node: AstNode, what: string): T {
+  const result = schema.safeParse(literalValue(node));
+  if (!result.success) throw refused(`a line is not ${what}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+  return result.data;
+}
+
+/**
+ * The decisions of `text` (the file's contents), in file order, each checked
+ * against its fields: a line that is not a plain literal, misses a field or
+ * carries an unknown one is refused (`architecture_modules_invalid`).
+ */
+export function readArchitectureModuleDecisions(text: string): ArchitectureModuleDecisions {
+  const program = parseModule(text, { sourceType: "module", plugins: ["typescript"], errorRecovery: false }).program as unknown as AstNode;
+  return {
+    defaults: exportedArray(program, "ARCHITECTURE_DIRECTORY_DEFAULTS").map((node) => parsed(DIRECTORY_SCHEMA, node, "a folder classification") as ArchitectureDirectoryDefault),
+    entries: exportedArray(program, "ARCHITECTURE_MODULES").map((node) => parsed(ENTRY_SCHEMA, node, "a module decision") as ArchitectureModuleEntry),
+  };
+}
+
+/** Is `field` of `entry` exactly what the module takes without it (from its path, its folder or the contract's default)? */
+function isDerived(entry: ArchitectureModuleEntry, field: keyof ArchitectureModuleEntry, defaults: readonly ArchitectureDirectoryDefault[]): boolean {
   const value = entry[field];
   if (value === undefined) return true;
+  const folder = architectureDirectoryDefault(entry.path, defaults);
   switch (field) {
+    case "path": return false;
+    case "id": return value === architectureModuleId(entry.path);
+    case "realm": case "layer": case "owner": return folder !== undefined && value === folder[field];
     case "executionBoundary": return value === "pure";
     case "compositionRoot": return value === false;
     case "ports": return entry.ports!.requires.length === 0 && entry.ports!.provides.length === 0;
-    case "responsibilities": return entry.responsibilities!.length === 1 && entry.responsibilities![0] === entry.id;
-    case "id": case "path": case "realm": case "layer": case "owner": return false;
+    case "responsibilities": return entry.responsibilities!.length === 1 && entry.responsibilities![0] === (entry.id ?? architectureModuleId(entry.path));
     default: return Array.isArray(value) && value.length === 0;
   }
 }
 
-/** One entry's line: its fields in the one order, each optional field only when it is not its default. */
-function entryLine(entry: ArchitectureModuleEntry): string {
-  const fields = FIELD_ORDER.filter((field) => !isDefault(entry, field)).map((field) => `${field}: ${JSON.stringify(entry[field])}`);
-  return `  { ${fields.join(", ")} },`;
-}
+const byKey = <T>(key: (item: T) => string) => (left: T, right: T): number => key(left) < key(right) ? -1 : key(left) > key(right) ? 1 : 0;
+
+/** Each item rendered `{ field: value, … }` on one line. */
+const line = (fields: readonly (readonly [string, unknown])[]): string => `  { ${fields.map(([field, value]) => `${field}: ${JSON.stringify(value)}`).join(", ")} },`;
 
 /**
- * THE ONE FORM of the module entries: the fixed header, then one line per
- * entry sorted by path. Two entries with one path are refused.
+ * THE ONE FORM of the decisions: the fixed header, the folder lines sorted by
+ * folder, then the module lines sorted by path, each holding only what is not
+ * derived (an entry left with nothing is dropped). Two lines for one folder or
+ * one path are refused.
  */
-export function architectureModulesText(entries: readonly ArchitectureModuleEntry[]): string {
-  const sorted = entries.toSorted((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
-  const duplicate = sorted.find((entry, index) => index > 0 && sorted[index - 1]!.path === entry.path);
-  if (duplicate !== undefined) throw refused(`two entries register ${duplicate.path}`);
-  return `${HEADER}${sorted.map(entryLine).join("\n")}${sorted.length === 0 ? "" : "\n"}${FOOTER}`;
+export function architectureModulesText(decisions: ArchitectureModuleDecisions): string {
+  const defaults = decisions.defaults.toSorted(byKey((entry) => entry.directory));
+  const entries = decisions.entries
+    .map((entry) => Object.fromEntries(FIELD_ORDER.filter((field) => !isDerived(entry, field, defaults)).map((field) => [field, entry[field]])) as ArchitectureModuleEntry)
+    .filter((entry) => Object.keys(entry).length > 1)
+    .toSorted(byKey((entry) => entry.path));
+  for (const [keys, what] of [[defaults.map((entry) => entry.directory), "folder"], [entries.map((entry) => entry.path), "path"]] as const) {
+    const duplicate = keys.find((value, index) => index > 0 && keys[index - 1] === value);
+    if (duplicate !== undefined) throw refused(`two lines decide the ${what} ${duplicate}`);
+  }
+  const block = (name: string, type: string, lines: readonly string[]): string =>
+    `export const ${name}: readonly ${type}[] = [\n${lines.map((text) => `${text}\n`).join("")}];\n`;
+  return `${HEADER}${block("ARCHITECTURE_DIRECTORY_DEFAULTS", "ArchitectureDirectoryDefault", defaults.map((entry) => line([["directory", entry.directory], ["realm", entry.realm], ["layer", entry.layer], ["owner", entry.owner]])))}\n` +
+    block("ARCHITECTURE_MODULES", "ArchitectureModuleEntry", entries.map((entry) => line(FIELD_ORDER.filter((field) => entry[field] !== undefined).map((field) => [field, entry[field]] as const))));
 }

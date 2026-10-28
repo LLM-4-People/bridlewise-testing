@@ -26,7 +26,8 @@ import { stageInCopy } from "../../src/git/working-copy.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
-const DELETED = "test/shared-suite/dev-mode-env.test.ts";
+/** A recorded exception (a pending source): deleting it is a decision that must be named. A canonical-by-default test has no entry to prune. */
+const DELETED = "test/shared-memory/shared-memory.test.ts";
 
 test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", () => {
   const copy = createRepositoryWorkingCopy("harness-prune-", { include: engineGeneratorPopulation });
@@ -50,7 +51,9 @@ test("harness regenerate: a deleted test is refused with the typed code and the 
     const present = "test/shared-suite/best-effort.test.ts";
     assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED, present] }),
       (error: unknown) => (error as { code?: string }).code === "test_surface_prune_not_deleted");
-    harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED] });
+    // The named prune goes through the dispositions; the pinned non-canonical set then asks to be restated by hand
+    // (the conservation identity: a pin a generator can rewrite refuses nothing).
+    assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED] }), /the pinned non-canonical test-source set moved/u);
     const manifest = readFileSync(join(copy.engineRoot, "traceability", "test-surface-dispositions.json"), "utf8");
     assert.equal(manifest.includes(`"${DELETED}"`), false, "the named deletion left the manifest");
   } finally {

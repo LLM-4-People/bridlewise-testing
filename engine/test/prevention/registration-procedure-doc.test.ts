@@ -3,8 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 import { experimentExclusion, walk } from "../../scripts/verification/source-walk.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 /**
  * D3 Test #4 — Registration procedure doc (D2).
@@ -40,7 +42,7 @@ test("registration-procedure-doc: contains the canonical registration steps", ()
 test("registration-procedure-doc: every src/**/*.ts file (excl. index.ts barrels +.d.ts) has a module entry", () => {
   // Build the set of module paths from the manifest.
   const manifestPaths = new Set<string>();
-  for (const module of ARCHITECTURE_MANIFEST.modules) {
+  for (const module of REPOSITORY_MANIFEST.modules) {
     manifestPaths.add(module.path);
   }
 

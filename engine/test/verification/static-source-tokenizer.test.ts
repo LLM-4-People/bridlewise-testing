@@ -29,6 +29,9 @@ import { sha256 } from "../../src/kernel/integrity.ts";
 import { withTempDir } from "../support/temp-dir.ts";
 import { DEFAULT_STATIC_MODULE_SHAPE_FILESYSTEM_CACHE_MAX_ENTRIES } from "../../src/workflow/workflow-config.ts";
 import { experimentExclusion, walk } from "../../scripts/verification/source-walk.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 const tokenizeFixture = (source: string) => tokenizeStaticSource(source, "fixture.ts");
 
@@ -423,7 +426,7 @@ test("Module references: nested and defaulted TSX generic arrows retain executab
 });
 
 test("Module references: independent erased-channel disagreement refuses a valid cached shape", () => {
-  const host = ARCHITECTURE_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
+  const host = REPOSITORY_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
   assert.ok(host);
   const source = 'import type { T } from "./independent-erased-target.ts";';
   const semantics = analysisSemanticsId(new URL("../../scripts/verification/static-source.ts", import.meta.url), new URL("../../src/shared/source-extensions.ts", import.meta.url));
@@ -433,7 +436,7 @@ test("Module references: independent erased-channel disagreement refuses a valid
   try {
     cache.write(key, { exportedNames: [], analysis: { ...analysis, typeOnlyModuleReferences: [] } });
     clearStaticModuleShapeCache();
-    const violations = verifyArchitectureSources([{ path: host.path, source }], { ...ARCHITECTURE_MANIFEST, modules: [host] }).violations;
+    const violations = verifyArchitectureSources([{ path: host.path, source }], { ...REPOSITORY_MANIFEST, modules: [host] }).violations;
     assert.ok(violations.includes(`architecture-independent-type-reference-disagreement:${host.path}`));
     assert.ok(violations.includes(`architecture-unregistered-dependency:${host.path}->src/kernel/independent-erased-target.ts`));
   } finally {
@@ -471,8 +474,8 @@ test("Module references: ambient ancestors erase runtime guards but retain refer
       assert.deepEqual([...new Set(lexical.analysis.typeOnlyModuleReferences)].sort(), erased.map(target => target.replace("src/", "./")).sort());
       assert.equal(lexical.analysis.unmodeledModuleAcquisition, false);
       assert.deepEqual(lexical.exportedNames, ast.exportedNames);
-      const host = ARCHITECTURE_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
-      const violations = verifyArchitectureSources([{ path: host.path, source }], { ...ARCHITECTURE_MANIFEST, modules: [host] }).violations;
+      const host = REPOSITORY_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
+      const violations = verifyArchitectureSources([{ path: host.path, source }], { ...REPOSITORY_MANIFEST, modules: [host] }).violations;
       assert.ok(violations.includes(`architecture-unregistered-dependency:${host.path}->src/kernel/absent.mts`));
       assert.ok(!violations.some(violation => violation.startsWith("architecture-independent-")), JSON.stringify(violations));
     }
@@ -502,22 +505,22 @@ test("Module references: TSX generic regex defaults retain the executable body",
 test("Module references: actual symbol extractor member names preserve scanner admission", () => {
   const path = "src/intelligence/symbol-extractor.ts";
   const source = readFileSync(new URL("../../src/intelligence/symbol-extractor.ts", import.meta.url), "utf8");
-  const module = ARCHITECTURE_MANIFEST.modules.find(entry => entry.path === path)!;
+  const module = REPOSITORY_MANIFEST.modules.find(entry => entry.path === path)!;
   const analysis = analyzeStaticModuleShape(source, path).analysis;
   assert.equal(analysis.unmodeledModuleAcquisition, false);
-  const violations = verifyArchitectureSources([{ path, source }], { ...ARCHITECTURE_MANIFEST, modules: [module] }).violations;
+  const violations = verifyArchitectureSources([{ path, source }], { ...REPOSITORY_MANIFEST, modules: [module] }).violations;
   assert.ok(!violations.some(violation => violation.startsWith("architecture-independent-") || violation.startsWith("architecture-lexical-module-unmodeled:")), JSON.stringify(violations));
 });
 
 test("Architecture references: runtime wrappers preserve cycles, layers and effects", () => {
-  const kernel = ARCHITECTURE_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
-  const cli = ARCHITECTURE_MANIFEST.modules.find(module => module.path === "src/cli.ts")!;
+  const kernel = REPOSITORY_MANIFEST.modules.find(module => module.path === "src/kernel/errors.ts")!;
+  const cli = REPOSITORY_MANIFEST.modules.find(module => module.path === "src/cli.ts")!;
   assert.ok(kernel); assert.ok(cli);
   const target = 'import { type T } from "./kernel/errors.ts"; export type U = string;';
   for (const erased of [true, false]) {
     const source = `${erased ? 'import type { U }' : 'import { type U }'} from "../cli.ts"; export type T = string;`;
     const sources = [{ path: kernel.path, source }, { path: cli.path, source: target }];
-    const manifest: ArchitectureManifest = { ...ARCHITECTURE_MANIFEST, compositionRoots: EMPTY_COMPOSITION_ROOTS, modules: [
+    const manifest: ArchitectureManifest = { ...REPOSITORY_MANIFEST, compositionRoots: EMPTY_COMPOSITION_ROOTS, modules: [
       kernel,
       cli,
     ] };
@@ -528,15 +531,15 @@ test("Architecture references: runtime wrappers preserve cycles, layers and effe
   }
   for (const erased of [true, false]) {
     const source = erased ? 'import type { Stats } from "node:fs";' : 'import { type Stats, readFileSync } from "node:fs"; void readFileSync;';
-    const violations = verifyArchitectureSources([{ path: kernel.path, source }], { ...ARCHITECTURE_MANIFEST, modules: [kernel] }).violations;
+    const violations = verifyArchitectureSources([{ path: kernel.path, source }], { ...REPOSITORY_MANIFEST, modules: [kernel] }).violations;
     assert.equal(violations.some(value => value.startsWith(`architecture-effect-owner:${kernel.path}:node:fs:`)), !erased);
   }
 });
 
 test("Architecture references: strip-only unsupported source refuses before registration", () => {
-  const module = ARCHITECTURE_MANIFEST.modules.find(entry => entry.path === "src/kernel/errors.ts")!;
+  const module = REPOSITORY_MANIFEST.modules.find(entry => entry.path === "src/kernel/errors.ts")!;
   for (const source of ['import Alias = require("../../_experiments/target.ts");', 'import Alias = Namespace.Value;', 'export = 1;', 'const value = <unknown>import("../../_experiments/target.ts");']) {
-    const violations = verifyArchitectureSources([{ path: module.path, source }], { ...ARCHITECTURE_MANIFEST, modules: [module] }).violations;
+    const violations = verifyArchitectureSources([{ path: module.path, source }], { ...REPOSITORY_MANIFEST, modules: [module] }).violations;
     assert.ok(violations.includes(`architecture-source-parse:${module.path}`));
   }
 });

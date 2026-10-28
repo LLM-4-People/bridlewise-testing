@@ -21,6 +21,7 @@ import {
   createTestInventory,
   createTestInventoryEntry,
   discoverTestNames,
+  listRecognizableTestPaths,
   testFilesFromInventory,
   testInventoryEntryIdentity,
   testInventoryIdentity,
@@ -35,6 +36,7 @@ import {
 import {
   buildTestSurfaceScope,
   createTestSurfaceDispositionManifest,
+  effectiveDispositionEntries,
   isQualifiedCanonicalNodeTestSource,
   parseTestSurfaceDispositionManifestText,
   parseTestSurfaceScope,
@@ -43,6 +45,7 @@ import {
   type TestSurfaceDispositionEntry,
 } from "../../scripts/verification/test-surface.ts";
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { defaultDispositionEntry } from "../../src/kernel/test-surface-manifest.ts";
 import { canonicalDomainHash, canonicalHash, canonicalJson } from "../../src/kernel/integrity.ts";
 import { compareUtf8Bytes } from "../../src/kernel/ordered.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
@@ -194,7 +197,8 @@ test("test-surface identity uses UTF-8 byte order independent of locale x3", () 
     language: "javascript-typescript",
     disposition: "canonical-node-test",
     rationale: "Synthetic non-ASCII ordering mutant for the canonical test-surface builder.",
-    evidenceLinks: [],
+    // Evidence makes each an exception (a written entry): a qualified source without one is canonical by default and has none.
+    evidenceLinks: ["test/README.md"],
     blocksFullRepositoryClaim: false,
   }));
   const baseline = createTestSurfaceDispositionManifest(entries);
@@ -886,7 +890,8 @@ test("every canonical node test source in the dispositions manifest is staticall
     join(repositoryRoot, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath),
     "utf8",
   ));
-  const canonical = manifest.entries
+  // Every canonical source: its entry's, or the default a qualified Node test source takes without one.
+  const canonical = effectiveDispositionEntries(listRecognizableTestPaths(repositoryRoot), manifest)
     .filter((entry) => entry.disposition === "canonical-node-test" && existsSync(join(repositoryRoot, entry.path)))
     .map((entry) => entry.path);
   assert.ok(canonical.length > 100, `canonical node test sources scanned: ${canonical.length}`);
@@ -1038,7 +1043,7 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
   });
 });
 
-test("every recognizable test file in the repository is present in the dispositions manifest", () => {
+test("every recognizable test file in the repository has a disposition — its entry or its default — and no entry names a missing file", () => {
   // This test reads the real repository workspace, which is seeded with
   // `cp -rl` hardlinks (nlink=2) and runs in dev mode. The hardlink-rejection
   // security test above (line 205, "recursive inventory rejects hardlinks")
@@ -1067,7 +1072,8 @@ test("every recognizable test file in the repository is present in the dispositi
       .map((entry) => entry.path);
     assert.ok(recognizableFiles.length > 0, "repository must contain recognizable test files");
 
-    const missing = recognizableFiles.filter((path) => !manifestPaths.has(path));
+    // A qualified Node test source is canonical without an entry (#221): only an undecided source is missing.
+    const missing = recognizableFiles.filter((path) => !manifestPaths.has(path) && defaultDispositionEntry(path) === undefined);
     const extra = [...manifestPaths].filter((path) => !recognizableFiles.includes(path));
     assert.deepEqual(
       { missing, extra },

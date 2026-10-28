@@ -11,7 +11,7 @@ import { configuredExecutionAuthority, loadTestResultFromExecution } from "./tes
 import { candidateFormatErrorViolations } from "../verification/candidate-format.ts";
 import { loadTestInventory } from "../test-inventory.ts";
 import { validateTestReceipt } from "./test-receipt.ts";
-import { analyzeArchitectureSource, readExternalCommandSources, verifyArchitectureSources } from "../verification/architecture.ts";
+import { analyzeArchitectureSource, architectureSourcePaths, readExternalCommandSources, repositoryArchitectureManifest, verifyArchitectureSources } from "../verification/architecture.ts";
 import { verifyArtifactAdmission } from "../tooling/verification/artifact-admission.ts";
 import {
   inspectSafeRepositoryRootBoundary,
@@ -40,7 +40,8 @@ import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../src/kern
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { reportBestEffortFailure } from "../../src/shared/debug/debug-system.ts";
-import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_MANIFEST, architectureManifestOf } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_MODULES } from "../../src/architecture-modules.ts";
 import { ARCHITECTURE_MODULES_PATH } from "../../src/workflow/architecture-module-entries.ts";
 import { DATA_CLASSIFICATION, FORENSIC_CLASSIFICATIONS } from "../../src/privacy/classification-catalog.ts";
 import { configDocumentPath, getConfigDocumentSchema, inspectConfigDocument } from "../../src/kernel/config.ts";
@@ -184,9 +185,6 @@ const SCAN_FILE_SUFFIX_EXCLUSIONS = ROOT_POLICY.configuration.repositoryScanFile
 const HISTORICAL_RESEARCH_EVIDENCE_ALLOWLIST = new Set<string>(
   ROOT_POLICY.productBoundary.historicalResearchEvidenceAllowlist,
 );
-const EXPECTED_SOURCE_FILES = Object.freeze(ARCHITECTURE_MANIFEST.modules.flatMap((module) =>
-  /^src\/[^/]+\.ts$/u.test(module.path) ? [module.path.slice("src/".length)] : []
-).toSorted());
 const TRUSTED_BOOTSTRAP_PATH = registeredArchitectureModulePath("bootstrap-permissions");
 const REQUIREMENTS_REGISTRY_REFERENCE_SCHEMA = z.strictObject({
   path: z.literal(ROOT_POLICY.requirements.registryFile),
@@ -568,9 +566,10 @@ function cacheS1Verification(manifestHash: string, result: S1Verification): void
 
 function verifyArchitecture(root: string, paths: readonly string[], violations: string[], contents: ManifestFileContents): void {
   const sources = paths
+    // The census's own rules (`architectureSourcePaths`): an experiment-excluded path is not a module.
     .filter((path) => ARCHITECTURE_MANIFEST.sourceRoots.some((prefix) => path.startsWith(prefix)) &&
       ARCHITECTURE_SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension)) &&
-      !isTransientSourcePath(path))
+      !isTransientSourcePath(path) && !shouldExcludeExperiment(path))
     .map((path) => {
       const source = cachedReadFileText(root, path, contents);
       if (source === undefined) {
@@ -581,9 +580,10 @@ function verifyArchitecture(root: string, paths: readonly string[], violations: 
     })
     .filter((entry): entry is { path: string; source: string } => entry !== undefined);
   const externalCommandSources = readExternalCommandSources(root, ARCHITECTURE_MANIFEST, violations);
+  // The manifest of exactly the sources judged: the census is the candidate's own source list.
   violations.push(...verifyArchitectureSources(
     sources,
-    ARCHITECTURE_MANIFEST,
+    architectureManifestOf(sources.map((entry) => entry.path)),
     externalCommandSources,
   ).violations);
 }
@@ -995,11 +995,7 @@ function verifyConfigurationSurface(root: string, paths: readonly string[], viol
 }
 
 function verifySourceManifest(paths: readonly string[], violations: string[]): void {
-  const actual = paths.filter((path) => /^src\/[^/]+\.ts$/u.test(path))
-    .map((path) => path.slice("src/".length)).toSorted();
-  if (!sameOrderedValues(actual, [...EXPECTED_SOURCE_FILES].toSorted())) {
-    violations.push("s1-production-source-manifest");
-  }
+  // Every source under the source roots is a module (the census): only the forbidden names are refused here.
   for (const forbidden of ["core.ts", "store.ts", "state-boundary.ts", "text-validation.ts", "agent.ts", "model.ts", "workspace.ts"]) {
     if (paths.includes(`src/${forbidden}`)) violations.push(`forbidden-production-source:${forbidden}`);
   }
@@ -1088,8 +1084,8 @@ function verifyStandaloneProductBoundary(
 }
 
 function allowedEffectIdentifiersForPath(path: string): ReadonlySet<string> {
-  const module = ARCHITECTURE_MANIFEST.modules.find((entry) => entry.path === path);
-  if (module === undefined) return new Set();
+  // A module's effects are a decision: a module with none recorded has none.
+  const module = { effects: ARCHITECTURE_MODULES.find((entry) => entry.path === path)?.effects ?? [] };
   const allowed = new Set<string>();
   if (module.effects.includes("filesystem-write")) {
     for (const api of FILESYSTEM_WRITE_APIS) allowed.add(api);
@@ -1115,7 +1111,7 @@ function allowedEffectIdentifiersForPath(path: string): ReadonlySet<string> {
 function architectureRegistryProductBoundaryProjection(path: string, source: string): string {
   if (path !== ARCHITECTURE_MODULES_PATH) return source;
   let projected = source;
-  const allowedReferences = ARCHITECTURE_MANIFEST.modules
+  const allowedReferences = ARCHITECTURE_MODULES
     .map((module) => module.path)
     .filter((modulePath) => isHistoricalResearchEvidencePath(modulePath) &&
       containsExternalApplicationReference(modulePath));
@@ -1981,7 +1977,8 @@ function verifyPackageCompositionRoots(
   if (isPlainObject(packageDocument.exports) && typeof packageDocument.exports["."] === "string") {
     commandPaths.add(packageDocument.exports["."].replace(/^\.\//u, ""));
   }
-  const compositionRoots = new Set(Object.values(ARCHITECTURE_MANIFEST.compositionRoots).flat());
+  // A composition root is a decision: the modules whose decision declares the role.
+  const compositionRoots = new Set(ARCHITECTURE_MODULES.filter((module) => module.compositionRoot === true).map((module) => module.path));
   for (const path of commandPaths) {
     if (!compositionRoots.has(path)) violations.push(`architecture-package-command-root-unregistered:${path}`);
   }
@@ -2037,8 +2034,13 @@ function inspectSpecifier(
   pending.push(target);
 }
 
+/** The top-level `src/*.ts` modules of the tree at `root` (from the census), `src/`-relative. */
+function topLevelSourceFiles(root: string): readonly string[] {
+  return architectureSourcePaths(root).filter((path) => /^src\/[^/]+\.ts$/u.test(path)).map((path) => path.slice("src/".length));
+}
+
 function verifyStaticConfigurationSources(root: string, violations: string[]): void {
-  for (const name of EXPECTED_SOURCE_FILES) {
+  for (const name of topLevelSourceFiles(root)) {
     const path = join(root, "src", name);
     let source: string;
     try {
@@ -2057,7 +2059,7 @@ function verifyStaticConfigurationSources(root: string, violations: string[]): v
 }
 
 function verifyNoProductionEffects(root: string, violations: string[]): void {
-  for (const name of EXPECTED_SOURCE_FILES) {
+  for (const name of topLevelSourceFiles(root)) {
     const path = join(root, "src", name);
     let source: string;
     try {
@@ -2265,8 +2267,9 @@ function sameRecord(left: Record<string, string> | undefined, right: Record<stri
  * {@link verifyProductionGraph}.
  */
 function registeredRuntimeProductionSourceFiles(root: string): readonly string[] {
-  const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module]));
-  const pending = [...ARCHITECTURE_MANIFEST.compositionRoots.runtime];
+  const manifest = repositoryArchitectureManifest(root);
+  const moduleByPath = new Map(manifest.modules.map((module) => [module.path, module]));
+  const pending = [...manifest.compositionRoots.runtime];
   const reached = new Set<string>();
   while (pending.length > 0) {
     const path = pending.pop()!;
@@ -2293,8 +2296,9 @@ function registeredRuntimeProductionSourceFiles(root: string): readonly string[]
     .toSorted());
 }
 
+/** The path of the module whose decision gives it `id` (a module named by id here has its id recorded). */
 function registeredArchitectureModulePath(id: string): string {
-  const matches = ARCHITECTURE_MANIFEST.modules.filter((module) => module.id === id);
+  const matches = ARCHITECTURE_MODULES.filter((module) => module.id === id);
   if (matches.length !== 1) throw new Error(`Architecture module registration is invalid: ${id}`);
   return matches[0]!.path;
 }

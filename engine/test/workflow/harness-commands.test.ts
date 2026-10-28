@@ -299,7 +299,7 @@ test("HarnessCommands: harnessNewModule throws on empty path", () => {
 function newModuleRoot(prefix: string): string {
   const root = createTempDir(prefix);
   mkdirSync(join(root, "src"), { recursive: true });
-  writeFileSync(join(root, ARCHITECTURE_MODULES_PATH), architectureModulesText([]));
+  writeFileSync(join(root, ARCHITECTURE_MODULES_PATH), architectureModulesText({ defaults: [{ directory: "src/", realm: "runtime", layer: "domain", owner: "fixture" }], entries: [] }));
   return root;
 }
 
@@ -679,7 +679,7 @@ test("HarnessCommands: harnessRegister structure, integrity, timestamp, and zero
   const parsed = new Date(result.generatedAt);
   assert.ok(!Number.isNaN(parsed.getTime()));
   assert.equal(result.result.registrarReport.driftedModules, 0);
-  assert.equal(result.result.registrarReport.unregisteredModules, 0);
+  assert.equal(result.result.registrarReport.entriesCurrent, true);
 });
 
 test("HarnessCommands: harnessRegister write=false does not modify manifest", () => {
@@ -689,16 +689,15 @@ test("HarnessCommands: harnessRegister write=false does not modify manifest", ()
   assert.equal(before, after);
 });
 
-test("HarnessCommands: harnessRegister on temp project detects unregistered modules", () => {
-  const tmpDir = createTempDir("harness-register-");
+test("HarnessCommands: harnessRegister on a temp project: a new module needs no decision, a decision whose file is gone drifts", () => {
+  const tmpDir = newModuleRoot("harness-register-");
   try {
-    mkdirSync(join(tmpDir, "src"), { recursive: true });
-    writeFileSync(join(tmpDir, ARCHITECTURE_MODULES_PATH), architectureModulesText([]));
     writeFileSync(join(tmpDir, "src", "mod.ts"), `export const X = 1;\n`);
-    mkdirSync(join(tmpDir, "test"), { recursive: true });
-    writeFileSync(join(tmpDir, "test", "t.test.ts"), `import test from "node:test";\ntest("t", () => {});\n`);
-    const result = harnessRegister(tmpDir, { write: false });
-    assert.ok(result.result.registrarReport.unregisteredModules >= 1);
+    const plain = harnessRegister(tmpDir, { write: false });
+    assert.equal(plain.result.registrarReport.totalSourceModules, 2, "the census holds the new module (and the decisions file itself)");
+    assert.equal(plain.result.registrarReport.driftedModules, 0, "a plain new module is classified by its folder: nothing to register");
+    writeFileSync(join(tmpDir, ARCHITECTURE_MODULES_PATH), architectureModulesText({ defaults: [{ directory: "src/", realm: "runtime", layer: "domain", owner: "fixture" }], entries: [{ path: "src/gone.ts", owner: "other" }] }));
+    assert.deepEqual(harnessRegister(tmpDir, { write: false }).result.registrarReport.drift.map((module) => module.path), ["src/gone.ts"]);
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -711,7 +710,7 @@ test("HarnessCommands: harnessRegister determinism - same root produces same rep
   const r2 = harnessRegister(ROOT, { write: false });
   assert.equal(r1.command, r2.command);
   assert.equal(r1.result.registrarReport.driftedModules, r2.result.registrarReport.driftedModules);
-  assert.equal(r1.result.registrarReport.unregisteredModules, r2.result.registrarReport.unregisteredModules);
+  assert.equal(r1.result.registrarReport.totalSourceModules, r2.result.registrarReport.totalSourceModules);
 });
 
 // ---------------------------------------------------------------------------
@@ -722,7 +721,7 @@ test("HarnessCommands: harnessRegister determinism - same root produces same rep
 // reported "fail". The status must come from the POST-WRITE outcome.
 // ---------------------------------------------------------------------------
 
-test("HarnessCommands: harnessRegister write passes after auto-registering a new module; a changed export is no drift", () => {
+test("HarnessCommands: harnessRegister write passes and writes nothing for a new module or a changed export", () => {
   const copy = createRepositoryWorkingCopy("harness-register-write-", { include: engineGeneratorPopulation });
   const tmpDir = copy.engineRoot;
   try {
@@ -736,14 +735,13 @@ test("HarnessCommands: harnessRegister write passes after auto-registering a new
     assert.equal(unchanged.status, "pass");
     assert.equal(readFileSync(entriesPath, "utf8"), before);
 
-    // An unregistered module is AUTO-REGISTERED by the write, and the run passes.
+    // A new module is a module the day it lands: classified by its folder, nothing is written (#221).
     writeFileSync(join(tmpDir, "src", "register-write-unregistered.ts"), "export const UNREGISTERED_PROBE = 2;\n");
-    const withUnregistered = harnessRegister(tmpDir, { write: true });
-    assert.equal(withUnregistered.result.registrarReport.unregisteredModules, 1);
-    assert.equal(withUnregistered.result.registrarReport.postWrite?.addedModules, 1);
-    assert.equal(withUnregistered.result.registrarReport.postWrite?.clean, true);
-    assert.equal(withUnregistered.status, "pass");
-    assert.ok(readFileSync(entriesPath, "utf8").includes(`path: "src/register-write-unregistered.ts"`), "the unregistered file is registered");
+    const withNew = harnessRegister(tmpDir, { write: true });
+    assert.equal(withNew.result.registrarReport.driftedModules, 0);
+    assert.equal(withNew.result.registrarReport.postWrite?.clean, true);
+    assert.equal(withNew.status, "pass");
+    assert.equal(readFileSync(entriesPath, "utf8"), before, "a plain new module writes nothing");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
@@ -767,8 +765,7 @@ test("HarnessCommands: harnessRegister write on a zero-drift project passes and 
     const result = harnessRegister(copy.engineRoot, { write: true });
     assert.equal(readFileSync(entriesPath, "utf8"), before);
     assert.equal(result.result.registrarReport.driftedModules, 0);
-    assert.equal(result.result.registrarReport.unregisteredModules, 0);
-    assert.deepEqual(result.result.registrarReport.postWrite, { addedModules: 0, removedModules: 0, markedModules: 0, clean: true });
+    assert.deepEqual(result.result.registrarReport.postWrite, { removedModules: 0, markedModules: 0, clean: true });
     assert.equal(result.status, "pass");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
@@ -1164,7 +1161,7 @@ test("HarnessCommands: harnessRegenerate write=false skips the auto-add step", (
   assert.deepEqual(result.result.dispositionAutoAdd.addedPaths, []);
 });
 
-test("HarnessCommands: harnessRegenerate write=true auto-adds missing disposition entries for new test files", () => {
+test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qualified test file", () => {
   // Repository-local working copy: the safe repository reader (used by the
   // test-inventory subprocess) rejects roots under mounted-ancestor /tmp
   // (safe_path_root_ancestor_mountpoint), so fixtures that exercise it must
@@ -1174,30 +1171,21 @@ test("HarnessCommands: harnessRegenerate write=true auto-adds missing dispositio
   const copy = createRepositoryWorkingCopy("regen-autodispo-", { include: engineGeneratorPopulation });
   const fixtureRoot = copy.engineRoot;
   try {
-    // Create a new recognizable test file that is absent from the copied
-    // dispositions manifest. Regenerate must register it automatically.
+    const manifestPath = join(fixtureRoot, "traceability", "test-surface-dispositions.json");
+    const before = readFileSync(manifestPath, "utf8");
+    // A new qualified Node test file is canonical by default: nothing is written (#221).
     const newFile = "test/workflow/regen-autodispo-fixture.test.ts";
     writeFileSync(join(fixtureRoot, newFile), `import test from "node:test";\ntest("fixture", () => {});\n`);
-    // The copy has its own index, and a new test source must be in it before
-    // the heal registers it (test_surface_source_untracked otherwise).
+    // The copy has its own index, and a new test source must be in it (test_surface_source_untracked otherwise).
     execFileSync("git", ["add", "-N", "--", newFile], { cwd: fixtureRoot });
-
     const result = harnessRegenerate(fixtureRoot, { write: true });
-
     assert.equal(result.command, "regenerate");
-    assert.equal(result.result.dispositionAutoAdd.status, "added");
-    assert.equal(result.result.dispositionAutoAdd.addedCount, 1);
-    assert.deepEqual([...result.result.dispositionAutoAdd.addedPaths], [newFile]);
-    // The manifest on disk now carries the auto-registered entry with the
-    // canonical disposition for a qualified js/ts test source.
-    const manifestAfter = JSON.parse(readFileSync(join(fixtureRoot, "traceability", "test-surface-dispositions.json"), "utf8")) as {
-      entries: ReadonlyArray<{ path: string; disposition: string }>;
-    };
-    const added = manifestAfter.entries.find((entry) => entry.path === newFile);
-    assert.ok(added, "auto-add wrote the new entry to the manifest");
-    assert.equal(added!.disposition, "canonical-node-test");
-    // A second regenerate on the healed fixture is a no-op for the auto-add
-    // step (idempotent): the manifest already covers every recognizable file.
+    assert.equal(result.result.dispositionAutoAdd.status, "current");
+    assert.equal(result.result.dispositionAutoAdd.addedCount, 0);
+    assert.equal(readFileSync(manifestPath, "utf8"), before, "adding a test rewrites nothing here");
+    // (A recognizable source OUTSIDE the qualified patterns is an exception the auto-heal records as pending, and the
+    // conservation pin of the non-canonical set then refuses until it is restated: auto-heal.test.ts and the
+    // conservation tests own that.)
     const second = harnessRegenerate(fixtureRoot, { write: true });
     assert.equal(second.result.dispositionAutoAdd.status, "current");
     assert.equal(second.result.dispositionAutoAdd.addedCount, 0);
