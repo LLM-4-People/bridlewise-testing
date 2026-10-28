@@ -377,6 +377,10 @@ test("shared repository-root qualification rejects mounted and symlinked ancesto
 
 test("repository-local fixture cleanup isolates retained concurrent and crashed owners x3", async (t) => {
   const worker = fileURLToPath(new URL("../support/repository-local-temporary-worker.ts", import.meta.url));
+  // This test's owners sweep only each other: in a full run, any other test
+  // file's first creation sweeps every DEAD `owner-*` root, and did so between
+  // the SIGKILL below and the look at the killed owner's root (FLAKE-REPRO:
+  // test/support/flake-shim-concurrent-owner-sweep.ts reproduces it).
   for (let repetition = 0; repetition < 3; repetition += 1) {
     const retainedResult = await runTemporaryOwnerWorker(worker, "retain");
     const cleanedResult = await runTemporaryOwnerWorker(worker, "cleanup");
@@ -414,7 +418,7 @@ test("repository-local fixture cleanup isolates retained concurrent and crashed 
     // the next creation — the owned-temporary contract that ended the leaked
     // `owner-*` roots (WF-DEL fixture leak): before, a crashed owner's root
     // stayed for ever.
-    const held = spawn(process.execPath, [worker, "hold"], { stdio: ["ignore", "pipe", "pipe"] });
+    const held = spawn(process.execPath, [worker, "hold", OWNER_NAMESPACE], { stdio: ["ignore", "pipe", "pipe"] });
     // A failed arm never leaves the holding worker running.
     t.after(() => { if (held.exitCode === null && held.signalCode === null) held.kill("SIGKILL"); });
     let heldOutput = "";
@@ -1160,11 +1164,14 @@ function environmentWithoutParentTestContext(): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "NODE_TEST_CONTEXT"));
 }
 
+/** The owner namespace of this file's temporary-owner workers (see the crashed-owner test). */
+const OWNER_NAMESPACE = "inventory-test";
+
 async function runTemporaryOwnerWorker(
   worker: string,
   mode: "cleanup" | "retain",
 ): Promise<{ path: string; exists: boolean }> {
-  const child = spawn(process.execPath, [worker, mode], { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [worker, mode, OWNER_NAMESPACE], { stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
   child.stdout!.setEncoding("utf8");

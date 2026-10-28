@@ -29,6 +29,8 @@ const REPOSITORY_LOCAL_TEMPORARY_ROOT = join(
 );
 
 let ownedTemporaryRoot: string | undefined;
+/** The owned root's name prefix; see {@link isolateRepositoryLocalOwners}. */
+let ownerPrefix = "owner-";
 let qualifiedRepositoryRootCapability: RepositoryRootCapability | undefined;
 let qualifiedRepositoryReadCapability: RepositoryRootCapability | undefined;
 const QUALIFIED_TEMPORARY_CAPABILITIES = new Map<string, RepositoryRootCapability>();
@@ -74,8 +76,23 @@ function getOwnedTemporaryRoot(): string {
   // its authority"). The owned root belongs to the PROCESS that created it:
   // the owner removes it when the process exits. Files that call
   // `removeRepositoryLocalTemporaryRoot` from their own hook remove it earlier.
-  ownedTemporaryRoot = createOwnedTemporaryDirectory(ensurePrivateStateDirectory(REPOSITORY_LOCAL_TEMPORARY_ROOT), "owner-");
+  ownedTemporaryRoot = createOwnedTemporaryDirectory(ensurePrivateStateDirectory(REPOSITORY_LOCAL_TEMPORARY_ROOT), ownerPrefix);
   return ownedTemporaryRoot;
+}
+
+/**
+ * Names this process's owned root `<namespace>-owner-…` instead of `owner-…`,
+ * before its first creation. A creation sweeps the dead owners of ITS OWN
+ * prefix only, so the processes of one namespace sweep each other and no
+ * other test file's process sweeps them. For a test that asserts on a dead
+ * owner's root: in a full engine run, any other test file's first creation
+ * sweeps every dead `owner-*` root, and did so between a SIGKILL and the
+ * test's look at the root (recursive-test-inventory, FLAKE-REPRO record).
+ */
+export function isolateRepositoryLocalOwners(namespace: string): void {
+  if (ownedTemporaryRoot !== undefined) throw new Error("repository-local owners are isolated before this process's first creation, never after");
+  if (!/^[a-z][a-z0-9-]*$/u.test(namespace)) throw new Error("a repository-local owner namespace is lower-case letters, digits and dashes");
+  ownerPrefix = `${namespace}-owner-`;
 }
 /** Names the folders inside this process's owned root, which only this process writes. */
 let temporaryDirectoriesCreated = 0;
