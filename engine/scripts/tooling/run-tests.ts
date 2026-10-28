@@ -50,7 +50,7 @@ import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { configuredRuntimeAdmission, withAdmittedNodeRuntime } from "../../src/runtime/admitted-node-runtime.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { reportLauncherStop, watchLauncher } from "./launcher-watch.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../../src/filesystem/temporary-root.ts";
 
 export type WorkerExecutionOptions = Readonly<{
@@ -95,7 +95,7 @@ export async function runWorkerWithEvidence(
     const observation = await runRecordedCommand({
       arguments: arguments_,
       cwd: workingDirectory,
-      supervision: { supervisor: testProcessSupervisorBinary(), hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs, killGraceMs: engineSuiteWatchdog.killGraceMs },
+      supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs, killGraceMs: engineSuiteWatchdog.killGraceMs },
       ...(options.environment === undefined ? {} : { environment: options.environment }),
       ...(options.setupFailureCode === undefined ? {} : { setupFailureCode: options.setupFailureCode }),
       ...(options.stop === undefined ? {} : { stop: options.stop }),
@@ -234,6 +234,11 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     const treeAtStart = readMeasuredTree(fileURLToPath(new URL("../../", import.meta.url)));
     // NO TEST WRITES THE LIVE HARNESS FOLDER (round 13, R3-1): its identity, as a configuration bootstrap compares it,
     // before the first test and after the last; a change fails the run, named (a concurrent gate would have failed on it).
+    // The native supervisor every worker runs under is BUILT HERE, before the
+    // snapshot below: built by the first caller in mid-run, it wrote into the
+    // live harness folder and a concurrent configuration bootstrap refused an
+    // unrelated commit (#293, #132). Every later caller only resolves it.
+    ensureTestProcessSupervisor();
     const harnessAtStart = harnessFolderIdentity(root);
     // NOR MOVES THE REPOSITORY (round 14): the checkout's HEAD and the branch it names, before and after; a test whose
     // git command fell through to the real checkout (a commit, a reset, a checkout) is named and fails the run.
@@ -840,7 +845,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   prunedPaths: readonly string[];
 }> {
   const { join } = await import("node:path");
-  const { createTestSurfaceDispositionManifest, isQualifiedCanonicalNodeTestSource, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage } = await import("../verification/test-surface.ts");
+  const { createTestSurfaceDispositionManifest, defaultDispositionEntry, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage, serializeTestSurfaceDispositionManifest } = await import("../../src/kernel/test-surface-manifest.ts");
   const { ROOT_POLICY } = await import("../../src/kernel/root-policy.ts");
   const { listUntrackedRecognizableTestPaths, listRecognizableTestPaths } = await import("../test-inventory.ts");
 
@@ -875,8 +880,9 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   const recognizablePaths = listRecognizableTestPaths(root);
   const recognizableSet = new Set(recognizablePaths);
 
+  // A qualified Node test source is canonical without an entry: only a source outside the qualified patterns needs one.
   const missingPaths = recognizablePaths
-    .filter((path) => !registeredPaths.has(path))
+    .filter((path) => !registeredPaths.has(path) && defaultDispositionEntry(path) === undefined)
     .sort();
   const stalePaths = [...registeredPaths]
     .filter((path) => !recognizableSet.has(path))
@@ -922,7 +928,8 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       `${unnamed.slice(0, 10).join(", ")}${unnamed.length > 10 ? ", …" : ""}. ` +
       `If a directory moved, move the pattern in root-policy.ts with it. If these files were deleted on ` +
       `purpose, name each deletion: node src/cli.ts harness sync ${unnamed.slice(0, 10).map((path) => `--prune ${path}`).join(" ")}` +
-      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags).`,
+      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags), and name each in the deleting ` +
+      `commit's own Test-deleted: <path> trailer (scripts/verification/test-deletions.ts).`,
       "test_surface_prune_refused",
     );
   }
@@ -939,16 +946,6 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       // unreachable; guard for exhaustiveness.
       throw new Error(`auto-add encountered a non-recognizable path: ${path}`);
     }
-    if (language === "javascript-typescript" && isQualifiedCanonicalNodeTestSource(path)) {
-      return {
-        path,
-        language,
-        disposition: "canonical-node-test" as const,
-        rationale: "Auto-registered by npm test auto-heal.",
-        evidenceLinks: [] as string[],
-        blocksFullRepositoryClaim: false,
-      };
-    }
     return {
       path,
       language,
@@ -963,7 +960,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
 
   const newEntries = [...keptEntries, ...addedEntries];
   const regenerated = createTestSurfaceDispositionManifest(newEntries);
-  const written = atomicWriteFile(manifestPath, JSON.stringify(regenerated, null, 2) + "\n");
+  const written = atomicWriteFile(manifestPath, serializeTestSurfaceDispositionManifest(regenerated));
   if (!written.success) {
     throw new HarnessError(`Failed to write the disposition manifest ${manifestPath}: ${written.reason ?? "unknown error"}`, "disposition_manifest_write_failed");
   }

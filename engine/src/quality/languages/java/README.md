@@ -7,12 +7,6 @@ definitions, fields, and imports.
 
 - `parser.ts` — the Java parser on tree-sitter's real grammar.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/quality/languages/java/`.
-
-- `parser.ts` is consumed by `engine/src/quality/languages/index.ts`.
-
-<!-- /consumers:generated -->

@@ -3,8 +3,9 @@
  * identity (the one `provingGround` repository of the forge section, never
  * the trunk), its seed, the read-only configuration check, the reads a
  * scenario judges by (a deleted branch, a commit's verification), and the
- * VERDICT RULES of the workspace's scenarios (V-6, V-14, V-15). The proving
- * scenarios (`proving/`, real GitHub as the agent App) and their offline
+ * VERDICT RULES of the workspace's scenarios (V-6, V-14, V-15) and of the
+ * projector's (V-25, V-28). The proving scenarios (`proving/`, real GitHub as
+ * the agent App, or as the publisher App for the projection) and their offline
  * tests (`proving-ground-api.test.ts`, the fake GitHub) both use this module;
  * no offline test reaches `proving/` itself (`proving-isolation.test.ts`).
  */
@@ -12,6 +13,7 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { ForgeError, isForgeError } from "../../src/workflow/forge/codes.ts";
 import { trunkRepository, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
 import type { ForgeClient } from "../../src/workflow/forge/port.ts";
+import { projectionFailure, type ProjectionReceipt } from "../../src/workflow/forge/projector/apply.ts";
 
 export type ProvingGround = Readonly<{ owner: string; name: string; webUrl: string; client: ForgeClient }>;
 
@@ -111,6 +113,22 @@ export async function commitVerification(ground: ProvingGround, sha: string): Pr
   return Object.freeze({ verified: answer.data?.verification?.verified === true, reason: String(answer.data?.verification?.reason ?? "unknown") });
 }
 
+/**
+ * A PRECONDITION OF THE PROJECTOR'S SCENARIOS: each label in `names` exists
+ * on the proving ground (GitHub compares label names without case). The
+ * projector is not a label's owner, and GitHub would create a missing label
+ * an issue write names, so a scenario verifies its labels before its first
+ * write and refuses typed (`proving_ground_label_missing`, naming each
+ * missing one) — a read only, never a write.
+ */
+export async function requireLabels(ground: ProvingGround, names: readonly string[], maxPages: number): Promise<void> {
+  const live = new Set((await ground.client.paginate<{ name: string }>({ path: provingGroundPath(ground, "/labels") }, { maxPages, perPage: 100 })).map((label) => label.name.toLowerCase()));
+  const missing = names.filter((name) => !live.has(name.toLowerCase()));
+  if (missing.length > 0) {
+    throw new HarnessError(`${ground.owner}/${ground.name} has no label ${missing.join(", ")}: the projector's scenarios need it there before their first write (declare it and apply it on the proving ground; the projector never creates one)`, "proving_ground_label_missing", false, { labels: missing.join(",") });
+  }
+}
+
 export type Verdict = Readonly<{ v: string; status: "pass" | "fail"; detail: string; evidence: readonly string[] }>;
 
 /** A verdict from named checks: pass only when every one held (the failed ones are named). */
@@ -148,5 +166,42 @@ export function v14Verdict(input: Readonly<{
     "the child's pull request stayed open after its parent landed": input.childStateAfterParent === "open",
     "the child landed at its own published head": input.childLandedHead === input.childHead,
     "the child landed only its own change": input.childChangedPaths.length === 1 && input.childChangedPaths[0] === input.childPath,
+  }, evidence);
+}
+
+/**
+ * V-25's rule (idempotent): the first run left the proving ground verified at
+ * D, and a second run of the SAME D wrote nothing and is verified too.
+ */
+export function v25Verdict(input: Readonly<{ first: ProjectionReceipt; second: ProjectionReceipt }>, evidence: readonly string[]): Verdict {
+  const { first, second } = input;
+  return verdictOf("V-25", {
+    "the first run is verified at D": first.verified,
+    "both runs projected the same D": first.digest === second.digest,
+    "the second run made zero writes": second.writes.length === 0,
+    "the second run is verified": second.verified,
+  }, evidence);
+}
+
+/**
+ * V-28's rule (a silent drop is caught): GitHub accepted a write of
+ * `candidate` (`<class>/<key>.<field>`) and did not keep it, and the run's
+ * re-read caught exactly that: it wrote the field, is not verified, fails
+ * `projection_unverified`, names the candidate, and names nothing it did not
+ * write. A run where GitHub KEPT the candidate fails, saying so: the candidate
+ * is then no silent drop, and V-28 needs another.
+ */
+export function v28Verdict(input: Readonly<{ receipt: ProjectionReceipt; candidate: string }>, evidence: readonly string[]): Verdict {
+  const { receipt, candidate } = input;
+  const cut = candidate.lastIndexOf(".");
+  const [object, field] = [candidate.slice(0, cut), candidate.slice(cut + 1)];
+  const written = new Set(receipt.writes.flatMap((write) => write.fields.map((name) => `${write.class}/${write.key}.${name}`)));
+  const unverified = receipt.unverified.map((entry) => `${entry.class}/${entry.key}.${entry.field}`);
+  return verdictOf("V-28", {
+    [`the run wrote ${candidate}`]: receipt.writes.some((write) => `${write.class}/${write.key}` === object && write.fields.includes(field)),
+    "the run is not verified": !receipt.verified,
+    "its failure is projection_unverified": projectionFailure(receipt)?.code === "projection_unverified",
+    [`GitHub did not keep ${candidate}, and the re-read names it`]: unverified.includes(candidate),
+    "every unverified field is one the run wrote": unverified.every((entry) => written.has(entry)),
   }, evidence);
 }

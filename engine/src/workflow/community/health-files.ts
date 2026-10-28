@@ -35,6 +35,9 @@ import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
+import { commandRegistryViolations } from "./commands.ts";
+import { readModeration } from "./moderation.ts";
+import { readReplyTemplates, replyTemplateViolations } from "./replies.ts";
 import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
 import {
   COMMUNITY_DIRECTORY,
@@ -65,6 +68,22 @@ export const TEMPLATED_FILES = Object.freeze([
   "GOVERNANCE.md",
   ".github/PULL_REQUEST_TEMPLATE.md",
 ] as const);
+
+/**
+ * Every repository path the community-files arm reads or writes: its sources
+ * (`docs/community/`), the files it renders from them, its forms, and the
+ * places GitHub reads a health file from, which it judges for shadows. The
+ * population of a generator test's repository copy is derived from this
+ * (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+ */
+export function communityFilesInput(path: string): boolean {
+  if (path.startsWith(`${COMMUNITY_DIRECTORY}/`) || path.startsWith(`${ISSUE_FORMS_DIRECTORY}/`) || path.startsWith(`${DISCUSSION_FORMS_DIRECTORY}/`)) return true;
+  if ((TEMPLATED_FILES as readonly string[]).includes(path)) return true;
+  const slash = path.lastIndexOf("/");
+  const location = slash === -1 ? "" : path.slice(0, slash);
+  const name = path.slice(slash + 1).toLowerCase().replace(/\.[^.]*$/u, "");
+  return (HEALTH_LOCATIONS as readonly string[]).includes(location) && (HEALTH_NAMES as readonly string[]).includes(name);
+}
 
 /** Where GitHub looks for a community health file, repository-relative (`""` is the root). */
 const HEALTH_LOCATIONS = Object.freeze(["", ".github", "docs"] as const);
@@ -109,7 +128,14 @@ function readCommunityFacts(repositoryRoot: string): CommunityFacts {
   const makefile = "engine/guardian/Makefile";
   const compiler = /^CC\s*:=\s*(\S+)$/mu.exec(readFileSync(join(repositoryRoot, makefile), "utf8"))?.[1];
   if (compiler === undefined) templateInvalid(makefile, "declares no CC := … line");
-  return Object.freeze({ roles: readRoles(repositoryRoot), intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
+  const roles = readRoles(repositoryRoot);
+  // The commands, the bot replies and the moderation modes are judged here too, so `harness check` refuses a
+  // command naming an undeclared role, a reply template out of step with its key's slots, or modes that cannot
+  // mean anything, before any live comment does.
+  const disagreements = [...commandRegistryViolations(roles), ...replyTemplateViolations(readReplyTemplates(repositoryRoot))];
+  if (disagreements.length > 0) templateInvalid(COMMUNITY_DIRECTORY, disagreements.join("; "));
+  readModeration(repositoryRoot);
+  return Object.freeze({ roles, intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
 }
 
 const repositoryUrl = (facts: CommunityFacts): string => `https://github.com/${facts.repository}`;

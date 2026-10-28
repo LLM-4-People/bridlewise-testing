@@ -15,19 +15,6 @@ The model faces exactly ONE edit tool, `edit(path, oldString, newString)`. The m
 - `syntax-validator.ts` — the syntax-validator module.
 - `transactional-editor.ts` — the transactional-editor module.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/editor/`.
-
-- `edit-feedback.ts` is consumed by `engine/src/editor/transactional-editor.ts`.
-- `edit-operations.ts` is consumed by `engine/src/editor/edit-resolve.ts`, `engine/src/editor/transactional-editor.ts`, `server/blocks/editor.ts`, `server/intelligence/auto-heal.ts`, `server/tools/tool-executor.ts`.
-- `edit-resolve.ts` is consumed by `engine/src/editor/edit-tools.ts`, `server/blocks/editor.ts`, `server/tools/tool-executor.ts`.
-- `edit-tools.ts` is consumed by `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
-- `monotone-complexity-guard-config.ts` is consumed by `engine/src/editor/monotone-complexity-guard.ts`.
-- `monotone-complexity-guard.ts` is consumed by nothing yet.
-- `syntax-validator.ts` is consumed by `engine/src/editor/edit-feedback.ts`, `engine/src/editor/edit-tools.ts`, `engine/src/editor/transactional-editor.ts`, `engine/src/quality-packs/typescript-pack.ts`.
-- `transactional-editor.ts` is consumed by `engine/src/editor/edit-tools.ts`, `engine/src/index.ts`, `engine/src/shared/exposure/registrations/editor.ts`.
-
-<!-- /consumers:generated -->

@@ -65,12 +65,13 @@ test("tiers: incremental adds dead-symbols + unused-exports", () => {
   assert.equal(checkIds.length, 4);
 });
 
-test("tiers: full adds dead-branches + duplicate-logic + schema-drift + config-outside-contract", () => {
+test("tiers: full adds dead-branches + duplicate-logic + config-outside-contract", () => {
   const checkIds = getTierCheckIds("full");
   assert.ok(checkIds.includes("dead-branches"));
   assert.ok(checkIds.includes("duplicate-logic"));
-  assert.ok(checkIds.includes("schema-drift"));
   assert.ok(checkIds.includes("config-outside-contract"));
+  // The inert schema-drift check is gone (#492): the manifest it read no longer holds counts or hashes.
+  assert.ok(!checkIds.includes("schema-drift"));
   // A floor, not an equality — see the note on compareTiers below.
   assert.ok(checkIds.length >= 8, `full names ${checkIds.length} checks`);
   assert.equal(new Set(checkIds).size, checkIds.length, "no id may be named twice");
@@ -139,8 +140,8 @@ test("tiers: compareTiers incremental vs full adds the whole-repo checks", () =>
   // has to be edited every time a check is added to the full tier, and a test
   // that must be edited to stay green is the mechanism by which a real
   // regression gets waved through as "just the count moving".
-  assert.ok(result.addedChecks.length >= 4, `full adds ${result.addedChecks.length} checks over incremental`);
-  for (const id of ["dead-branches", "duplicate-logic", "schema-drift", "config-outside-contract"]) {
+  assert.ok(result.addedChecks.length >= 3, `full adds ${result.addedChecks.length} checks over incremental`);
+  for (const id of ["dead-branches", "duplicate-logic", "config-outside-contract"]) {
     assert.ok(result.addedChecks.includes(id), `full must add ${id}`);
   }
   assert.ok(result.isSuperset);
@@ -346,7 +347,7 @@ test("tiers: every check a pack declares is reachable from at least one tier", (
   // floor. Without it, a pack whose `checks` array became empty would satisfy
   // the assertions below by having nothing to check.
   const declared = typescriptPack.checks.map((c) => c.id);
-  assert.ok(declared.length >= 12, `pack declares ${declared.length} checks, expected at least 12`);
+  assert.ok(declared.length >= 11, `pack declares ${declared.length} checks, expected at least 11`);
   assert.deepEqual(gaps.checksInNoTier, [], "checks declared by a pack that no tier can run");
   assert.deepEqual(gaps.tierIdsMatchingNoCheck, [], "tier ids that name no declared check");
 });

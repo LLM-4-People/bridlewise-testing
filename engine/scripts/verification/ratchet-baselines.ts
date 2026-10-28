@@ -21,6 +21,7 @@
  * Usage: node scripts/verification/ratchet-baselines.ts [--check|--write]
  *        node scripts/verification/ratchet-baselines.ts --introduce <id> --reason <text>
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,11 +29,14 @@ import { parseArgs } from "node:util";
 
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { InputError } from "../../src/kernel/errors.ts";
+import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+import { declaredTreeKind } from "../../src/workflow/promotion/tree-kind.ts";
 import { deadMarkdownLinks } from "../../src/workflow/record-links.ts";
 import { findCatchBlocks } from "./catch-blocks.ts";
-import { judgeRatchet, parseRatchetBaseline, RATCHET_SCHEMA, type RatchetEntry } from "./ratchet.ts";
+import { judgeRatchet, parseRatchetBaseline, RATCHET_SCHEMA, ratchetGrowthSince, type RatchetEntry } from "./ratchet.ts";
 import { readSourceView, type SourceView } from "./source-view.ts";
 import { experimentExclusion, walk } from "./source-walk.ts";
 
@@ -45,6 +49,13 @@ export type RatchetBaselineSpec = Readonly<{
   path: string;
   /** The guard's scan over the repository: the keys the baseline is judged against. */
   findings: (repositoryRoot: string) => readonly RatchetFinding[];
+  /**
+   * The gate belongs to the source tree's testing floor: wherever the tree is not the DECLARED product
+   * projection (`declaredTreeKind`, the promotion's one owner of that classification), the baseline MUST
+   * be there — a missing one is refused, and a missing instrument refuses by name; the declared product
+   * does not run the gate, and says so. Never inferred from what a tree lacks.
+   */
+  testingFloor?: true;
 }>;
 
 // ── The engine's inline-literal defaults (engine/test/prevention/no-generic-errors.test.ts) ──
@@ -118,12 +129,62 @@ function webUnhandledCatchFindings(repositoryRoot: string): readonly RatchetFind
 // every owned Markdown document names a file or folder of the tree, or a
 // recorded evidence path (`evidence:<path>`), keyed `<document>: <target>`.
 
+// ── The derived architecture judge (scripts/tooling/s1-verification.ts) ──
+// Every module of the census is judged by its decision or its folder's
+// default: its layer against its imports, its effects against what its source
+// does, its sinks against the governed set. A module that takes a folder
+// default which does not fit it is a NEW finding here, refused by
+// `harness check` — a silent default never passes. EVERY finding kind of the
+// judge is a key (none escapes through a prefix filter); the debt that
+// predates the derivation is the baseline, and it only shrinks.
+
+/**
+ * The judge's instrument: S1's structural verifier, a testing-floor module the
+ * promotion strips from the product, so this shipped module asks it as a
+ * subprocess (`--root . --structure`) and never imports it. A tree that holds
+ * this baseline but not the instrument is refused by name, never passed.
+ */
+const ARCHITECTURE_JUDGE_INSTRUMENT = "engine/scripts/tooling/s1-verification.ts";
+
+/**
+ * The architecture judge's baseline: a FIXED path declared here, never a policy-editable one, so no edit
+ * can point the gate elsewhere. The generators' engine-only copies carry it as a declared generator input
+ * (`GENERATOR_INPUTS_BEYOND_ENGINE`), so every tree that runs the judge has it.
+ */
+export const ARCHITECTURE_JUDGE_BASELINE = VERIFICATION_PATHS.architectureJudgeBaseline;
+
+/** What the judge found that is not gated, shown by `harness check`: the run's evidence and the findings other generators own. */
+let architectureJudgeShown: Readonly<Record<string, readonly string[]>> = {};
+
+/** Every TREE-STRUCTURAL finding of the engine's structural judge (S1 over the census), each as its own key. */
+function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFinding[] {
+  const instrument = join(repositoryRoot, ARCHITECTURE_JUDGE_INSTRUMENT);
+  if (!existsSync(instrument)) {
+    throw new InputError(`the architecture judge's instrument ${ARCHITECTURE_JUDGE_INSTRUMENT} is not in this tree`, "ratchet_instrument_absent");
+  }
+  const answer = spawnSync(process.execPath, [instrument, "--root", ".", "--structure"], { cwd: join(repositoryRoot, "engine"), encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
+  if (answer.status !== 0) throw new InputError(`the architecture judge did not answer (exit ${String(answer.status)}): ${(answer.stderr ?? "").slice(0, 2000)}`, "ratchet_instrument_failed");
+  const { structural, shown, unclassified } = JSON.parse(answer.stdout) as { structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>>; unclassified: readonly string[] };
+  if (unclassified.length > 0) {
+    throw new InputError(`the architecture judge reported findings of a kind nobody classified (gated, or owned by a named check: s1-verification.ts): ${unclassified.join("; ")}`, "s1_finding_unclassified");
+  }
+  architectureJudgeShown = shown;
+  return structural.map((violation) => ({ key: violation, where: violation.slice(violation.indexOf(":") + 1) }));
+}
+
 /** Each registered baseline's guard scan, by the id the root policy declares its path under. */
 const SCANS: Readonly<Record<string, RatchetBaselineSpec["findings"]>> = Object.freeze({
   "inline-literal-defaults": inlineLiteralDefaultFindings,
   "web-unhandled-catch": webUnhandledCatchFindings,
   "dead-markdown-links": deadMarkdownLinks,
 });
+
+/** Where a source tree holds its promotion profiles (`promotion.profileDirectory` of the pinned config): a typed refusal when unconfigured. */
+function configuredProfileDirectory(): string {
+  const directory = loadPinnedConfigSnapshot().document.promotion?.profileDirectory;
+  if (directory === undefined) throw new InputError("promotion.profileDirectory is not configured: the tree's kind cannot be read", "tree_kind_unconfigured");
+  return directory;
+}
 
 /**
  * THE REGISTERED BASELINES: each path the root policy declares
@@ -139,7 +200,10 @@ export const RATCHET_BASELINES: readonly RatchetBaselineSpec[] = (() => {
   if (unscanned.length > 0 || undeclared.length > 0) {
     throw new InputError(`ratchet baselines and their scans disagree: declared without a scan [${unscanned.join(", ")}], scanned without a declared path [${undeclared.join(", ")}]`, "ratchet_baseline_registry_invalid");
   }
-  return Object.freeze(declared.map(([id, path]) => Object.freeze({ id, path, findings: SCANS[id]! })));
+  return Object.freeze([
+    ...declared.map(([id, path]): RatchetBaselineSpec => Object.freeze({ id, path, findings: SCANS[id]! })),
+    Object.freeze({ id: "architecture-judge", path: ARCHITECTURE_JUDGE_BASELINE, findings: architectureJudgeFindings, testingFloor: true as const }),
+  ]);
 })();
 
 /** The registered baseline `id`, or a typed refusal naming the ids there are. */
@@ -178,11 +242,23 @@ function withoutStale(entries: readonly RatchetEntry[], stale: readonly string[]
 export type RatchetBaselineResult = Readonly<{
   id: string;
   path: string;
-  /** current: nothing stale; pruned: stale entries removed (write); stale: a sync would remove them (check); absent: this tree does not carry the baseline. */
-  status: "current" | "pruned" | "stale" | "absent";
+  /**
+   * current: nothing stale; pruned: stale entries removed (write); stale: a sync would remove them (check);
+   * grown: it holds entries the base it lands on does not (the one growth judgement, by id);
+   * missing: a testing-floor gate's baseline is not in a tree that is not the declared product — refused;
+   * not-in-this-tree: the tree is the DECLARED product projection, which does not run testing-floor gates;
+   * absent: a baseline of a gate that is not the testing floor's, which this tree does not carry.
+   */
+  status: "current" | "pruned" | "stale" | "grown" | "missing" | "not-in-this-tree" | "absent";
   stale: readonly string[];
   /** Findings the baseline does not hold (new debt): reported, never added — the guard fails on them. */
   unbaselined: readonly string[];
+  /** Entries the baseline holds that the base it lands on does not: a ratchet only shrinks. */
+  grown: readonly string[];
+  /** Findings the guard reports but does not gate, by family (shown by `harness check`). */
+  shown: Readonly<Record<string, readonly string[]>>;
+  /** The testing-floor facts beside a product declaration (`TREE-KIND.txt`): non-empty is a refusal; the gate still runs. */
+  contradiction: readonly string[];
 }>;
 
 /**
@@ -190,10 +266,24 @@ export type RatchetBaselineResult = Readonly<{
  * remove the stale entries (never add one). `allCurrent` is true when no
  * baseline carries a stale entry after the run.
  */
-export function syncRatchetBaselines(repositoryRoot: string, write: boolean, baselines: readonly RatchetBaselineSpec[] = RATCHET_BASELINES): Readonly<{ allCurrent: boolean; results: readonly RatchetBaselineResult[] }> {
+export function syncRatchetBaselines(
+  repositoryRoot: string,
+  write: boolean,
+  baselines: readonly RatchetBaselineSpec[] = RATCHET_BASELINES,
+  grownSince?: string,
+): Readonly<{ allCurrent: boolean; results: readonly RatchetBaselineResult[] }> {
+  const growth = grownSince === undefined ? new Map<string, readonly string[]>() : new Map(ratchetGrowthSince(repositoryRoot, grownSince).map((entry) => [entry.id, entry.grown] as const));
   const results = baselines.map((spec): RatchetBaselineResult => {
+    const grown = growth.get(spec.id) ?? [];
+    // The tree's declared kind, for a testing-floor gate: the product only with the declaration and NONE of
+    // the testing floor's facts (this gate's instrument and baseline, the test trees, the promotion profiles).
+    const tree = spec.testingFloor === true
+      ? declaredTreeKind(repositoryRoot, [ARCHITECTURE_JUDGE_INSTRUMENT, "tests", "engine/test", spec.path, configuredProfileDirectory()])
+      : { kind: "source" as const, contradiction: [] };
+    const empty = { stale: [], unbaselined: [], grown, shown: {}, contradiction: tree.contradiction } as const;
+    if (tree.kind === "product") return Object.freeze({ id: spec.id, path: spec.path, status: "not-in-this-tree", ...empty });
     const absolute = resolve(repositoryRoot, spec.path);
-    if (!existsSync(absolute)) return Object.freeze({ id: spec.id, path: spec.path, status: "absent", stale: [], unbaselined: [] });
+    if (!existsSync(absolute)) return Object.freeze({ id: spec.id, path: spec.path, status: spec.testingFloor === true ? "missing" : "absent", ...empty });
     const baseline = parseRatchetBaseline(readFileSync(absolute, "utf8"), spec.path);
     const verdict = judgeRatchet(spec.findings(repositoryRoot).map((finding) => finding.key), baseline, undefined);
     // A baseline that does not carry its registry id (or another one) drifts like a stale entry: the id is how HEAD finds it.
@@ -202,12 +292,18 @@ export function syncRatchetBaselines(repositoryRoot: string, write: boolean, bas
     return Object.freeze({
       id: spec.id,
       path: spec.path,
-      status: !drifted ? "current" : write ? "pruned" : "stale",
+      status: grown.length > 0 ? "grown" : !drifted ? "current" : write ? "pruned" : "stale",
       stale: verdict.stale,
       unbaselined: verdict.unbaselined,
+      grown,
+      shown: spec.id === "architecture-judge" ? architectureJudgeShown : {},
+      contradiction: tree.contradiction,
     });
   });
-  return Object.freeze({ allCurrent: results.every((result) => result.status !== "stale"), results: Object.freeze(results) });
+  return Object.freeze({
+    allCurrent: results.every((result) => result.status !== "stale" && result.status !== "missing" && result.status !== "grown" && result.contradiction.length === 0),
+    results: Object.freeze(results),
+  });
 }
 
 /**
@@ -226,14 +322,15 @@ export function introduceRatchetBaseline(repositoryRoot: string, id: string, rea
 }
 
 function run(argv: readonly string[]): number {
-  const { values } = parseArgs({ args: [...argv], options: { check: { type: "boolean" }, write: { type: "boolean" }, introduce: { type: "string" }, reason: { type: "string" } } });
+  const { values } = parseArgs({ args: [...argv], options: { check: { type: "boolean" }, write: { type: "boolean" }, introduce: { type: "string" }, reason: { type: "string" }, "grown-since": { type: "string" } } });
   const repositoryRoot = dirname(fileURLToPath(new URL("../../", import.meta.url)));
   if (values.introduce !== undefined) {
     process.stdout.write(`${JSON.stringify(introduceRatchetBaseline(repositoryRoot, values.introduce, values.reason ?? ""))}\n`);
     return 0;
   }
-  if (values.check === values.write) throw new InputError("Usage: ratchet-baselines [--check|--write] | --introduce <id> --reason <text>", "input_error");
-  const report = syncRatchetBaselines(repositoryRoot, values.write === true);
+  if (values.check === values.write) throw new InputError("Usage: ratchet-baselines [--check [--grown-since <ref>]|--write] | --introduce <id> --reason <text>", "input_error");
+  // `--grown-since <base>`: the required check's question — a ratchet only shrinks against the base it lands on.
+  const report = syncRatchetBaselines(repositoryRoot, values.write === true, RATCHET_BASELINES, values["grown-since"]);
   process.stdout.write(`${JSON.stringify(report)}\n`);
   return report.allCurrent ? 0 : 1;
 }

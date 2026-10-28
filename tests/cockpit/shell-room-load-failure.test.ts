@@ -34,6 +34,7 @@ vi.mock("../../src/cockpit/shell/outlets.ts", () => ({
 
 import Cockpit from "../../src/cockpit/Cockpit.svelte";
 import { loadRoom } from "../../src/cockpit/shell/outlets.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -56,13 +57,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 describe("room import failure — honest hint, never a silent no-op", () => {
   let host: HTMLElement;
@@ -79,7 +73,7 @@ describe("room import failure — honest hint, never a silent no-op", () => {
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
     // Wait for the boot to settle (the shell reveals with no outlets).
-    await waitFor(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
   });
 
   afterEach(() => {
@@ -101,7 +95,7 @@ describe("room import failure — honest hint, never a silent no-op", () => {
     // The failure is VISIBLE (grammar hint), in honest words — and the words
     // must not prescribe a page reload for a retry the next keystroke
     // already performs (the old hint threw the whole page away for it).
-    await waitFor(() => host.querySelector(".hint") !== null);
+    await until(() => host.querySelector(".hint") !== null);
     expect(host.querySelector(".hint")!.textContent).toBe("switch failed to load — try again");
     expect(host.querySelector(".hint")!.textContent).not.toContain("reload");
 
@@ -122,8 +116,8 @@ describe("room import failure — honest hint, never a silent no-op", () => {
       async () => (await import("./fixtures/DeskPanelProbe.svelte")).default,
     );
     pressChord();
-    await waitFor(() => importer.mock.calls.length > attemptsAfterFirst);
-    await waitFor(() => host.querySelector(".room") !== null);
+    await until(() => importer.mock.calls.length > attemptsAfterFirst);
+    await until(() => host.querySelector(".room") !== null);
   });
 
   test("the place verb routes through the same guarded opener", async () => {
@@ -132,7 +126,7 @@ describe("room import failure — honest hint, never a silent no-op", () => {
     const place = host.querySelector<HTMLElement>(".place, [data-verb-id='horizon.place']");
     if (place === null) return; // horizon place not rendered without a project — chord path above covers the seam
     place.click();
-    await waitFor(() => host.querySelector(".hint") !== null);
+    await until(() => host.querySelector(".hint") !== null);
     expect(host.querySelector(".hint")!.textContent).toContain("failed to load");
   });
 });

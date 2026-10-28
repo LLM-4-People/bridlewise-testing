@@ -40,6 +40,7 @@ import {
 import { SHELL_CONTEXT_KEY, type ShellApi } from "../../src/cockpit/shell/contract.ts";
 import { resetProjects, selectProject, setProjects } from "../../src/state/projects.ts";
 import type { Beat } from "../../src/cockpit/flow/types.ts";
+import { until } from "../helpers/until.ts";
 
 const ROOT = "/proj";
 
@@ -64,10 +65,6 @@ function stubShell(overrides: Partial<Record<keyof ShellApi, unknown>> = {}): Sh
     setDeskLine: () => undefined,
     ...overrides,
   } as unknown as ShellApi;
-}
-
-async function settle(ms = 40): Promise<void> {
-  await new Promise((r) => setTimeout(r, ms));
 }
 
 beforeEach(() => {
@@ -121,11 +118,7 @@ describe("B. the shell forwards the payload, and refuses it for a room that cann
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    const t0 = Date.now();
-    while (host.querySelector(".shell")?.getAttribute("data-revealed") !== "true") {
-      if (Date.now() - t0 > 4000) throw new Error("shell never revealed");
-      await settle(10);
-    }
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
   });
 
   afterEach(() => {
@@ -136,11 +129,7 @@ describe("B. the shell forwards the payload, and refuses it for a room that cann
 
   test("a room request carrying a path opens the editor AND lands the path on the open seam", async () => {
     requestShellView({ kind: "room", id: "editor", path: "src/app.ts" });
-    const t0 = Date.now();
-    while (host.querySelector('[data-room-active="true"]') === null) {
-      if (Date.now() - t0 > 4000) throw new Error("room never opened");
-      await settle(10);
-    }
+    await until(() => host.querySelector('[data-room-active="true"]') !== null);
     expect(host.querySelector('[data-room-active="true"]')!.getAttribute("aria-label")).toBe(
       "editor room",
     );
@@ -151,11 +140,7 @@ describe("B. the shell forwards the payload, and refuses it for a room that cann
 
   test("a path on a room that cannot consume it refuses the WHOLE request, out loud", async () => {
     requestShellView({ kind: "room", id: "settings", path: "src/app.ts" });
-    const t0 = Date.now();
-    while (host.querySelector(".hint") === null) {
-      if (Date.now() - t0 > 4000) throw new Error("no hint");
-      await settle(10);
-    }
+    await until(() => host.querySelector(".hint") !== null);
     expect(host.querySelector(".hint")!.textContent).toContain("cannot open a file");
     expect(host.querySelector('[data-room-active="true"]')).toBeNull();
     expect(pendingEditorOpen.get()).toBeNull();
@@ -231,7 +216,8 @@ describe("C. the editor room consumes the seam through its own open mechanism", 
   test("a pending path is consumed on mount and opened probe-first, like a tree click", async () => {
     requestEditorOpen("src/app.ts");
     render(EditorRoom, { props: { shell: stubShell() } });
-    await settle();
+    // Waited for by the open itself (the read it makes), never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => readPaths.includes(`${ROOT}/src/app.ts`));
     expect(pendingEditorOpen.get()).toBeNull();
     expect(probed).toContain(`${ROOT}/src/app.ts`);
     expect(readPaths).toContain(`${ROOT}/src/app.ts`);
@@ -239,9 +225,9 @@ describe("C. the editor room consumes the seam through its own open mechanism", 
 
   test("a path arriving WHILE the room is open is honored too", async () => {
     render(EditorRoom, { props: { shell: stubShell() } });
-    await settle();
     requestEditorOpen("src/late.ts");
-    await settle();
+    // Waited for by the probe it makes, never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => probed.includes(`${ROOT}/src/late.ts`));
     expect(pendingEditorOpen.get()).toBeNull();
     expect(probed).toContain(`${ROOT}/src/late.ts`);
   });
@@ -249,7 +235,8 @@ describe("C. the editor room consumes the seam through its own open mechanism", 
   test("a path outside the project is refused in plain words, with no doomed probe", async () => {
     requestEditorOpen("/etc/passwd");
     const { container } = render(EditorRoom, { props: { shell: stubShell() } });
-    await settle();
+    // Waited for by the refusal on screen, never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => container.textContent?.includes("outside this project") === true);
     expect(pendingEditorOpen.get()).toBeNull();
     expect(probed).toHaveLength(0);
     expect(container.textContent).toContain("outside this project");

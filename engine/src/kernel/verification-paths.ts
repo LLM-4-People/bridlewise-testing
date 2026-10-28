@@ -4,19 +4,10 @@ import { ROOT_POLICY } from "./root-policy.ts";
 /** Neutral path authority shared by runtime-neutral verification cores and scripts. */
 export const VERIFICATION_PATHS = deepFreeze({
   testInventory: "traceability/s1-test-inventory.json",
-} as const);
-
-/**
- * THE GENERATED README CONSUMER BLOCKS: every README.md carrying `begin`
- * holds one block, up to `end`, that `generator` (repository-relative)
- * projects from the import graph. `harness sync` writes them, `harness check`
- * reports their drift, and every such README is a generated output
- * (`generatedOutputPaths`, src/workflow/hash-binding-registry.ts).
- */
-export const README_CONSUMER_BLOCK = deepFreeze({
-  generator: "tests/helpers/readme-consumers.ts",
-  begin: "<!-- consumers:generated -->",
-  end: "<!-- /consumers:generated -->",
+  // The architecture judge's ratchet baseline (repository-relative): a FIXED path in code, never a
+  // policy-editable one (scripts/verification/ratchet-baselines.ts); a declared generator input, so the
+  // generators' engine-only copies carry it (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+  architectureJudgeBaseline: "tests/prevention/architecture-judge-baseline.json",
 } as const);
 
 /**
@@ -103,7 +94,7 @@ export const TRACKER_BOARD = deepFreeze({
 } as const);
 
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
-export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
+export const GENERATED_BLOCKS = deepFreeze([DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
 
 /** A generated block's markers. */
 export type GeneratedBlockMarkers = Readonly<{ begin: string; end: string }>;

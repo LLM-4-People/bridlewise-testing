@@ -328,30 +328,12 @@ export function consumersOf(
 }
 
 /**
- * The consumers of a module identified by its KNOWN path. The README
- * generator already knows each file's location (it walks the folder); it needs
- * the reverse-lookup, not the name resolution. This is the door for that: no
- * basename lookup, no ambiguity — the path is the identity. The path is
- * normalized so a `engine/src/kernel/contracts.ts` and an
- * `engine/src/./kernel/contracts.ts` resolve to the same graph node.
- */
-export function consumersOfKnownPath(
-  path: string,
-  parse: (source: string) => readonly string[],
-  readSource: (path: string) => string,
-  repoRoot?: string,
-): readonly string[] {
-  const graph = buildConsumerGraph(parse, readSource, repoRoot);
-  return graph.get(normalize(path)) ?? [];
-}
-
-/**
  * The forward→reverse import graph for the whole product tree, built once per
  * `parse`/`readSource` pair and cached. Building the graph walks every product
  * module exactly once and records, for each resolved target, the files that
- * import it. The README generator asks about hundreds of modules; without this
- * shared graph each question would re-walk and re-parse the tree (O(targets ×
- * files)). With it the tree is read once and every reverse-lookup is O(1).
+ * import it; without this shared graph each question would re-walk and re-parse
+ * the tree (O(targets × files)). With it the tree is read once and every
+ * reverse-lookup is O(1).
  *
  * The map key is a target's normalized path; the value is the sorted list of
  * its consumers (repo-relative, forward slashes).

@@ -30,20 +30,6 @@ The Git bridge owns both synchronous and asynchronous reads through the same con
 - `git-ops-bridge.ts` — extends the read-only git bridge with branch, diff, and
   log reads.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/intelligence/`.
-
-- `auto-heal.ts` is consumed by `server/intelligence/intelligence-bridge.ts`, `server/routes/intelligence.ts`, `server/routes/safety.ts`.
-- `content-search-engine.ts` is consumed by `server/intelligence/content-search-worker.ts`, `server/intelligence/content-search.ts`.
-- `content-search-worker.ts` is consumed by nothing yet.
-- `content-search.ts` is consumed by `server/tools/tool-executor.ts`.
-- `git-bridge.ts` is consumed by `server/awareness/awareness-worker.ts`, `server/blocks/custody.ts`, `server/intelligence/git-ops-bridge.ts`.
-- `git-ops-bridge.ts` is consumed by `server/blocks/custody.ts`, `server/routes/git-ops.ts`, `server/tools/tool-executor.ts`.
-- `intelligence-bridge.ts` is consumed by `server/awareness/quality-bridge.ts`, `server/blocks/intelligence.ts`, `server/context/context-bridge.ts`, `server/index.ts`, `server/routes/intelligence.ts`, `server/routes/projects.ts` and 1 more.
-- `quick-view-worker.ts` is consumed by nothing yet.
-- `repository-map-worker.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

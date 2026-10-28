@@ -31,26 +31,6 @@ behind the `index.ts` barrel.
 - `cache.ts` — the subsystem cache.
 - `content-store.ts` — the append-only file-backed content store.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/memory/unified/`.
-
-- `cache.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-memory-store.ts`, `server/llm/redaction.ts`.
-- `content-store.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-memory-store.ts`.
-- `conversation-summary.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-context-manager.ts`.
-- `drift-detector.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`.
-- `ebbinghaus.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`, `engine/src/memory/unified/unified-memory-store.ts`.
-- `index.ts` is consumed by `engine/scripts/exp445/run-exp445.mjs`, `engine/scripts/exp456/run-exp456.mjs`.
-- `proactive-injector.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`.
-- `tokenizer.ts` is consumed by `engine/src/memory/unified/conversation-summary.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`, `engine/src/memory/unified/unified-context-manager.ts`, `engine/src/memory/unified/unified-memory-store.ts` and 2 more.
-- `trust-enforcer.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`.
-- `unified-config.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-context-manager.ts`, `engine/src/memory/unified/unified-memory-store.ts`, `server/context/context-bridge.ts`.
-- `unified-context-manager.ts` is consumed by `engine/src/index.ts`, `engine/src/memory/unified/index.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/shared/llm/response-transcript.ts`, `server/context/context-bridge.ts`.
-- `unified-embeddings.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`, `engine/src/memory/unified/unified-memory-store.ts`.
-- `unified-inverted-index.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-memory-store.ts`.
-- `unified-memory-store.ts` is consumed by `engine/src/memory/unified/index.ts`.
-- `unified-tool-result-store.ts` is consumed by `engine/src/memory/unified/index.ts`, `engine/src/memory/unified/unified-config.ts`, `engine/src/memory/unified/unified-context-manager.ts`, `server/context/context-bridge.ts`, `server/tools/tool-executor.ts`.
-
-<!-- /consumers:generated -->
