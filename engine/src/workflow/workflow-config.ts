@@ -240,6 +240,17 @@ export const DEFAULT_TEST_HANG_BACKSTOP_MS = 600_000 as const;
 export const DEFAULT_TEST_CPU_CLASSES: Readonly<{ defaultCeilingMs: number; headroomFactor: number; classes: readonly Readonly<{ name: string; measuredCpuMs: number; files: readonly string[] }>[] }> =
   Object.freeze({ defaultCeilingMs: 60_000, headroomFactor: 2, classes: Object.freeze([]) });
 
+/**
+ * THE ONE DERIVATION of a CPU class's ceiling: what its tests were measured
+ * to do, times the one declared headroom. A class never carries a ceiling of
+ * its own, so no ceiling is a number someone picked for one test. The
+ * judgement (scripts/tooling/test-cpu-class.ts) and the exposure page both
+ * ask this.
+ */
+export function classCeilingMs(classes: Readonly<{ headroomFactor: number }>, declared: Readonly<{ measuredCpuMs: number }>): number {
+  return Math.ceil(declared.measuredCpuMs * classes.headroomFactor);
+}
+
 // The ENGINE suite's watchdog (overridable via testExecution.engineSuiteWatchdog;
 // enforced in scripts/tooling/inventory-test-run.ts): a phase that reports no
 // test event for `stallTimeoutMs`, or a run still going at `hardCeilingMs`, is

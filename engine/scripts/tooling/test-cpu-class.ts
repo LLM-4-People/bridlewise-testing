@@ -41,6 +41,7 @@ import { join } from "node:path";
 
 import { readRunCpu } from "../../src/shared/run-cpu.ts";
 import type { TestExecutionConfig } from "../../src/kernel/config-contracts.ts";
+import { classCeilingMs } from "../../src/workflow/workflow-config.ts";
 
 /** The declaration, as `testExecution.testCpuClasses` holds it. */
 export type TestCpuClasses = NonNullable<TestExecutionConfig["testCpuClasses"]>;
@@ -60,14 +61,6 @@ export function cpuClassOf(classes: TestCpuClasses, file: string): Readonly<{ na
   return declared === undefined ? { name: "default", ceilingMs: classes.defaultCeilingMs } : { name: declared.name, ceilingMs: classCeilingMs(classes, declared) };
 }
 
-/**
- * THE ONE DERIVATION of a class's ceiling: what its tests were measured to
- * do, times the one declared headroom. A class never carries a ceiling of
- * its own, so no ceiling is a number someone picked for one test.
- */
-export function classCeilingMs(classes: TestCpuClasses, declared: TestCpuClasses["classes"][number]): number {
-  return Math.ceil(declared.measuredCpuMs * classes.headroomFactor);
-}
 
 /**
  * A class that names a file the repository does not hold is dead config: the

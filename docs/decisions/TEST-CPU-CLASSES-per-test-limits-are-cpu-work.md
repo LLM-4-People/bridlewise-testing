@@ -75,8 +75,9 @@ carries out [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)
   its tests did on a hosted runner. Its ceiling is that measurement times
   the one declared `headroomFactor` (2), because CPU work still varies with
   the runner's processor model. One function derives the ceiling
-  (`classCeilingMs` in `engine/scripts/tooling/test-cpu-class.ts`), and no
-  class carries a hand-picked ceiling. The measurements come from #490's
+  (`classCeilingMs` in `engine/src/workflow/workflow-config.ts`, which the
+  judgement and the exposure page both call), and no class carries a
+  hand-picked ceiling. The measurements come from #490's
   CI run (2026-10-28):
   - The engine run (10,800 tests) had 13 tests over the 60 s default:
     commit-guard-generated-facts 435.2 s, candidate-checkout 258.5 s, S1

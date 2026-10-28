@@ -4252,7 +4252,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 49, namesSha256: "aa1a2871411c68263dc0dd689280e73004e2ed493e8f870ccbf4ec39823ae1e0" },
+      owner: "verification-workflow", publicApi: { exportCount: 50, namesSha256: "7d588d73d4e3ff8c9bf90c5fc28fec1bd24b90248805c91870a95354ff6639cb" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5700,8 +5700,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "scripts-tooling-test-cpu-class", path: "scripts/tooling/test-cpu-class.ts", realm: "builder", layer: "verification",
-      owner: "verification", publicApi: { exportCount: 8, namesSha256: "b62928db1ac79eb1b95ebb061b8ceb2da9285ea1ae4b93d358a2604017784f52" },
-      dependencies: ["node:fs","node:path","src/shared/run-cpu.ts"],
+      owner: "verification", publicApi: { exportCount: 7, namesSha256: "7a3b9fec2768fec7581f8ca4a890b9f67c7cf947787ee68b74ee9b3640368714" },
+      dependencies: ["node:fs","node:path","src/shared/run-cpu.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "scripts-verification-corpus-root", path: "scripts/verification/corpus-root.ts", realm: "builder", layer: "verification",

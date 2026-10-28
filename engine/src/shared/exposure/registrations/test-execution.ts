@@ -48,6 +48,7 @@ import {
   DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_PARALLEL_CONCURRENCY,
+  classCeilingMs,
 } from "../../../workflow/workflow-config.ts";
 
 /**
@@ -401,9 +402,9 @@ export function registerTestExecutionExposure(): void {
       const headroom = readBudgetNumber("testExecution.testCpuClasses.headroomFactor");
       if (!Array.isArray(classes) || headroom === undefined) return NOT_DECLARED;
       if (classes.length === 0) return "no class: every test file has the default ceiling";
-      // The ceiling is DERIVED (measured × headroom), as the judgement derives it.
+      // The ceiling is DERIVED by the one owner the judgement asks.
       return (classes as { name: string; measuredCpuMs: number; files: string[] }[])
-        .map((one) => `${one.name} (measured ${one.measuredCpuMs / 1000} s, ceiling ${Math.ceil(one.measuredCpuMs * headroom) / 1000} s): ${one.files.join(", ")}`).join("; ");
+        .map((one) => `${one.name} (measured ${one.measuredCpuMs / 1000} s, ceiling ${classCeilingMs({ headroomFactor: headroom }, one) / 1000} s): ${one.files.join(", ")}`).join("; ");
     },
   });
   registerSignal({
