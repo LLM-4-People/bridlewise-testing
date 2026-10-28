@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
 import test, { after } from "node:test";
 
 import {
@@ -243,10 +245,10 @@ test("executeInventoryTestRun: a test that never settles FAILS the run instead o
     [{ path: "test/hang.test.ts", source: HANGING_SOURCE }],
     "auto",
     1,
-    // A small budget so the test costs a second rather than two minutes. The
-    // production default is `testExecution.runtimeBudgetMs`; what is under
-    // test here is that the budget is honoured at all.
-    { runtimeBudgetMs: 1_000 },
+    // A small backstop so the test costs a second rather than ten minutes. The
+    // production value is `testExecution.testHangBackstopMs`; what is under
+    // test here is that the backstop is honoured at all.
+    { testHangBackstopMs: 1_000 },
   );
   const elapsed = Date.now() - started;
   assert.equal(out.passed, false);
@@ -267,6 +269,123 @@ test("executeInventoryTestRun: a test that never settles FAILS the run instead o
   assert.ok(elapsed >= 1_000, `the run returned in ${elapsed} ms, before the 1000 ms budget could have fired`);
 });
 
+test("executeInventoryTestRun: every test file's process is BOUNDED BY CPU WORK and the one hang backstop — a test or hook that declares its own wall timeout fails naming it, a test over its CPU class fails naming its work, and waiting is never judged", () => {
+  const root = makeRoot("engine-bounds");
+  const bounded = [
+    'import test, { describe, it, beforeEach } from "node:test";',
+    'test("its own timeout", { timeout: 1234 }, () => {});',
+    'describe("a hook with its own timeout", () => { beforeEach(() => {}, { timeout: 77 }); it("under it", () => {}); });',
+    'test("burns CPU past its class", () => { const s = process.cpuUsage(); while ((process.cpuUsage(s).user + process.cpuUsage(s).system) / 1000 < 400) {} });',
+    'test("waits far past its class in wall time", async () => { await new Promise((r) => setTimeout(r, 600)); });',
+    'test("clean", () => {});',
+  ].join("\n");
+  const file = "test/bounded.test.ts";
+  const classPath = relative(resolve(root, ".."), join(root, file)).split(sep).join("/");
+  const out = runExecutorSubprocess(root, [{ path: file, source: bounded }], false, undefined, {
+    testHangBackstopMs: 600_000,
+    testCpuClasses: { defaultCeilingMs: 100_000, headroomFactor: 2, classes: [{ name: "planted", measuredCpuMs: 75, files: [classPath] }] },
+  });
+  const said = (name: string): string => JSON.stringify(out.receiptDetails.filter((detail) => JSON.stringify(detail).includes(name)));
+  assert.equal(out.passed, false);
+  assert.match(said("its own timeout"), /bounded by a 1234 ms wall timeout: a per-test wall timeout is not allowed/u);
+  assert.match(said("under it"), /bounded by a 77 ms wall timeout/u);
+  assert.match(said("burns CPU past its class"), /ms of CPU work, over its planted class ceiling of 150 ms/u);
+  assert.equal(said("waits far past its class"), "[]", "waiting is not work: a test that sleeps past its CPU ceiling in wall time passes");
+  assert.equal(said("\"clean\""), "[]");
+});
+
+test("executeInventoryTestRun: the per-test bounds live in the test file's own process only — a worker thread or child node the test starts with the inherited options never reports as a test file of its own (the accounting stays whole)", () => {
+  const root = makeRoot("engine-bounds-scope");
+  const worker = 'import { parentPort } from "node:worker_threads"; parentPort.postMessage("done");\n';
+  const child = 'process.stdout.write(JSON.stringify({ child: true }) + "\\n");\n';
+  const source = [
+    'import test from "node:test";',
+    'import assert from "node:assert/strict";',
+    'import { Worker } from "node:worker_threads";',
+    'import { execFileSync } from "node:child_process";',
+    'test("a worker thread inherits the options and runs", async () => {',
+    '  const worker = new Worker(new URL("./helper-worker.mjs", import.meta.url));',
+    '  assert.equal(await new Promise((resolve) => worker.once("message", resolve)), "done");',
+    '  await worker.terminate();',
+    '});',
+    'test("a child node with the parent\'s options prints only its own output", () => {',
+    '  const out = execFileSync(process.execPath, [...process.execArgv, new URL("./helper-child.mjs", import.meta.url).pathname], { encoding: "utf8" });',
+    '  assert.deepEqual(JSON.parse(out), { child: true });',
+    '});',
+  ].join("\n");
+  writeTestFile(root, "test/helper-worker.mjs", worker);
+  writeTestFile(root, "test/helper-child.mjs", child);
+  const out = runExecutorSubprocess(root, [{ path: "test/scoped.test.ts", source }], false);
+  assert.equal(out.passed, true, JSON.stringify({ reasons: out.reasons, failures: out.failureDetails }));
+  assert.equal(out.counts.discovered, 2);
+  assert.ok(!out.reasons.some((reason) => /unknown|lifecycle/u.test(reason)), JSON.stringify(out.reasons));
+});
+
+test("engine test bounds: NESTED and CONCURRENT t.test subtests are each measured in their OWN window — the CPU judgement keys its reading by the test context, so a subtest never clears its parent's", () => {
+  // Driven through node:test's own run() with the runner's exact preload:
+  // the engine inventory refuses `t.test` (not statically modeled), but the
+  // bounds are node:test's, and a node:test feature must not break them.
+  const root = makeRoot("engine-bounds-subtests");
+  const file = join(root, "subtests.test.mjs");
+  writeFileSync(file, [
+    'import test from "node:test";',
+    'const pause = (turns) => new Promise((resolve) => { const step = (left) => left === 0 ? resolve() : setImmediate(() => step(left - 1)); step(turns); });',
+    'test("a parent with nested subtests", async (t) => {',
+    '  await t.test("child", async (c) => { await c.test("grandchild", () => {}); });',
+    '  await t.test("second child", () => {});',
+    '});',
+    'test("a parent with concurrent subtests", { concurrency: true }, async (t) => {',
+    '  await Promise.all([t.test("one", () => pause(6)), t.test("two", () => pause(3)), t.test("three", () => {})]);',
+    '});',
+  ].join("\n"));
+  const preload = engineTestBoundsImport({ hangBackstopMs: 600_000, cpuClasses: { defaultCeilingMs: 60_000, headroomFactor: 2, classes: [] }, repositoryRoot: root, files: [file] });
+  const driver = [
+    'import { run } from "node:test";',
+    'const [file, preload] = process.argv.slice(2);',
+    'const seen = { pass: [], fail: [] };',
+    'for await (const event of run({ files: [file], execArgv: [preload], timeout: 600000 })) {',
+    '  if (event.type === "test:pass") seen.pass.push(event.data.name);',
+    '  if (event.type === "test:fail") seen.fail.push(`${event.data.name}: ${String(event.data.details?.error?.cause ?? event.data.details?.error)}`);',
+    '}',
+    'process.stdout.write(JSON.stringify(seen));',
+  ].join("\n");
+  // The driver is a runner of its own, never a test file of this run.
+  const { NODE_TEST_CONTEXT: _ownContext, ...env } = process.env;
+  // A driver FILE, never `-e`: node:test starts each test file with the
+  // driver's own execArgv, and an `-e` there would run the driver again.
+  const driverFile = join(root, "driver.mjs");
+  writeFileSync(driverFile, driver);
+  const ran = spawnSync(process.execPath, [driverFile, file, preload], { encoding: "utf8", env });
+  assert.equal(ran.status, 0, ran.stderr);
+  const seen = JSON.parse(ran.stdout) as { pass: string[]; fail: string[] };
+  assert.deepEqual(seen.fail, [], "no test fails for its own measurement");
+  assert.deepEqual(seen.pass.toSorted(), ["a parent with concurrent subtests", "a parent with nested subtests", "child", "grandchild", "one", "second child", "three", "two"]);
+});
+
+test("installEngineTestBounds: a worker of the test file ITSELF installs nothing — its argv[1] is the dispatched file, so only the main-thread check keeps the bounds (and node:test with them) out of it", () => {
+  const root = makeRoot("engine-bounds-self-worker");
+  const bounds = resolve(process.cwd(), "scripts/tooling/engine-test-bounds.ts");
+  const file = join(root, "self-worker.mjs");
+  writeFileSync(file, [
+    'import { isMainThread, parentPort, Worker } from "node:worker_threads";',
+    'import timers from "node:timers";',
+    `const { installEngineTestBounds } = await import(${JSON.stringify(pathToFileURL(bounds).href)});`,
+    'if (isMainThread) {',
+    '  const worker = new Worker(new URL(import.meta.url));',
+    '  worker.once("message", (seen) => { process.stdout.write(JSON.stringify(seen)); void worker.terminate(); });',
+    '} else {',
+    '  const before = timers.setTimeout;',
+    `  await installEngineTestBounds({ hangBackstopMs: 600000, cpuClasses: null, repositoryRoot: ${JSON.stringify(root)}, files: [${JSON.stringify(file)}] });`,
+    '  parentPort.postMessage({ argv1: process.argv[1], installed: timers.setTimeout !== before });',
+    '}',
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, [file], { encoding: "utf8" });
+  assert.equal(ran.status, 0, ran.stderr);
+  const seen = JSON.parse(ran.stdout) as { argv1: string; installed: boolean };
+  assert.equal(seen.argv1, file, "the worker's argv[1] is the test file itself, so the file check alone admits it");
+  assert.equal(seen.installed, false, "the worker installed the bounds");
+});
+
 test("executeInventoryTestRun: a file that never EXITS after its cancelled test is killed at the stall bound, and the run FAILS", () => {
   // Measured before the watchdog: a file whose cancelled test left a server
   // listening held the engine run for two hours — the per-test budget fired,
@@ -276,7 +395,7 @@ test("executeInventoryTestRun: a file that never EXITS after its cancelled test 
   const root = makeRoot("stall-watchdog");
   const started = Date.now();
   const out = runExecutorSubprocess(root, [{ path: "test/leak.test.ts", source: LEAKING_SOURCE }], "auto", 1,
-    { runtimeBudgetMs: 1_000, engineSuiteWatchdog: { stallTimeoutMs: 4_000, hardCeilingMs: 50_000, killGraceMs: 1_000 } });
+    { testHangBackstopMs: 1_000, engineSuiteWatchdog: { stallTimeoutMs: 4_000, hardCeilingMs: 50_000, killGraceMs: 1_000 } });
   const elapsed = Date.now() - started;
   assert.equal(out.passed, false, "a killed run is a failed run");
   assert.ok(out.failureDetails.some((detail) => detail.error?.failureType === "testAborted"), `the killed file is reported: ${JSON.stringify(out.failureDetails.map((detail) => detail.error?.failureType))}`);
@@ -305,7 +424,7 @@ test("executeInventoryTestRun: a SIGTERM ends the run — the running file is ki
   // the same abort as the watchdogs, never leave its files running.
   const root = makeRoot("terminate");
   const helperPath = executorHelper(root, [{ path: "test/leak.test.ts", source: LEAKING_SOURCE }], "auto", 1,
-    { runtimeBudgetMs: 60_000, engineSuiteWatchdog: { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 1_000 } });
+    { testHangBackstopMs: 60_000, engineSuiteWatchdog: { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 1_000 } });
   const child = spawn(process.execPath, [helperPath], { env: CLEAN_SUBPROCESS_ENV, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
@@ -436,6 +555,24 @@ test("createInventoryTestAccountant: expectedSummaryCount=2 flags excess summari
   accountant.observe({ type: "test:summary", data: { success: true, counts: { tests: 0, failed: 0, passed: 0, cancelled: 0, skipped: 0, todo: 0 } } });
   const result = accountant.complete();
   assert.ok(result.unknownTests.some((e) => e.includes("excess-global-summary")));
+});
+
+test("createInventoryTestAccountant: an unknown file that reports several summaries is ONE sorted unknown entry, so the run fails with its reason instead of refusing its own accounting", () => {
+  const root = makeRoot("acct-unknown-repeat");
+  writeTestFile(root, "test/a.test.ts", PASSING_SOURCE);
+  const inventory = buildInventory(root, ["test/a.test.ts"]);
+  const accountant = createInventoryTestAccountant(root, inventory, { expectedSummaryCount: 1 });
+  accountant.observe({ type: "test:enqueue", data: { file: join(root, "test/a.test.ts"), name: "pass" } });
+  accountant.observe({ type: "test:pass", data: { file: join(root, "test/a.test.ts"), name: "pass" } });
+  // A worker thread that imported node:test reports a summary of its own, once per worker.
+  for (const worker of ["test/z-worker.ts", "test/b-worker.ts", "test/z-worker.ts", "test/z-worker.ts"]) {
+    accountant.observe({ type: "test:summary", data: { file: join(root, worker), success: true, counts: { tests: 0, failed: 0, passed: 0, cancelled: 0, skipped: 0, todo: 0 } } });
+  }
+  accountant.observe({ type: "test:summary", data: { success: true, counts: { tests: 1, failed: 0, passed: 1, cancelled: 0, skipped: 0, todo: 0 } } });
+  const result = accountant.complete();
+  assert.deepEqual(result.unknownTests, [...new Set(result.unknownTests)].toSorted(), "a sorted set");
+  assert.equal(result.unknownTests.filter((entry) => entry.includes("z-worker")).length, 1, "the repeated worker is one entry");
+  assert.equal(result.passed, false, "an unknown file fails the run, by its reason");
 });
 
 test("classifyTestConcurrency integration: inventory-test-run uses classifier not hardcoded false", () => {

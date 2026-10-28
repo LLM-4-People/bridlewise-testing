@@ -489,7 +489,7 @@ function spawnScriptedChild(options: { ready: string; flushed: string; flushMs: 
   return { transport, ready: (signal: AbortSignal): Promise<true> => untilChildReady(options.ready, () => spawned, signal, 20) };
 }
 
-test("stdio: close escalates a ready child that ignores SIGTERM within the configured bound", { timeout: 35_000 }, async (t) => {
+test("stdio: close escalates a ready child that ignores SIGTERM within the configured bound", async (t) => {
   // The owner creates AND registers removal in one call (removed even when
   // this arm fails) — no hand-rolled mkdtemp + trailing rmSync that leaks on
   // the failure path it is supposed to diagnose.
@@ -606,7 +606,7 @@ test("stdio: a polite close cancels the escalation timer — the configured boun
   assert.equal(transport.isConnected, false);
 });
 
-test("stdio: a generous termination bound lets a ready child finish its SIGTERM flush — the polite path is taken", { timeout: 35_000 }, async (t) => {
+test("stdio: a generous termination bound lets a ready child finish its SIGTERM flush — the polite path is taken", async (t) => {
   const dir = createTempDir("stdio-terminate-");
   const ready = join(dir, "ready.txt");
   const flushed = join(dir, "flushed.txt");
@@ -624,7 +624,7 @@ test("stdio: a generous termination bound lets a ready child finish its SIGTERM 
 
 
 
-test("stdio: a server that floods stderr keeps answering — the pipe is drained, each line reaches the host, the tail is bounded (T-2)", { timeout: 30_000 }, async () => {
+test("stdio: a server that floods stderr keeps answering — the pipe is drained, each line reaches the host, the tail is bounded (T-2)", async () => {
   // Writes 1 MiB to stderr (a chatty server), THEN answers on stdout. An
   // unread stderr pipe blocks the write after ~64 KiB and the answer never comes.
   const script = [
@@ -649,7 +649,7 @@ test("stdio: a server that floods stderr keeps answering — the pipe is drained
   await transport.close();
 });
 
-test("stdio: a server that dies is reported with its own last stderr, not a bare 'transport closed'", { timeout: 30_000 }, async () => {
+test("stdio: a server that dies is reported with its own last stderr, not a bare 'transport closed'", async () => {
   const client = createMcpClientFromConfig(
     { id: "dying", transport: "stdio", command: process.execPath, args: ["-e", "process.stderr.write('Permission denied: /srv/secret\\n', () => process.exit(126))"] },
     {
@@ -713,7 +713,7 @@ function stdioChild(script: string, overrides: Partial<Parameters<typeof createS
   });
 }
 
-test("stdio: a stdout line past the message bound closes the transport typed — the host never buffers the flood (SECB-V-2)", { timeout: 30_000 }, async () => {
+test("stdio: a stdout line past the message bound closes the transport typed — the host never buffers the flood (SECB-V-2)", async () => {
   // 64 KiB chunks with no newline, forever: the pre-fix transport grew without bound.
   const transport = stdioChild("const c = 'x'.repeat(65536); setInterval(() => process.stdout.write(c), 1);", { maxMessageBytes: 256 * 1024 });
   const closed = new Promise<void>((resolve) => transport.onClose(resolve));
@@ -744,7 +744,7 @@ test("stdio: a message split across many chunks (a multibyte character across a 
   assert.deepEqual(messages, ['{"text":"é€𝄞"}', '{"n":2}']);
 });
 
-test("stdio: stderr beyond the per-second budget is counted and reported once, not logged line by line (SECB-V-11)", { timeout: 30_000 }, async () => {
+test("stdio: stderr beyond the per-second budget is counted and reported once, not logged line by line (SECB-V-11)", async () => {
   const script = [
     "process.stderr.write('line\\n'.repeat(5000));",
     "setTimeout(() => process.stderr.write('after\\n', () => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }) + '\\n')), 1200);",
@@ -851,7 +851,7 @@ test("core: an initialize result without a protocol version and server identity 
   }
 });
 
-test("stdio: a real server's malformed replies never end the host; each fails its own call and the next call is answered (SCALE-CR1 C1)", { timeout: 30_000 }, async () => {
+test("stdio: a real server's malformed replies never end the host; each fails its own call and the next call is answered (SCALE-CR1 C1)", async () => {
   const fixture = join(import.meta.dirname, "fixtures", "adversarial-mcp-server.mjs");
   const client = createMcpClientFromConfig(
     { id: "malformed", transport: "stdio", command: process.execPath, args: [fixture, "--mode=malformed-replies", "--tools=echo"], timeoutMs: 1_000 },
