@@ -1324,6 +1324,7 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.instrumentLockWholeInstruments", "testExecution.instrumentLock.wholeInstruments"],
       ["testExecution.flakeReproductionShims", "testExecution.flakeReproduction.deterministicShims"],
       ["testExecution.testCpuDefaultCeiling", "testExecution.testCpuClasses.defaultCeilingMs"],
+      ["testExecution.testCpuHeadroom", "testExecution.testCpuClasses.headroomFactor"],
       ["testExecution.testCpuClasses", "testExecution.testCpuClasses.classes"],
       ["testExecution.testHangBackstop", "testExecution.testHangBackstopMs"],
     ];
@@ -1439,8 +1440,8 @@ describe("exposure is declared and reachable", () => {
     for (const [signalId] of readOnlyBudgets) {
       if (!withDefault.has(signalId)) expectSignal(signalId, NOT_DECLARED);
     }
-    expectSignal("testExecution.engineSuiteStallTimeout", "not declared — the default applies: a phase that reports nothing for 300 s is killed");
-    expectSignal("testExecution.engineSuiteHardCeiling", "not declared — the default applies: a run still going after 1800 s is killed");
+    expectSignal("testExecution.engineSuiteStallTimeout", "not declared — the default applies: a phase that reports nothing for 900 s is killed");
+    expectSignal("testExecution.engineSuiteHardCeiling", "not declared — the default applies: a run still going after 14400 s is killed");
     expectSignal("testExecution.engineSuiteKillGrace", "not declared — the default applies: a stopped run has 3 s before it is killed");
 
     // (c) The filed leaves — every disposition restated here is a REASON,
@@ -1559,7 +1560,6 @@ describe("exposure is declared and reachable", () => {
     // above already assert every declared leaf is a row, a signal or filed,
     // and that a filed leaf is never served; this pin is the row count.
     const expectedRows: ReadonlyArray<readonly [string, "immediate" | "next-run", unknown, string | undefined]> = [
-      ["testExecution.runtimeBudgetMs", "next-run", 120000, "milliseconds"],
       ["testExecution.serialPhaseConcurrency", "next-run", 2, "lanes"],
       ["testExecution.fullSuiteSerialPhaseConcurrency", "next-run", 8, "lanes"],
       ["testExecution.fullSuiteInProcessSerialPhaseConcurrency", "next-run", 4, "lanes"],

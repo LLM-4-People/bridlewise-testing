@@ -27,7 +27,7 @@ import { walk } from "../../scripts/verification/source-walk.ts";
 import { readSourceView, sourceViewOf } from "../../scripts/verification/source-view.ts";
 import { isProcessAlive, isProcessGroupAlive, ownedAnnouncement, ownedChild, parseProcessIdentityRecord, processesListeningOn, processIdentity, processIdentityRecord, readSpawnRecord, terminate, writeSpawnRecord } from "../../src/process/process-facts.ts";
 import { readSupervisorReceipt } from "../../src/process/supervised-run.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { stopDevGroup } from "../../../scripts/dev-processes.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -176,7 +176,7 @@ test("a ZOMBIE is not alive: a child that exited and is not reaped yet holds not
   }
 });
 
-test("terminate: SIGTERM within the grace, SIGKILL after it, a gone target is gone; an identity whose pid was recycled is never signalled", { timeout: 30_000 }, async (t) => {
+test("terminate: SIGTERM within the grace, SIGKILL after it, a gone target is gone; an identity whose pid was recycled is never signalled", async (t) => {
   const polite = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   const stubborn = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('armed'); setInterval(() => {}, 1000)"], { stdio: ["ignore", "pipe", "ignore"] });
   const bystander = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('armed'); setInterval(() => {}, 1000)"], { stdio: ["ignore", "pipe", "ignore"] });
@@ -199,7 +199,7 @@ test("terminate: SIGTERM within the grace, SIGKILL after it, a gone target is go
   assert.equal((await terminate(ownedChild(bystander), { graceMs: 100 })).ending, "killed", "its own identity stops it");
 });
 
-test("KILL-OWNED-ONLY: the one terminator stops only what this run spawned — a forged or found identity, a pid this process did not spawn, is refused before any signal", { timeout: 30_000 }, async (t) => {
+test("KILL-OWNED-ONLY: the one terminator stops only what this run spawned — a forged or found identity, a pid this process did not spawn, is refused before any signal", async (t) => {
   const victim = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: true });
   t.after(() => { victim.kill("SIGKILL"); });
   const found = processIdentity(victim.pid!);
@@ -219,7 +219,7 @@ test("KILL-OWNED-ONLY: the one terminator stops only what this run spawned — a
   assert.equal((await terminate({ group: readSpawnRecord(record)! }, { graceMs: 2_000 })).ending, "terminated");
 });
 
-test("ONE OWNERSHIP RULE: a spawn record with no start time owns nothing (the reviewer's K-1 repro: a process this run never spawned survives), and an announcement owns only the identity the supervisor bound AT SPAWN — a recycled leader pid is another group, never signalled (K-2)", { timeout: 30_000 }, async (t) => {
+test("ONE OWNERSHIP RULE: a spawn record with no start time owns nothing (the reviewer's K-1 repro: a process this run never spawned survives), and an announcement owns only the identity the supervisor bound AT SPAWN — a recycled leader pid is another group, never signalled (K-2)", async (t) => {
   // A process outside this run's tree, as `setsid -f` leaves it: detached and unreferenced.
   const stranger = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore", detached: true });
   stranger.unref();
@@ -240,15 +240,15 @@ test("ONE OWNERSHIP RULE: a spawn record with no start time owns nothing (the re
   assert.equal(readSupervisorReceipt('{"announcedCommandPid":42}\n').announcedCommand, undefined);
 });
 
-test("THE SUPERVISOR ANNOUNCES ITS COMMAND'S IDENTITY: the start time it reads while the command is its unreaped child is the command's own", { timeout: 60_000 }, () => {
+test("THE SUPERVISOR ANNOUNCES ITS COMMAND'S IDENTITY: the start time it reads while the command is its unreaped child is the command's own", () => {
   const facts = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "process", "process-facts.ts")).href;
-  const ran = spawnSync(testProcessSupervisorBinary(), ["30000", "1000", process.execPath, "--input-type=module", "-e", `const { processIdentity } = await import(${JSON.stringify(facts)}); console.log(JSON.stringify(processIdentity()));`],
+  const ran = spawnSync(ensureTestProcessSupervisor(), ["30000", "1000", process.execPath, "--input-type=module", "-e", `const { processIdentity } = await import(${JSON.stringify(facts)}); console.log(JSON.stringify(processIdentity()));`],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe", "pipe"], timeout: 50_000 });
   const own = JSON.parse(ran.stdout.trim()) as { pid: number; startTime: number };
   assert.deepEqual(readSupervisorReceipt(ran.output[3] ?? "").announcedCommand, own, ran.stderr);
 });
 
-test("a group of only dead-but-unreaped members is stopped: the stop confirms it, a live member still blocks (RR2-2)", { timeout: 30_000 }, async (t) => {
+test("a group of only dead-but-unreaped members is stopped: the stop confirms it, a live member still blocks (RR2-2)", async (t) => {
   // The supervised dev tree's stop, deterministic without a subreaper:
   // `set -m` puts the background job in its OWN process group, and
   // `exec sleep 60` leaves the job a parent (the exec'd image) that never

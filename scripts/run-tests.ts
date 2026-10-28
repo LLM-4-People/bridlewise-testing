@@ -58,7 +58,7 @@
  * Usage: `npm test` (any arguments are passed through to vitest).
  */
 
-import { testProcessSupervisorBinary } from "../engine/guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../engine/guardian/build.ts";
 import { superviseCommand, supervisedEndingLines, type SupervisedCommand } from "../engine/src/process/supervised-run.ts";
 import { reportLauncherStop, watchLauncher } from "../engine/scripts/tooling/launcher-watch.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../engine/src/filesystem/temporary-root.ts";
@@ -205,7 +205,7 @@ export async function superviseRun(
     }, options.watchIntervalMs ?? WATCH_INTERVAL_MS)
     : () => undefined;
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(),
+    supervisor: ensureTestProcessSupervisor(),
     command,
     args,
     hardCeilingMs: watchdog.hardCeilingMs,
@@ -271,6 +271,10 @@ async function main(): Promise<void> {
       `[run-tests] ${String(strays.length)} orphaned vitest process(es) of this project are still running (not stopped: this run did not start them): ${strays.join(", ")}\n`,
     );
   }
+  // The native supervisor vitest runs under is BUILT HERE, before the run, as the engine runner builds it: every
+  // later caller (this runner's launch, a test's nested run) only resolves it, so nothing compiles into the live
+  // tree mid-run (#293).
+  ensureTestProcessSupervisor();
   // HEAVY-RUN ADMISSION (engine/src/process/instrument-lock.ts): the whole web
   // suite (or any run of the configured number of files) is admitted at once,
   // and this process enters the run's caps (its cgroup scope and CPU-time

@@ -2,7 +2,6 @@ import {
   closeSync,
   constants,
   existsSync,
-  fchmodSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -15,6 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
 import { SecurityError } from "../../src/kernel/errors.ts";
+import { settleDescriptorMode } from "../../src/filesystem/file-mode.ts";
 import { hasSecondName } from "../../src/filesystem/link-containment.ts";
 import { readLinuxMountPoints } from "../../src/filesystem/linux-path.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
@@ -110,7 +110,9 @@ function repairPinnedConfigPermissions(): void {
     }
     const sourceHash = descriptorHash(configDescriptor, openedBefore.size);
 
-    fchmodSync(configDescriptor, REQUIRED_MODE);
+    // The one mode owner: a file already at the required mode is left untouched (a same-mode chmod moves the
+    // ctime a concurrent configuration bootstrap compares, #293).
+    settleDescriptorMode(configDescriptor, REQUIRED_MODE);
 
     const openedAfter = fstatSync(configDescriptor, { bigint: true });
     const pathAfter = inspectConfig(configPath, rootBefore, uid, gid, mountPoints);
