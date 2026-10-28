@@ -37,6 +37,6 @@ The folder lives at `engine/src/git/`.
 - `tree-reader.ts` is consumed by `engine/src/git/flake-cause-fixes.ts`, `engine/src/git/index-baseline.ts`, `engine/src/git/worktree-port.ts`, `engine/src/workflow/evidence-store.ts`, `engine/src/workflow/failure-owners.ts`, `engine/src/workflow/flake-cli.ts` and 22 more.
 - `working-copy.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/shared/tree-identity.ts`, `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`.
 - `workspace-lifecycle.ts` is consumed by nothing yet.
-- `worktree-port.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/evidence-store.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/flaky-burn-down.ts`, `engine/src/workflow/harness-commands.ts` and 11 more.
+- `worktree-port.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/roadmap-feed.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/evidence-store.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/flaky-burn-down.ts` and 12 more.
 
 <!-- /consumers:generated -->

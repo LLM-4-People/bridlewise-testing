@@ -1005,6 +1005,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/roadmap-feed.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/foundation-cascade.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4357,5 +4365,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "6a6895e94aa83656b220c2b7a8cea22a8da0965f450c7e8d55eff654a3edcdaa"
+  "integrityHash": "89005b03643b97b4863835bcae592bb6c81115d68c78e60c28b215295a46460f"
 }
