@@ -80,11 +80,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
-import { abandonedTemporaries, ownedTemporaryName, sweepAbandonedTemporaries } from "../filesystem/private-state.ts";
+import { abandonedTemporaries, createOwnedTemporaryDirectory, ownedTemporaryName, removeOwnedTemporaryDirectory, sweepAbandonedTemporaries } from "../filesystem/private-state.ts";
 import { intentToAddPaths } from "./index-entries.ts";
 import { directoryGitEnvironment, gitAcceptsRefName, indexFilePath, ownedFiles, repositoryToplevel, trackedFiles } from "./repository-ownership.ts";
 
@@ -378,8 +379,14 @@ function withPrivateObjects<T>(gitDir: string, objects: string, keep: boolean, w
 function privateWorkingTree(checkoutRoot: string, keep: boolean): string {
   const gitDir = gitPath(checkoutRoot, ["--git-dir"]);
   const objects = gitPath(checkoutRoot, ["--git-path", "objects"]);
-  recoverAbandonedStaging(gitDir, objects);
-  const index = join(gitDir, ownedTemporaryName(SNAPSHOT_INDEX_PREFIX));
+  // An IDENTITY writes nothing beside the repository: its private index and
+  // objects live in an owned temporary folder outside it, so the identity of a
+  // checkout a test run sees read-only is still answered (#293's confinement).
+  // A snapshot keeps its objects, so they are staged in the git directory (an
+  // absorb is a rename, within one filesystem).
+  const scratch = keep ? gitDir : createOwnedTemporaryDirectory(tmpdir(), "working-tree-identity-");
+  if (keep) recoverAbandonedStaging(gitDir, objects);
+  const index = join(scratch, ownedTemporaryName(SNAPSHOT_INDEX_PREFIX));
   const realIndex = indexFilePath(checkoutRoot, "directory");
   try {
     const realStat = statSync(realIndex, { throwIfNoEntry: false });
@@ -393,7 +400,7 @@ function privateWorkingTree(checkoutRoot: string, keep: boolean): string {
     git(checkoutRoot, ["update-index", "-q", "--refresh"], undefined, true, { GIT_INDEX_FILE: index });
     // `--missing-ok`: a private directory has no alternates, so the blobs of
     // unchanged files are not visible to it (they are in the store).
-    return withPrivateObjects(gitDir, objects, keep, (staging) => {
+    return withPrivateObjects(scratch, objects, keep, (staging) => {
       const environment = { GIT_INDEX_FILE: index, GIT_OBJECT_DIRECTORY: staging };
       // `:/` (the repository top), never `.`: asked from a FOLDER of the work
       // tree (the engine runner asks from the engine root), `.` staged that
@@ -404,6 +411,7 @@ function privateWorkingTree(checkoutRoot: string, keep: boolean): string {
     });
   } finally {
     rmSync(index, { force: true });
+    if (!keep) removeOwnedTemporaryDirectory(scratch);
   }
 }
 
