@@ -12,6 +12,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { PROMOTION_PROFILE_NAME_RULE } from "../../kernel/config-contracts.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
@@ -26,7 +27,7 @@ import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { LandingError, landingGitFailure, sweepCandidates } from "../tree-landing.ts";
 import { PromotionError } from "./codes.ts";
 import type { PromotionPlan } from "./projection.ts";
-import { branchOf, isProfileName, PROFILE_NAME_RULE, type PromotionProfile } from "./profile.ts";
+import { branchOf, isProfileName, type PromotionProfile } from "./profile.ts";
 import type { PromotionContext } from "./context.ts";
 
 /** What `apply` was asked (see the header): the reasoned overrides and how far to go. */
@@ -99,7 +100,7 @@ export function promotionFolder(context: PromotionContext): string {
  * before it is ever a path: it is one segment below the area, or nothing.
  */
 export function profileWorkDirectory(registry: RepositoryRegistry, name: string): string {
-  if (!isProfileName(name)) throw new PromotionError("promotion_profile_invalid", `${JSON.stringify(name)} is no profile name (${PROFILE_NAME_RULE}): it is never used as a path`, { name });
+  if (!isProfileName(name)) throw new PromotionError("promotion_profile_invalid", `${JSON.stringify(name)} is no profile name (${PROMOTION_PROFILE_NAME_RULE}): it is never used as a path`, { name });
   return join(repositoryRegistryArea(registry, "promotion"), name);
 }
 
