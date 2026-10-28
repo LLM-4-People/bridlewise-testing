@@ -107,7 +107,7 @@ test("native key creators publish one complete winner and a third process decryp
     for (const c of creators) if (c.child.exitCode === null) c.child.kill("SIGKILL");
     await Promise.allSettled(creators.map((c) => c.joined));
   }
-}, 30_000);
+});
 
 test("missing keys cannot replace an existing or read-only database identity", () => {
   const { dir, dbPath, keyHome, keyPath } = keyedStore("missing-required-key-");
@@ -300,4 +300,4 @@ test("a reader establishes its own sync acknowledgment while the publisher is he
   } finally {
     clearTimeout(watchdog); if (creator.child.exitCode === null) creator.child.kill("SIGKILL"); await creator.joined;
   }
-}, 30_000);
+});

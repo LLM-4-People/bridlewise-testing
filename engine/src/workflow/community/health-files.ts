@@ -51,9 +51,9 @@ import {
   type FormField,
 } from "./sources.ts";
 
-export const TEMPLATES_DIRECTORY = `${COMMUNITY_DIRECTORY}/templates`;
-export const ISSUE_FORMS_DIRECTORY = ".github/ISSUE_TEMPLATE";
-export const DISCUSSION_FORMS_DIRECTORY = ".github/DISCUSSION_TEMPLATE";
+const TEMPLATES_DIRECTORY = `${COMMUNITY_DIRECTORY}/templates`;
+const ISSUE_FORMS_DIRECTORY = ".github/ISSUE_TEMPLATE";
+const DISCUSSION_FORMS_DIRECTORY = ".github/DISCUSSION_TEMPLATE";
 const TEMPLATE_SUFFIX = ".tmpl";
 
 /** The Markdown files rendered from a template of the same name, repository-relative. */
@@ -66,10 +66,26 @@ export const TEMPLATED_FILES = Object.freeze([
   ".github/PULL_REQUEST_TEMPLATE.md",
 ] as const);
 
+/**
+ * Every repository path the community-files arm reads or writes: its sources
+ * (`docs/community/`), the files it renders from them, its forms, and the
+ * places GitHub reads a health file from, which it judges for shadows. The
+ * population of a generator test's repository copy is derived from this
+ * (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+ */
+export function communityFilesInput(path: string): boolean {
+  if (path.startsWith(`${COMMUNITY_DIRECTORY}/`) || path.startsWith(`${ISSUE_FORMS_DIRECTORY}/`) || path.startsWith(`${DISCUSSION_FORMS_DIRECTORY}/`)) return true;
+  if ((TEMPLATED_FILES as readonly string[]).includes(path)) return true;
+  const slash = path.lastIndexOf("/");
+  const location = slash === -1 ? "" : path.slice(0, slash);
+  const name = path.slice(slash + 1).toLowerCase().replace(/\.[^.]*$/u, "");
+  return (HEALTH_LOCATIONS as readonly string[]).includes(location) && (HEALTH_NAMES as readonly string[]).includes(name);
+}
+
 /** Where GitHub looks for a community health file, repository-relative (`""` is the root). */
-export const HEALTH_LOCATIONS = Object.freeze(["", ".github", "docs"] as const);
+const HEALTH_LOCATIONS = Object.freeze(["", ".github", "docs"] as const);
 /** The health-file names GitHub reads (compared lower-cased, without extension); the template ones may also be folders. */
-export const HEALTH_NAMES = Object.freeze(["code_of_conduct", "contributing", "governance", "security", "support", "pull_request_template", "issue_template", "discussion_template"] as const);
+const HEALTH_NAMES = Object.freeze(["code_of_conduct", "contributing", "governance", "security", "support", "pull_request_template", "issue_template", "discussion_template"] as const);
 
 export type CommunityFacts = Readonly<{
   roles: CommunityRoles;
@@ -94,7 +110,7 @@ function templateInvalid(path: string, why: string): never {
 }
 
 /** The facts the generated files carry, each read from its one owner. */
-export function readCommunityFacts(repositoryRoot: string): CommunityFacts {
+function readCommunityFacts(repositoryRoot: string): CommunityFacts {
   let manifest: { repository?: { url?: unknown }; engines?: { node?: unknown } };
   try {
     manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as typeof manifest;
@@ -127,7 +143,7 @@ function plannedLine(text: string, status: ClaimStatus): string {
 }
 
 /** Every slot a template may name, rendered from the facts. `feature:<id>` is the feature's sentence while live, and empty while planned. */
-export function communitySlots(facts: CommunityFacts): ReadonlyMap<string, string> {
+function communitySlots(facts: CommunityFacts): ReadonlyMap<string, string> {
   const { roles, intake, features } = facts;
   const titleOf = new Map(roles.roles.map((role) => [role.id, role.title]));
   const teamsLive = features.some((feature) => feature.id === "teams" && isLive(feature.status));
@@ -207,7 +223,7 @@ function templateOf(path: string): string {
 }
 
 /** Every generated file's text, keyed by its repository-relative path (a pure function of the templates and the facts). */
-export function renderCommunityFiles(templates: ReadonlyMap<string, string>, facts: CommunityFacts): ReadonlyMap<string, string> {
+function renderCommunityFiles(templates: ReadonlyMap<string, string>, facts: CommunityFacts): ReadonlyMap<string, string> {
   const unused = [...templates.keys()].filter((path) => !TEMPLATED_FILES.some((file) => templateOf(file) === path));
   if (unused.length > 0) templateInvalid(TEMPLATES_DIRECTORY, `templates that name no generated file: ${unused.join(", ")}`);
   const slots = communitySlots(facts);
@@ -268,7 +284,7 @@ function filesUnder(repositoryRoot: string, path: string): readonly string[] {
 }
 
 /** Every file GitHub could read as a community health file or template, in the three locations (see the header). */
-export function healthFilesOnDisk(repositoryRoot: string): readonly string[] {
+function healthFilesOnDisk(repositoryRoot: string): readonly string[] {
   return HEALTH_LOCATIONS.flatMap((location) => {
     const directory = join(repositoryRoot, location);
     if (!existsSync(directory)) return [];

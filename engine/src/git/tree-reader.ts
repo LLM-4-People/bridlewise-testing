@@ -27,6 +27,7 @@ import { HarnessError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { createOwnedTemporaryDirectory, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
+import { RAW_DIFF_RECORD_QUOTE_CHARACTERS, TREE_MISMATCH_ENTRIES_NAMED } from "./git-config.ts";
 import { gitProcessEnvironment, ownedFiles } from "./repository-ownership.ts";
 
 /** A repository and the git that answers about it: the executable (the configured one: `configuredGitRepository`, src/git/worktree-port.ts) and each call's ceiling. */
@@ -101,6 +102,11 @@ export function gitOutput(
 }
 
 /** The object `rev` names in `repository`, peeled to `kind` (a commit by default), or `null` when it names none. */
+/** Whether `ancestor` is `descendant` or one of its ancestors (`merge-base --is-ancestor`); an unknown commit is git's typed failure. */
+export function isAncestor(repository: GitRepository, ancestor: string, descendant: string): boolean {
+  return gitOutput(repository, ["merge-base", "--is-ancestor", ancestor, descendant], { allowed: [0, 1] }).status === 0;
+}
+
 export function resolveRevision(repository: GitRepository, rev: string, kind: "commit" | "tree" | "object" = "commit"): string | null {
   const found = gitOutput(repository, ["rev-parse", "-q", "--verify", `${rev}^{${kind}}`], { allowed: [0, 1] });
   return found.status === 0 ? found.stdout.toString("utf8").trim() : null;
@@ -147,7 +153,7 @@ export function rawDiffEntries(records: readonly string[]): readonly RawDiffEntr
   for (let index = 0; index + 1 < records.length; index += 2) {
     const header = records[index]!;
     if (!header.startsWith(":")) {
-      throw new HarnessError(`git's raw diff holds a record that is not a header where one was expected: ${header.slice(0, 80)}`, "tree_reader_raw_diff_invalid");
+      throw new HarnessError(`git's raw diff holds a record that is not a header where one was expected: ${header.slice(0, RAW_DIFF_RECORD_QUOTE_CHARACTERS)}`, "tree_reader_raw_diff_invalid");
     }
     const [srcMode, dstMode, srcOid, dstOid, status] = header.slice(1).split(" ");
     entries.push(deepFreeze({ srcMode: srcMode!, dstMode: dstMode!, srcOid: srcOid!, dstOid: dstOid!, status: status!, path: records[index + 1]! }));
@@ -292,7 +298,7 @@ export function writeTree(repository: GitRepository, entries: ReadonlyMap<string
     });
     const missing = [...entries.keys()].filter((path) => written.entry(path) === null);
     if (stray.length > 0 || missing.length > 0) {
-      throw new HarnessError(`the tree ${tree} written in ${repository.root} does not hold exactly the ${String(entries.size)} entries given (missing: ${missing.slice(0, 8).join(", ") || "none"}; differing or unexpected: ${stray.slice(0, 8).join(", ") || "none"})`, "tree_writer_mismatch");
+      throw new HarnessError(`the tree ${tree} written in ${repository.root} does not hold exactly the ${String(entries.size)} entries given (missing: ${missing.slice(0, TREE_MISMATCH_ENTRIES_NAMED).join(", ") || "none"}; differing or unexpected: ${stray.slice(0, TREE_MISMATCH_ENTRIES_NAMED).join(", ") || "none"})`, "tree_writer_mismatch");
     }
     return tree;
   } finally {

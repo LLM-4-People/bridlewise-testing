@@ -87,14 +87,11 @@ branch only from where the workspace left it: another writer's commits are
 refused, `branch_moved_by_another_writer`) and opens or regenerates the DRAFT
 pull request; `ready` takes it out of draft once its published tree passed
 `validate`, and any later round that publishes a new head returns it to
-draft. Records are stored per version: each older store (v3, before the
-land; v2, before the forge), which older code still uses, is read and
-migrated in memory through one chain (v2 → v3 → v4) and never written. A
-workspace only an older store knows is read-only to this version until the
-recorded P7 cutover: every verb that would change it refuses
-(`workspace_owned_by_v3_checkout` or `workspace_owned_by_v2_checkout`,
-naming its record and worktree) — act on it from the checkout of the version
-that made it.
+draft. Records are stored per version, and older records are read-only to
+newer code. They are upcast in memory and never written, as the decision
+[WS-RECORDS](../decisions/WS-RECORDS-older-workspace-records-are-read-only.md)
+states. Act on an older workspace from the checkout of the version that made
+it.
 
 ## 1c. Feature → `main` on the forge: `ws land`
 
@@ -142,10 +139,42 @@ MERGE QUEUE and waits for the queue's verdict. Auto-merge is never used.
 `ws abort` closes the workspace's open pull request with a comment and keeps
 its branch.
 
+## 1d. Stacks: an ordered chain of workspaces, each landed by `ws land`
+
+`ws create --agent <name> --write-set <path…> --stack-on <id>` starts a
+workspace on another one's published head, for work too large for one
+review. The child takes its parent's target and names no target, base or
+overlay of its own. The parent must be live (`active` or `validating`) and
+published (`workspace_stack_invalid`, `workspace_stack_parent_ended`,
+`workspace_not_published`).
+
+- **Judged from the parent while the parent is open.** `validate` and
+  `publish` take the child's change from the parent's published head. The
+  publisher re-makes only the child's own commits: the parent's signed
+  twins are already on the forge. A child may lease its parent's paths,
+  because a stack is ordered by construction, and a parent's land never
+  waits for its own children's leases. A sibling stays a rival.
+- **One pull request per part, always against the trunk.** It is never
+  opened against the parent's branch: the repository deletes a landed
+  branch (`delete_branch_on_merge`), and the pull requests based on it
+  would close with it. Until the parent lands, the child's pull request
+  also carries the parent's commits. Its body names the parent ("Stacked
+  on #N") and lists only the child's own commits.
+- **One way to land.** `ws land` (and `ws merge`) of a child refuses until
+  its parent has landed (`workspace_stack_parent_unlanded`). After that,
+  the child is an ordinary workspace: the trunk holds its parent's head,
+  the fork point is that head, and its own change lands through the merge
+  queue with its own receipt.
+- **A parent that moves or ends.** A parent that publishes another head
+  leaves its child refused (`workspace_stack_parent_moved`) until the child
+  is rebased onto that head. A parent that ends without landing leaves its
+  child with nothing to stand on (`workspace_stack_parent_ended`).
+
 ## 2. The commands
 
 ```bash
 node src/cli.ts harness workspace create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]
+node src/cli.ts harness workspace create --agent <name> --write-set <path…> --stack-on <id>
 node src/cli.ts harness workspace validate <id> [--full]
 node src/cli.ts harness workspace publish <id> | ready <id>
 node src/cli.ts harness workspace land <id>
@@ -346,7 +375,7 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_hold_set` | ok | 0 | Automatic promotion is paused for this profile until `release-hold --reason <text>`. |
 | `promotion_hold_released` | ok | 0 | Automatic promotion resumes at the next source publication (or run `apply`). |
 | `promotion_not_held` | ok | 0 | Nothing to release: no hold is set for this profile. |
-| `promotion_usage` | input | 2 | Run `harness promote <status|plan|explain|apply|forge-publish|rollback|hold|release-hold|auto> [--profile <name>] [--source <rev>]` (apply: `--no-publish`, `--no-push`, `--accept-target-edits <path>… --reason <text>`, `--allow-deletions --reason <text>`, `--release-hold --reason <text>`, `--auto`; rollback: `--to <promotion commit> --reason <text>`; hold and release-hold: `--reason <text>`; auto: `--refs <refs>`; forge-publish: `--out <file>`, `--source <rev>` and apply's reasoned overrides). |
+| `promotion_usage` | input | 2 | Run `harness promote <status|plan|explain|apply|forge-publish|verify|rollback|hold|release-hold|auto> [--profile <name>] [--source <rev>]` (apply: `--no-publish`, `--no-push`, `--accept-target-edits <path>… --reason <text>`, `--allow-deletions --reason <text>`, `--release-hold --reason <text>`, `--auto`; rollback: `--to <promotion commit> --reason <text>`; hold and release-hold: `--reason <text>`; auto: `--refs <refs>`; forge-publish: `--out <file>`, `--source <rev>` and apply's reasoned overrides; verify: `[--commit <product commit>]`). |
 | `promotion_profile_missing` | input | 2 | Add the profile `<profile directory>/<name>.json` on the source branch (see promotion/README.md), or name an existing one with --profile. |
 | `promotion_profile_invalid` | input | 2 | Fix the profile on the source branch: the JSON pointer names the field and the rule it breaks. |
 | `promotion_source_missing` | input | 2 | Name a source revision that exists (--source <rev>), or create the profile's source branch. |
@@ -362,6 +391,10 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_manifest_script_emptied` | precondition | 3 | Every segment of a kept script was pruned: add the script's file to `boundary.entryPoints`, or drop the script from the transform's `scripts` list. |
 | `promotion_manifest_script_unparseable` | precondition | 3 | Rewrite the kept script as `&&`-joined commands: `;`, `||`, pipes, substitutions and redirections cannot be projected. |
 | `promotion_manifest_bin_ambiguous` | precondition | 3 | Two devDependencies provide the command a kept script runs: remove the ambiguous one from the source manifest. |
+| `promotion_makefile_target_missing` | precondition | 3 | The profile keeps a target the source Makefile does not declare (a typo or a rename): correct the transform's `targets` list, or restore the rule. |
+| `promotion_makefile_prerequisite_dropped` | precondition | 3 | A kept Makefile rule depends on a rule the profile drops: keep that prerequisite too, or drop the rule that needs it. |
+| `promotion_makefile_recipe_target_dropped` | precondition | 3 | A kept Makefile recipe runs make (`make`, `$(MAKE)`, `${MAKE}`) in this Makefile on a target the derived file does not keep, or on none: keep that target too, name the kept target it runs, or drop the rule. |
+| `promotion_makefile_unparseable` | precondition | 3 | Rewrite the source Makefile in the grammar the transform judges: blank lines, `#` comments, one `.PHONY:` line, single-target rules and tab-indented recipe lines (no variables, conditionals, includes, pattern rules or continued lines). |
 | `promotion_transform_failed` | failed | 5 | The transform's command failed on the derived inputs: read the output tail and fix the manifest on the source. |
 | `promotion_transform_errored` | errored | 4 | None: the machine was busy or offline (the retries are exhausted); run it again later. |
 | `promotion_never_rule` | precondition | 3 | The source was merged with the target after a promotion: restore the source from its reflog (never force-push without the coordinator). |
@@ -399,6 +432,10 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_git_errored` | errored | 4 | None: a git step of the landing was ended by the environment (its ceiling, a signal, a full disk); run it again later (`workspaceGit.timeouts` bounds each step). |
 | `promotion_git_failed` | integrity | 6 | Stop and keep the evidence: a git step of the landing refused (its operation and words are named, the candidate is kept); report it, never publish it. |
 | `promotion_pending_conflict` | integrity | 6 | Stop and keep the evidence: another run pinned the pending ref while this one held the target's lock; report it, never publish either commit. |
+| `promotion_verified` | ok | 0 | Nothing to do: the product commit is the projection of the main commit its trailer names, recomputed here from that commit alone. |
+| `promotion_verify_source_unconfirmed` | precondition | 3 | Fetch the source branch and verify from it as published: the local source branch must equal the remote's (the profile's remote), or there is nothing to trust it against. |
+| `promotion_verify_remote_unreachable` | errored | 4 | Reach the profile's remote and run verify again: it confirms the source branch against the remote as published, never against a local copy. |
+| `promotion_verify_off_source` | integrity | 6 | Stop and keep the evidence: the product commit names a source that is not a commit of the profile's source branch, so it was not projected from main. Find who published it (its signature and the publish job's run). |
 | `promotion_forge_published` | ok | 0 | Attest the projection receipt (its digest is the attestation's subject); the product branch on the forge is the published commit. |
 | `promotion_forge_profile_mismatch` | integrity | 6 | Stop and keep the evidence: the built commit names another profile blob or source than the projection being published; never publish it. |
 | `promotion_forge_projection_mismatch` | integrity | 6 | Stop and keep the evidence: the built commit's tree is not the projection recomputed from its source alone (each differing path is named), or the projection cannot be recomputed; never publish it. |
@@ -410,9 +447,10 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_forge_mismatch` | integrity | 6 | Stop and keep the evidence: the forge stored or signed something other than the built commit (a blob, the tree, an unverified commit, or a branch not at the published commit); report it with the request ids. |
 | `promotion_release_due` | ok | 0 | The train departs: build the assets from the product commit, assemble and attest them, and publish the release immutable. |
 | `promotion_release_not_due` | ok | 0 | Nothing to do now: each reason names what the next release waits for. |
+| `promotion_release_records_written` | ok | 0 | Pass the file to plan, notes and assemble as `--releases`: the train reads the forge's releases from it, never from a second read. |
 | `promotion_release_notes_written` | ok | 0 | The notes are the release's body: publish them with the release, unedited. |
 | `promotion_release_assembled` | ok | 0 | Attest each asset (its digest is listed), then publish the release immutable. |
-| `promotion_release_usage` | input | 2 | Run `harness release <plan|notes|assemble> --releases <records.jsonl>` (plan: `[--now <iso time>] [--manual]`; notes: `--repository <forge>/<owner>/<name> --out <file> [--now <iso time>] [--manual]`; assemble: `--out <empty folder> --bundle <file> --guardian <file> --sbom <file> --docs-site <file> [--now <iso time>] [--manual]`). |
+| `promotion_release_usage` | input | 2 | Run `harness release records --out <records.jsonl>`, then `harness release <plan|notes|assemble> --releases <records.jsonl>` (plan: `[--now <iso time>] [--manual]`; notes: `--repository <forge>/<owner>/<name> --out <file> [--now <iso time>] [--manual]`; assemble: `--out <empty folder> --bundle <file> --guardian <file> --sbom <file> --docs-site <file> [--now <iso time>] [--manual]`). |
 | `promotion_release_settings_missing` | input | 2 | Declare `promotion.release` in the configuration (the product's profile, the train mode, the minimum interval, the tag prefix, the Discussions category, the prior releases' address). |
 | `promotion_release_product_missing` | input | 2 | Promote first (the product ref is the target of the release profile), or fetch the product branch. |
 | `promotion_release_source_unproven` | integrity | 6 | Stop and keep the evidence: the product tip carries no Projected-From trailer, so something other than the publisher wrote it; inspect the product branch, never release it. |

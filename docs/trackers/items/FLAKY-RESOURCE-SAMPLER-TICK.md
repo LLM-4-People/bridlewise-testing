@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLAKY-RESOURCE-SAMPLER-TICK
 type: Flake
 state: closed

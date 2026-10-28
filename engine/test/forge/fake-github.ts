@@ -9,7 +9,9 @@
  *   (and 304 to a matching `If-None-Match`, not counted against the rate
  *   limit); a stored LIST is paginated (`per_page`, `page`, a `Link` header);
  *   `PUT` replaces, `PATCH` merges, `POST` to a stored list appends (with an
- *   `id`), `DELETE` removes (204); an unknown path is 404;
+ *   `id`), `DELETE` removes (204); an unknown path is 404. A declared
+ *   COLLECTION ({@link FakeGithub.collection}) also keeps each item at
+ *   `<list>/<key>` in step with the list;
  * - APPS: {@link FakeGithub.installApp} registers an App (its RSA key pair is
  *   generated here; the private PEM is handed to the test to store through
  *   the real custody). `GET /repos/{o}/{r}/installation` and
@@ -73,6 +75,13 @@ export type FakeGithub = Readonly<{
   /** The rate-limit window's remaining count (decremented per counted answer). */
   rate: { limit: number; remaining: number; resetEpochSeconds: number };
   route: (method: string, pattern: RegExp, handler: FakeRoute) => void;
+  /**
+   * Declare a collection at `path` (a list API whose items are addressed at
+   * `<path>/<item[key]>`): POST appends and creates the item (with
+   * `defaults`, the fields GitHub adds), PUT, PATCH and DELETE on an item
+   * keep the list in step.
+   */
+  collection: (path: string, items: readonly Record<string, unknown>[], key?: string, defaults?: Readonly<Record<string, unknown>>) => void;
   refuseNext: (match: Readonly<{ method?: string; path?: RegExp }>, answer: Readonly<{ status: number; message: string; headers?: Readonly<Record<string, string>> }>) => void;
   /** A token for a user principal (a maintainer's token or a workflow's). */
   userToken: (principal: string) => string;
@@ -99,6 +108,8 @@ export function fakeGithub(): FakeGithub {
   const apiUrl = address(FAKE_GITHUB_ORIGIN);
   const requests: FakeRequest[] = [];
   const objects = new Map<string, unknown>();
+  /** Lists whose items are also objects at `<list>/<item[key]>` (a collection API: rulesets, labels, autolinks). */
+  const collections = new Map<string, Readonly<{ key: string; defaults: Readonly<Record<string, unknown>> }>>();
   const routes: { method: string; pattern: RegExp; handler: FakeRoute }[] = [];
   const refusals: { method?: string; path?: RegExp; status: number; message: string; headers?: Readonly<Record<string, string>> }[] = [];
   const tokens = new Map<string, MintedToken>();
@@ -165,22 +176,42 @@ export function fakeGithub(): FakeGithub {
       if (request.headers.get("if-none-match") === etag) return { status: 304, headers };
       return json(200, slice, headers);
     }
-    if (method === "PUT") { objects.set(path, request.body); return json(200, request.body); }
+    const parent = path.slice(0, path.lastIndexOf("/"));
+    const keyField = collections.get(parent)?.key;
+    /** Keep a collection's list entry equal to its item object. */
+    const syncParent = (item: unknown, remove = false): void => {
+      if (keyField === undefined) return;
+      const list = objects.get(parent) as Record<string, unknown>[];
+      const index = list.findIndex((entry) => `${parent}/${String(entry[keyField])}` === path);
+      if (index !== -1) list.splice(index, 1);
+      if (!remove) list.splice(index === -1 ? list.length : index, 0, item as Record<string, unknown>);
+    };
+    if (method === "PUT") {
+      // A collection item keeps what GitHub adds (its id, its source); the body replaces the rest.
+      const replaced = keyField !== undefined && current !== undefined ? { ...(current as object), ...(request.body as object) } : request.body;
+      objects.set(path, replaced);
+      syncParent(replaced);
+      return json(200, replaced);
+    }
     if (method === "PATCH") {
       if (current === undefined || Array.isArray(current) || typeof current !== "object") return json(404, { message: "Not Found" });
       const merged = { ...(current as object), ...(request.body as object) };
       objects.set(path, merged);
+      syncParent(merged);
       return json(200, merged);
     }
     if (method === "POST") {
       if (!Array.isArray(current)) return json(404, { message: "Not Found" });
-      const created = { id: nextId++, ...(request.body as object) };
+      const declared = collections.get(path);
+      const created: Record<string, unknown> = { id: nextId++, ...declared?.defaults, ...(request.body as object) };
       current.push(created);
+      if (declared !== undefined) objects.set(`${path}/${String(created[declared.key])}`, created);
       return json(201, created);
     }
     if (method === "DELETE") {
       if (current === undefined) return json(404, { message: "Not Found" });
       objects.delete(path);
+      syncParent(undefined, true);
       return { status: 204 };
     }
     return json(404, { message: "Not Found" });
@@ -233,7 +264,7 @@ export function fakeGithub(): FakeGithub {
     const base = new URL(FAKE_GITHUB_ORIGIN);
     let body: unknown;
     try { body = init.body === undefined ? undefined : JSON.parse(init.body); } catch { body = init.body; }
-    const request: FakeRequest = Object.freeze({ method: init.method, path: parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length) || "/", query: parsed.searchParams, headers: init.headers, body });
+    const request: FakeRequest = Object.freeze({ method: init.method, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body });
     requests.push(request);
     const answer = ((): FakeAnswer => {
       if (request.headers.get("x-github-api-version") !== GITHUB_API_VERSION) return json(400, { message: "Unsupported API version" });
@@ -273,6 +304,12 @@ export function fakeGithub(): FakeGithub {
     tokens: tokenPolicy,
     rate,
     route: (method: string, pattern: RegExp, handler: FakeRoute) => { routes.push({ method, pattern, handler }); },
+    collection: (path: string, items: readonly Record<string, unknown>[], key = "id", defaults: Readonly<Record<string, unknown>> = {}) => {
+      const list: Record<string, unknown>[] = items.map((item) => ({ ...(key === "id" && item.id === undefined ? { id: nextId++ } : {}), ...item }));
+      objects.set(path, list);
+      collections.set(path, { key, defaults });
+      for (const item of list) objects.set(`${path}/${String(item[key])}`, item);
+    },
     refuseNext: (match, answer) => { refusals.push({ ...match, ...answer }); },
     userToken: (principal: string) => {
       const token = runtimeToken("gho");

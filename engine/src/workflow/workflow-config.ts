@@ -22,6 +22,7 @@
  * the default stays here as the fallback, the config overrides it.
  */
 
+import type { SubprocessBounds } from "../process/subprocess-bounds.ts";
 import type { ConfigDocument } from "../kernel/config-contracts.ts";
 import { InputError } from "../kernel/errors.ts";
 import { statePath } from "../kernel/product-identity.ts";
@@ -42,6 +43,22 @@ export function numericOption(value: number | undefined, fallback: number, name:
   return value;
 }
 
+// ── the roadmap feed (src/workflow/forge/projector/roadmap-feed.ts) ───────
+
+/** How many whole weeks of shipped history a milestone's ETA band needs; below it the band is `unknown`, never guessed. */
+export const DEFAULT_ROADMAP_ETA_MINIMUM_WEEKS = 4;
+
+/** The CPU-time ceiling, in seconds, of one confined projection or feed computation (the guardian's `cpu_seconds`). */
+export const DEFAULT_PROJECTION_CPU_SECONDS = 120;
+
+/**
+ * The address-space ceiling, in bytes, of the same computation (the guardian's
+ * `memory_bytes`, RLIMIT_AS). Address space, not resident memory: node 24
+ * reserves address space well beyond its working set and does not start under
+ * 1 GiB of it; 1.5 GiB starts it and stops a runaway allocation.
+ */
+export const DEFAULT_PROJECTION_MEMORY_BYTES = 1_610_612_736;
+
 // ── harness-commands.ts defaults ──────────────────────────────────────────
 
 
@@ -59,10 +76,17 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
     backoffMs: document.harness?.commandRetryBackoffMs ?? DEFAULT_COMMAND_RETRY_BACKOFF_MS,
   });
 }
+/**
+ * How many hex digits of a commit id a person-facing line shows (the release
+ * train's answers, the release notes), each linking or naming the full id
+ * beside it: git's own short form tops out at 12.
+ */
+export const DISPLAY_COMMIT_ID_LENGTH = 12;
+
 export const DEFAULT_GIT_ADD_TIMEOUT_MS = 30_000;
 export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 
-// ── the harness's subprocess bounds (src/workflow/subprocess-bounds.ts): NO-LOAD-BLOCK L2 ──
+// ── the harness's subprocess bounds (src/process/subprocess-bounds.ts): NO-LOAD-BLOCK L2 ──
 //
 // Every script subprocess (`runScriptSubprocess`), `harness check`'s tsc and
 // the commit guard's compile legs run under these, and nothing else bounds
@@ -82,13 +106,28 @@ export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 // - the hang backstop is the one wall bound left: very large, and a step that
 //   reaches it is reported HUNG, with how it ended, never retried here.
 /** CPU seconds each process of a script subprocess may use (RLIMIT_CPU's soft limit: SIGXCPU). */
-export const SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS = 1_800;
+const SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS = 1_800;
 /** CPU seconds past the soft limit at which the kernel kills a process that ignored SIGXCPU (the hard limit, which no child can raise). */
-export const SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS = 60;
+const SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS = 60;
 /** Wall time after which a script subprocess is hung, not slow. */
-export const SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS = 7_200_000;
+const SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS = 7_200_000;
+/** The harness's subprocess bounds, as one value (the mechanism is src/process/subprocess-bounds.ts). */
+export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
+  cpuLimitSeconds: SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS,
+  cpuKillGraceSeconds: SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS,
+  hangBackstopMs: SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
+});
 /** The most output a script subprocess may print before it is cut off (`harness check`'s payload is ~75 KB). */
 export const SCRIPT_SUBPROCESS_OUTPUT_BYTES = 256 * 1024 * 1024;
+/**
+ * How long one CPU-calibration child (`src/shared/run-cpu.ts`: the fixed
+ * benchmark a run takes at start and end to turn CPU time into work units)
+ * may take before its reading is absent.
+ */
+export const DEFAULT_CPU_CALIBRATION_TIMEOUT_MS = 120_000;
+
+/** Hex digits of the test-inventory hash `harness check` quotes in its passing message. */
+export const INVENTORY_HASH_PREVIEW_HEX = 12;
 
 // ── resource-lock.ts defaults ─────────────────────────────────────────────
 
@@ -159,6 +198,14 @@ export const DEFAULT_E2E_SUITE_TIMEOUT_MS = 600_000;
 /** How many events `harness timeline` lists when no `--limit` is given. */
 export const DEFAULT_TIMELINE_COMMAND_LIMIT = 50;
 
+// ── workspace-manager.ts display lengths ───────────────────────────────────
+/** The length of a workspace id's random suffix: the last characters of a generated id. */
+export const WORKSPACE_NONCE_CHARACTERS = 12;
+/** How many characters of a commit or tree id a workspace's generated pull request text shows. */
+export const WORKSPACE_SHORT_ID_CHARACTERS = 12;
+/** How many paths a workspace refusal names before it stops listing. */
+export const WORKSPACE_REFUSAL_PATHS_NAMED = 8;
+
 // ── test-result-collector.ts defaults ──────────────────────────────────────
 
 export const MAXIMUM_PARALLEL_CONCURRENCY = 16 as const;
@@ -188,45 +235,44 @@ export const DEFAULT_S1_FILESYSTEM_CACHE_MAX_ENTRIES = 256 as const;
 // through to computation.
 export const DEFAULT_S1_FILESYSTEM_CACHE_DIRECTORY = "harness-s1-cache" as const;
 
-// THE POPULATION THIS BOUNDS IS ONE TEST CASE.
-//
-// It is the runner's per-test `timeout`, so a test that never settles fails
-// with `testTimeoutFailure` and the rest of its file still runs. Without it
-// the children ran at node's default of "never", and a hung test did not fail
-// the suite — it removed the suite. `suiteRuntimeBudgetMs` cannot cover this:
-// it is judged after the run returns, and a run that never returns is never
-// judged.
-//
-// Where the number comes from. The slowest FILE measured on this suite is
-// `test/foundation-cascade.test.ts` at 45,195 ms; a file's duration is the sum
-// of its tests, so that is a measured upper bound on the slowest single test.
-// 120 s sits ~2.6x above it, which is headroom for contention rather than a
-// second opinion about the file set. If the slowest file approaches this
-// number, the bound has stopped being an upper bound and must be re-derived
-// rather than raised.
-//
-// This comment previously described a per-FILE budget read by a prevention
-// test from the durations cache. That mechanism no longer exists —
-// `test/prevention/test-runtime-budget.test.ts` judges only
-// `suiteRuntimeBudgetMs` — so the constant named a population that had been
-// deleted, and was consumed by nothing at all: declared in the config,
-// resolved by `readTestExecutionConfig`, and read by no code path.
-// The value is a configurable (overridable via
-// testExecution.runtimeBudgetMs).
-export const DEFAULT_TEST_RUNTIME_BUDGET_MS = 120_000 as const;
+// THE ENGINE SUITE'S PER-TEST BOUNDS, for a root whose config does not
+// declare them (a foreign or fixture tree; this checkout's own values are
+// `testExecution.testHangBackstopMs` and `testExecution.testCpuClasses`,
+// enforced by scripts/tooling/engine-test-bounds.ts). The hang backstop ends
+// a test that never settles and never polices slowness; a test is judged by
+// its CPU work against its file's class (TEST-CPU-CLASSES). The per-test
+// WALL cap these replace (`runtimeBudgetMs`, 120 s) failed tests that pass
+// alone under full-suite contention (NO-LOAD-BLOCK row G-05).
+export const DEFAULT_TEST_HANG_BACKSTOP_MS = 600_000 as const;
+export const DEFAULT_TEST_CPU_CLASSES: Readonly<{ defaultCeilingMs: number; headroomFactor: number; classes: readonly Readonly<{ name: string; measuredCpuMs: number; files: readonly string[] }>[] }> =
+  Object.freeze({ defaultCeilingMs: 60_000, headroomFactor: 2, classes: Object.freeze([]) });
+
+/**
+ * THE ONE DERIVATION of a CPU class's ceiling: what its tests were measured
+ * to do, times the one declared headroom. A class never carries a ceiling of
+ * its own, so no ceiling is a number someone picked for one test. The
+ * judgement (scripts/tooling/test-cpu-class.ts) and the exposure page both
+ * ask this.
+ */
+export function classCeilingMs(classes: Readonly<{ headroomFactor: number }>, declared: Readonly<{ measuredCpuMs: number }>): number {
+  return Math.ceil(declared.measuredCpuMs * classes.headroomFactor);
+}
 
 // The ENGINE suite's watchdog (overridable via testExecution.engineSuiteWatchdog;
 // enforced in scripts/tooling/inventory-test-run.ts): a phase that reports no
 // test event for `stallTimeoutMs`, or a run still going at `hardCeilingMs`, is
-// aborted and its running files killed and reported failed. The per-test kill
-// timeout above cannot end a FILE whose cancelled test left a handle open
-// (measured: one file held a run for two hours). The stall bound sits above
-// that timeout, so a cancelled test always reports before a stall is
-// declared; the ceiling is ~6x the measured full-suite wall clock (~5 min).
-// A stopped run (a stall, the ceiling, an operator's stop) has `killGraceMs`
-// after its SIGTERM before it and every descendant are SIGKILLed.
+// aborted and its running files killed and reported failed. The per-test hang
+// backstop above cannot end a FILE whose cancelled test left a handle open
+// (measured: one file held a run for two hours). Both are HANG bounds, never
+// judgements of speed (NO-LOAD-BLOCK): the stall bound (no progress at all)
+// sits above the per-test backstop, so a hung test always reports before a
+// stall is declared, and the ceiling is the schema's largest, far above any
+// run that is still making progress (a loaded host's full suite took 1357 s
+// of wall on CI). A stopped run (a stall, the ceiling, an operator's stop)
+// has `killGraceMs` after its SIGTERM before it and every descendant are
+// SIGKILLed.
 export type SuiteWatchdog = Readonly<{ stallTimeoutMs: number; hardCeilingMs: number; killGraceMs: number }>;
-export const DEFAULT_ENGINE_SUITE_WATCHDOG: SuiteWatchdog = Object.freeze({ stallTimeoutMs: 300_000, hardCeilingMs: 1_800_000, killGraceMs: 3_000 });
+export const DEFAULT_ENGINE_SUITE_WATCHDOG: SuiteWatchdog = Object.freeze({ stallTimeoutMs: 900_000, hardCeilingMs: 14_400_000, killGraceMs: 3_000 });
 
 // Default concurrency for the serial phase. Files marked as sharing
 // process-level resources (evidence-worker spawns, S1 repository walks,
@@ -246,8 +292,7 @@ export const DEFAULT_SERIAL_PHASE_CONCURRENCY = 2 as const;
 // silent 120 s fallback was exactly that. A missing declaration reaches the
 // runner's gate as absent and is reported NOT JUDGED in plain words
 // (`judgeSuiteCpu` in `src/shared/budget-verdict.ts`), never quietly judged
-// against a constant. `DEFAULT_TEST_RUNTIME_BUDGET_MS` above survives
-// because it is a different concept: a per-test KILL TIMEOUT, not a budget.
+// against a constant.
 
 // Default serial-phase concurrency for the FULL test suite (RUN_SLOW=1). The
 // slow serial files (S1 scenarios, harness-live-root) use process isolation

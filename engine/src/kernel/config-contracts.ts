@@ -1163,11 +1163,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     requires: z.array(workspaceCommandName).min(1).max(8).optional(),
     // `holdsInstrumentLock` — declared only on a SETUP command that is a heavy
     // instrument (the web module cache warm-up collects the whole suite): the
-    // runner takes the host's one instrument lock before the command starts
-    // (the wait counts toward no `timeoutMs`), runs it once per tree, and a
-    // READ-ONLY workspace's create does not run it (a verifier runs single
-    // files; its first run warms the cache), so a create never fails while a
-    // validate holds the lock.
+    // runner admits it as a heavy run under its per-run caps before the
+    // command starts (at once: it never waits for another run), runs it once
+    // per tree, and a READ-ONLY workspace's create does not run it (a verifier
+    // runs single files; its first run warms the cache).
     holdsInstrumentLock: z.literal(true).optional(),
   });
   const workspacePhaseSchema = z.array(workspaceCommandName).max(32);
@@ -1326,8 +1325,6 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     unitsPerTestFile: z.number().positive().max(600000),
     derivedAtTestFileCount: z.number().int().positive().max(100000),
     maxPopulationDriftFraction: z.number().positive().lt(1),
-    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
-    ambientInflationCapFraction: z.number().min(0).lt(1),
   });
   const rollingCpuBudgetSchema = z.strictObject({
     ...cpuBudgetValidityFields,
@@ -1336,15 +1333,43 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     maxPopulationDriftFraction: z.number().positive().lt(1),
     sameTreeSpreadFraction: z.number().positive().lt(1),
     baselineWindowRuns: z.number().int().min(2).max(HISTORY_KEPT),
-    // ZERO IS A LEGAL SLOPE NOW, and it is the value the calibrated metric
-    // declares: the ambient adjustment would double-pay a load effect the
-    // calibration already absorbs. The fields stay in the shape so a future
-    // re-derivation can state a non-zero residual without a schema change.
-    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
-    ambientInflationCapFraction: z.number().min(0).lt(1),
+    // (No ambient-inflation envelope: a cap is never scaled by host load.
+    // The load legs are recorded signals only; NO-LOAD-BLOCK, audit A-08.)
   });
 
+  // ── PER-TEST LIMITS: CPU WORK, AND ONE HANG BACKSTOP (NO-LOAD-BLOCK L2) ──
+  //
+  // A test is judged by the CPU work it did (its process's CPU and every child
+  // it reaped, engine/src/shared/run-cpu.ts), never by its wall time: a busy
+  // host makes a test WAIT for a core, it does not make it do more work. The
+  // ceiling is its file's class (`classes`, each naming the repository paths
+  // of the files it holds), else `defaultCeilingMs`. A file sits in at most
+  // one class. A class records what was MEASURED (`measuredCpuMs`, the most
+  // CPU work one of its tests did on a hosted runner), never a hand-picked
+  // ceiling: its ceiling is that measurement times the one declared
+  // `headroomFactor`, derived in one place (`classCeilingMs`,
+  // engine/src/workflow/workflow-config.ts), because CPU work still varies
+  // with the runner's processor model. Wall time survives only as `testHangBackstopMs`: an async hang
+  // ends there, classified `hung`, and is never retried. It sits below each
+  // suite's stall bound, so a hung test is named before its run is killed.
+  const testCpuClassesSchema = z.strictObject({
+    defaultCeilingMs: z.number().int().positive().max(3_600_000),
+    headroomFactor: z.number().min(1).max(10),
+    classes: z.array(z.strictObject({
+      name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
+      measuredCpuMs: z.number().int().positive().max(3_600_000),
+      files: z.array(z.string().min(1)).min(1),
+    })),
+  }).refine((declared) => new Set(declared.classes.map((one) => one.name)).size === declared.classes.length, {
+    message: "every CPU class needs a distinct name", path: ["classes"],
+  }).refine((declared) => {
+    const files = declared.classes.flatMap((one) => one.files);
+    return new Set(files).size === files.length;
+  }, { message: "a test file sits in at most one CPU class", path: ["classes"] });
+
   const testExecutionConfigSchema = z.strictObject({
+    testCpuClasses: testCpuClassesSchema.optional(),
+    testHangBackstopMs: z.number().int().positive().max(3_600_000).optional(),
     concurrency: z.union([
       z.literal("auto"),
       z.literal(false),
@@ -1352,15 +1377,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     ]).default("auto"),
     parallelConcurrency: z.number().int().positive().max(64).optional(),
     fullSuiteParallelConcurrency: z.number().int().positive().max(64).optional(),
-    // `runtimeBudgetMs` is a per-test KILL TIMEOUT, not a budget: it is
-    // passed to the runner as `timeout`, so a test that never settles FAILS
-    // instead of removing the suite. It happens to read 120000 — the same
-    // number the deleted wall-clock suite budget (`suiteRuntimeBudgetMs`)
-    // carried — and that is a COINCIDENCE of history, not a relationship:
-    // the suite budget is a CPU budget now (`integrationSuiteCpuBudget`
-    // below) and this timeout is bounded from below by the slowest single
-    // test, a different derivation entirely.
-    runtimeBudgetMs: z.number().int().positive().max(600000).optional(),
+    // (`runtimeBudgetMs`, the engine's per-test WALL cap, is deleted: a test
+    // is judged by its CPU work against its file's class and ended only by
+    // the hang backstop, `testCpuClasses` and `testHangBackstopMs` below —
+    // NO-LOAD-BLOCK row G-05. The key is refused, never read.)
     serialPhaseConcurrency: z.number().int().positive().max(16).optional(),
     fullSuiteSerialPhaseConcurrency: z.number().int().positive().max(16).optional(),
     fullSuiteInProcessSerialPhaseConcurrency: z.number().int().positive().max(16).optional(),
@@ -1520,22 +1540,31 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // WHOLE retained ledger, and a red suspect stays red until it is explained
     // or owned by a burn-down entry — nothing ages out of a window, design
     // NH-E; src/workflow/flaky-burn-down.ts `judgeFlakyMemory`.)
-    // THE HOST'S ONE INSTRUMENT LOCK (src/process/instrument-lock.ts): the
-    // lock file, relative to the host user's cache folder (`.cache` under the
-    // password database's home: $HOME and $XDG_CACHE_HOME never move it; never
-    // in a checkout, never in the keep-out floor), and what a
-    // heavy run is — this many test files or more; fewer is a light, targeted
-    // run that takes nothing — and which WHOLE INSTRUMENTS are heavy by kind,
-    // whatever files they name (a browser run, the coverage run, the profile,
-    // a slot run, a reproduction: one definition of heavy). REQUIRED:
-    // a heavy run with no declared lock does not start. Every instrument door
-    // takes it; a second one waits.
+    // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): the run
+    // registry's place, beside this path relative to the host user's cache
+    // folder (`.cache` under the password database's home: $HOME and
+    // $XDG_CACHE_HOME never move it; never in a checkout, never in the
+    // keep-out floor), and what a heavy run is — this many test files or
+    // more; fewer is a light, targeted run that records nothing — and which
+    // WHOLE INSTRUMENTS are heavy by kind, whatever files they name (a browser
+    // run, the coverage run, the profile, a slot run, a reproduction: one
+    // definition of heavy). REQUIRED: a heavy run with no declaration does
+    // not start. Every heavy run is admitted AT ONCE under its caps; none
+    // waits for another (NO-LOAD-BLOCK).
     instrumentLock: z.strictObject({
       cacheRelativeLockPath: z.string().min(1),
       minimumTestFiles: z.number().int().min(2),
       wholeInstruments: z.array(z.enum(WHOLE_INSTRUMENT_KINDS)).min(1).refine((kinds) => new Set(kinds).size === kinds.length, "each instrument once"),
-      // How often a waiting run looks at the lock again.
-      pollIntervalMs: z.number().int().min(10).max(60_000),
+      // Each admitted run's caps (NO-LOAD-BLOCK: runs proceed concurrently,
+      // never waiting for each other): the admitting process, and so
+      // everything the run starts, goes into the run's own cgroup v2 scope
+      // with this memory ceiling (a share of the host's memory) and CPU
+      // weight (1-10000; 100 is the default share). A host that cannot make
+      // the scope refuses the run.
+      perRun: z.strictObject({
+        memoryMaxPercent: z.number().int().min(1).max(100),
+        cpuWeight: z.number().int().min(1).max(10_000),
+      }),
     }),
     // THE FLAKY-CAUSE REPRODUCTION DOOR (`harness flake reproduce`,
     // src/workflow/flake-cli.ts; the FLAKE-REPRO decision). A cause that needs
@@ -1567,14 +1596,15 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     webSuiteWatchdog: suiteWatchdogSchema.optional(),
     // The ENGINE suite's watchdog (`scripts/tooling/inventory-test-run.ts`,
     // held by the worker that dispatches the test files — never by a file's
-    // own process, which is the one that hangs). `runtimeBudgetMs` fails a
-    // TEST that never settles, but a file whose cancelled test left a handle
-    // open never EXITS, and the runner waits for it forever (measured: two
-    // hours on one file's leaked servers). A phase that reports no test event
-    // for `stallTimeoutMs` (above `runtimeBudgetMs`, so a cancelled test
-    // always reports first), or a run still going at `hardCeilingMs`, is
-    // aborted: every file process still running is killed and reported as a
-    // failed, aborted file — a killed run is a failed run.
+    // own process, which is the one that hangs). The hang backstop
+    // (`testHangBackstopMs`) fails a TEST that never settles, but a file whose
+    // cancelled test left a handle open never EXITS, and the runner waits for
+    // it forever (measured: two hours on one file's leaked servers). A phase
+    // that reports no test event for `stallTimeoutMs` (above the backstop, so
+    // a hung test always reports first), or a run still going at
+    // `hardCeilingMs`, is aborted: every file process still running is killed
+    // and reported as a failed, aborted file — a killed run is a failed run.
+    // Both are hang bounds, never judgements of speed (NO-LOAD-BLOCK).
     engineSuiteWatchdog: suiteWatchdogSchema.optional(),
   }).optional();
   // Harness workflow timeouts: subprocess timeouts for harness commands
@@ -1590,7 +1620,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // that merely FAILED (any other non-zero exit) is never retried.
   // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
   // typecheck is bounded by its CPU work and one hang backstop like every
-  // harness subprocess, src/workflow/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
+  // harness subprocess, src/process/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
   const harnessConfigSchema = z.strictObject({
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),

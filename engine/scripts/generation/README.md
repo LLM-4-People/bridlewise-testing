@@ -16,6 +16,6 @@ document is regenerated rather than hand-maintained.
 
 The folder lives at `engine/scripts/generation/`.
 
-- `repository-path-unicode.ts` is consumed by nothing yet.
+- `repository-path-unicode.ts` is consumed by `engine/scripts/verification/corpus.ts`.
 
 <!-- /consumers:generated -->

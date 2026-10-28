@@ -705,8 +705,112 @@
     "recoveryDirectionPreference": "next"
   },
   "testExecution": {
+    "testCpuClasses": {
+      "defaultCeilingMs": 60000,
+      "headroomFactor": 2,
+      "classes": [
+        {
+          "name": "test-cpu-class",
+          "measuredCpuMs": 40779,
+          "files": [
+            "tests/prevention/test-cpu-class.test.ts"
+          ]
+        },
+        {
+          "name": "test-isolation-contract",
+          "measuredCpuMs": 39589,
+          "files": [
+            "tests/prevention/test-isolation-contract.test.ts"
+          ]
+        },
+        {
+          "name": "commit-guard-generated-facts",
+          "measuredCpuMs": 435215,
+          "files": [
+            "engine/test/prevention/commit-guard-generated-facts.test.ts"
+          ]
+        },
+        {
+          "name": "candidate-checkout",
+          "measuredCpuMs": 258478,
+          "files": [
+            "engine/test/workflow/candidate-checkout.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b12",
+          "measuredCpuMs": 195007,
+          "files": [
+            "engine/test/s1-scenarios/b12.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b02",
+          "measuredCpuMs": 176373,
+          "files": [
+            "engine/test/s1-scenarios/b02.test.ts"
+          ]
+        },
+        {
+          "name": "foundation-cascade",
+          "measuredCpuMs": 159494,
+          "files": [
+            "engine/test/foundation-cascade.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b15",
+          "measuredCpuMs": 135077,
+          "files": [
+            "engine/test/s1-scenarios/b15.test.ts"
+          ]
+        },
+        {
+          "name": "repository-path",
+          "measuredCpuMs": 115699,
+          "files": [
+            "engine/test/repository-path.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b08",
+          "measuredCpuMs": 89383,
+          "files": [
+            "engine/test/s1-scenarios/b08.test.ts"
+          ]
+        },
+        {
+          "name": "handoff-continuity",
+          "measuredCpuMs": 84547,
+          "files": [
+            "engine/test/unit/tasks-agents/handoff-continuity.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b13",
+          "measuredCpuMs": 74514,
+          "files": [
+            "engine/test/s1-scenarios/b13.test.ts"
+          ]
+        },
+        {
+          "name": "harness-commands",
+          "measuredCpuMs": 65173,
+          "files": [
+            "engine/test/workflow/harness-commands.test.ts"
+          ]
+        },
+        {
+          "name": "architecture-baseline-clean",
+          "measuredCpuMs": 60041,
+          "files": [
+            "engine/test/architecture/architecture-baseline-clean.test.ts"
+          ]
+        }
+      ]
+    },
+    "testHangBackstopMs": 600000,
     "concurrency": "auto",
-    "runtimeBudgetMs": 120000,
     "serialPhaseConcurrency": 6,
     "fullSuiteSerialPhaseConcurrency": 8,
     "fullSuiteInProcessSerialPhaseConcurrency": 4,
@@ -729,7 +833,7 @@
       "phase": "accumulation",
       "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "derivedAtTestFileCount": 535,
+      "derivedAtTestFileCount": 536,
       "calibrationDriftMaxFraction": 0.15,
       "validThroughLoad5PerCpu": 1.7,
       "legacy": {
@@ -743,7 +847,10 @@
     "instrumentLock": {
       "cacheRelativeLockPath": "bridlewise/instrument.lock",
       "minimumTestFiles": 2,
-      "pollIntervalMs": 1000,
+      "perRun": {
+        "memoryMaxPercent": 50,
+        "cpuWeight": 100
+      },
       "wholeInstruments": [
         "playwright",
         "coverage",
@@ -758,17 +865,20 @@
       "deterministicShims": [
         "engine/test/support/flake-shim-hold-requests.ts",
         "engine/test/support/flake-shim-routing-rss.ts",
-        "engine/test/forge/flake-shim-token-ends-zero.ts"
+        "engine/test/forge/flake-shim-token-ends-zero.ts",
+        "tests/helpers/flake-shim-orchestration-run-id.ts",
+        "engine/test/support/flake-shim-cpu-frequency-scaling.ts",
+        "engine/test/support/flake-shim-preempt-after-ready.ts"
       ]
     },
     "webSuiteWatchdog": {
-      "stallTimeoutMs": 300000,
+      "stallTimeoutMs": 900000,
       "hardCeilingMs": 1800000,
       "killGraceMs": 3000
     },
     "engineSuiteWatchdog": {
-      "stallTimeoutMs": 300000,
-      "hardCeilingMs": 1800000,
+      "stallTimeoutMs": 900000,
+      "hardCeilingMs": 14400000,
       "killGraceMs": 3000
     }
   },
@@ -1073,7 +1183,8 @@
       {
         "name": "bridlewise-coordination",
         "kind": "notes",
-        "visibility": "private"
+        "visibility": "private",
+        "protectedBranch": "coordination"
       },
       {
         "name": "bridlewise-archive",
@@ -1108,7 +1219,257 @@
           ]
         }
       ]
-    }
+    },
+    "stage": "p0",
+    "plan": {
+      "name": "team",
+      "secretProtection": false
+    },
+    "maintainer": "amberflag48",
+    "p0RequiredChecks": [
+      {
+        "context": "Typecheck, public tests, build",
+        "integrationId": 15368
+      },
+      {
+        "context": "Secret and privacy scan",
+        "integrationId": 15368
+      },
+      {
+        "context": "Relative Markdown links",
+        "integrationId": 15368
+      },
+      {
+        "context": "Analyze JavaScript and TypeScript (javascript-typescript)",
+        "integrationId": 15368
+      },
+      {
+        "context": "Full suite shards / Merge one qualification receipt",
+        "integrationId": 15368
+      },
+      {
+        "context": "Generated values and harness check",
+        "integrationId": 15368
+      }
+    ],
+    "mergeQueue": {
+      "maxEntriesToBuild": 1,
+      "minEntriesToMerge": 1,
+      "maxEntriesToMerge": 4,
+      "minEntriesToMergeWaitMinutes": 0,
+      "checkResponseTimeoutMinutes": 60
+    },
+    "areas": [
+      {
+        "id": "engine",
+        "description": "The engine: the domain half of the harness",
+        "paths": [
+          "/engine/"
+        ],
+        "color": "1d76db"
+      },
+      {
+        "id": "forge",
+        "description": "GitHub, the one forge: settings as code, Apps, the port",
+        "paths": [
+          "/engine/src/workflow/forge/",
+          "/engine/test/forge/",
+          "/.github/forge/"
+        ],
+        "color": "0052cc"
+      },
+      {
+        "id": "server",
+        "description": "The web server",
+        "paths": [
+          "/server/",
+          "/shared/"
+        ],
+        "color": "5319e7"
+      },
+      {
+        "id": "web",
+        "description": "The web interface",
+        "paths": [
+          "/src/",
+          "/public/",
+          "/index.html"
+        ],
+        "color": "c5def5"
+      },
+      {
+        "id": "docs",
+        "description": "Documentation, decisions and trackers",
+        "paths": [
+          "/docs/"
+        ],
+        "color": "0075ca"
+      },
+      {
+        "id": "ci",
+        "description": "CI, workflows and repository tooling",
+        "paths": [
+          "/.github/workflows/",
+          "/scripts/"
+        ],
+        "color": "bfd4f2"
+      },
+      {
+        "id": "tests",
+        "description": "The web and public test suites",
+        "paths": [
+          "/tests/"
+        ],
+        "color": "d4c5f9"
+      }
+    ],
+    "labels": [
+      {
+        "name": "lane:gh-1",
+        "color": "5319e7",
+        "description": "Work of the GH-1 writer lane"
+      },
+      {
+        "name": "lane:gh-2",
+        "color": "5319e7",
+        "description": "Work of the GH-2 writer lane"
+      },
+      {
+        "name": "lane:gh-3",
+        "color": "5319e7",
+        "description": "Work of the GH-3 writer lane"
+      },
+      {
+        "name": "lane:gh-4",
+        "color": "5319e7",
+        "description": "Work of the GH-4 writer lane"
+      },
+      {
+        "name": "lane:gh-5",
+        "color": "5319e7",
+        "description": "Work of the GH-5 writer lane"
+      },
+      {
+        "name": "lane:gh-6",
+        "color": "5319e7",
+        "description": "Work of the GH-6 writer lane"
+      },
+      {
+        "name": "lane:gh-7",
+        "color": "5319e7",
+        "description": "Work of the GH-7 writer lane"
+      },
+      {
+        "name": "lane:gh-8",
+        "color": "5319e7",
+        "description": "Work of the GH-8 writer lane"
+      },
+      {
+        "name": "lane:gh-9",
+        "color": "5319e7",
+        "description": "Work of the GH-9 writer lane"
+      },
+      {
+        "name": "lane:mkt",
+        "color": "5319e7",
+        "description": "Work of the marketing and site lane"
+      },
+      {
+        "name": "forge-drift",
+        "color": "b60205",
+        "description": "A live GitHub setting differs from .github/forge (harness forge audit)"
+      },
+      {
+        "name": "key-rotation",
+        "color": "d93f0b",
+        "description": "An App key reaches its rotation age"
+      },
+      {
+        "name": "ci-failure",
+        "color": "e11d21",
+        "description": "A workflow failed (retired by the MAIN-RED projection, runbook P5.5)"
+      },
+      {
+        "name": "needs-evidence",
+        "color": "fbca04",
+        "description": "A claim waits for its evidence"
+      },
+      {
+        "name": "dependencies",
+        "color": "0366d6",
+        "description": "A dependency update"
+      }
+    ],
+    "autolinks": [],
+    "dependabot": {
+      "schedule": {
+        "interval": "weekly",
+        "day": "monday",
+        "time": "06:00",
+        "timezone": "Etc/UTC"
+      },
+      "openPullRequestsLimit": 5,
+      "cooldownDays": 3,
+      "majorCooldownDays": 7,
+      "packages": [
+        {
+          "ecosystem": "npm",
+          "directory": "/",
+          "group": "web"
+        },
+        {
+          "ecosystem": "npm",
+          "directory": "/engine",
+          "group": "engine"
+        },
+        {
+          "ecosystem": "github-actions",
+          "directory": "/",
+          "group": "actions"
+        }
+      ],
+      "frozenPrefixes": [
+        "engine/verification/benchmarks/"
+      ]
+    },
+    "project": {
+      "title": "Bridlewise",
+      "statusOptions": [
+        "Intake",
+        "Ready",
+        "In progress",
+        "In review",
+        "Done"
+      ]
+    },
+    "contentPolicy": {
+      "maxFileMegabytes": 10,
+      "forbiddenExtensions": [
+        ".pem",
+        ".key",
+        ".p12",
+        ".pfx",
+        ".env",
+        ".sqlite",
+        ".db",
+        ".zst",
+        ".tar",
+        ".gz",
+        ".zip"
+      ],
+      "forbiddenPaths": [
+        "**/secrets/**",
+        "**/.bridlewise/**",
+        "**/tokens/**"
+      ]
+    },
+    "retired": [
+      {
+        "kind": "ruleset",
+        "repository": "bridlewise-testing",
+        "name": "protect-release-tags"
+      }
+    ]
   },
   "codeIntelligence": {
     "autoIndexOnProjectAdd": true,

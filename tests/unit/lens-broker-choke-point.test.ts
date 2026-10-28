@@ -218,7 +218,7 @@ describe("D. the reconstruction log", () => {
       envelopeResponse({}, { etag: 'W/"1"', asOf: 1 }),
     ) as unknown as typeof fetch;
 
-    await read("code.graph", { params: { path: "/home/someone/secret-project" } });
+    await read("code.graph", { params: { path: "/home/user/secret-project" } });
     expect(currentProvenance().length).toBe(1);
     clearProvenance();
     expect(currentProvenance().length).toBe(0);

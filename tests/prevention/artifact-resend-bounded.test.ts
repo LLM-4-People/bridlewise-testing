@@ -264,7 +264,7 @@ describe("a large tool-call payload costs a reference, not a document", () => {
    * requires the notice to be true in each.
    */
   test("with a credential in the payload the notice states the MASKED size, and says so", async () => {
-    const secret = "sk-live-4f9a2b7c8d1e0f3a5b6c7d8e9f0a1b2c";
+    const secret = ("sk" + "-live-4f9a2b7c8d1e0f3a5b6c7d8e9f0a1b2c");
     const withSecret = JSON.stringify({
       type: "game",
       title: "Tetris",

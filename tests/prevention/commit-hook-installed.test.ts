@@ -78,5 +78,5 @@ describe("a move cannot silently drop a tracked file from this repository", () =
     expect(judged, `the hook neither passed nor refused — it failed to run:\n${result.stderr}`).toBe(
       true,
     );
-  }, 90_000);
+  });
 });

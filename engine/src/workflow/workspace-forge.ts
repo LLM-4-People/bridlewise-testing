@@ -28,8 +28,9 @@
  * is never overwritten (`branch_moved_by_another_writer`), with ONE exception,
  * a crashed round: a forge head whose commits are, one for one, twins of the
  * local commits (the same trees) is adopted. Then each new local commit of
- * the workspace's branch is re-made on the forge through the Git Data API, in
- * topological order:
+ * the workspace's branch (beyond the trunk and, for a STACKED workspace, its
+ * parent's published head, whose signed twins are already there) is re-made
+ * on the forge through the Git Data API, in topological order:
  *   1. `createBlob` for each blob the commit's tree diff (against its first
  *      parent) adds or changes, once per round — the answered id must be the
  *      local blob id (`workspace_publish_object_mismatch`);
@@ -84,6 +85,9 @@ export type ForgeEnqueueAnswer =
   | Readonly<{ kind: "enqueued"; headSha: string }>
   | Readonly<{ kind: "refused"; message: string }>;
 
+/** One pull request in a merge queue: its number, the head it was queued at, and the ref that head is fetched from. */
+export type ForgeQueueEntry = Readonly<{ number: number; headSha: string; fetchRef: string }>;
+
 /** One entry of a tree request: a file (or gitlink) at `path`, or its deletion (`sha: null`). */
 export type ForgeTreeEntry = Readonly<{ path: string; mode: "100644" | "100755" | "120000" | "160000"; sha: string | null }>;
 
@@ -136,6 +140,8 @@ export type WorkspaceForge = Readonly<{
    * auto-merge is never used: it does not enqueue on ruleset queues).
    */
   enqueue(number: number, request: Readonly<{ expectedHeadSha: string }>): Promise<ForgeEnqueueAnswer>;
+  /** The pull requests in `base`'s merge queue now, in queue order (ONE read). */
+  mergeQueue(base: string): Promise<readonly ForgeQueueEntry[]>;
 }>;
 
 /**
@@ -212,6 +218,13 @@ export type PublishRequest = Readonly<{
   branch: string;
   /** Where this workspace last left the forge branch (its last round's head), or null before its first round. */
   expectedHead: string | null;
+  /**
+   * A STACKED workspace's base: the head its parent published (already on the
+   * forge, signed). Its commits are never re-made: only what the branch holds
+   * beyond it (and beyond the trunk) is this workspace's round. Null for a
+   * workspace on the trunk itself.
+   */
+  stackBase: string | null;
   fetchMs: number;
 }>;
 
@@ -227,6 +240,46 @@ function text(repository: GitRepository, argv: readonly string[]): string {
 export function fetchForgeBranches(git: WorktreeGitPort, root: string, remote: string, branches: readonly string[], timeoutMs: number): void {
   const fetched = git.fetchRefs(root, remote, branches.map((branch) => `+refs/heads/${branch}:${remoteTrackingRef(remote, branch)}`), timeoutMs);
   if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching ${branches.join(", ")} from ${remote} was refused: ${fetched.refusal}`, { remote });
+}
+
+/**
+ * THE QUEUE PREFLIGHT: the land computed against the merge queue BEFORE it
+ * is entered, so a pull request the queue would drop is never queued (the
+ * drops of #123, #474, #456, #334, #269 each cost a lane merge, a review
+ * delta and a full CI cycle). The trunk's tip, then every queued pull
+ * request in queue order, then this one, are merged in the object store
+ * alone (`mergeTree`: no index, no worktree, no ref, no commit): each queued
+ * head is fetched from the ref the forge names, merged onto the result so
+ * far from its own merge base with the trunk; a queued head that conflicts
+ * with those ahead of it is one the queue will drop itself, so it is no base
+ * for this one and is passed over. Answers this head's conflicts with the
+ * queue ahead of it (the paths, and the pull requests ahead), or null when it
+ * merges cleanly onto all of them.
+ */
+export function queuePreflightConflict(
+  git: WorktreeGitPort,
+  root: string,
+  remote: string,
+  trunkTip: string,
+  queued: readonly ForgeQueueEntry[],
+  head: string,
+  timeouts: Readonly<{ fetchMs: number; inspectMs: number; mergeMs: number }>,
+): Readonly<{ paths: readonly string[]; ahead: readonly number[] }> | null {
+  if (queued.length > 0) {
+    const fetched = git.fetchRefs(root, remote, queued.map((entry) => `+${entry.fetchRef}:${remoteTrackingRef(remote, `queue/${String(entry.number)}`)}`), timeouts.fetchMs);
+    if (fetched.refusal !== null) fail("workspace_forge_fetch_refused", `fetching the merge queue's heads from ${remote} was refused: ${fetched.refusal}`, { remote });
+  }
+  let merged = trunkTip;
+  const ahead: number[] = [];
+  for (const entry of queued) {
+    const result = git.mergeTree(root, { base: git.mergeBase(root, trunkTip, entry.headSha, timeouts.inspectMs), ours: merged, theirs: entry.headSha }, timeouts.mergeMs);
+    if (result.kind === "clean") {
+      merged = result.tree;
+      ahead.push(entry.number);
+    }
+  }
+  const mine = git.mergeTree(root, { base: git.mergeBase(root, trunkTip, head, timeouts.inspectMs), ours: merged, theirs: head }, timeouts.mergeMs);
+  return mine.kind === "clean" ? null : deepFreeze({ paths: mine.paths, ahead: deepFreeze(ahead) });
 }
 
 /** A commit object's tree, parents, author and message (UTF-8 only: a re-encoded message would be another commit's). */
@@ -324,28 +377,30 @@ export async function remakeCommit(forge: GitDataForge, repository: GitRepositor
  * a crashed round's twins, which are adopted.
  */
 export async function publishBranch(request: PublishRequest): Promise<PublishedRound> {
-  const { forge, repository, git, target, branch, expectedHead } = request;
+  const { forge, repository, git, target, branch, expectedHead, stackBase } = request;
   const root = repository.root;
   const moved = (current: string | null): never => fail("branch_moved_by_another_writer",
     `${branch} on ${target.remote} is at ${current ?? "(absent)"}, not where this workspace left it (${expectedHead ?? "absent"}): another writer pushed to it, and its work is never overwritten — integrate it locally (fetch and rebase onto it), or take the pull request over by hand`,
     { branch, current: current ?? "", expected: expectedHead ?? "" });
   const remoteHead = await forge.branchHead(branch);
   fetchForgeBranches(git, root, target.remote, remoteHead === null ? [target.trunk] : [target.trunk, branch], request.fetchMs);
+  // What is already on the forge: the trunk and, for a stacked workspace, its parent's published head.
   const trunkRef = remoteTrackingRef(target.remote, target.trunk);
+  const onForge = [trunkRef, ...(stackBase === null ? [] : [stackBase])];
   if (remoteHead !== null && git.revParse(root, remoteTrackingRef(target.remote, branch), request.fetchMs) !== remoteHead) {
     fail("workspace_publish_remote_moved", `${branch} moved on ${target.remote} while it was read: publish again`, { branch });
   }
   const head = git.revParse(root, "HEAD", request.fetchMs);
   const headTree = git.revParse(root, `${head}^{tree}`, request.fetchMs);
   if (remoteHead !== expectedHead) {
-    if (remoteHead === null || !isTwinOfLocal(repository, remoteHead, head, [trunkRef, ...(expectedHead === null ? [] : [expectedHead])])) return moved(remoteHead);
+    if (remoteHead === null || !isTwinOfLocal(repository, remoteHead, head, [...onForge, ...(expectedHead === null ? [] : [expectedHead])])) return moved(remoteHead);
     // A crashed round: the forge already holds this workspace's twins. Adopt them.
     const adopted = git.updateRef(root, `refs/heads/${branch}`, remoteHead, head, request.fetchMs);
     if (adopted.refusal !== null) fail("workspace_publish_local_moved", `${branch} moved locally while a crashed round was adopted (${adopted.refusal})`, { branch });
     return deepFreeze({ head: remoteHead, tree: headTree, commits: deepFreeze([]), blobs: 0 });
   }
   if (head === remoteHead) return deepFreeze({ head, tree: headTree, commits: deepFreeze([]), blobs: 0 });
-  const listed = commitsBeyond(repository, head, [trunkRef, ...(remoteHead === null ? [] : [remoteHead])]);
+  const listed = commitsBeyond(repository, head, [...onForge, ...(remoteHead === null ? [] : [remoteHead])]);
   if (listed.length === 0) {
     fail("workspace_publish_empty", `${branch} holds no commit beyond ${target.remote}/${target.trunk}: commit the round's work first`, { branch });
   }

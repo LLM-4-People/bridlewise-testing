@@ -77,15 +77,11 @@
  * Five full runs of one unchanged tree read **1667.3 → 2024.7 ms/file (+21%)**
  * while the recorded ambient load climbed to **1.33/cpu** (load average 18 at
  * peak, 2026-09-01) — cache thrashing and scheduling pressure add real work to
- * the same instructions. So the recorded ambient load has exactly ONE gated
- * use now: the cap scales by the declared ambient-inflation envelope
- * (`ambientInflationFraction` in the shared verdict owner) at the run's own
- * recorded 5-minute leg, and the feed boundary of every ledger reading at
- * its own. A clean run at a busy ambient judges CLEAN; a regressed run at a
- * busy ambient FAILS, in its one run (UR-24-BUDGETS); the arithmetic is on
- * every gate line. A LOW reading still certifies nothing (the ghost cuts
- * both ways) and adjusts nothing; absence never loosens a line; and nothing
- * anywhere waits for a quieter box.
+ * the same instructions. So the recorded ambient load has NO gated use: the
+ * judged figure is calibrated work (run-cpu.ts), the cap is never scaled by
+ * load (the ambient envelope is deleted: NO-LOAD-BLOCK, audit A-08), and the
+ * load legs ride beside every reading as recorded signals. Nothing anywhere
+ * waits for a quieter box.
  *
  * The correct statement is therefore narrower and more useful: **the recorded
  * 1-minute load cannot be normalised by, because a LOW reading does not
@@ -96,8 +92,6 @@
  */
 import { writeFileSync, mkdirSync, readdirSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { instrumentLockPath, instrumentLockStamp } from "../../engine/src/process/instrument-lock.ts";
-import { readTestExecutionConfig } from "../../engine/src/workflow/test-result-collector.ts";
 import { BUDGET_SUMMARY_PATH, moduleCacheDirOf } from "../helpers/budget-paths.ts";
 import { computeRunWork, measureCalibration, readRunCpu, type CalibrationReading, type RunCpu } from "../../engine/src/shared/run-cpu.ts";
 import { readAmbientLoadPerCpu, type AmbientLoadReading } from "../../engine/src/shared/ambient-load.ts";
@@ -625,12 +619,6 @@ export type ReporterHarness = Readonly<{
    * (LAND-OC-FIX: the per-test ceilings raised to 120 s were this cost).
    */
   readonly repositoryRoot: string;
-  /**
-   * The instrument lock the run's stamp is read from (engine/src/process/instrument-lock.ts)
-   * — production: the host's, from config; a test names its own lock file.
-   * The stamp is always READ from the lock's live holder, never stated.
-   */
-  readonly instrumentLockPath: string;
   /** The profile report the performance budgets are judged from — production: the one path the profile step writes. */
   readonly performanceReportPath: string;
   /**
@@ -674,7 +662,6 @@ export default class BudgetReporter {
   private readonly historyPath: string | undefined;
   private readonly cacheDirOverride: string | undefined;
   private readonly repositoryRoot: string;
-  private readonly instrumentLockPathOverride: string | undefined;
   private readonly performanceReportPath: string;
   private readonly out: (chunk: string) => void;
   private readonly err: (chunk: string) => void;
@@ -713,7 +700,6 @@ export default class BudgetReporter {
     this.historyPath = harness?.historyPath;
     this.cacheDirOverride = harness?.cacheDir;
     this.repositoryRoot = harness?.repositoryRoot ?? process.cwd();
-    this.instrumentLockPathOverride = harness?.instrumentLockPath;
     this.performanceReportPath = harness?.performanceReportPath ?? REPORT_PATH;
     this.readCalibration = harness?.readCalibration ?? measureCalibration;
     this.readCpu = harness?.readCpu ?? readRunCpu;
@@ -996,23 +982,9 @@ export default class BudgetReporter {
       // and its row records them, for the workspace's ledger judge (owned, not worse).
       const performance = verdict.kind === "measured" ? judgePerformanceBudgets(this.repositoryRoot, this.performanceReportPath, getPerformanceBudgetConfig()) : undefined;
       if (performance !== undefined) outcomes = [...outcomes, ...performance.outcomes];
-      // AN UNSLOTTED MEASUREMENT IS REFUSED, NEVER JUDGED (the host's one
-      // the host's one instrument lock, engine/src/process/instrument-lock.ts): without it another
-      // writer's heavy run may have shared the cores, so the cost says
-      // nothing about this tree. The runner holds the slot for every full run.
-      const engineRoot = join(this.repositoryRoot, "engine");
-      const lockConfig = readTestExecutionConfig(engineRoot).instrumentLock;
-      const lockPath = this.instrumentLockPathOverride ?? (lockConfig === undefined ? undefined : instrumentLockPath(lockConfig, engineRoot));
-      const heavySlot = lockPath === undefined ? "unslotted" : instrumentLockStamp(lockPath);
-      if (verdict.kind === "measured" && heavySlot !== "held") {
-        // Refused like the engine runner's: failed, said, and NOT recorded.
-        this.err(
-          "\n[runtime-budget] cpu-per-test-file REFUSED: this run did not hold the host's instrument lock, so its CPU cost is not a " +
-            "measurement of this tree and is neither judged nor recorded. Run the suite through its runner (`npm test`), which holds the lock.\n",
-        );
-        this.fail(1);
-        return;
-      }
+      // EVERY FULL RUN IS A MEASUREMENT, whatever else ran beside it: the cost
+      // is CPU work, valid at any load, so nothing is refused for having
+      // shared the host (NO-LOAD-BLOCK, audit A-04).
       // Only a JUDGED run enters the ledger — a refusal proved nothing about
       // the tree, so it must never feed a baseline. That
       // this guard sits OUTSIDE the append (rather than inside it) is pinned
@@ -1088,9 +1060,6 @@ export default class BudgetReporter {
           // HARNESS_MUTATION_RUN=1 is the operator's own verification red,
           // and the flaky memory must not read it as the suite's flakiness.
           ...mutationRunMark(),
-          // Whether the measurement held the host's heavy slot: an unslotted
-          // row never feeds a baseline (budget-verdict's feed filter).
-          heavySlot,
         };
         if (this.historyPath === undefined) appendJudgedRun(record);
         else appendJudgedRun(record, this.historyPath);
@@ -1112,9 +1081,8 @@ export default class BudgetReporter {
     // "Within budget", "over the cap but not yet a verdict" and "there was
     // no evidence to look at" are three different results, and the summary
     // line is the one place everybody looks. There is no provisional colour
-    // any more: a busy ambient is PAID FOR by the ambient adjustment in
-    // every judgement line, never deferred, and nothing waits for a quiet
-    // box.
+    // any more: the judged figure is CPU work, a busy host moves no line,
+    // and nothing waits for a quiet box.
     for (const o of outcomes) {
       if (o.kind === "not-judged") {
         this.out(`[runtime-budget] ${o.gate}: NOT JUDGED — ${o.message}\n`);

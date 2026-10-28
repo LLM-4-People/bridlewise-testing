@@ -72,6 +72,9 @@ export const SENSITIVE_KEY_PATTERNS: readonly RegExp[] = [
   /(?:^|[^\p{L}\p{N}])sk[_-]/iu,
 ];
 
+/** The Discord webhook grammar, in GitHub's custom-pattern subset (see the row). */
+const DISCORD_WEBHOOK_PATTERN = "(?:ptb\\.|canary\\.)?discord(?:app)?\\.com/api/webhooks/[0-9]{17,20}/[A-Za-z0-9_-]{60,68}";
+
 /**
  * THE FORMAT CATALOG — each signal carries its redaction CATEGORY and the
  * human DESCRIPTION of what it matched: the policy's rules
@@ -169,6 +172,46 @@ export const SECRET_TEXT_SIGNAL_CATALOG = deepFreeze([
     github: { kind: "custom", pattern: "sk-[0-9a-f]{64}" }, treeScan: true,
     fixtures: { positive: [["s", "k-", "0a1b2c3d".repeat(8)]], negative: ["sk-0a1b2c3d"] },
     category: "api-key", description: "Neuralwatt API key", admission: /\bsk-[0-9a-f]{64}\b/u, classification: /\bsk-[0-9a-f]{64}\b/u },
+  // ── PROVIDER FORMATS GITHUB DETECTS IN THIS TREE ─────────────────────────
+  //
+  // GitHub's push protection knew these and this catalogue did not: test
+  // fixtures of each raised secret-scanning alerts, while the repository scan
+  // and the redaction engine let the same values through. Each row matches
+  // GitHub's documented shape for its secret type.
+  { id: "google-api-key",
+    github: { kind: "provider", secretTypes: ["google_api_key"] }, treeScan: true,
+    fixtures: { positive: [["AI", "za", "Sy", "Gh7Jk9Lm2Np4Qr6St8Vw0Xy3Zb5Cd7Ef9"]], negative: ["AIzaShort"] },
+    category: "api-key", description: "Google API key", admission: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/u, classification: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/u },
+  { id: "huggingface-token",
+    github: { kind: "provider", secretTypes: ["hf_user_access_token"] }, treeScan: true,
+    fixtures: { positive: [["hf", "_", "QwErTyUiOpAsDfGhJkLzXcVbNmQwErTyUi"]], negative: ["hf_hub_download_cache_directory"] },
+    category: "token", description: "Hugging Face token", admission: /\bhf_[A-Za-z0-9]{34,40}\b/u, classification: /\bhf_[A-Za-z0-9]{34,40}\b/u },
+  { id: "doppler-token",
+    github: { kind: "provider", secretTypes: ["doppler_personal_token"] }, treeScan: true,
+    fixtures: { positive: [["dp.", "pt.", "Ab3".repeat(14), "Z"]], negative: ["dp.pt.short"] },
+    category: "token", description: "Doppler token", admission: /\bdp\.pt\.[A-Za-z0-9]{43}\b/u, classification: /\bdp\.pt\.[A-Za-z0-9]{43}\b/u },
+  { id: "slack-webhook-url",
+    github: { kind: "provider", secretTypes: ["slack_incoming_webhook_url"] }, treeScan: true,
+    fixtures: { positive: [["https://hooks.slack", ".com/services/T", "0A1B2C3D4", "/B", "5E6F7G8H9", "/", "aB1cD2eF3gH4iJ5kL6mN7oP8"]], negative: ["https://hooks.slack.com/services/T0A1B2C3D4"] },
+    category: "credential", description: "Slack incoming webhook URL", admission: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u, classification: /https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]{8,}\/B[A-Z0-9]{8,}\/[A-Za-z0-9]{24,}\b/u },
+  // GitHub has no secret type for a Discord webhook URL (only the bot token).
+  // ONE pattern feeds all three consumers (the GitHub custom pattern, the
+  // admission and the classification), so they cannot diverge. The credential
+  // is the host and path (id + token); the scheme is not part of it, so the
+  // pattern starts at the host and also catches `http://` and bare forms (the
+  // fixtures pin each form against every consumer).
+  { id: "discord-webhook-url",
+    github: { kind: "custom", pattern: DISCORD_WEBHOOK_PATTERN }, treeScan: true,
+    fixtures: {
+      positive: [
+        ["https://discord", ".com/api/webhooks/", "123456789012345678", "/", "Wq3-Er5_Ty7".repeat(6)],
+        ["http://ptb.discord", ".com/api/webhooks/", "12345678901234567", "/", "Zx9_Cv8-Bn7".repeat(6)],
+        ["canary.discordapp", ".com/api/webhooks/", "12345678901234567890", "/", "Qa1-Ws2_Ed3".repeat(6)],
+      ],
+      negative: ["https://discord.com/api/webhooks/123", "discord.com/api/webhooks/12345678901234567/short"],
+    },
+    category: "credential", description: "Discord webhook URL",
+    admission: new RegExp(DISCORD_WEBHOOK_PATTERN, "u"), classification: new RegExp(DISCORD_WEBHOOK_PATTERN, "u") },
   { id: "aws-access-key",
     github: { kind: "provider", secretTypes: ["aws_access_key_id"] }, treeScan: true,
     fixtures: { positive: [["AK", "IA", "Q7XZ".repeat(4)]], negative: ["AKIA123"] },
@@ -343,7 +386,10 @@ const HOME_PATH_PLACEHOLDERS = deepFreeze([
 const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-])(?!\\.[A-Za-z0-9]))`;
 
 export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
-  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
+  // ABSOLUTE only: `/home/` that begins the path. `src/pages/home/widgets`,
+  // `backup/home/x` and `<root>/home/x` are relative paths that merely hold a
+  // `home` segment, and reading them as an account published nothing.
+  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`(?<![\\w.>}-])\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
   // BEGIN AUTHORED PINS
   { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
   { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
@@ -512,28 +558,41 @@ export function isSensitiveKeyName(key: string): boolean {
  * sent where a credential must not go. Everything else is treated as a credential BY DEFAULT, so a header
  * nobody has named yet (`X-Jwt`, `DPoP`, `X-Session`, `X-Signature`, a vendor's next key header) is redacted
  * without anyone having to think of it. A name joins this list only when its value is never a credential:
- * content negotiation and framing, caching and conditional requests, and the GitHub request-id and
- * rate-limit headers the forge reads. A session id (`Mcp-Session-Id`, `Session-Id`) is a bearer of access
- * and never belongs here; neither does a header whose value is a URL (`Location`, `Link`, `Content-Location`,
- * `Refresh`): a redirect to a signed download carries its token in the query string.
+ * content negotiation and framing, caching and conditional requests, the GitHub request-id and
+ * rate-limit headers the forge reads, and a model provider's request id and model name. A session id (`Mcp-Session-Id`, `Session-Id`) is a bearer of access
+ * and never belongs here; neither does a header whose value is a URL ({@link URL_VALUED_HEADER_NAMES}): a
+ * redirect to a signed download carries its token in the query string.
  */
 export const NON_CREDENTIAL_HEADER_NAMES: ReadonlySet<string> = new Set([
   "accept", "accept-charset", "accept-encoding", "accept-language",
   "cache-control", "connection", "content-encoding", "content-language", "content-length", "content-type",
   "date", "etag", "if-match", "if-modified-since", "if-none-match", "keep-alive", "last-modified",
   "mcp-protocol-version", "pragma", "retry-after", "transfer-encoding", "user-agent", "vary",
-  "x-github-api-version", "x-github-media-type", "x-github-request-id",
+  "x-github-api-version", "x-github-media-type", "x-github-request-id", "x-model-id", "x-request-id",
   "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-ratelimit-resource", "x-ratelimit-used",
 ]);
 
 /**
- * Whether a HEADER's value may carry a credential: true for EVERY name except the
- * {@link NON_CREDENTIAL_HEADER_NAMES} (matched case-insensitively). THE ONE answer for every header
- * redaction and every credential refusal. An allowlist, not a denylist: a denylist can only name the
- * credential headers someone thought of, and a missed credential is never acceptable.
+ * THE HEADERS WHOSE VALUE IS A URL (or carries URLs), lower-case: a declared classification, so the rule
+ * below holds whatever the allowlist says. A URL may carry a credential in its query string or userinfo (a
+ * redirect to a signed download, a signed link, a referrer that kept a token), so each of these is ALWAYS
+ * sensitive, even if one were listed in {@link NON_CREDENTIAL_HEADER_NAMES} by mistake.
+ */
+export const URL_VALUED_HEADER_NAMES: ReadonlySet<string> = new Set([
+  "access-control-allow-origin", "content-location", "link", "location", "origin", "referer", "refresh",
+  "report-to", "reporting-endpoints", "sourcemap", "x-sourcemap",
+]);
+
+/**
+ * Whether a HEADER's value may carry a credential: true for every URL-valued name
+ * ({@link URL_VALUED_HEADER_NAMES}), and for EVERY other name except the {@link NON_CREDENTIAL_HEADER_NAMES}
+ * (matched case-insensitively). THE ONE answer for every header redaction and every credential refusal. An
+ * allowlist, not a denylist: a denylist can only name the credential headers someone thought of, and a
+ * missed credential is never acceptable.
  */
 export function isSensitiveHeaderName(name: string): boolean {
-  return !NON_CREDENTIAL_HEADER_NAMES.has(name.trim().toLowerCase());
+  const key = name.trim().toLowerCase();
+  return URL_VALUED_HEADER_NAMES.has(key) || !NON_CREDENTIAL_HEADER_NAMES.has(key);
 }
 
 export function secretLikeValuePaths(value: unknown, profile: SecretSignalProfile): readonly string[] {

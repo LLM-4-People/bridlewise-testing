@@ -10,7 +10,7 @@ import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { holdInstrumentLock } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { resolveRepositoryRegistry } from "./repository-registry.ts";
-import { worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { configuredCheckoutCommandRunner, engineRelativePath, runCheckoutCommand, type CheckoutCommandRunner } from "./checkout-setup.ts";
 import {
   createWorkspaceManager,
@@ -30,6 +30,7 @@ import type { PublishedRound } from "./workspace-forge.ts";
  * `npm run ws -- <subcommand>`), the composition root of isolated work.
  *
  *   create --agent <name> --write-set <path…> [--target <branch>] [--base <ref>]   a feature workspace
+ *   create --agent <name> --write-set <path…> --stack-on <id>                      stacked on a published workspace
  *   create --agent <name> --overlay [--write-set <path…>]                          adopt THIS dirty checkout
  *   create --agent <name> --read-only [--base <ref>]                               a verifier's checkout
  *   extend <id> --write-set <path…>          widen and renew the lease (admission-checked)
@@ -204,16 +205,17 @@ function requireSingleId(args: readonly string[], action: string): string {
 
 /** The workspace id (the first argument) and the flags after it. */
 /**
- * `run` holding the host's ONE instrument lock (src/process/instrument-lock.ts):
- * a validate or a merge runs whole suites, so it waits while another heavy run
- * holds the lock (saying who), and every suite it starts runs inside its hold.
+ * `run` as an ADMITTED heavy run (src/process/instrument-lock.ts): a validate
+ * or a merge runs whole suites, so it is admitted at once under its per-run
+ * caps — it never waits for another run, and no run waits for it — and every
+ * suite it starts runs inside it.
  */
 async function withInstrumentLock<T>(label: string, run: () => Promise<T>): Promise<T> {
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
   // A whole instrument (it runs whole suites), heavy by kind.
-  const lock = await holdInstrumentLock({
+  const lock = holdInstrumentLock({
     config: readTestExecutionConfig(engineRoot).instrumentLock, harnessRoot: engineRoot, runner: label,
-    testFileCount: Number.POSITIVE_INFINITY, onWait: (line) => process.stderr.write(`${line}\n`),
+    testFileCount: Number.POSITIVE_INFINITY, cpu: SUBPROCESS_BOUNDS,
   });
   try {
     return await run();
@@ -242,6 +244,7 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
   let agentName: string | undefined;
   let base: string | undefined;
   let target: string | undefined;
+  let stackOn: string | undefined;
   let overlay = false;
   let readOnly = false;
   const writeSet: string[] = [];
@@ -249,9 +252,10 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
   while (index < args.length) {
     const arg = args[index]!;
     const value = args[index + 1];
-    if ((arg === "--agent" || arg === "--base" || arg === "--target") && value !== undefined && !value.startsWith("--")) {
+    if ((arg === "--agent" || arg === "--base" || arg === "--target" || arg === "--stack-on") && value !== undefined && !value.startsWith("--")) {
       if (arg === "--agent") agentName = value;
       else if (arg === "--base") base = value;
+      else if (arg === "--stack-on") stackOn = value;
       else target = value;
       index += 2;
       continue;
@@ -271,7 +275,7 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
       continue;
     }
     throw new InputError(
-      `unknown workspace create flag: ${arg} (supported: --agent, --write-set, --overlay, --read-only, --base, --target)`,
+      `unknown workspace create flag: ${arg} (supported: --agent, --write-set, --overlay, --read-only, --base, --target, --stack-on)`,
       "unknown_flag",
     );
   }
@@ -287,5 +291,6 @@ function parseCreateArgs(args: readonly string[]): WorkspaceCreateRequest {
     writeSet: deepFreeze(writeSet),
     ...(base !== undefined ? { base } : {}),
     ...(target !== undefined ? { target } : {}),
+    ...(stackOn !== undefined ? { stackOn } : {}),
   });
 }

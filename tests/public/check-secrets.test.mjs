@@ -9,6 +9,12 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
+// Private paths and hosts this file plants are assembled at runtime, so the
+// scan of THIS tree (which exempts no path) stays clean.
+const HOME = "/ho" + "me/";
+const LEAK = `${HOME}leakuser`;
+const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
+const { REVIEWED_GPL_TEXT, createGplReader, isGplFamily, spdxLicences, staleReviewedEntries } = await import("../../engine/scripts/verification/licence-boundary.ts");
 const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
@@ -47,7 +53,7 @@ test("the scanner passes a clean tracked tree", () => {
   }
 });
 
-test("the scanner fails on a provider-shaped key outside a fixture path", () => {
+test("the scanner fails on a provider-shaped key in a plain file", () => {
   const dir = makeRepo();
   try {
     writeFileSync(join(dir, "config.txt"), `api_key = "sk-${"C".repeat(24)}"\n`);
@@ -64,7 +70,7 @@ test("the scanner fails on a provider-shaped key outside a fixture path", () => 
 test("the scanner fails on an internal absolute path", () => {
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "see /home/private-user/secret\n");
+    writeFileSync(join(dir, "notes.md"), `see ${HOME}private-user/secret\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -79,7 +85,7 @@ test("the scanner fails on a BARE home directory", () => {
   // `/home/<user>` — the shape a prose citation uses — matched nothing.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "notes.md"), "the checkout was /home/private-user\n");
+    writeFileSync(join(dir, "notes.md"), `the checkout was ${HOME}private-user\n`);
     execFileSync("git", ["add", "notes.md"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -102,12 +108,12 @@ test("the scanner accepts a DOCUMENTED home placeholder, bare or with a segment"
   }
 });
 
-test("the scanner fails on a private-key block outside a fixture path", () => {
+test("the scanner fails on a private-key block in shipped source", () => {
   // The old hard-count skipped `private-key-block` entirely, so a tracked
   // key header printed a finding and still certified the tree.
   const dir = makeRepo();
   try {
-    writeFileSync(join(dir, "config.ts"), 'const key = "-----BEGIN OPENSSH PRIVATE KEY-----";\n');
+    writeFileSync(join(dir, "config.ts"), ('const key = "--' + '---BEGIN OPENSSH PRIVATE KEY-----";\n'));
     execFileSync("git", ["add", "config.ts"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1);
@@ -165,7 +171,7 @@ test("a key under docs/ is not a fixture", () => {
   }
 });
 
-test("a placeholder-looking key outside the fixture trees is a finding like any other", () => {
+test("a placeholder-looking key is a finding like any other", () => {
   // The scanner once excused seven exact "placeholder" spellings anywhere in
   // the tree; a value is never excused for its spelling.
   const dir = repoWith({ "example.md": `reference: sk-${"A".repeat(24)}\n` });
@@ -212,8 +218,8 @@ test("every format the canonical owner calls a secret file fails the scan", asyn
 
 test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => {
   const headers = [
-    "-----BEGIN ENCRYPTED PRIVATE KEY-----",
-    "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+    ("--" + "---BEGIN ENCRYPTED PRIVATE KEY-----"),
+    ("--" + "---BEGIN PGP PRIVATE KEY BLOCK-----"),
   ];
   for (const header of headers) {
     const dir = repoWith({ "src/key.txt": `${header}\nsynthetic-body\n` });
@@ -230,7 +236,7 @@ test("ENCRYPTED and PGP private-key headers are both private-key blocks", () => 
 
 test("a text blob named .png is scanned by content, not by extension", () => {
   const dir = repoWith({
-    "src/blob.png": "-----BEGIN OPENSSH PRIVATE KEY-----\nsee /home/leakuser/.ssh\n",
+    "src/blob.png": ("--" + "---BEGIN OPENSSH PRIVATE KEY-----\nsee " + LEAK + "/.ssh\n"),
   });
   try {
     const result = scan(dir);
@@ -243,7 +249,7 @@ test("a text blob named .png is scanned by content, not by extension", () => {
 });
 
 test("a file above the old 2 MiB cap has its tail scanned", () => {
-  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n-----BEGIN OPENSSH PRIVATE KEY-----\n`;
+  const content = `${"a".repeat(2 * 1024 * 1024 + 64)}\n--${""}---BEGIN OPENSSH PRIVATE KEY-----\n`;
   const dir = repoWith({ "src/large.txt": content });
   try {
     const result = scan(dir);
@@ -258,7 +264,7 @@ test("a symlink is scanned through its committed target string, never followed",
   const dir = makeRepo();
   try {
     mkdirSync(join(dir, "docs"), { recursive: true });
-    symlinkSync("/home/leakuser/.ssh/id_ed25519", join(dir, "docs/profile"));
+    symlinkSync(`${LEAK}/.ssh/id_ed25519`, join(dir, "docs/profile"));
     execFileSync("git", ["add", "docs/profile"], { cwd: dir });
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
@@ -271,8 +277,8 @@ test("a symlink is scanned through its committed target string, never followed",
 
 test("a dotted account name is not a documented placeholder", () => {
   // `/home/example.` is the placeholder followed by sentence punctuation;
-  // `/home/jane.doe` is a real account whose first component is a placeholder.
-  for (const line of ["home: /home/jane.doe/work\n", "home: /home/user.name/work\n"]) {
+  // `/home/jane` + `.doe` is a real account whose first component is a placeholder.
+  for (const line of [`home: ${HOME}jane.doe/work\n`, `home: ${HOME}user.name/work\n`]) {
     const dir = repoWith({ "src/notes.md": line });
     try {
       const result = scan(dir);
@@ -293,7 +299,7 @@ test("a dotted account name is not a documented placeholder", () => {
 
 test("repeated slashes and JSON slash escapes name the same forbidden path", () => {
   const lines = [
-    "checkout: /home//leakuser/work\n",
+    `checkout: ${HOME}/leakuser/work\n`,
     '{"home":"\\/home\\/leakuser\\/work"}\n',
     '{"home":"\\u002fhome\\u002fleakuser\\u002fwork"}\n',
   ];
@@ -357,7 +363,7 @@ test("every tree-scanned catalogue row is found by its id; the others say why no
   }
 });
 
-test("a 520-character installation token with dots is found by its row id, outside and inside a fixture tree", () => {
+test("a 520-character installation token with dots is found by its row id, in docs and in a test tree", () => {
   const token = signalFixture("github-installation-token", 0);
   assert.equal(token.length, 520);
   assert.equal(token.split(".").length, 3, "the fixture is a three-part JWT");
@@ -366,7 +372,7 @@ test("a 520-character installation token with dots is found by its row id, outsi
     const result = scan(dir);
     assert.equal(result.status, 1, result.stdout);
     assert.match(result.stderr, /docs\/run\.log:1: github-installation-token: GitHub App installation token/);
-    assert.doesNotMatch(result.stderr, /tests\/fixture\.txt/, "a fixture tree is still allowlisted until P0.6 removes it");
+    assert.match(result.stderr, /tests\/fixture\.txt:1: github-installation-token: /, "no tree is exempt: a test tree is scanned like any other");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -376,6 +382,21 @@ test("each publication-privacy row is reported by its id; database state by file
   // A NAME row never spells its name (this repository is public), so it
   // cannot be planted here; the one matcher it runs through is driven with a
   // synthetic row below. The SHAPE rows are planted end to end.
+  // THE EXACT SET of privacy rows, ids and pins: removing a row, or changing
+  // a name row's digest, reds here (the per-kind checks below iterate whatever
+  // rows exist, so they cannot see one disappear).
+  assert.deepEqual(PUBLICATION_PRIVACY_SIGNALS.map((signal) => signal.id).sort(),
+    ["database-state", "home-path", "internal-git-host", "internal-provider-host", "internal-scratch-path", "local-evidence-state"]);
+  const NAME_ROWS = {
+    "internal-git-host": { names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
+    "internal-provider-host": { names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
+    "internal-scratch-path": { names: "scratch-path", digests: [{ length: 13, sha256: "736a4cae0826a534c3de9b47542cbe9dd50ec8b8714e1d42aa45f4afc0799c0d" }] },
+    "local-evidence-state": { names: "dotted", digests: [{ length: 27, sha256: "3bcb2fbbb43fef9d40e18b6e1858d5ca761166d8710552ae03d89b3ae9e6de8b" }] },
+  };
+  assert.deepEqual(
+    Object.fromEntries(PUBLICATION_PRIVACY_SIGNALS.filter((row) => !("pattern" in row)).map((row) => [row.id, { names: row.names, digests: row.digests }])),
+    NAME_ROWS,
+  );
   const shapeRows = PUBLICATION_PRIVACY_SIGNALS.filter((signal) => "pattern" in signal).map((signal) => signal.id);
   assert.deepEqual([...shapeRows].sort(), ["database-state", "home-path"],
     "a new pattern row must not spell a protected name: give it `names` and `digests` instead");
@@ -383,7 +404,7 @@ test("each publication-privacy row is reported by its id; database state by file
     assert.ok(signal.digests.length > 0 && signal.digests.every((pin) => /^[0-9a-f]{64}$/u.test(pin.sha256) && Number.isSafeInteger(pin.length) && pin.length > 0),
       `${signal.id} carries no SHA-256 digest with its name's length`);
   }
-  const planted = { "home-path": "see /home/private-user/work\n" };
+  const planted = { "home-path": `see ${HOME}private-user/work\n` };
   for (const [id, line] of Object.entries(planted)) {
     const dir = repoWith({ "src/notes.md": line });
     try {
@@ -409,6 +430,50 @@ test("each publication-privacy row is reported by its id; database state by file
     assert.equal(scan(nearMiss).status, 0);
   } finally {
     rmSync(nearMiss, { recursive: true, force: true });
+  }
+});
+
+// ── NO TREE IS EXEMPT ───────────────────────────────────────────────────
+//
+// The scanner used to allowlist engine/test/, tests/ and bench/, so a test
+// could hold a real-format credential and GitHub's push protection raised an
+// alert on every push. Every credential a test needs is now assembled at
+// runtime; the planted ones below are found in every test tree, and the
+// runtime-assembled spellings (the catalogue fixture, a split literal, a
+// template hole, a regex with an empty group) are not credentials in source.
+test("a credential literal is a finding in every test tree; runtime-assembled ones are not", () => {
+  const token = signalFixture("token-prefix", 0);
+  const key = signalFixture("private-key", 0);
+  const planted = repoWith({
+    "engine/test/privacy/planted.test.ts": `const key = "${token}";\n`,
+    "tests/unit/planted.test.ts": `const block = \`${key}\`;\n`,
+    "bench/planted.ts": `const literal = /${token}/;\n`,
+  });
+  try {
+    const result = scan(planted);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /engine\/test\/privacy\/planted\.test\.ts:1: token-prefix: /);
+    assert.match(result.stderr, /tests\/unit\/planted\.test\.ts:1: private-key: /);
+    assert.match(result.stderr, /bench\/planted\.ts:1: token-prefix: /);
+  } finally {
+    rmSync(planted, { recursive: true, force: true });
+  }
+  const [head, tail] = [token.slice(0, 2), token.slice(2)];
+  const assembled = repoWith({
+    "engine/test/privacy/assembled.test.ts": [
+      'import { signalFixture } from "../../src/privacy/secret-signals.ts";',
+      'const fromCatalogue = signalFixture("token-prefix");',
+      `const split = ("${head}" + "${tail}");`,
+      `const hole = \`${head}\${""}${tail}\`;`,
+      `const pattern = /${head}(?:)${tail}/;`,
+    ].join("\n") + "\n",
+    "tests/unit/assembled.test.ts": `const value = ["${head}", "${tail}"].join("");\n`,
+  });
+  try {
+    const result = scan(assembled);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(assembled, { recursive: true, force: true });
   }
 });
 
@@ -539,6 +604,249 @@ test("every required row is present, scanned over the tree, and projected to Git
     for (const id of Object.keys(REQUIRED_ROWS)) {
       assert.match(result.stderr, new RegExp(`plants/${id}\\.txt:1: ${id}: `, "u"), `the tree scan did not report ${id} in its plant`);
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a large JSON document costs the scanner about what its raw lines do: no per-value search of the whole text (#301)", () => {
+  // CPU WORK of the scanner child (procfs, the engine's one CPU reader), never
+  // wall time. The same document is scanned as valid JSON (raw lines plus the
+  // decoded-string pass, which any file that parses as JSON gets) and with one
+  // leading byte that stops it parsing (raw lines only); the decoded pass used
+  // to search the whole document once per string value (`lineOf`, which also
+  // split the prefix into lines), which made the JSON scan quadratic.
+  const values = Array.from({ length: 8_000 }, (_, index) => ({ id: `entry-${index}`, path: `docs/section-${index}/page.md`, note: `plain value ${index}` }));
+  const text = `${JSON.stringify(values, null, 1)}\n`;
+  const childCpu = (files) => {
+    const dir = repoWith(files);
+    try {
+      let best = Number.POSITIVE_INFINITY;
+      for (let round = 0; round < 2; round += 1) {
+        const before = readRunCpu();
+        const result = scan(dir);
+        const after = readRunCpu();
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(before !== null && after !== null, "this host cannot measure child CPU (no procfs)");
+        best = Math.min(best, after.childCpuMs - before.childCpuMs);
+      }
+      return best;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const asText = childCpu({ "data/values.txt": `#${text}` });
+  const asJson = childCpu({ "data/values.json": text });
+  assert.ok(asJson <= 2.5 * asText, `the JSON scan used ${String(asJson)} ms CPU against ${String(asText)} ms for the same bytes as text`);
+});
+
+// ── THE LICENCE BOUNDARY: no GPL-licensed bytes in the tree ────────────────
+// The GPL spellings are assembled at runtime, so this file carries none.
+const GPL_SPDX = "SPDX-License-" + "Identifier: GPL-2.0-only";
+const LGPL_TITLE = "GNU LESSER GENERAL " + "PUBLIC LICENSE";
+// The licence's noun, never adjacent to its notice in this source (the scan reads words across lines).
+const L_WORD = ["Lic", "ense"].join("");
+const GPL_NOTICE = ` * it under the terms of the GNU General Public ${L_WORD} as published by\n * the Free Software Foundation.`;
+
+test("GPL-licensed text is refused in every tree, by its SPDX id, licence title or notice", () => {
+  const dir = repoWith({
+    "engine/test/fixtures/vendored.c": `/* ${GPL_SPDX} */\nint main(void) { return 0; }\n`,
+    "docs/notices/lgpl.txt": `${LGPL_TITLE}\n`,
+    "src/lib/notice.ts": `/*\n${GPL_NOTICE}\n */\nexport {};\n`,
+    // The canonical LGPL-2.1 notice split across lines, read through the file's one reader.
+    "src/lib/split.c": [
+      "/*",
+      " * This library is free software; you can redistribute it and/or",
+      " * modify it under the terms of the GNU Lesser General",
+      ` * Public ${L_WORD} as published by the Free Software Foundation.`,
+      " */",
+    ].join("\n") + "\n",
+  });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /engine\/test\/fixtures\/vendored\.c:1: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "a test tree is not exempt");
+    assert.match(result.stderr, /docs\/notices\/lgpl\.txt:1: gpl-licence-text: GPL-licensed text \(title: /u);
+    assert.match(result.stderr, /src\/lib\/notice\.ts:2: gpl-licence-text: GPL-licensed text \(notice: /u);
+    assert.match(result.stderr, /src\/lib\/split\.c:4: gpl-licence-text: GPL-licensed text \(notice: /u, "a notice split across lines is one notice");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the project's own AGPL text and prose naming a GPL licence pass", () => {
+  const dir = repoWith({
+    "LICENSE": "                    GNU AFFERO GENERAL " + "PUBLIC LICENSE\n under the terms of the GNU Affero General Public License as published by\n",
+    "src/own.ts": "// SPDX-License-" + "Identifier: AGPL-3.0-only\nexport {};\n",
+    "docs/corpus.md": "git's path.c is GPL-2.0-only, fetched for testing and never vendored.\n",
+    "data/manifest.json": "{ \"spdx\": \"GPL-2.0-only\" }\n",
+  });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the reviewed GPL-text allowlist is explicit, and an entry with no GPL text is stale", () => {
+  assert.equal(REVIEWED_GPL_TEXT.size, 0, "the tree carries no reviewed GPL text; an entry needs a reason and a review");
+  const reviewed = new Map([["vendor/a.c", "reviewed: a reason"], ["vendor/b.c", "reviewed: another"]]);
+  assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c"]), reviewed), ["vendor/b.c"]);
+  assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c", "vendor/b.c"]), reviewed), []);
+});
+
+test("real GPL variants are read: split notices, title variants, lower-case and compound SPDX expressions", () => {
+  // Every spelling is assembled at runtime (this file carries none).
+  const G = "General " + "Public License";
+  const SPDX_ID = "SPDX-License-" + "Identifier:";
+  const markers = (lines) => {
+    const reader = createGplReader();
+    return lines.flatMap((line, index) => reader.push(line).map((found) => `${String(index + 1)}:${found.marker}:${found.text}`));
+  };
+  // (1) The canonical LGPL-2.1 notice, split across four comment lines: one notice, at the line that completes it.
+  assert.deepEqual(markers([
+    " * This library is free software; you can redistribute it and/or",
+    ` * modify it under the terms of the GNU Lesser ${G.split(" ")[0]} ${G.split(" ")[1]}`,
+    ` * ${G.split(" ")[2]} as published by the Free Software Foundation; either`,
+    " * version 2.1 of the License, or (at your option) any later version.",
+  ]), ["3:notice:the GNU General Public License notice"]);
+  // (2) Title variants: a heading leader, title case, the version on the same line, and the library form.
+  for (const title of [`# GNU ${G.toUpperCase()}`, `GNU ${G}`, `GNU ${G.toUpperCase()} Version 2, June 1991`, `   GNU LIBRARY ${G.toUpperCase()}`, `## GNU Lesser ${G}, version 2.1`]) {
+    assert.deepEqual(markers([title]).map((found) => found.split(":")[1]), ["title"], title);
+  }
+  // (3) Lower-case and compound SPDX expressions.
+  for (const [line, ids] of [
+    [`// ${SPDX_ID} gpl-2.0-only`, ["gpl-2.0-only"]],
+    [`# ${SPDX_ID} MIT AND GPL-2.0-only`, ["GPL-2.0-only"]],
+    [`/* ${SPDX_ID} (MIT OR GPL-2.0-or-later) */`, ["GPL-2.0-or-later"]],
+    [`${SPDX_ID} GPL-2.0-only WITH Linux-syscall-note`, ["GPL-2.0-only"]],
+    [`${SPDX_ID} LGPL-2.1+`, ["LGPL-2.1+"]],
+  ]) {
+    assert.deepEqual(markers([line]).map((found) => found.split(":").slice(2).join(":")), ids, line);
+  }
+  // (4) A lower-case notice on one line.
+  assert.deepEqual(markers([`it under the terms of the gnu ${G.toLowerCase()} as published by the foundation`]).map((found) => found.split(":")[1]), ["notice"]);
+  // (5) The GPL-3.0 notice re-wrapped at 20, 26 and 32 columns: the completing
+  // line ("published by the …") carries no trigger word of its own.
+  const notice = ["This program is free software: you can redistribute it and/or modify it under the terms of the GNU", G, "as published by the Free Software Foundation, either version 3 of the", L_WORD, "or (at your option) any later version."].join(" ");
+  const wrap = (text, columns) => {
+    const lines = [];
+    let current = "";
+    for (const word of text.split(" ")) {
+      if (current.length > 0 && current.length + 1 + word.length > columns) { lines.push(current); current = word; } else current = current.length > 0 ? `${current} ${word}` : word;
+    }
+    return [...lines, current];
+  };
+  // The notice is reported AT the line that completes it (the "by" after "published"), never at a later trigger line.
+  const completingLine = (lines) => {
+    const tokens = lines.flatMap((line, index) => line.toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean).map((token) => ({ token, index })));
+    const at = tokens.findIndex((entry, position) => entry.token === "by" && tokens[position - 1]?.token === "published");
+    return tokens[at].index + 1;
+  };
+  for (const columns of [20, 26, 32]) {
+    const lines = wrap(notice, columns).map((line) => `# ${line}`);
+    const found = markers(lines);
+    assert.deepEqual(found.map((entry) => entry.split(":")[1]), ["notice"], `re-wrapped at ${String(columns)} columns: ${JSON.stringify(found)}`);
+    assert.equal(Number(found[0].split(":")[0]), completingLine(lines), `re-wrapped at ${String(columns)} columns: reported at the completing line`);
+  }
+  // Near misses: the project's own AGPL, permissive expressions, an exception name, prose.
+  for (const line of [
+    `${SPDX_ID} AGPL-3.0-only`, `${SPDX_ID} MIT OR Apache-2.0`, `${SPDX_ID} Apache-2.0 WITH LLVM-exception`,
+    `GNU AFFERO ${G.toUpperCase()}`, `under the terms of the GNU Affero ${G} as published by`,
+    "git's path.c is GPL-2.0-only, fetched for testing", "the GNU project", `see the GNU ${G} for details`,
+  ]) {
+    assert.deepEqual(markers([line]), [], line);
+  }
+  assert.deepEqual(spdxLicences("(MIT OR GPL-2.0-only) AND Apache-2.0 WITH LLVM-exception"), ["MIT", "GPL-2.0-only", "Apache-2.0"]);
+  assert.equal(isGplFamily("gpl-3.0-or-later"), true);
+  assert.equal(isGplFamily("AGPL-3.0-only"), false);
+});
+
+test("the notice window is ARMED by a trigger line: a notice completed by a line with no trigger word, with nothing after it, is read at that line", () => {
+  // The completing line ("as published by the Free Software Foundation.") carries no keyword, and no later line does:
+  // only the arming of the window by the line before it reads the notice (checked on trigger lines alone, it is missed).
+  const G = "General " + "Public";
+  const opening = ` * it under the terms of the GNU ${G} ${L_WORD}`;
+  const closing = " * as published by the Free Software Foundation.";
+  const reader = createGplReader();
+  assert.deepEqual([opening, closing, " */"].map((line) => reader.push(line).map((found) => found.marker)), [[], ["notice"], []]);
+  const dir = repoWith({ "src/own-line.c": ["/*", opening, closing, " */"].join("\n") + "\n" });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /src\/own-line\.c:3: gpl-licence-text: GPL-licensed text \(notice: /u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("one line definition for every read: CR-only, CRLF and mixed line endings, whole and streamed, report the same lines", () => {
+  const G = "General " + "Public";
+  const lines = [
+    `/* ${GPL_SPDX} */`,
+    LGPL_TITLE,
+    "/*",
+    ` * it under the terms of the GNU ${G} ${L_WORD}`,
+    " * as published by the Free Software Foundation.",
+    " */",
+  ];
+  const endings = { cr: ["\r"], crlf: ["\r\n"], mixed: ["\r\n", "\r", "\n"] };
+  const join = (body, breaks) => body.map((line, index) => line + breaks[index % breaks.length]).join("");
+  // Streamed above the whole-read threshold (2 MiB): one long first line moves every finding down by one.
+  const pad = "a".repeat(2 * 1024 * 1024 + 64);
+  const files = {};
+  for (const [name, breaks] of Object.entries(endings)) {
+    files[`small/${name}.c`] = join(lines, breaks);
+    files[`large/${name}.c`] = join([pad, ...lines], breaks);
+  }
+  const dir = repoWith(files);
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    for (const name of Object.keys(endings)) {
+      for (const [size, shift] of [["small", 0], ["large", 1]]) {
+        const file = `${size}/${name}.c`;
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(1 + shift)}: gpl-licence-text: GPL-licensed text \\(spdx: GPL-2\\.0-only\\)`, "u"), `${file}: the SPDX line`);
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(2 + shift)}: gpl-licence-text: GPL-licensed text \\(title: `, "u"), `${file}: the anchored title line`);
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(5 + shift)}: gpl-licence-text: GPL-licensed text \\(notice: `, "u"), `${file}: the split notice`);
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the line splitter holds a CR that ends a chunk: every cut of a mixed text yields the same lines, and a capped read drops only the cut line", async () => {
+  const { createLineSplitter, textLines } = await import("../../engine/scripts/verification/text-lines.ts");
+  const text = "one\r\ntwo\rthree\nfour\r\n\rsix";
+  const expected = ["one", "two", "three", "four", "", "six"];
+  assert.deepEqual(textLines(text), expected);
+  assert.deepEqual(textLines("a\rb\r"), ["a", "b"]);
+  assert.deepEqual(textLines("a\n"), ["a"]);
+  for (let cut = 0; cut <= text.length; cut += 1) {
+    const splitter = createLineSplitter();
+    const read = [...splitter.push(text.slice(0, cut)), ...splitter.push(text.slice(cut))];
+    assert.deepEqual([...read, splitter.rest()], expected, `cut at ${String(cut)}`);
+  }
+  // The capped prefix: the complete lines only; the line the cap cut is the unread tail's.
+  assert.deepEqual(createLineSplitter().push("whole\r\nalso whole\rcut her"), ["whole", "also whole"]);
+});
+
+test("the capped read (over 64 MiB) splits CR-only lines by the one definition, and a streamed file's unterminated last line is read", () => {
+  // Capped: a CR-only file past the 64 MiB cap. Split on \n alone, its whole prefix is one unfinished line and nothing is read.
+  const marker = `/* ${GPL_SPDX} */`;
+  const capped = `${marker}\r${LGPL_TITLE}\r${"a".repeat(1023)}\r`.padEnd(64 * 1024 * 1024 + 4096, `${"b".repeat(1023)}\r`);
+  // Streamed: above the whole-read threshold, the marker on the LAST line, with no break after it.
+  const streamed = `${"a".repeat(2 * 1024 * 1024 + 64)}\n${marker}`;
+  const dir = repoWith({ "huge/cr-only.c": capped, "large/unterminated.c": streamed });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /huge\/cr-only\.c:1: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "the capped CR-only SPDX line");
+    assert.match(result.stderr, /huge\/cr-only\.c:2: gpl-licence-text: GPL-licensed text \(title: /u, "the capped CR-only title line");
+    assert.match(result.stderr, /huge\/cr-only\.c: unread-tail: /u, "the capped tail is still reported unread");
+    assert.match(result.stderr, /large\/unterminated\.c:2: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "the streamed unterminated last line");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
