@@ -738,9 +738,17 @@ test("real GPL variants are read: split notices, title variants, lower-case and 
     }
     return [...lines, current];
   };
+  // The notice is reported AT the line that completes it (the "by" after "published"), never at a later trigger line.
+  const completingLine = (lines) => {
+    const tokens = lines.flatMap((line, index) => line.toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean).map((token) => ({ token, index })));
+    const at = tokens.findIndex((entry, position) => entry.token === "by" && tokens[position - 1]?.token === "published");
+    return tokens[at].index + 1;
+  };
   for (const columns of [20, 26, 32]) {
-    const found = markers(wrap(notice, columns).map((line) => `# ${line}`));
+    const lines = wrap(notice, columns).map((line) => `# ${line}`);
+    const found = markers(lines);
     assert.deepEqual(found.map((entry) => entry.split(":")[1]), ["notice"], `re-wrapped at ${String(columns)} columns: ${JSON.stringify(found)}`);
+    assert.equal(Number(found[0].split(":")[0]), completingLine(lines), `re-wrapped at ${String(columns)} columns: reported at the completing line`);
   }
   // Near misses: the project's own AGPL, permissive expressions, an exception name, prose.
   for (const line of [
@@ -753,4 +761,22 @@ test("real GPL variants are read: split notices, title variants, lower-case and 
   assert.deepEqual(spdxLicences("(MIT OR GPL-2.0-only) AND Apache-2.0 WITH LLVM-exception"), ["MIT", "GPL-2.0-only", "Apache-2.0"]);
   assert.equal(isGplFamily("gpl-3.0-or-later"), true);
   assert.equal(isGplFamily("AGPL-3.0-only"), false);
+});
+
+test("the notice window is ARMED by a trigger line: a notice completed by a line with no trigger word, with nothing after it, is read at that line", () => {
+  // The completing line ("as published by the Free Software Foundation.") carries no keyword, and no later line does:
+  // only the arming of the window by the line before it reads the notice (checked on trigger lines alone, it is missed).
+  const G = "General " + "Public";
+  const opening = ` * it under the terms of the GNU ${G} ${L_WORD}`;
+  const closing = " * as published by the Free Software Foundation.";
+  const reader = createGplReader();
+  assert.deepEqual([opening, closing, " */"].map((line) => reader.push(line).map((found) => found.marker)), [[], ["notice"], []]);
+  const dir = repoWith({ "src/own-line.c": ["/*", opening, closing, " */"].join("\n") + "\n" });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /src\/own-line\.c:3: gpl-licence-text: GPL-licensed text \(notice: /u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
