@@ -33,7 +33,7 @@ export function playwrightConcurrencyLock(runner: string) {
     // project or filter it names (config `wholeInstruments`; counting its arguments read a flag's value as a file).
     // Playwright's main process would hold the lock in its own process, so the run only BORROWS the
     // supervising door's hold (`npm run test:e2e`, `npm run perf:profile`), and is refused by name otherwise.
-    const lock: TestRunLock = await enforceTestRunLock(runner, { testFileCount: wholeInstrumentRun("playwright"), inProcess: true });
+    const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: wholeInstrumentRun("playwright"), inProcess: true });
     assertFreshDevServers(process.cwd());
     // After the web servers started (Playwright runs its webServer before the
     // global setup): never drive a server that serves a real database (UD-S15).

@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "area:server",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "area:server",
+    "color": "5319e7",
+    "description": "The web server"
+  }
+}
