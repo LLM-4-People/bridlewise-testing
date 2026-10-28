@@ -146,14 +146,15 @@ test("CI: a pull request a declared agent account opened brings agent commits on
   assert.match(agentLines[0]!, /Signed-off-by is A Person/u);
 });
 
-test("the required DCO check is judged by main's code: the base is checked out, the branch's commits only fetched", () => {
+test("the required commit-records check judges the DCO by main's code: the base is checked out, the branch's commits only fetched", () => {
   const workflows = join(import.meta.dirname, "..", "..", "..", ".github", "workflows");
-  const dco = readFileSync(join(workflows, "dco.yml"), "utf8");
+  const dco = readFileSync(join(workflows, "commit-records.yml"), "utf8");
   assert.match(dco, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \}\}/u, "the checkout is the base, never the branch");
   assert.match(dco, /git fetch --no-tags "\$SERVER\/\$REPOSITORY" "refs\/pull\/\$PR_NUMBER\/head"/u, "the branch's commits are fetched as objects");
   assert.match(dco, /--pull-request-author "\$PR_AUTHOR"/u, "the pull request's author decides an agent pull request");
   assert.doesNotMatch(dco, /pull_request_target/u, "no pull_request_target (write access beside a fork's code)");
   assert.match(dco, /^ {2}merge_group:$/mu);
+  assert.match(dco, /node scripts\/verification\/sign-off\.ts --range/u, "the one commit-records workflow runs the sign-off judge");
   // One owner: CI carries no second DCO job a trimmed branch could edit.
   assert.doesNotMatch(readFileSync(join(workflows, "ci.yml"), "utf8"), /sign-off\.ts/u);
 });

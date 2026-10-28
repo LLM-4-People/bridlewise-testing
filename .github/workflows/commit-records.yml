@@ -1,13 +1,14 @@
-name: DCO
+name: Commit records
 
-# THE DCO AND THE AGENT IDENTITY, judged by MAIN's code on every pull request
-# and merge group (engine/scripts/verification/sign-off.ts). It is meant to be
-# required by a repository ruleset that names this file at `main`
-# ("Require workflows to pass before merging"): the ruleset runs main's
-# definition, so a branch that trims or deletes its own copy cannot skip it.
-# The script that judges is main's too: the base is checked out and the
-# branch's commits are only FETCHED as objects to read — nothing of the
-# branch is executed.
+# WHAT EVERY COMMIT MUST RECORD, judged by MAIN's code on every pull request
+# and merge group: the DCO sign-off of its committer, and the project
+# identity on every agent commit (engine/scripts/verification/sign-off.ts,
+# the judge the commit-msg hook asks too). It is meant to be required by a
+# repository ruleset that names this file at `main` ("Require workflows to
+# pass before merging"): the ruleset runs main's definition, so a branch
+# that trims or deletes its own copy cannot skip it. The script that judges
+# is main's too: the base is checked out and the branch's commits are only
+# FETCHED as objects to read — nothing of the branch is executed.
 on:
   pull_request:
   merge_group:
@@ -16,12 +17,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: dco-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: commit-records-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  sign-off:
-    name: DCO sign-off
+  records:
+    name: Commit records
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
