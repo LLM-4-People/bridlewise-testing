@@ -51,7 +51,6 @@ import { configuredRuntimeAdmission, withAdmittedNodeRuntime } from "../../src/r
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { reportLauncherStop, watchLauncher } from "./launcher-watch.ts";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import type { InstrumentLockStamp } from "../../src/process/instrument-lock.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../../src/filesystem/temporary-root.ts";
 
 export type WorkerExecutionOptions = Readonly<{
@@ -354,7 +353,6 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       ambientLoadPerCpu,
       ambientLoad5PerCpu,
       ambientLoad15PerCpu,
-      heavySlot: instrumentLock.stamp,
       provisional,
       mutation,
       tree,
@@ -444,7 +442,7 @@ export function beginMeasuredRun(
   // figure is the covariate recorded beside the verdict, and the 5-/15-minute
   // legs witness the saturation ghost that decays out of the 1-minute figure
   // within minutes of a previous suite finishing. An unreadable sample is
-  // null — the verdict takes no ambient adjustment, never a fabricated zero.
+  // null, never a fabricated zero; no leg ever moves a cap (NO-LOAD-BLOCK).
   const ambient = readAmbientLoadPerCpu();
   const runStartMs = steps.stampStart();
   return {
@@ -529,8 +527,6 @@ export function judgeSuiteRunCost(run: Readonly<{
   ambientLoadPerCpu: number | null;
   ambientLoad5PerCpu: number | null;
   ambientLoad15PerCpu: number | null;
-  /** Whether the measurement held the host's instrument lock: an unslotted one is refused, never judged. */
-  heavySlot: InstrumentLockStamp;
   provisional: Readonly<{ provisionalFailures: true }> | Readonly<Record<string, never>>;
   mutation: ReturnType<typeof mutationRunMark>;
   tree: ReturnType<typeof measuredTreeMark>;
@@ -553,16 +549,9 @@ export function judgeSuiteRunCost(run: Readonly<{
       { atStart: run.calibrationBefore, atEnd: run.calibrationAfter },
       testFileCount ?? 0,
     );
-    // AN UNSLOTTED MEASUREMENT IS REFUSED, NEVER JUDGED: without the host's
-    // instrument lock another writer's heavy run may have shared the cores, so the
-    // figure says nothing about this tree (src/process/instrument-lock.ts).
-    if (run.heavySlot !== "held") {
-      process.stderr.write(
-        `\n[suite-budget] cpu-per-test-file REFUSED: this run did not hold the host's instrument lock, so its CPU cost is not a ` +
-          `measurement of this tree and is neither judged nor recorded. Run the whole suite through its runner, which holds the lock.\n`,
-      );
-      return 1;
-    }
+    // EVERY FULL RUN IS A MEASUREMENT, whatever else ran beside it: the cost
+    // is CPU work, valid at any load (NO-LOAD-BLOCK, audit A-04). There is no
+    // "unslotted" refusal: runs share the host under per-run caps.
     // The warmth scan runs AFTER the CPU readings above, so its own cost
     // (a stat walk of the compile cache) never inflates the judged figure.
     const scan = scanCompileCache(run.runStartMs);
@@ -637,7 +626,6 @@ export function judgeSuiteRunCost(run: Readonly<{
           ...run.provisional,
           ...run.mutation,
           ...run.tree,
-          heavySlot: run.heavySlot,
         },
         historyPath,
       );

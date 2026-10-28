@@ -37,7 +37,7 @@ import { commandsRun } from "../checkout-setup.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE } from "../../filesystem/private-state.ts";
 import { HarnessError } from "../../kernel/errors.ts";
-import { GITLINK_MODE, SYMLINK_MODE, commitTreeReader, gitOutput, writeBlob, writeTree, type GitRepository, type TreeReader } from "../../git/tree-reader.ts";
+import { commitTreeReader, GITLINK_MODE, gitOutput, type GitRepository, isAncestor, SYMLINK_MODE, type TreeReader, writeBlob, writeTree } from "../../git/tree-reader.ts";
 import { generatedOutputPathsOf, isGenerationOnlyChange } from "../hash-binding-registry.ts";
 import { directoryOf, isWalkableModule, normalizeRepositoryPath, packageNameOf, reachabilityChain, reachabilityClosure, type PathAlias, type Reachability } from "../reachability.ts";
 import { PromotionError, mostSevereCode, type PromotionCode } from "./codes.ts";
@@ -359,10 +359,6 @@ function promoterDigest(): string {
   }).closure;
   promoterDigestMemo = sha256(canonicalJson([...closure].sort().map((path) => [relative(dirname(self), absolute(path)).split(sep).join("/"), sha256(readFileSync(absolute(path)))])));
   return promoterDigestMemo;
-}
-
-function isAncestor(repository: GitRepository, ancestor: string, descendant: string): boolean {
-  return gitOutput(repository, ["merge-base", "--is-ancestor", ancestor, descendant], { allowed: [0, 1] }).status === 0;
 }
 
 function mergeBase(repository: GitRepository, a: string, b: string): string | null {

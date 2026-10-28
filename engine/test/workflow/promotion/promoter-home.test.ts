@@ -451,9 +451,9 @@ function assertNothingPlanted(seen: Readonly<Record<string, string>>, where: str
 
 test("SECURITY: every checkout command's environment is the one projection, plus only the harness's credential-free coordination values", () => {
   const environment = checkoutCommandEnvironment({ PATH: "/usr/bin", HOME: "/srv/test-home", TMPDIR: "/var/tmp/run", ...PLANTED, HARNESS_INSTRUMENT_LOCK_TOKEN: "nonce-1", GIT_DIR: "/elsewhere/.git" }, "invocation-1");
-  assert.deepEqual(Object.keys(environment).sort(), ["HARNESS_INSTRUMENT_LOCK_TOKEN", "HARNESS_RUN_INVOCATION", "HOME", "PATH", "TMPDIR", "https_proxy"].sort());
+  assert.deepEqual(Object.keys(environment).sort(), ["HARNESS_RUN_INVOCATION", "HOME", "PATH", "TMPDIR", "https_proxy"].sort());
   assert.equal(environment["TMPDIR"], "/var/tmp/run", "the operator's temp root stays");
-  assert.equal(environment["HARNESS_INSTRUMENT_LOCK_TOKEN"], "nonce-1", "the command runs inside the hold the runner took");
+  assert.equal(environment["HARNESS_INSTRUMENT_LOCK_TOKEN"], undefined, "no lock token passes: a run is borrowed from inside its scope, never by an environment value");
   assertNothingPlanted(environment, "the projection");
 });
 

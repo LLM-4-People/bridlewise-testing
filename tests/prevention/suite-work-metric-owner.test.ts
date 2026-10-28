@@ -150,10 +150,6 @@ describe("the calibrated-work metric has exactly one owner and one computation",
       expect(budget.legacy?.metric).toBe("raw-cpu-ms/v0");
       expect(budget.legacy?.incomparable).toBe(true);
       expect("baselineFloorUnitsPerTestFile" in budget).toBe(false);
-    } else {
-      // A rolling declaration in this metric must not pay the ambient
-      // envelope on top of the calibration (double-counting the same load).
-      expect(budget.ambientInflationSlopePerCpu).toBe(0);
     }
   });
 
@@ -196,10 +192,8 @@ describe("the calibrated-work metric has exactly one owner and one computation",
       maxPopulationDriftFraction: 0.03,
       sameTreeSpreadFraction: 0.03,
       baselineWindowRuns: 12,
-      ambientInflationSlopePerCpu: 0,
-      ambientInflationCapFraction: 0,
     };
-    const legacy = { timestamp: "2026-10-20T00:00:00.000Z", cpuMsPerTestFile: 2_124.7, testModuleCount: 521, heavySlot: "held" as const };
+    const legacy = { timestamp: "2026-10-20T00:00:00.000Z", cpuMsPerTestFile: 2_124.7, testModuleCount: 521 };
     expect(deriveRollingBaseline(budget, [legacy], 521, []).windowReadings).toEqual([]);
   });
 
