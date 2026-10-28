@@ -60,7 +60,7 @@ import { debugLog } from "../shared/debug/debug-system.ts";
 import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, SUBPROCESS_BOUNDS, commandRetryPolicy } from "./workflow-config.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { workingTreeId } from "../git/working-copy.ts";
-import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, type InstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
+import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold, type InstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
 
@@ -251,16 +251,15 @@ async function runHoldingInstrumentLock(checkoutRoot: string, name: string, comm
     if (lock === undefined) throw new InputError("testExecution.instrumentLock is not declared in bridlewise.config.json", "instrument_lock_undeclared");
     hold = holdInstrumentLock({ config: lock, harnessRoot: ENGINE_ROOT, runner: label, testFileCount: wholeInstrumentTestFileCount(lock, "slot"), cpu: SUBPROCESS_BOUNDS });
   }
-  try {
+  // A run cut at its memory cap is refused typed, carrying what the setup was doing (withinInstrumentHold).
+  return withinInstrumentHold(hold, async () => {
     const outcome = await runWithRetries(checkoutRoot, name, command, runner);
     if (outcome.status === "pass") {
       const written = atomicWriteFile(marker, `${tree}\n`, { createMode: PRIVATE_STATE_FILE_MODE });
       if (!written.success) throw new HarnessError(`the tree ${name} ran for could not be recorded at ${marker}: ${written.reason ?? "unknown"}`, "checkout_setup_record_failed");
     }
     return outcome;
-  } finally {
-    hold.release();
-  }
+  }, (outcome) => (outcome.status === "pass" ? undefined : `checkout setup ${name} ended ${outcome.status}: ${outcome.message}`));
 }
 
 /** One command with the errored-class retries (see {@link runCheckoutCommand}). */

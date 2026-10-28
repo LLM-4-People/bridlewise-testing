@@ -7,7 +7,7 @@ import { configuredGitRepository, configuredWorktreeGitPort } from "../git/workt
 import { configuredGitIdentity } from "../git/repository-ownership.ts";
 import type { WorkingTreeSnapshot } from "../git/working-copy.ts";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import { holdInstrumentLock } from "../process/instrument-lock.ts";
+import { holdInstrumentLock, withinInstrumentHold } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { resolveRepositoryRegistry } from "./repository-registry.ts";
 import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
@@ -217,11 +217,7 @@ async function withInstrumentLock<T>(label: string, run: () => Promise<T>): Prom
     config: readTestExecutionConfig(engineRoot).instrumentLock, harnessRoot: engineRoot, runner: label,
     testFileCount: Number.POSITIVE_INFINITY, cpu: SUBPROCESS_BOUNDS,
   });
-  try {
-    return await run();
-  } finally {
-    lock.release();
-  }
+  return withinInstrumentHold(lock, run);
 }
 
 function splitId(args: readonly string[], action: string): readonly [string, readonly string[]] {

@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { testProcessSupervisorBinary } from "../../guardian/build.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
-import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, type PerRunCaps } from "../process/instrument-lock.ts";
+import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
 import { SUBPROCESS_BOUNDS } from "./workflow-config.ts";
 import { superviseCommand } from "../process/supervised-run.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
@@ -72,7 +72,7 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
   const lock = options.lockPath !== undefined
     ? admitInstrumentRun(options.lockPath, runner, options.caps ?? declaredInstrumentLock(config.instrumentLock).perRun, SUBPROCESS_BOUNDS)
     : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: SUBPROCESS_BOUNDS });
-  try {
+  return withinInstrumentHold(lock, async () => {
     const run = await superviseCommand({
       supervisor: testProcessSupervisorBinary(),
       command: command[0]!,
@@ -86,9 +86,7 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
     });
     const exitCode = run.signal !== null ? 128 + constants.signals[run.signal] : run.ending === "exited" ? run.exitCode : 1;
     return deepFreeze({ exitCode, ending: run.ending });
-  } finally {
-    lock.release();
-  }
+  }, (ended) => (ended.exitCode === 0 ? undefined : `the command ${runner} ended ${ended.ending} with exit code ${String(ended.exitCode)}`));
 }
 
 export async function runSlotCli(argv: readonly string[]): Promise<CommandAnswer<SlotRunOutput>> {

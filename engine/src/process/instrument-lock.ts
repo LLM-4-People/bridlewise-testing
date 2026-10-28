@@ -103,9 +103,39 @@ export type InstrumentHold = Readonly<{
   owns: boolean;
   runner: string;
   path: string;
-  /** Frees an owned hold (idempotent; a borrowed or light hold frees nothing). */
-  release: () => void;
+  /**
+   * Frees an owned hold (a borrowed or light hold frees nothing). `failure`
+   * is the run's OWN failure if it was failing (a thrown error, or what its
+   * ending was): a run cut at its memory cap is refused typed
+   * (`run_memory_cap_exceeded`) and that refusal CARRIES the failure (its
+   * message names both; `cause` is the failure), never replaces it.
+   */
+  release: (failure?: unknown) => void;
 }>;
+
+/**
+ * Runs `body` inside `hold`, then releases it with the body's own failure (a
+ * throw, or what `failureOf` says of its result), so a run cut at its memory
+ * cap is refused typed WITH what the run was doing; without a cut, the body's
+ * own throw stands. Every door that holds a run for a body uses this.
+ */
+export async function withinInstrumentHold<T>(hold: InstrumentHold, body: () => Promise<T> | T, failureOf: (result: T) => unknown = () => undefined): Promise<T> {
+  let result: T;
+  try {
+    result = await body();
+  } catch (error) {
+    hold.release(error);
+    throw error;
+  }
+  hold.release(failureOf(result));
+  return result;
+}
+
+/** A run's own failure, in words, for the memory refusal that carries it. */
+function failureInWords(failure: unknown): string {
+  if (failure instanceof Error) return `${failure.name}: ${failure.message}`;
+  return String(failure);
+}
 
 /**
  * The lock file of `config` for the harness checkout at `harnessRoot`: under
@@ -326,21 +356,29 @@ export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRu
     throw error;
   }
   setOwnedInstrumentHold(answer.handle);
+  // Released once: a later call (a runner's catch after a refused release) does nothing, so the refusal is said once.
+  let released = false;
   return deepFreeze({
     owns: true, runner: label, path: lockPath,
-    release: () => {
+    release: (failure?: unknown) => {
+      if (released) return;
+      released = true;
       if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined);
       answer.handle.release();
       // The scope is the run's own (made at admission, so it started at 0):
       // a kill in it means the run was cut at its memory cap.
       const kills = runScopeOomKills();
       if (kills !== undefined && kills > 0) {
-        throw new HarnessError(
+        const refusal = new HarnessError(
           `a process in the run ${label} was killed for passing the run's memory cap (${String(kills)} kill(s) in its scope's memory.events; ` +
             `MemoryMax ${String(caps.memoryMaxPercent)}% with no swap): the run ended there and its result is not a test result. ` +
+            (failure === undefined ? "" : `The run was also failing when it was released (${failureInWords(failure)}), which the cut may have caused. `) +
             "Use less memory, or raise testExecution.instrumentLock.perRun.memoryMaxPercent in bridlewise.config.json.",
           "run_memory_cap_exceeded",
         );
+        // The run's own failure rides along as the refusal's cause: the operator sees both.
+        if (failure !== undefined) Object.defineProperty(refusal, "cause", { value: failure, enumerable: false, writable: false, configurable: true });
+        throw refusal;
       }
     },
   });

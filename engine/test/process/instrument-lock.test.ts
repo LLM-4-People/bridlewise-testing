@@ -422,6 +422,40 @@ test("A NESTED DOOR BLAMES NOTHING (review M2 of #564): a sibling OOM-killed in 
   assert.deepEqual(admittedRuns(lockPath), [], "the owner released its record before refusing");
 });
 
+test("A CUT RUN THAT WAS ALSO FAILING KEEPS ITS FAILURE (review of #564): the memory refusal CARRIES the run's own failure — a failing command's ending, or a thrown error as its cause — never replaces it", () => {
+  const lockPath = join(createTempDir("instrument-lock-carry-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-carry-script-"), "carry.mjs");
+  const facts = pathToFileURL(join(ENGINE, "src", "process", "process-facts.ts")).href;
+  writeFileSync(script, [
+    `const { admitInstrumentRun, withinInstrumentHold } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { runInsideInstrumentLock } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "slot-cli.ts")).href)});`,
+    `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href)});`,
+    `const { procfsDocument } = await import(${JSON.stringify(facts)});`,
+    `const { spawnSync } = await import("node:child_process");`,
+    "const [lockPath, otherLockPath] = process.argv.slice(2);",
+    "const total = Number(/^MemTotal:\\s+(\\d+) kB/mu.exec(procfsDocument(\"meminfo\"))[1]) * 1024;",
+    "const memoryMaxPercent = Math.min(100, Math.max(1, Math.ceil((400 * process.memoryUsage().rss) / total)));",
+    "const capBytes = Math.floor((memoryMaxPercent / 100) * total);",
+    "const allocate = `const held = []; for (let size = 0; size < ${3 * capBytes}; size += 16 << 20) held.push(Buffer.alloc(16 << 20, 1));`;",
+    // 1. THE DOOR: its command is cut at the cap AND then fails on its own (exit 3).
+    "try {",
+    "  await runInsideInstrumentLock(\"a failing command\", Number.POSITIVE_INFINITY, [\"sh\", \"-c\", `${JSON.stringify(process.execPath)} -e ${JSON.stringify(allocate)}; exit 3`], { lockPath, caps: { memoryMaxPercent, cpuWeight: 100 } });",
+    "  console.log(\"DOOR ENDED\");",
+    "} catch (error) { console.log(\"DOOR \" + String(error.code) + \" | \" + String(error.message)); }",
+    // 2. A BODY THAT THROWS after a process of its run was cut.
+    "const run = admitInstrumentRun(otherLockPath, \"a throwing body\", { memoryMaxPercent, cpuWeight: 100 }, SUBPROCESS_BOUNDS);",
+    "try {",
+    "  await withinInstrumentHold(run, async () => { spawnSync(process.execPath, [\"-e\", allocate]); throw new Error(\"the suite crashed\"); });",
+    "} catch (error) { console.log(\"BODY \" + String(error.code) + \" | cause: \" + String(error.cause?.message)); }",
+  ].join("\n"));
+  const otherLockPath = join(createTempDir("instrument-lock-carry-other-"), "instrument.lock");
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath, otherLockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr.slice(0, 2_000));
+  assert.match(ran.stdout, /^DOOR run_memory_cap_exceeded \| .*memory cap.*The run was also failing when it was released \(the command a failing command ended exited with exit code 3\)/mu, `both appear: ${ran.stdout}`);
+  assert.match(ran.stdout, /^BODY run_memory_cap_exceeded \| cause: the suite crashed$/mu, `the thrown failure rides as the cause: ${ran.stdout}`);
+  assert.deepEqual([...admittedRuns(lockPath), ...admittedRuns(otherLockPath)], [], "both runs released their records");
+});
+
 /**
  * Runs `body` (a module) inside a scope of its own made with `properties`
  * (systemd-run), with the scope's unit name as argv[1]; its stdout, trimmed.
