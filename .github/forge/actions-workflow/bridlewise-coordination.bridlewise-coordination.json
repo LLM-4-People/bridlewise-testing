@@ -1,0 +1,13 @@
+{
+  "kind": "actions-workflow",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-coordination"
+  },
+  "key": "bridlewise-coordination",
+  "unavailableOnPlan": [],
+  "desired": {
+    "default_workflow_permissions": "read",
+    "can_approve_pull_request_reviews": false
+  }
+}

@@ -60,12 +60,25 @@ export const PROJECTION_PROGRAM: ConfinedModule = Object.freeze({
     "workflow/forge/projector/project.ts",
     "workflow/forge/projector/model.ts",
     "workflow/markdown-links.ts",
+    "workflow/tracker-status.ts",
     "kernel/product-identity.ts",
     "kernel/ordered.ts",
     // The one Markdown parser, at the repository's root (pure, no import).
     "../../shared/markdown.ts",
   ].map((path) => join(SOURCE_ROOT, path))),
   exportName: "projectText",
+});
+
+/** The roadmap feed's program: `roadmap-feed.ts`'s `roadmapFeedText`, the state owner, the product's schema names and the kernel's one key order. */
+export const ROADMAP_FEED_PROGRAM: ConfinedModule = Object.freeze({
+  entry: join(SOURCE_ROOT, "workflow/forge/projector/roadmap-feed.ts"),
+  modules: Object.freeze([
+    "workflow/forge/projector/roadmap-feed.ts",
+    "workflow/tracker-status.ts",
+    "kernel/product-identity.ts",
+    "kernel/ordered.ts",
+  ].map((path) => join(SOURCE_ROOT, path))),
+  exportName: "roadmapFeedText",
 });
 
 /** A static or literal dynamic import's specifier: `from "x"`, `import "x"`, `import("x")`. */

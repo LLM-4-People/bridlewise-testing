@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Flake",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Flake",
+    "color": "orange",
+    "description": "A test whose outcome changes without a code change",
+    "is_enabled": true
+  }
+}

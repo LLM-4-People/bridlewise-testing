@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { boundedEnding, cpuLimitedInvocation, SUBPROCESS_BOUNDS, type SubprocessBounds } from "./subprocess-bounds.ts";
+import { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from "../process/subprocess-bounds.ts";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
@@ -50,13 +50,13 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 // numeric defaults live in `./workflow-config.ts` (the canonical owner for
 // workflow operational defaults — no configurables outside
 // the config owner).
-import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, DEFAULT_TIMELINE_COMMAND_LIMIT, INVENTORY_HASH_PREVIEW_HEX, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, INVENTORY_HASH_PREVIEW_HEX, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
 import { configuredForgeSection } from "./forge/configured-forge.ts";
-import { syncForgeFiles } from "./forge/generated-files.ts";
+import { forgeFileSources, syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
@@ -1388,7 +1388,9 @@ function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexAr
 
 /** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
 function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
-  const report = syncForgeFiles(trackedTop(root), configuredForgeSection(), write);
+  const top = trackedTop(root);
+  const settings = configuredForgeSection();
+  const report = syncForgeFiles(top, settings === undefined ? undefined : forgeFileSources(top, settings), write);
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
 
@@ -1881,7 +1883,7 @@ function subprocessFailureSummary(lines: readonly string[]): string | undefined 
   return meaningful?.trim();
 }
 
-/** One synchronous run of `command args…` under `bounds` (src/workflow/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
+/** One synchronous run of `command args…` under `bounds` (src/process/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
 function runBoundedSync(command: string, args: readonly string[], cwd: string, bounds: SubprocessBounds): SpawnSyncReturns<string> {
   const invocation = cpuLimitedInvocation(command, args, bounds);
   return spawnSync(invocation.command, [...invocation.args], {
@@ -1914,7 +1916,7 @@ export function runScriptSubprocess(
     );
   }
   // NO-LOAD-BLOCK L2 (audit A-18): bounded in CPU WORK, never by a wall
-  // clock a loaded host runs out (src/workflow/subprocess-bounds.ts).
+  // clock a loaded host runs out (src/process/subprocess-bounds.ts).
   const result = runBoundedSync(process.execPath, [scriptPath, ...args], root, bounds);
   const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
   const succeeded = result.error === undefined && result.status === 0;
@@ -2194,7 +2196,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge",
+  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2332,6 +2334,9 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "slot") {
       const { runSlotCli } = await import("./slot-cli.ts");
       answer = await runSlotCli(rest);
+    } else if (subcommand === "community") {
+      const { runCommunityCli } = await import("./community/community-cli.ts");
+      answer = await runCommunityCli(root, rest);
     } else if (subcommand === "forge") {
       // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
       const { runForgeCli } = await import("./forge/cli.ts");

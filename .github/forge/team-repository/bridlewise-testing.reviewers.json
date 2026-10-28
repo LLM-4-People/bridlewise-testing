@@ -1,0 +1,12 @@
+{
+  "kind": "team-repository",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "reviewers",
+  "unavailableOnPlan": [],
+  "desired": {
+    "permission": "push"
+  }
+}
