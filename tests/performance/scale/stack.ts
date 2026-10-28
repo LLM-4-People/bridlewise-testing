@@ -345,10 +345,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv[2] === "stop") {
     const reaped = reapStacks();
     process.stdout.write(JSON.stringify({ reapedPgids: reaped }) + "\n");
-    process.exit(0);
-  }
-  const profile = process.argv[2] ?? "tiny";
-  startStack(profile).then(
+  } else startStack(process.argv[2] ?? "tiny").then(
     (stack) => {
       process.stdout.write(
         JSON.stringify(
@@ -370,7 +367,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     },
     (err: unknown) => {
       process.stderr.write(`stack failed: ${String(err)}\n`);
-      process.exit(1);
+      process.exitCode = 1;
     },
   );
 }

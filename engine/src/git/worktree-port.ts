@@ -152,6 +152,15 @@ export type WorktreeAddDetachedRequest = Readonly<{
   timeoutMs: number;
 }>;
 
+/** An agent checkout's identity: written to the worktree's OWN config (`config.worktree`), with its marker key set true. */
+export type AgentCheckoutIdentityRequest = Readonly<{
+  repoRoot: string;
+  worktreePath: string;
+  identity: GitIdentity;
+  markerKey: string;
+  timeoutMs: number;
+}>;
+
 export type MergeNoCommitRequest = Readonly<{
   cwd: string;
   branch: string;
@@ -217,6 +226,13 @@ export type WorktreeGitPort = Readonly<{
   readonly schemaVersion: typeof WORKTREE_PORT_SCHEMA_VERSION;
   worktreeAdd(request: WorktreeAddRequest): void;
   worktreeAddDetached(request: WorktreeAddDetachedRequest): void;
+  /**
+   * Sets an agent worktree's commit identity and agent-checkout marker in the
+   * worktree's own config (`extensions.worktreeConfig`, then
+   * `config --worktree`): never the repository's shared config, so the
+   * canonical checkout and every other worktree keep their own identity.
+   */
+  agentCheckoutIdentity(request: AgentCheckoutIdentityRequest): void;
   worktreeRemove(request: WorktreeRemoveRequest): void;
   worktreeList(repoRoot: string, timeoutMs: number): readonly WorktreeInfo[];
   worktreeLock(request: WorktreeLockRequest): void;
@@ -796,6 +812,15 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       });
     },
 
+    agentCheckoutIdentity(request: AgentCheckoutIdentityRequest): void {
+      assertAbsolutePath(request.repoRoot, "repoRoot");
+      assertAbsolutePath(request.worktreePath, "worktreePath");
+      run("config extensions.worktreeConfig", { args: ["-C", request.repoRoot, "config", "extensions.worktreeConfig", "true"], cwd: request.repoRoot, timeoutMs: request.timeoutMs, allowedExitCodes: [0] });
+      for (const [key, value] of [["user.name", request.identity.name], ["user.email", request.identity.email], [request.markerKey, "true"]] as const) {
+        run(`config --worktree ${key}`, { args: ["-C", request.worktreePath, "config", "--worktree", key, value], cwd: request.worktreePath, timeoutMs: request.timeoutMs, allowedExitCodes: [0] });
+      }
+    },
+
     commonDir(cwd: string, timeoutMs: number): string {
       assertAbsolutePath(cwd, "cwd");
       return textOf("rev-parse --git-common-dir", cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], timeoutMs).trim();
@@ -991,7 +1016,9 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       assertAbsolutePath(request.cwd, "cwd");
       if (request.message.includes("\0")) throw new InputError("commit message must not contain NUL", "worktree_argument_invalid");
       const made = run("commit", {
-        args: ["-c", "gc.auto=0", "-C", request.cwd, "commit", "-q", "-m", request.message],
+        // Signed off by the committer the commit records: the repository's commit-msg hook refuses any commit
+        // without its committer's sign-off (the DCO, scripts/verification/sign-off.ts), a landing included.
+        args: ["-c", "gc.auto=0", "-C", request.cwd, "commit", "-q", "--signoff", "-m", request.message],
         cwd: request.cwd,
         timeoutMs: request.timeoutMs,
         allowedExitCodes: [0],

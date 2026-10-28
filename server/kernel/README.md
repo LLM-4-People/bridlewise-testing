@@ -46,7 +46,7 @@ The folder lives at `server/kernel/`.
 - `canonical.ts` is consumed by `server/agent/agent-restrictions.ts`, `server/agent/agent-runtime-bridge.ts`, `server/agent/agent-types-bridge.ts`, `server/agent/agents-bridge.ts`, `server/auth/auth.ts`, `server/auth/session.ts` and 78 more.
 - `config.ts` is consumed by `server/auth/auth.ts`, `server/auth/csrf.ts`, `server/auth/session.ts`, `server/auth/user-context.ts`, `server/awareness/auto-check-runner.ts`, `server/awareness/awareness-bridge.ts` and 41 more.
 - `digest.ts` is consumed by `server/auth/auth.ts`, `server/blocks/arm.ts`, `server/blocks/client-telemetry.ts`, `server/blocks/compose.ts`, `server/blocks/editor.ts`, `server/db/backup-restore.ts` and 9 more.
-- `errors.ts` is consumed by `server/agent/agent-restrictions.ts`, `server/agent/agent-runtime-bridge.ts`, `server/auth/auth.ts`, `server/auth/csrf.ts`, `server/auth/user-context.ts`, `server/awareness/auto-check-runner.ts` and 64 more.
+- `errors.ts` is consumed by `server/agent/agent-restrictions.ts`, `server/agent/agent-runtime-bridge.ts`, `server/auth/auth.ts`, `server/auth/csrf.ts`, `server/auth/user-context.ts`, `server/awareness/auto-check-runner.ts` and 65 more.
 - `harness-config.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/agent/agent-types-bridge.ts`, `server/awareness/auto-check-runner.ts`, `server/awareness/dedup-bridge.ts`, `server/awareness/quality-bridge.ts`, `server/blocks/compose.ts` and 32 more.
 - `process-fault-policy.ts` is consumed by `server/index.ts`.
 
