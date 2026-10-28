@@ -293,7 +293,10 @@ export function readTestExecutionConfig(root: string): Readonly<{
   concurrency?: ConcurrencyMode;
   parallelConcurrency?: number;
   fullSuiteParallelConcurrency?: number;
-  runtimeBudgetMs: number;
+  /** A test's hang backstop, its only wall bound (`DEFAULT_TEST_HANG_BACKSTOP_MS` for a foreign root). */
+  testHangBackstopMs: number;
+  /** The per-test CPU classes (`DEFAULT_TEST_CPU_CLASSES` for a foreign root). */
+  testCpuClasses: NonNullable<TestExecutionConfig["testCpuClasses"]>;
   /** The engine suite's stall/ceiling watchdog (see `DEFAULT_ENGINE_SUITE_WATCHDOG`). */
   engineSuiteWatchdog: SuiteWatchdog;
   serialPhaseConcurrency: number;
@@ -327,7 +330,8 @@ export function readTestExecutionConfig(root: string): Readonly<{
   // a finding the caller must see, so it propagates rather than degrading
   // the run to values nobody chose.
   const defaults = {
-    runtimeBudgetMs: DEFAULT_TEST_RUNTIME_BUDGET_MS,
+    testHangBackstopMs: DEFAULT_TEST_HANG_BACKSTOP_MS,
+    testCpuClasses: DEFAULT_TEST_CPU_CLASSES,
     engineSuiteWatchdog: DEFAULT_ENGINE_SUITE_WATCHDOG,
     serialPhaseConcurrency: DEFAULT_SERIAL_PHASE_CONCURRENCY,
     fullSuiteSerialPhaseConcurrency: DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY,
@@ -350,7 +354,8 @@ export function readTestExecutionConfig(root: string): Readonly<{
     ...(testExecution.fullSuiteParallelConcurrency !== undefined
       ? { fullSuiteParallelConcurrency: testExecution.fullSuiteParallelConcurrency }
       : {}),
-    runtimeBudgetMs: testExecution.runtimeBudgetMs ?? DEFAULT_TEST_RUNTIME_BUDGET_MS,
+    testHangBackstopMs: testExecution.testHangBackstopMs ?? DEFAULT_TEST_HANG_BACKSTOP_MS,
+    testCpuClasses: testExecution.testCpuClasses ?? DEFAULT_TEST_CPU_CLASSES,
     engineSuiteWatchdog: testExecution.engineSuiteWatchdog ?? DEFAULT_ENGINE_SUITE_WATCHDOG,
     serialPhaseConcurrency: testExecution.serialPhaseConcurrency ?? DEFAULT_SERIAL_PHASE_CONCURRENCY,
     fullSuiteSerialPhaseConcurrency: testExecution.fullSuiteSerialPhaseConcurrency ?? DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY,
@@ -554,7 +559,7 @@ export function buildSerialPhases(
 }
 export { MAXIMUM_PARALLEL_CONCURRENCY, MINIMUM_PARALLEL_CONCURRENCY, DEFAULT_SERIAL_PHASE_CONCURRENCY, DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY, DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY, DEFAULT_FULL_SUITE_PARALLEL_CONCURRENCY } from "./workflow-config.ts";
 
-import { numericOption, MAXIMUM_PARALLEL_CONCURRENCY, MINIMUM_PARALLEL_CONCURRENCY, DEFAULT_ASSERTION_VALUE_MAX_LENGTH, DEFAULT_ENGINE_SUITE_WATCHDOG, DEFAULT_TEST_RUNTIME_BUDGET_MS, DEFAULT_SERIAL_PHASE_CONCURRENCY, DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY, DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY, type SuiteWatchdog } from "./workflow-config.ts";
+import { numericOption, MAXIMUM_PARALLEL_CONCURRENCY, MINIMUM_PARALLEL_CONCURRENCY, DEFAULT_ASSERTION_VALUE_MAX_LENGTH, DEFAULT_ENGINE_SUITE_WATCHDOG, DEFAULT_TEST_HANG_BACKSTOP_MS, DEFAULT_TEST_CPU_CLASSES, DEFAULT_SERIAL_PHASE_CONCURRENCY, DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY, DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY, type SuiteWatchdog } from "./workflow-config.ts";
 import { handleError } from "../shared/debug/debug-system.ts";
 import { schemaId, statePath } from "../kernel/product-identity.ts";
 import { ensurePrivateStateDirectory } from "../filesystem/private-state.ts";
