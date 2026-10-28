@@ -14,6 +14,7 @@ const SCANNER = join(ROOT, "scripts/check-secrets.mjs");
 const HOME = "/ho" + "me/";
 const LEAK = `${HOME}leakuser`;
 const { readRunCpu } = await import("../../engine/src/shared/run-cpu.ts");
+const { REVIEWED_GPL_TEXT, createGplReader, isGplFamily, spdxLicences, staleReviewedEntries } = await import("../../engine/scripts/verification/licence-boundary.ts");
 const { PUBLICATION_PRIVACY_SIGNALS, SECRET_TEXT_SIGNAL_CATALOG, createPrivacyMatcher, signalFixture } = await import("../../engine/src/privacy/secret-signals.ts");
 
 function makeRepo() {
@@ -637,4 +638,216 @@ test("a large JSON document costs the scanner about what its raw lines do: no pe
   const asText = childCpu({ "data/values.txt": `#${text}` });
   const asJson = childCpu({ "data/values.json": text });
   assert.ok(asJson <= 2.5 * asText, `the JSON scan used ${String(asJson)} ms CPU against ${String(asText)} ms for the same bytes as text`);
+});
+
+// ── THE LICENCE BOUNDARY: no GPL-licensed bytes in the tree ────────────────
+// The GPL spellings are assembled at runtime, so this file carries none.
+const GPL_SPDX = "SPDX-License-" + "Identifier: GPL-2.0-only";
+const LGPL_TITLE = "GNU LESSER GENERAL " + "PUBLIC LICENSE";
+// The licence's noun, never adjacent to its notice in this source (the scan reads words across lines).
+const L_WORD = ["Lic", "ense"].join("");
+const GPL_NOTICE = ` * it under the terms of the GNU General Public ${L_WORD} as published by\n * the Free Software Foundation.`;
+
+test("GPL-licensed text is refused in every tree, by its SPDX id, licence title or notice", () => {
+  const dir = repoWith({
+    "engine/test/fixtures/vendored.c": `/* ${GPL_SPDX} */\nint main(void) { return 0; }\n`,
+    "docs/notices/lgpl.txt": `${LGPL_TITLE}\n`,
+    "src/lib/notice.ts": `/*\n${GPL_NOTICE}\n */\nexport {};\n`,
+    // The canonical LGPL-2.1 notice split across lines, read through the file's one reader.
+    "src/lib/split.c": [
+      "/*",
+      " * This library is free software; you can redistribute it and/or",
+      " * modify it under the terms of the GNU Lesser General",
+      ` * Public ${L_WORD} as published by the Free Software Foundation.`,
+      " */",
+    ].join("\n") + "\n",
+  });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /engine\/test\/fixtures\/vendored\.c:1: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "a test tree is not exempt");
+    assert.match(result.stderr, /docs\/notices\/lgpl\.txt:1: gpl-licence-text: GPL-licensed text \(title: /u);
+    assert.match(result.stderr, /src\/lib\/notice\.ts:2: gpl-licence-text: GPL-licensed text \(notice: /u);
+    assert.match(result.stderr, /src\/lib\/split\.c:4: gpl-licence-text: GPL-licensed text \(notice: /u, "a notice split across lines is one notice");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the project's own AGPL text and prose naming a GPL licence pass", () => {
+  const dir = repoWith({
+    "LICENSE": "                    GNU AFFERO GENERAL " + "PUBLIC LICENSE\n under the terms of the GNU Affero General Public License as published by\n",
+    "src/own.ts": "// SPDX-License-" + "Identifier: AGPL-3.0-only\nexport {};\n",
+    "docs/corpus.md": "git's path.c is GPL-2.0-only, fetched for testing and never vendored.\n",
+    "data/manifest.json": "{ \"spdx\": \"GPL-2.0-only\" }\n",
+  });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the reviewed GPL-text allowlist is explicit, and an entry with no GPL text is stale", () => {
+  assert.equal(REVIEWED_GPL_TEXT.size, 0, "the tree carries no reviewed GPL text; an entry needs a reason and a review");
+  const reviewed = new Map([["vendor/a.c", "reviewed: a reason"], ["vendor/b.c", "reviewed: another"]]);
+  assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c"]), reviewed), ["vendor/b.c"]);
+  assert.deepEqual(staleReviewedEntries(new Set(["vendor/a.c", "vendor/b.c"]), reviewed), []);
+});
+
+test("real GPL variants are read: split notices, title variants, lower-case and compound SPDX expressions", () => {
+  // Every spelling is assembled at runtime (this file carries none).
+  const G = "General " + "Public License";
+  const SPDX_ID = "SPDX-License-" + "Identifier:";
+  const markers = (lines) => {
+    const reader = createGplReader();
+    return lines.flatMap((line, index) => reader.push(line).map((found) => `${String(index + 1)}:${found.marker}:${found.text}`));
+  };
+  // (1) The canonical LGPL-2.1 notice, split across four comment lines: one notice, at the line that completes it.
+  assert.deepEqual(markers([
+    " * This library is free software; you can redistribute it and/or",
+    ` * modify it under the terms of the GNU Lesser ${G.split(" ")[0]} ${G.split(" ")[1]}`,
+    ` * ${G.split(" ")[2]} as published by the Free Software Foundation; either`,
+    " * version 2.1 of the License, or (at your option) any later version.",
+  ]), ["3:notice:the GNU General Public License notice"]);
+  // (2) Title variants: a heading leader, title case, the version on the same line, and the library form.
+  for (const title of [`# GNU ${G.toUpperCase()}`, `GNU ${G}`, `GNU ${G.toUpperCase()} Version 2, June 1991`, `   GNU LIBRARY ${G.toUpperCase()}`, `## GNU Lesser ${G}, version 2.1`]) {
+    assert.deepEqual(markers([title]).map((found) => found.split(":")[1]), ["title"], title);
+  }
+  // (3) Lower-case and compound SPDX expressions.
+  for (const [line, ids] of [
+    [`// ${SPDX_ID} gpl-2.0-only`, ["gpl-2.0-only"]],
+    [`# ${SPDX_ID} MIT AND GPL-2.0-only`, ["GPL-2.0-only"]],
+    [`/* ${SPDX_ID} (MIT OR GPL-2.0-or-later) */`, ["GPL-2.0-or-later"]],
+    [`${SPDX_ID} GPL-2.0-only WITH Linux-syscall-note`, ["GPL-2.0-only"]],
+    [`${SPDX_ID} LGPL-2.1+`, ["LGPL-2.1+"]],
+  ]) {
+    assert.deepEqual(markers([line]).map((found) => found.split(":").slice(2).join(":")), ids, line);
+  }
+  // (4) A lower-case notice on one line.
+  assert.deepEqual(markers([`it under the terms of the gnu ${G.toLowerCase()} as published by the foundation`]).map((found) => found.split(":")[1]), ["notice"]);
+  // (5) The GPL-3.0 notice re-wrapped at 20, 26 and 32 columns: the completing
+  // line ("published by the …") carries no trigger word of its own.
+  const notice = ["This program is free software: you can redistribute it and/or modify it under the terms of the GNU", G, "as published by the Free Software Foundation, either version 3 of the", L_WORD, "or (at your option) any later version."].join(" ");
+  const wrap = (text, columns) => {
+    const lines = [];
+    let current = "";
+    for (const word of text.split(" ")) {
+      if (current.length > 0 && current.length + 1 + word.length > columns) { lines.push(current); current = word; } else current = current.length > 0 ? `${current} ${word}` : word;
+    }
+    return [...lines, current];
+  };
+  // The notice is reported AT the line that completes it (the "by" after "published"), never at a later trigger line.
+  const completingLine = (lines) => {
+    const tokens = lines.flatMap((line, index) => line.toLowerCase().split(/[^a-z0-9]+/u).filter(Boolean).map((token) => ({ token, index })));
+    const at = tokens.findIndex((entry, position) => entry.token === "by" && tokens[position - 1]?.token === "published");
+    return tokens[at].index + 1;
+  };
+  for (const columns of [20, 26, 32]) {
+    const lines = wrap(notice, columns).map((line) => `# ${line}`);
+    const found = markers(lines);
+    assert.deepEqual(found.map((entry) => entry.split(":")[1]), ["notice"], `re-wrapped at ${String(columns)} columns: ${JSON.stringify(found)}`);
+    assert.equal(Number(found[0].split(":")[0]), completingLine(lines), `re-wrapped at ${String(columns)} columns: reported at the completing line`);
+  }
+  // Near misses: the project's own AGPL, permissive expressions, an exception name, prose.
+  for (const line of [
+    `${SPDX_ID} AGPL-3.0-only`, `${SPDX_ID} MIT OR Apache-2.0`, `${SPDX_ID} Apache-2.0 WITH LLVM-exception`,
+    `GNU AFFERO ${G.toUpperCase()}`, `under the terms of the GNU Affero ${G} as published by`,
+    "git's path.c is GPL-2.0-only, fetched for testing", "the GNU project", `see the GNU ${G} for details`,
+  ]) {
+    assert.deepEqual(markers([line]), [], line);
+  }
+  assert.deepEqual(spdxLicences("(MIT OR GPL-2.0-only) AND Apache-2.0 WITH LLVM-exception"), ["MIT", "GPL-2.0-only", "Apache-2.0"]);
+  assert.equal(isGplFamily("gpl-3.0-or-later"), true);
+  assert.equal(isGplFamily("AGPL-3.0-only"), false);
+});
+
+test("the notice window is ARMED by a trigger line: a notice completed by a line with no trigger word, with nothing after it, is read at that line", () => {
+  // The completing line ("as published by the Free Software Foundation.") carries no keyword, and no later line does:
+  // only the arming of the window by the line before it reads the notice (checked on trigger lines alone, it is missed).
+  const G = "General " + "Public";
+  const opening = ` * it under the terms of the GNU ${G} ${L_WORD}`;
+  const closing = " * as published by the Free Software Foundation.";
+  const reader = createGplReader();
+  assert.deepEqual([opening, closing, " */"].map((line) => reader.push(line).map((found) => found.marker)), [[], ["notice"], []]);
+  const dir = repoWith({ "src/own-line.c": ["/*", opening, closing, " */"].join("\n") + "\n" });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /src\/own-line\.c:3: gpl-licence-text: GPL-licensed text \(notice: /u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("one line definition for every read: CR-only, CRLF and mixed line endings, whole and streamed, report the same lines", () => {
+  const G = "General " + "Public";
+  const lines = [
+    `/* ${GPL_SPDX} */`,
+    LGPL_TITLE,
+    "/*",
+    ` * it under the terms of the GNU ${G} ${L_WORD}`,
+    " * as published by the Free Software Foundation.",
+    " */",
+  ];
+  const endings = { cr: ["\r"], crlf: ["\r\n"], mixed: ["\r\n", "\r", "\n"] };
+  const join = (body, breaks) => body.map((line, index) => line + breaks[index % breaks.length]).join("");
+  // Streamed above the whole-read threshold (2 MiB): one long first line moves every finding down by one.
+  const pad = "a".repeat(2 * 1024 * 1024 + 64);
+  const files = {};
+  for (const [name, breaks] of Object.entries(endings)) {
+    files[`small/${name}.c`] = join(lines, breaks);
+    files[`large/${name}.c`] = join([pad, ...lines], breaks);
+  }
+  const dir = repoWith(files);
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    for (const name of Object.keys(endings)) {
+      for (const [size, shift] of [["small", 0], ["large", 1]]) {
+        const file = `${size}/${name}.c`;
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(1 + shift)}: gpl-licence-text: GPL-licensed text \\(spdx: GPL-2\\.0-only\\)`, "u"), `${file}: the SPDX line`);
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(2 + shift)}: gpl-licence-text: GPL-licensed text \\(title: `, "u"), `${file}: the anchored title line`);
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(5 + shift)}: gpl-licence-text: GPL-licensed text \\(notice: `, "u"), `${file}: the split notice`);
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the line splitter holds a CR that ends a chunk: every cut of a mixed text yields the same lines, and a capped read drops only the cut line", async () => {
+  const { createLineSplitter, textLines } = await import("../../engine/scripts/verification/text-lines.ts");
+  const text = "one\r\ntwo\rthree\nfour\r\n\rsix";
+  const expected = ["one", "two", "three", "four", "", "six"];
+  assert.deepEqual(textLines(text), expected);
+  assert.deepEqual(textLines("a\rb\r"), ["a", "b"]);
+  assert.deepEqual(textLines("a\n"), ["a"]);
+  for (let cut = 0; cut <= text.length; cut += 1) {
+    const splitter = createLineSplitter();
+    const read = [...splitter.push(text.slice(0, cut)), ...splitter.push(text.slice(cut))];
+    assert.deepEqual([...read, splitter.rest()], expected, `cut at ${String(cut)}`);
+  }
+  // The capped prefix: the complete lines only; the line the cap cut is the unread tail's.
+  assert.deepEqual(createLineSplitter().push("whole\r\nalso whole\rcut her"), ["whole", "also whole"]);
+});
+
+test("the capped read (over 64 MiB) splits CR-only lines by the one definition, and a streamed file's unterminated last line is read", () => {
+  // Capped: a CR-only file past the 64 MiB cap. Split on \n alone, its whole prefix is one unfinished line and nothing is read.
+  const marker = `/* ${GPL_SPDX} */`;
+  const capped = `${marker}\r${LGPL_TITLE}\r${"a".repeat(1023)}\r`.padEnd(64 * 1024 * 1024 + 4096, `${"b".repeat(1023)}\r`);
+  // Streamed: above the whole-read threshold, the marker on the LAST line, with no break after it.
+  const streamed = `${"a".repeat(2 * 1024 * 1024 + 64)}\n${marker}`;
+  const dir = repoWith({ "huge/cr-only.c": capped, "large/unterminated.c": streamed });
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /huge\/cr-only\.c:1: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "the capped CR-only SPDX line");
+    assert.match(result.stderr, /huge\/cr-only\.c:2: gpl-licence-text: GPL-licensed text \(title: /u, "the capped CR-only title line");
+    assert.match(result.stderr, /huge\/cr-only\.c: unread-tail: /u, "the capped tail is still reported unread");
+    assert.match(result.stderr, /large\/unterminated\.c:2: gpl-licence-text: GPL-licensed text \(spdx: GPL-2\.0-only\)/u, "the streamed unterminated last line");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
