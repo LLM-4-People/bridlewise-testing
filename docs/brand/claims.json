@@ -20,15 +20,6 @@
       "evidence": "tests/public/cli.test.mjs"
     },
     {
-      "id": "no-commit-from-chat",
-      "kind": "holds-when-green",
-      "text": "From chat, the model cannot commit: git_commit answers governance_required and the commit stays yours",
-      "checks": [
-        "testing.ci"
-      ],
-      "evidence": "tests/unit/tool-executor-unified.test.ts"
-    },
-    {
       "id": "run-once",
       "kind": "holds-when-green",
       "text": "A run executes once: reopening it never starts a second execution",
