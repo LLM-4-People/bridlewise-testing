@@ -1,0 +1,14 @@
+{
+  "kind": "issue-field",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "CPU headroom",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "CPU headroom",
+    "data_type": "number",
+    "visibility": "all",
+    "description": "CPU budget headroom, percent"
+  }
+}

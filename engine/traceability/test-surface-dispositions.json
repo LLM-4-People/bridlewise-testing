@@ -941,7 +941,23 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/declarations.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/forge/github-client.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/plan.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4341,5 +4357,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "a3be73f9ffbff4de339b76e549633ef507e85d20e1864a750ce4b8110cd22faa"
+  "integrityHash": "6cea97f116d649da0379ad2e759714e839a40e0b1f50a335a15757667356b351"
 }
