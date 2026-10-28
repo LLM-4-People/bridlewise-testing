@@ -1325,8 +1325,6 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     unitsPerTestFile: z.number().positive().max(600000),
     derivedAtTestFileCount: z.number().int().positive().max(100000),
     maxPopulationDriftFraction: z.number().positive().lt(1),
-    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
-    ambientInflationCapFraction: z.number().min(0).lt(1),
   });
   const rollingCpuBudgetSchema = z.strictObject({
     ...cpuBudgetValidityFields,
@@ -1335,12 +1333,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     maxPopulationDriftFraction: z.number().positive().lt(1),
     sameTreeSpreadFraction: z.number().positive().lt(1),
     baselineWindowRuns: z.number().int().min(2).max(HISTORY_KEPT),
-    // ZERO IS A LEGAL SLOPE NOW, and it is the value the calibrated metric
-    // declares: the ambient adjustment would double-pay a load effect the
-    // calibration already absorbs. The fields stay in the shape so a future
-    // re-derivation can state a non-zero residual without a schema change.
-    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
-    ambientInflationCapFraction: z.number().min(0).lt(1),
+    // (No ambient-inflation envelope: a cap is never scaled by host load.
+    // The load legs are recorded signals only; NO-LOAD-BLOCK, audit A-08.)
   });
 
   // ── PER-TEST LIMITS: CPU WORK, AND ONE HANG BACKSTOP (NO-LOAD-BLOCK L2) ──
