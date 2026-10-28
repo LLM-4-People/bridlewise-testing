@@ -29,17 +29,33 @@ source; nothing else spells it), and never a person's own name or address.
   (`config --worktree`, never the shared config), the candidate tool into the
   candidate's, and the workspace integrator commits under it. No harness
   writer takes `user.name`/`user.email` from the host.
-- **Every identity trailer is readable.** Each is exactly `Name <address>`;
-  one the judge cannot read is refused by name, never dropped.
+- **Every identity trailer is judged by its key.** A trailer whose key ends
+  in `-by`, in any case, names a person. One that carries an address is
+  exactly `Name <address>`, or it is refused by name, never dropped. On an
+  agent commit, any `-by` trailer that is not the agent identity is refused,
+  a name-only one (`Co-authored-by: A Name`) included; a human's commit keeps
+  its own co-authors.
+- **The whole message is judged.** On an agent commit the subject, the body,
+  every trailer and every comment line git records name no address but the
+  agent's; only the `git commit -v` diff, which git always cuts, is not.
+- **One normalisation, at both doors.** Every judged text, the idents
+  included, is NFKC-normalised, its default-ignorable code points removed and
+  its ideographic full stops read as `.`; an address is recognised by the one
+  bounded address grammar (`engine/src/privacy/identity-grammars.ts`), with
+  Unicode labels. So a homoglyph or a hidden character hides nothing, and a
+  human whose name has a ZWNJ, an NFD accent or fullwidth letters passes the
+  DCO at the hook and in CI alike.
 - **No name is an exemption.** A committer name is anyone's to set, so no
   commit passes because of who it says committed it. The only unjudged
   commits are the merge queue's own first-parent merges in a merge group,
   which live on a ref only GitHub writes.
 - **Where it is judged.** One judge (`engine/scripts/verification/sign-off.ts`)
   at the `commit-msg` hook and in the `Commit records` check
-  (`.github/workflows/commit-records.yml`). A refusal names the role, the
-  trailer key and only the domain of an address, never a person's name or
-  mailbox, because it is printed into a public log.
+  (`.github/workflows/commit-records.yml`). A refusal names the role and the
+  trailer key, and an address only as a token keyed by the run's random,
+  never-printed key: two addresses are told apart within one log, and nothing
+  of a person — name, mailbox or domain — is printed, because the log is
+  public.
 - **The merge queue.** In a merge group the judge verifies the group's ref is
   in GitHub's `refs/heads/gh-readonly-queue/` namespace and held at the
   group's head; that namespace and the event's ref name are what is trusted,

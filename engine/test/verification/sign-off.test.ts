@@ -3,7 +3,7 @@
  * question over a raw message, and CI's question over a range of commits.
  */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -203,6 +203,64 @@ test("the range reader reads each message whole: a unit or record separator insi
   assert.ok(refused.some((line) => /message names <redacted [0-9a-f]{12}>/u.test(line)), refused.join("\n"));
   assert.doesNotMatch(refused.join("\n"), /person|example\.invalid/u, "nothing of the address reaches the log");
   assert.ok(refused.every((line) => /^[0-9a-f]{12}: /u.test(line)), "every line names a real commit");
+});
+
+test("a human's byte-exact `git commit -s` passes at BOTH doors whatever their name's spelling: a ZWNJ, an NFD accent, fullwidth letters", () => {
+  for (const name of ["Mehr\u200cdad Example", "Jose\u0301 Example", "\uff2a\uff4f\uff53\uff45 Example"]) {
+    const { root, git } = repository();
+    const person = { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: "human@example.invalid", GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: "human@example.invalid" };
+    const base = commit(git, root, "base.txt", `base\n\n${SIGNED}`);
+    writeFileSync(join(root, "human.txt"), "human\n");
+    git(["add", "--", "human.txt"]);
+    git(["commit", "-q", "-s", "-m", "a human's change"], person);
+    assert.deepEqual(unsignedCommits(root, `${base}..HEAD`), [], `the range door refused ${JSON.stringify(name)}`);
+    const identity = { name, email: "human@example.invalid" };
+    assert.equal(judge(root, `a human's change\n\nSigned-off-by: ${name} <human@example.invalid>\n`, identity), null, `the hook refused ${JSON.stringify(name)}`);
+  }
+});
+
+test("a hook run where git resolves no author refuses typed and clear (commit_identity_unreadable), never with git's raw failure", () => {
+  const { root, git } = repository();
+  git(["config", "user.useConfigOnly", "true"]);
+  const saved = Object.fromEntries(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL", "HOME", "XDG_CONFIG_HOME"].map((key) => [key, process.env[key]]));
+  for (const key of Object.keys(saved)) delete process.env[key];
+  process.env["HOME"] = createTempDir("sign-off-no-identity-home-");
+  process.env["XDG_CONFIG_HOME"] = process.env["HOME"];
+  try {
+    assert.throws(() => messageSignOffProblem(root, "a change\n"), (error: unknown) =>
+      (error as { code?: unknown }).code === "commit_identity_unreadable" && /git names no (author|committer) here/u.test((error as Error).message));
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("the hook judges what git records: the -v diff below git's own scissors block is never recorded and not judged; any other text below a scissors line is", () => {
+  const { root } = repository();
+  const agent = `Signed-off-by: ${AGENT.name} <${AGENT.email}>`;
+  const verbose = `feat: a change\n\n${agent}\n# ------------------------ >8 ------------------------\n# Do not modify or remove the line above.\n# Everything below it will be ignored.\ndiff --git a/x b/x\n+contact person@example.invalid\n`;
+  assert.equal(judge(root, verbose, AGENT), null, "the -v diff is cut by git: an address in it is never published");
+  const forged = `feat: a change\n\n${agent}\n# ------------------------ >8 ------------------------\n# person@example.invalid\n`;
+  assert.match(judge(root, forged, AGENT) ?? "", /message names <redacted [0-9a-f]{12}>/u, "a comment below a bare scissors line is recorded under verbatim");
+});
+
+test("the redaction key is per run: two runs print different tokens for the same address", () => {
+  const { root, git } = repository();
+  const agentEnvironment = { GIT_AUTHOR_NAME: AGENT.name, GIT_AUTHOR_EMAIL: AGENT.email, GIT_COMMITTER_NAME: AGENT.name, GIT_COMMITTER_EMAIL: AGENT.email };
+  const base = commit(git, root, "base.txt", `base\n\n${SIGNED}`);
+  writeFileSync(join(root, "agent.txt"), "agent\n");
+  git(["add", "--", "agent.txt"]);
+  git(["commit", "-q", "-m", `feat: thanks person@example.invalid\n\nSigned-off-by: ${AGENT.name} <${AGENT.email}>\n`], agentEnvironment);
+  const script = join(import.meta.dirname, "..", "..", "scripts", "verification", "sign-off.ts");
+  const tokenOfRun = (): string => {
+    const run = spawnSync(process.execPath, [script, "--range", `${base}..HEAD`], { cwd: root, encoding: "utf8" });
+    const token = /<redacted ([0-9a-f]{12})>/u.exec(run.stderr)?.[1];
+    assert.ok(token !== undefined, `the run printed no token: ${run.stderr}`);
+    return token;
+  };
+  assert.notEqual(tokenOfRun(), tokenOfRun(), "a constant key would make a token a stable public handle of the address");
 });
 
 test("agent checkout: a commit made in a checkout the harness made for an agent must be the agent identity, whatever its marks", () => {

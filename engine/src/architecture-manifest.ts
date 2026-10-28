@@ -4318,7 +4318,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-identity-grammars", path: "src/privacy/identity-grammars.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 6, namesSha256: "b2c9b40c9869af7d012149179b54fdc985eb0d7867ccaded1dd8b7bf0237f0d4" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 8, namesSha256: "354a973f81cbdb06019330c436b5b57f8ab7bca43dae6d18ddce62118f3bf51f" },
       dependencies: ["src/kernel/integrity.ts","src/privacy/detection-span.ts"],
     }),
     moduleContract({
@@ -5419,7 +5419,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "scripts-verification-sign-off", path: "scripts/verification/sign-off.ts", realm: "builder", layer: "verification",
       owner: "verification-foundation", publicApi: { exportCount: 13, namesSha256: "6887451a107437a83ac576b6ba6c0e4d20e15d80325f6a12ede567afb0d4e166" },
-      dependencies: ["node:crypto","scripts/verification/commit-trailers.ts","src/kernel/errors.ts","src/kernel/root-policy.ts","src/runtime/cli-debug.ts"],
+      dependencies: ["node:crypto","scripts/verification/commit-trailers.ts","src/kernel/errors.ts","src/kernel/root-policy.ts","src/privacy/identity-grammars.ts","src/runtime/cli-debug.ts"],
       executionBoundary: "composition-root", compositionRoot: true,
     }),
     moduleContract({

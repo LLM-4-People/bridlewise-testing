@@ -40,9 +40,9 @@
  * was opened by a declared agent account (`agentAccounts`; the workflow passes
  * the pull request's author). A human outside contributor's commit carries none of
  * those marks and keeps the ordinary DCO. On an agent commit the WHOLE
- * message (subject, body, every trailer, every comment line — the hook judges
- * the message file as written, since `--cleanup=verbatim` records all of it),
- * normalised, names no address but the agent's:
+ * message (subject, body, every trailer, every comment line — a comment is
+ * recorded under `--cleanup=verbatim`; only the `-v` diff git always cuts is
+ * not judged), normalised, names no address but the agent's:
  * a body-paragraph `Signed-off-by`, a `Signed off by:` spelled with spaces, a
  * `Cc:` or a bare address in the subject are refused like a trailer.
  *
@@ -68,6 +68,7 @@ import { createHmac, randomBytes } from "node:crypto";
 
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { emailAddressPattern } from "../../src/privacy/identity-grammars.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { gitText as git, messageTrailers } from "./commit-trailers.ts";
 
@@ -115,12 +116,9 @@ function sameIdentity(left: Identity, right: Identity): boolean {
   return left.name === right.name && left.email.toLowerCase() === right.email.toLowerCase();
 }
 
-/** An address by its shape, Unicode labels included (an IDN): `local@label.label`. */
-const ADDRESS = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
-
-/** The addresses `text` names, after the one normalisation, lower-cased. */
+/** The addresses `text` names, after the one normalisation, lower-cased: the one bounded address grammar (privacy's). */
 export function addressesIn(text: string): readonly string[] {
-  return [...normalised(text).matchAll(ADDRESS)].map((match) => match[0].toLowerCase());
+  return [...normalised(text).matchAll(emailAddressPattern())].map((match) => match[0].toLowerCase());
 }
 
 /**
@@ -157,7 +155,12 @@ export type JudgedCommit = Readonly<{ author: Identity; committer: Identity; tra
  * context made it an agent's whatever its identities say (a declared agent
  * account's pull request; a harness-made agent checkout).
  */
-export function commitRecordProblems(commit: JudgedCommit, agentMarked = false): readonly string[] {
+export function commitRecordProblems(recorded: JudgedCommit, agentMarked = false): readonly string[] {
+  // The one normalisation, applied HERE to the idents too, so the hook (git var) and the range reader (the
+  // recorded %an/%ae/%cn/%ce) judge the same text a byte-exact `git commit -s` signs off with: a name with a
+  // ZWNJ, an NFD accent or fullwidth letters matches its own sign-off at both doors.
+  const ident = (identity: Identity): Identity => ({ name: normalised(identity.name).trim(), email: normalised(identity.email).trim() });
+  const commit = { ...recorded, author: ident(recorded.author), committer: ident(recorded.committer) };
   const named = commit.trailers.filter(isIdentityTrailer).map((trailer) => ({ trailer, identity: parseIdentity(trailer.value) }));
   const unreadable = named.filter((entry) => entry.identity === null && addressesIn(entry.trailer.value).length > 0)
     .map(({ trailer }) => `its "${trailer.key}" trailer carries an address but is not exactly one "Name <address>"`);
@@ -219,8 +222,14 @@ export function messageSignOffProblem(
   idents: Readonly<{ author: Identity; committer: Identity }> = pendingIdents(root),
   agentCheckout: boolean = isAgentCheckout(root),
 ): string | null {
-  // The whole message file, as written: under --cleanup=verbatim every line of it is recorded, so nothing is exempt.
-  const problems = commitRecordProblems({ ...idents, trailers: messageTrailers(root, message), message }, agentCheckout);
+  // The message file as git will record it. `git commit -v` appends its diff below git's own scissors block, and
+  // git cuts that block off whatever the cleanup mode (verbose truncates at the cut line), so the diff is never
+  // recorded and is not judged. Only that exact -v shape is cut: the scissors line, git's two instruction lines,
+  // then a diff. Any other text below a scissors line is judged — and a forged -v block in a verbatim message
+  // is recorded, so the range door (which reads the recorded message) refuses what it names.
+  const verbose = /^# -{24} >8 -{24}\n# Do not modify or remove the line above\.\n# Everything below it will be ignored\.\ndiff --git /mu.exec(message);
+  const recorded = verbose === null ? message : message.slice(0, verbose.index);
+  const problems = commitRecordProblems({ ...idents, trailers: messageTrailers(root, recorded), message: recorded }, agentCheckout);
   if (problems.length === 0) return null;
   const repair = agentCheckout ? ` (this checkout is an agent's: its ${AGENT_CHECKOUT_KEY} is set, so user.name and user.email are ${AGENT_SPELLED})` : "";
   return `${problems.join("; ")}${repair}`;
