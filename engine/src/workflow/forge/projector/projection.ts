@@ -12,7 +12,7 @@
 import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../../kernel/integrity.ts";
 import { commitTreeReader, gitOutput, isAncestor, resolveRevision, type GitRepository, type TreeReader } from "../../../git/tree-reader.ts";
-import { decisionRecords, itemStatusFacts, openBoardRows, ownersOf, TRACKER_LANES, trackerItems } from "../../failure-owners.ts";
+import { decisionRecords, itemStatusFacts, openBoardRows, ownersOf, TRACKER_LANES, trackerItemsOf, treeEntries } from "../../failure-owners.ts";
 import { mainHealth } from "./main-runs.ts";
 import { DECISION_INDEX, TRACKER_BOARD } from "../../../kernel/verification-paths.ts";
 import { DIGEST_PLACEHOLDER, PROJECTION_INPUT_SCHEMA, PROJECTION_SCHEMA, type ProjectedObject, type Projection, type ProjectionInput } from "./model.ts";
@@ -30,7 +30,7 @@ export function projectionInput(repository: GitRepository, source: string, ledge
   if (ledger !== null && ledgerCommit === null) throw new HarnessError(`projection_ledger_missing: ${ledger} names no commit of ${repository.root}`, "projection_ledger_missing");
   const prefix = `${TRACKER_BOARD.items}/`;
   const tree = commitTreeReader(repository, commit);
-  const items = trackerItems(treeEntries(tree, TRACKER_BOARD.items));
+  const items = trackerItemsOf(tree);
   return deepFreeze({
     schema: PROJECTION_INPUT_SCHEMA,
     source: commit,
@@ -98,14 +98,6 @@ export function computeProjection(input: ProjectionInput, confinement: Projector
   return deepFreeze({ projection, digest: canonicalHash(projection) });
 }
 
-/** The `.md` entries directly in `directory` of `tree` (not its README), read in one batch. */
-function treeEntries(tree: TreeReader, directory: string): readonly { name: string; text: string }[] {
-  const prefix = `${directory}/`;
-  const paths = tree.paths().filter((path) => path.startsWith(prefix) && path.endsWith(".md") && !path.slice(prefix.length).includes("/") && path !== `${prefix}README.md`);
-  tree.prefetch(paths);
-  return paths.map((path) => ({ name: path.slice(prefix.length), text: tree.text(path) ?? "" }));
-}
-
 /** The evidence paths recorded by every tracked evidence manifest of `tree` (through the store's one manifest parser): a close's `evidence:` proof at that commit. */
 function recordedEvidenceAt(tree: TreeReader): readonly string[] {
   const manifests = tree.paths().filter((path) => posix.basename(path) === ROOT_POLICY.workflow.evidenceStore.manifestName);
@@ -128,7 +120,7 @@ export function roadmapFeedInput(repository: GitRepository, source: string, repo
   if (commit === null) throw new HarnessError(`projection_source_missing: ${source} names no commit of ${repository.root}`, "projection_source_missing");
   const decisionsDirectory = DECISION_INDEX.path.slice(0, DECISION_INDEX.path.lastIndexOf("/"));
   const tree = commitTreeReader(repository, commit);
-  const items = trackerItems(treeEntries(tree, TRACKER_BOARD.items));
+  const items = trackerItemsOf(tree);
   const decisions = decisionRecords(treeEntries(tree, decisionsDirectory));
   const sourceDate = gitOutput(repository, ["log", "-1", "--format=%cI", commit]).stdout.toString("utf8").trim();
   const paths = [TRACKER_BOARD.items, decisionsDirectory, `:(glob)**/${ROOT_POLICY.workflow.evidenceStore.manifestName}`];
