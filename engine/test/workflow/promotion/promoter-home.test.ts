@@ -13,21 +13,27 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import test from "node:test";
+import test, { before } from "node:test";
 
 import { WorktreeGitError, WorktreeGitTimeout, configuredWorktreeGitPort, type WorktreeGitPort } from "../../../src/git/worktree-port.ts";
 import { engineRoot } from "../../../src/kernel/engine-root.ts";
+import { getConfigDocumentSchema } from "../../../src/kernel/config-contracts.ts";
+import { workingTreeReader } from "../../../src/git/tree-reader.ts";
+import { loadPromotionProfiles } from "../../../src/workflow/promotion/profile.ts";
+import { classifyTree } from "../../../src/workflow/promotion/projection.ts";
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
 import { acquireLock } from "../../../src/workflow/resource-lock.ts";
 import { repositoryRegistry, repositoryRegistryArea } from "../../../src/workflow/repository-registry.ts";
 import { PromotionError, promotionExitCode, type PromotionCode } from "../../../src/workflow/promotion/codes.ts";
 import { resolvePromotionContext, type PromotionDocument } from "../../../src/workflow/promotion/context.ts";
-import { engineCheckout, promoterPlacement, runInPromoterHome, type PromoterEngine, type PromoterPlacement } from "../../../src/workflow/promotion/promoter-home.ts";
+import { engineCheckout, promoterHomeEnvironment, promoterPlacement, runInPromoterHome, type PromoterEngine, type PromoterPlacement } from "../../../src/workflow/promotion/promoter-home.ts";
 import { unattendedEnvironment, withUnattendedChain } from "../../../src/workflow/promotion/trigger.ts";
 import type { PromotionRequest } from "../../../src/workflow/promotion/promote-arguments.ts";
 import { promotionFolder } from "../../../src/workflow/promotion/promotion-run.ts";
+import { checkoutCommandEnvironment, runCheckoutCommand } from "../../../src/workflow/checkout-setup.ts";
+import { createTempDir } from "../../support/temp-dir.ts";
 import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
 import { PROFILE_NAME, SOURCE, promotionFixture, type FixtureOptions, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -298,41 +304,82 @@ test("M6: where the engine lives — git's answer that it is in no checkout is a
   assert.deepEqual(engineCheckout(answering(() => top), join(top, "engine"), 5), { top, engineRelative: "engine" });
 });
 
-/** The engine's two doors, spawned for real over `cwd`: each answers ONE envelope and exits with its class's code (N3: the command table run as the entry used to deadlock on its own top-level await, exit 13, no output). */
-function spawnEntry(script: string, args: readonly string[], cwd: string): Readonly<{ status: number | null; code: string }> {
-  const run = spawnSync(process.execPath, [join(engineRoot(), script), ...args], { cwd, encoding: "utf8", timeout: 120_000, killSignal: "SIGKILL" });
+/**
+ * What a promoter's engine holds: the paths under `engine/` and `shared/` (the
+ * repository folder the engine imports from outside itself) that the product
+ * profile PROJECTS from this checkout. The population is the one ownership
+ * reader's (`workingTreeReader`, over `ownedFiles`), and the profile's own
+ * classification decides what ships, so the engine under test is the engine
+ * a promotion carries. It is never a second listing of its own.
+ */
+function promotedEnginePaths(top: string): readonly string[] {
+  const document = getConfigDocumentSchema().parse(JSON.parse(readFileSync(join(engineRoot(), ROOT_POLICY.configuration.basename), "utf8")));
+  const tree = workingTreeReader(top);
+  const profiles = loadPromotionProfiles(tree, document.promotion!.profileDirectory, new Set(Object.keys(document.workspaceIsolation?.commands ?? {})));
+  assert.ok(profiles.length > 0, "the checkout declares the product's profile");
+  const projected = new Set(profiles.flatMap((loaded) => [...classifyTree(tree, loaded.profile).projected.keys()]));
+  return [...projected].filter((path) => path.startsWith("engine/") || path.startsWith("shared/")).sort();
+}
+
+/**
+ * A fixture whose source profile only names commands both registries declare
+ * (the fixture's and this engine's own), and whose source HOLDS this engine
+ * as a promotion carries it ({@link promotedEnginePaths}), committed at
+ * `engine/` (and `shared/`), with its installed dependencies through a
+ * committed `engine/node_modules` link (a promoter home installs them; the
+ * link stands in). The engine answers for the repository it lives in
+ * (`HARNESS_ROOT`, never the caller's working directory: #54), so the engine
+ * under test must live in the fixture, as the promoter's does in production.
+ * Built ONCE for this file (`before`): N3 only reads it, and T-K5's home is a
+ * worktree of its own.
+ */
+function realEngineFixture(prefix: string): Readonly<{ fixture: PromotionFixture; document: PromotionDocument; engine: string }> {
+  const fixture = promotionFixture(prefix, { phases: { setup: [], converge: [], verify: ["engine-check"] } });
+  const isolation = fixture.document.workspaceIsolation!;
+  const document: PromotionDocument = { ...fixture.document, workspaceIsolation: { ...isolation, commands: { ...isolation.commands, "engine-check": { cwd: ".", argv: ["true"], timeoutMs: 30_000 } } } };
+  const engine = join(fixture.root, "engine");
+  const top = dirname(engineRoot());
+  for (const path of promotedEnginePaths(top)) {
+    mkdirSync(dirname(join(fixture.root, path)), { recursive: true });
+    copyFileSync(join(top, path), join(fixture.root, path));
+  }
+  symlinkSync(join(engineRoot(), "node_modules"), join(engine, "node_modules"));
+  fixture.git(["checkout", "-q", SOURCE]);
+  fixture.git(["add", "engine", "shared"]);
+  fixture.git(["commit", "-q", "-m", "the engine"]);
+  // A checkout gives the configuration its default mode; the engine refuses anything but its own (a home settles it the same way).
+  chmodSync(join(engine, ROOT_POLICY.configuration.basename), Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
+  return { fixture, document, engine };
+}
+
+let realEngine: ReturnType<typeof realEngineFixture>;
+before(() => {
+  realEngine = realEngineFixture("promotion-home-real");
+});
+
+/** The engine's two doors, spawned for real from the engine that lives in `engine`'s repository: each answers ONE envelope and exits with its class's code (N3: the command table run as the entry used to deadlock on its own top-level await, exit 13, no output). */
+function spawnEntry(engine: string, script: string, args: readonly string[]): Readonly<{ status: number | null; code: string }> {
+  const run = spawnSync(process.execPath, [join(engine, script), ...args], { cwd: engine, encoding: "utf8", timeout: 120_000, killSignal: "SIGKILL" });
   assert.equal(run.signal, null, `${script} ${args.join(" ")} was killed: ${run.stderr}`);
   const envelope = JSON.parse(run.stdout) as { result: { code: string } };
   return { status: run.status, code: envelope.result.code };
 }
 
-/** A fixture whose source profile only names commands both registries declare (the fixture's and this engine's own): the real engine can answer for it. */
-function realEngineFixture(prefix: string): Readonly<{ fixture: PromotionFixture; document: PromotionDocument }> {
-  const fixture = promotionFixture(prefix, { phases: { setup: [], converge: [], verify: ["engine-check"] } });
-  const isolation = fixture.document.workspaceIsolation!;
-  const document: PromotionDocument = { ...fixture.document, workspaceIsolation: { ...isolation, commands: { ...isolation.commands, "engine-check": { cwd: ".", argv: ["true"], timeoutMs: 30_000 } } } };
-  return { fixture, document };
-}
-
 test("N3: the REAL entry — `src/cli.ts harness promote` and the command table run as its own entry — answers one envelope with its class's exit code", () => {
-  const { fixture } = realEngineFixture("promotion-home-entry");
+  const { fixture, engine } = realEngine;
   const source = fixture.tip(SOURCE);
   for (const [script, words] of [["src/cli.ts", ["harness", "promote"]], ["src/workflow/harness-commands.ts", ["promote"]]] as const) {
-    const answered = spawnEntry(script, [...words, "status", "--profile", PROFILE_NAME, "--source", source], fixture.root);
+    const answered = spawnEntry(engine, script, [...words, "status", "--profile", PROFILE_NAME, "--source", source]);
     assert.equal(answered.code, "promotion_status", script);
     assert.equal(answered.status, 0, script);
-    const refused = spawnEntry(script, [...words, "status", "--source", "no-such-revision"], fixture.root);
+    const refused = spawnEntry(engine, script, [...words, "status", "--source", "no-such-revision"]);
     assert.equal(refused.code, "promotion_source_missing", script);
     assert.equal(refused.status, promotionExitCode("promotion_source_missing"), script);
   }
 });
 
-test("N3/T-K5: runInPromoterHome re-executes the REAL engine entry in the home (its engine folder is this engine) and answers its envelope", async () => {
-  const { fixture, document } = realEngineFixture("promotion-home-real");
-  fixture.git(["checkout", "-q", SOURCE]);
-  symlinkSync(engineRoot(), join(fixture.root, "engine"));
-  fixture.git(["add", "engine"]);
-  fixture.git(["commit", "-q", "-m", "the engine"]);
+test("N3/T-K5: runInPromoterHome re-executes the REAL engine entry in the home (a real engine folder of the same repository, as in production) and answers its envelope", async () => {
+  const { fixture, document } = realEngine;
   const git = configuredWorktreeGitPort(document);
   const context = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, document);
   const placement: Extract<PromoterPlacement, { kind: "home" }> = { kind: "home", reason: "the real entry", home: join(fixture.workRoot, `promote-${PROFILE_NAME}-home`), engineRelative: "engine" };
@@ -341,4 +388,107 @@ test("N3/T-K5: runInPromoterHome re-executes the REAL engine entry in the home (
   const data = answered.data as { source: string; promoterHome: string };
   assert.equal(data.source, context.source, "the child answered for S, named with --source");
   assert.equal(data.promoterHome, placement.home);
+});
+
+/** Credentials a maintainer's or a job's process holds (planted for these tests only; none is real). */
+const PLANTED: Readonly<Record<string, string>> = {
+  BRIDLEWISE_PUBLISHER_TOKEN: "planted-publisher-token-value",
+  GH_TOKEN: "planted-gh-token-value",
+  GITHUB_TOKEN: "planted-github-token-value",
+  OPENAI_API_KEY: "planted-provider-key-value",
+  HARNESS_KEY_HOME: "/planted/key/home",
+  NPM_TOKEN: "planted-npm-token-value",
+  https_proxy: "http://proxyuser:planted-proxy-password@proxy.example:8080",
+};
+
+test("SECURITY: the home's child inherits no credential — the one projection (COMMAND_ENVIRONMENT), the proxy without its userinfo, and the variable naming it the home's child", () => {
+  const environment = promoterHomeEnvironment({ PATH: "/usr/bin", HOME: "/srv/test-home", LANG: "C.UTF-8", ...PLANTED }, "/srv/promoter-engine");
+  assert.deepEqual(Object.keys(environment).sort(), ["HOME", "LANG", "PATH", VARIABLE, "https_proxy"].sort());
+  assert.equal(environment[VARIABLE], "/srv/promoter-engine");
+  assert.ok(!JSON.stringify(environment).includes("planted-proxy-password") && !JSON.stringify(environment).includes("proxyuser"), "the proxy leaves without its userinfo");
+});
+
+test("SECURITY (planted): S's committed engine, run in the home, sees none of the credentials this process holds", async () => {
+  const { fixture, engine, document } = hostedFixture("promotion-home-environment");
+  // S's engine reports every variable it inherited.
+  fixture.commit(SOURCE, { "tool/promote.mjs": [
+    `const result = { ok: true, code: "promotion_committed", class: "ok", message: "inherited", remedy: "", data: { names: Object.keys(process.env).sort(), values: Object.values(process.env).join("\\n"), home: process.env.${VARIABLE} ?? null } };`,
+    "process.stdout.write(JSON.stringify({ result }) + \"\\n\");",
+    "",
+  ].join("\n") }, "an engine that reports what it inherits");
+  const saved = Object.fromEntries(Object.keys(PLANTED).map((name) => [name, process.env[name]]));
+  Object.assign(process.env, PLANTED);
+  try {
+    const { git, context, placement } = homePlacement(fixture, engine, document);
+    const answer = await runInPromoterHome(context, git, placement, APPLY, RUNNER(), engine);
+    const seen = answer.data as { names: string[]; values: string; home: string | null };
+    for (const name of Object.keys(PLANTED).filter((name) => name !== "https_proxy")) assert.ok(!seen.names.includes(name), `${name} never reaches S's engine`);
+    for (const value of [...Object.values(PLANTED), "proxyuser"].filter((value) => !value.startsWith("http"))) assert.ok(!seen.values.includes(value), "no planted value reaches it, under any name");
+    assert.ok(!seen.values.includes("planted-proxy-password"), "nor the proxy's password");
+    assert.equal(seen.home, join(placement.home, placement.engineRelative), "it knows it is the home's child");
+    assert.ok(seen.names.includes("PATH"));
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+/** A command (node) that writes every variable it inherited, name and value, to `report`. */
+function envReporter(directory: string, report: string): string {
+  const script = join(directory, "report-env.mjs");
+  writeFileSync(script, `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(report)}, JSON.stringify(process.env));\n`);
+  return script;
+}
+
+function assertNothingPlanted(seen: Readonly<Record<string, string>>, where: string): void {
+  for (const name of Object.keys(PLANTED).filter((name) => name !== "https_proxy")) assert.ok(!(name in seen), `${where}: ${name} never reaches it`);
+  const values = Object.values(seen).join("\n");
+  for (const value of Object.values(PLANTED).filter((value) => !value.startsWith("http"))) assert.ok(!values.includes(value), `${where}: no planted value, under any name`);
+  assert.ok(!values.includes("planted-proxy-password") && !values.includes("proxyuser"), `${where}: nor the proxy's credentials`);
+}
+
+test("SECURITY: every checkout command's environment is the one projection, plus only the harness's credential-free coordination values", () => {
+  const environment = checkoutCommandEnvironment({ PATH: "/usr/bin", HOME: "/srv/test-home", TMPDIR: "/var/tmp/run", ...PLANTED, HARNESS_INSTRUMENT_LOCK_TOKEN: "nonce-1", GIT_DIR: "/elsewhere/.git" }, "invocation-1");
+  assert.deepEqual(Object.keys(environment).sort(), ["HARNESS_RUN_INVOCATION", "HOME", "PATH", "TMPDIR", "https_proxy"].sort());
+  assert.equal(environment["TMPDIR"], "/var/tmp/run", "the operator's temp root stays");
+  assert.equal(environment["HARNESS_INSTRUMENT_LOCK_TOKEN"], undefined, "no lock token passes: a run is borrowed from inside its scope, never by an environment value");
+  assertNothingPlanted(environment, "the projection");
+});
+
+test("SECURITY (planted): a checkout command run by the ONE runner sees none of the credentials this process holds", async () => {
+  const directory = createTempDir("checkout-command-env-");
+  const report = join(directory, "env.json");
+  const saved = Object.fromEntries(Object.keys(PLANTED).map((name) => [name, process.env[name]]));
+  Object.assign(process.env, PLANTED);
+  try {
+    const step = await runCheckoutCommand(directory, "report-env", { cwd: ".", argv: [process.execPath, envReporter(directory, report)], timeoutMs: 30_000 }, RUNNER());
+    assert.equal(step.status, "pass", step.message);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+  assertNothingPlanted(JSON.parse(readFileSync(report, "utf8")) as Record<string, string>, "a checkout command");
+});
+
+test("SECURITY (planted): the promoter home's SETUP (S's engine dependencies, run in S's tree) sees none of the credentials this process holds", async () => {
+  const { fixture, engine, document } = hostedFixture("promotion-home-setup-environment");
+  const report = join(fixture.commandsDirectory, "setup-env.json");
+  // The engine's dependency install, as S's tree runs it: it reports what it inherited.
+  writeFileSync(join(fixture.commandsDirectory, "tool-deps.mjs"), `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(report)}, JSON.stringify(process.env));\n`);
+  const saved = Object.fromEntries(Object.keys(PLANTED).map((name) => [name, process.env[name]]));
+  Object.assign(process.env, PLANTED);
+  try {
+    const { git, context, placement } = homePlacement(fixture, engine, document);
+    await runInPromoterHome(context, git, placement, APPLY, RUNNER(), engine);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+  assertNothingPlanted(JSON.parse(readFileSync(report, "utf8")) as Record<string, string>, "the home's setup");
 });

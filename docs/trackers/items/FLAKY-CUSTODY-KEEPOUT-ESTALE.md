@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLAKY-CUSTODY-KEEPOUT-ESTALE
 type: Flake
 state: closed

@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLAKY-PUBLIC-WEB-WATCHDOG-C3
 type: Flake
 state: open

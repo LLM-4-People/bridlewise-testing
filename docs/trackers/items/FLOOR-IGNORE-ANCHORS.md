@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLOOR-IGNORE-ANCHORS
 type: Task
 title: Anchoring the public ignore rules

@@ -146,9 +146,10 @@ export default mergeConfig(BUILD_CONFIG, defineConfig({
     // ordering, a `-t` filter, or a `finally` that restored the wrong bytes.
     // A run left `server/worker-ipc.ts` at zero bytes and was noticed only
     // because other tests imported it.
-    // ONE INSTRUMENT AT A TIME, refused at this door: the lock runs FIRST,
-    // before the fingerprint and before any worker — see
-    // tests/setup/concurrency-lock.ts for the measured contention it ends.
+    // HEAVY-RUN ADMISSION at this door: it runs FIRST, before the fingerprint
+    // and before any worker, and a heavy run borrows the run its supervising
+    // door admitted under per-run caps (never waiting for another run) — see
+    // tests/setup/concurrency-lock.ts.
     globalSetup: ["./tests/setup/concurrency-lock.ts", "./tests/setup/source-tree-immutable.ts"],
     // Persist the transformed module cache to disk so reruns skip the
     // per-file TS→JS transform + module-graph evaluation. The first run
