@@ -27,7 +27,7 @@ import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { applyProjection, planProjection, projectionFailure } from "../../src/workflow/forge/projector/apply.ts";
 import { PROJECTION_INPUT_SCHEMA, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
 import { computeProjection, deterministicCall, projectionInput } from "../../src/workflow/forge/projector/projection.ts";
-import { confinedCall, PROJECTION_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { confinedCall, confinedModules, PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { compileSelfProtectionConfigToSpec, resolveGuardianBinaryPath } from "../../src/filesystem/self-protection/guardian-binary.ts";
 import { narrowGuardianSpec } from "../../src/filesystem/self-protection/confined-run.ts";
 import { procfsPath } from "../../src/process/process-facts.ts";
@@ -88,11 +88,14 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   const second = computeProjection(JSON.parse(JSON.stringify(INPUT)) as ProjectionInput, CONFINEMENT);
   assert.equal(first.digest, second.digest, "two confined processes (each computing twice), one digest");
   const directory = createTempDir("projector-confined-");
+  // Each planted program's root is its own folder; a sibling written beside that folder lies outside it.
   const planted = (name: string, source: string, siblings: Readonly<Record<string, string>> = {}): ConfinedModule => {
-    const entry = join(directory, `${name}.ts`);
+    const root = join(directory, name);
+    mkdirSync(root, { recursive: true });
+    const entry = join(root, `${name}.ts`);
     writeFileSync(entry, source);
     for (const [file, text] of Object.entries(siblings)) writeFileSync(join(directory, file), text);
-    return { entry, modules: [entry], exportName: "projectText" };
+    return { entry, roots: [root], exportName: "projectText" };
   };
   const refused = (module: ConfinedModule, code: string, what: RegExp, call: () => unknown = () => deterministicCall(module, "{}", CONFINEMENT)): void => {
     assert.throws(call, (error: HarnessError) => {
@@ -124,8 +127,8 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   // The CLOCK and RANDOMNESS reach no kernel wall (the vDSO): two confined runs that answer differently are refused.
   refused(planted("clock", "export function projectText(): string { return String(Date.now()) + String(performance.now()); }"), "projection_nondeterministic", /answered differently/u);
   refused(planted("random", "export function projectText(): string { return String(Math.random()); }"), "projection_nondeterministic", /answered differently/u);
-  // The LINK refuses what the program does not declare, before anything runs.
-  refused(planted("sibling", "import { value } from './undeclared.ts';\nexport function projectText(): string { return value; }", { "undeclared.ts": "export const value = 'x';" }), "projection_import_refused", /undeclared\.ts \(imported by [^)]+\) is not a module of the confined program/u);
+  // The LINK refuses a module outside the program's roots, and any import that is not relative, before anything runs.
+  refused(planted("sibling", "import { value } from '../outside.ts';\nexport function projectText(): string { return value; }", { "outside.ts": "export const value = 'x';" }), "projection_import_refused", /outside\.ts \(imported by [^)]+\) is outside the confined program's roots/u);
   refused(planted("builtin", "import { readFileSync } from 'node:fs';\nexport function projectText(): string { return String(readFileSync); }"), "projection_import_refused", /node:fs/u);
   refused(planted("literal-dynamic", "const fs = await import('node:fs');\nexport function projectText(): string { return String(fs); }"), "projection_import_refused", /node:fs/u);
   refused(planted("bare", "import x from 'zod';\nexport function projectText(): string { return String(x); }"), "projection_import_refused", /zod/u);
@@ -170,7 +173,17 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   for (const rule of [{ path: "/home", access: ["READ_FILE"] as const }, { path: "/usr", access: ["WRITE_FILE"] as const }, { path: join(ENGINE_ROOT, "src"), access: ["READ_FILE"] as const }]) {
     assert.throws(() => narrowGuardianSpec(compiled, [rule]), (error: HarnessError) => error.code === "confined_rule_outside_floor", rule.path);
   }
-  assert.ok(PROJECTION_PROGRAM.modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path === join(REPOSITORY_ROOT, "shared/markdown.ts")), "the projection's program links only the source it declares");
+});
+
+test("each confined program's modules are its entry's import closure, derived, never listed: every module the entry reaches links, and only under its roots", () => {
+  for (const program of [PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM]) {
+    const modules = confinedModules(program);
+    assert.ok(modules.includes(program.entry), program.entry);
+    // tracker-status.ts's own import (the `repo:` reference) links in BOTH programs that reach it: no second list to forget.
+    for (const reached of ["workflow/tracker-status.ts", "workflow/forge/repository-reference.ts"]) assert.ok(modules.includes(join(ENGINE_ROOT, "src", reached)), `${program.exportName}: ${reached}`);
+    assert.ok(modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path.startsWith(join(REPOSITORY_ROOT, "shared/"))), `${program.exportName} links only the engine's source and shared/`);
+  }
+  assert.ok(confinedModules(PROJECTION_PROGRAM).includes(join(REPOSITORY_ROOT, "shared/markdown.ts")), "the projection reaches the one Markdown parser");
 });
 
 test("the first run creates in phase order, verifies, and its receipt names every write", async () => {
