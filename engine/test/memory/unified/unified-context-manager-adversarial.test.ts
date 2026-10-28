@@ -24,7 +24,7 @@ import test from "node:test";
 
 import { createUnifiedContextManager, type ContextToolCall } from "../../../src/memory/unified/unified-context-manager.ts";
 import { resolveUnifiedConfig } from "../../../src/memory/unified/unified-config.ts";
-import { cpuWorkOf } from "../../../src/shared/run-cpu.ts";
+import { threadCpuWorkMs } from "../../../src/shared/run-cpu.ts";
 
 function mkToolCall(id: string, name = "read_file", args = "{}"): ContextToolCall {
   return Object.freeze({ id, type: "function", function: Object.freeze({ name, arguments: args }) });
@@ -128,8 +128,10 @@ test("ADV: pinning a tool result inside a group keeps the whole group", () => {
 test("ADV: a single turn exceeding the limit does not infinite-loop or crash", () => {
   const ctx = createUnifiedContextManager(smallCtx({ contextTokenLimit: 100, recentTurnWindow: 2, summaryTokenBudget: 32 }));
   ctx.addTurn({ role: "user", content: "x".repeat(10000) });
-  // CPU work, never wall time (NO-LOAD-BLOCK).
-  const elapsed = cpuWorkOf(() => ctx.trim());
+  // CPU work, never wall time (NO-LOAD-BLOCK); one trim (a second is a different, cheaper one).
+  const t0 = threadCpuWorkMs();
+  ctx.trim();
+  const elapsed = threadCpuWorkMs() - t0;
   assert.ok(elapsed < 5000, `trim must terminate in < 5s (got ${elapsed}ms of CPU work)`);
   // Note: the current-prompt-lost edge case — the huge turn is dropped
   // entirely. This is a known limitation; a single message > limit has no
@@ -144,8 +146,10 @@ test("ADV: 1000 small turns trim terminates quickly and stays under the limit", 
   for (let i = 0; i < 1000; i++) {
     ctx.addTurn({ role: i % 2 === 0 ? "user" : "assistant", content: `turn ${i} small content here for testing` });
   }
-  // CPU work, never wall time (NO-LOAD-BLOCK).
-  const elapsed = cpuWorkOf(() => ctx.trim());
+  // CPU work, never wall time (NO-LOAD-BLOCK); one trim (a second is a different, cheaper one).
+  const t0 = threadCpuWorkMs();
+  ctx.trim();
+  const elapsed = threadCpuWorkMs() - t0;
   assert.ok(elapsed < 5000, `trim of 1000 turns must be fast (got ${elapsed}ms of CPU work)`);
   assert.ok(ctx.tokenCount() <= 200, `after trim tokens=${ctx.tokenCount()} must be <= 200`);
 });
@@ -157,8 +161,10 @@ test("ADV: all-pinned turns over the limit do not cause an infinite loop", () =>
   for (let i = 0; i < 10; i++) {
     ctx.addTurn({ role: "user", content: `pinned turn ${i} ` + "z".repeat(20), pinned: true });
   }
-  // CPU work, never wall time (NO-LOAD-BLOCK).
-  const elapsed = cpuWorkOf(() => ctx.trim());
+  // CPU work, never wall time (NO-LOAD-BLOCK); one trim (a second is a different, cheaper one).
+  const t0 = threadCpuWorkMs();
+  ctx.trim();
+  const elapsed = threadCpuWorkMs() - t0;
   assert.ok(elapsed < 5000, `all-pinned trim must not infinite-loop (got ${elapsed}ms of CPU work)`);
   // All pinned turns survive (can't evict pinned) — stays over limit.
   // This is a degenerate case; the user pinned everything.

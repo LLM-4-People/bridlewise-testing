@@ -42,7 +42,7 @@
  */
 import { describe, expect, test } from "vitest";
 
-import { cpuWorkOf, threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
+import { cpuWorkOf } from "../../engine/src/shared/run-cpu.ts";
 import { parseProse } from "../../shared/markdown.ts";
 import { highlight } from "../../src/cockpit/render/highlight.ts";
 import { parseUnifiedDiff, firstHunkOf, paintDiffLine } from "../../src/cockpit/render/diff.ts";
@@ -74,14 +74,12 @@ function elapsed(fn: () => void): number {
 function ratio(small: () => void, big: () => void): number {
   let best = Number.POSITIVE_INFINITY;
   for (let s = 0; s < SAMPLES; s += 1) {
-    const t0 = threadCpuWorkMs();
-    small();
-    const t1 = threadCpuWorkMs();
-    big();
-    const t2 = threadCpuWorkMs();
-    const smallMs = t1 - t0;
+    // Each side over several scheduler ticks (cpuWorkOf): one raw reading of
+    // a short call is 0 or a whole tick, and a quotient of those means nothing.
+    const smallMs = cpuWorkOf(small);
+    const bigMs = cpuWorkOf(big);
     if (smallMs <= 0) continue;
-    const q = (t2 - t1) / smallMs;
+    const q = bigMs / smallMs;
     if (q < best) best = q;
   }
   return best;

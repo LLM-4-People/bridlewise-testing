@@ -106,12 +106,14 @@ describe("latency budgets on a 5k log", () => {
     // deduplicated and the second "append" would time a no-op, which is the
     // easy way to make this budget pass while measuring nothing.
     const SAMPLES = 7;
-    const best = cpuWorkOf((s) => {
-      appendMessage({ id: `h-u-live-${s}`, role: "user", content: "live", timestamp: 9e9 + s });
+    let appended = 0;
+    const best = cpuWorkOf((call) => {
+      appendMessage({ id: `h-u-live-${call}`, role: "user", content: "live", timestamp: 9e9 + call });
+      appended += 1;
     }, SAMPLES);
-    // Every sample must have landed, or the "best" is the cost of a rejected
+    // Every append must have landed, or the "best" is the cost of a rejected
     // append rather than of an accepted one.
-    expect(beatCount()).toBe(5000 + SAMPLES);
+    expect(beatCount()).toBe(5000 + appended);
     // CPU half of the event→screen budget; leave ≥90ms for paint.
     expect(best, `${best.toFixed(3)}ms for the least-disturbed of ${SAMPLES} appends`).toBeLessThan(
       10,

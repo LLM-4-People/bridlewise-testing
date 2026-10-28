@@ -3397,6 +3397,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/shared-suite/thread-cpu-work.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/slice-projections.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4365,5 +4373,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "1f115e8d12384c1ced4b20c0217d199293da9f64817f0e74596f0946d4c7bef6"
+  "integrityHash": "9ce8b82a23dd8e003d9ef3a4f330610e000d6d5e46eca3d57382b72d3af6139e"
 }

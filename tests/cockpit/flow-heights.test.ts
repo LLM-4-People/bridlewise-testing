@@ -111,10 +111,11 @@ describe("HeightIndex correctness", () => {
 
 describe("HeightIndex perf — 5k beats (§3.8 proving size, §1.5 budgets)", () => {
   test("5k appends + 5k measured updates + 10k window queries stay inside 150ms", () => {
-    const idx = new HeightIndex(56, 16);
     let acc = 0;
-    // CPU work, never wall time (NO-LOAD-BLOCK).
+    // CPU work, never wall time (NO-LOAD-BLOCK); a fresh index per call, since
+    // the measurement repeats the call over several scheduler ticks.
     const ms = cpuWorkOf(() => {
+      const idx = new HeightIndex(56, 16);
       idx.append(5000);
       for (let i = 0; i < 5000; i += 1) idx.update(i, 24 + (i % 400));
       for (let q = 0; q < 10_000; q += 1) {

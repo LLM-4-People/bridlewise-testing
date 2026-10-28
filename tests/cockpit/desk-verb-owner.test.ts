@@ -25,7 +25,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/svelte";
 import { parse } from "svelte/compiler";
 
 import { INSPECTOR_SECTION_ENTRIES } from "../../shared/routes.ts";
-import { cpuWorkOfAsync } from "../../engine/src/shared/run-cpu.ts";
+import { threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
 import DeskPanel from "../../src/cockpit/desk/DeskPanel.svelte";
 import { pendingActs, resetDeskFeed, setDeskIo } from "../../src/cockpit/desk/desk-feed.ts";
 import { resetDeskBus } from "../../src/cockpit/desk/desk-bus.ts";
@@ -557,12 +557,13 @@ describe("latency budget — the desk's two bounds", () => {
 
   test("the open desk paints within 200ms over instant IO", async () => {
     setDeskIo({ compose: async () => COMPOSE, breaker: async () => ROWS, act: async () => ({}) });
-    // CPU work, never wall time (NO-LOAD-BLOCK): waiting for a core is not the desk's cost.
-    const work = await cpuWorkOfAsync(async () => {
-      const { findByText } = render(DeskPanel, { shell: shellStub() });
-      await findByText("edit file");
-    });
-    expect(work).toBeLessThan(DESK_OPEN_BUDGET_MS);
+    // CPU work, never wall time (NO-LOAD-BLOCK): waiting for a core is not the
+    // desk's cost. One render (a second would double the text it waits for);
+    // one reading is enough against a budget of many scheduler ticks.
+    const t0 = threadCpuWorkMs();
+    const { findByText } = render(DeskPanel, { shell: shellStub() });
+    await findByText("edit file");
+    expect(threadCpuWorkMs() - t0).toBeLessThan(DESK_OPEN_BUDGET_MS);
   });
 
   test("an act acknowledges within 100ms — even when the network never answers", async () => {
@@ -577,9 +578,9 @@ describe("latency budget — the desk's two bounds", () => {
     const row = container.querySelector<HTMLElement>('[data-tool="edit_file"]')!;
     // The post never settles, so an acknowledgement that waited on it would
     // never come; its cost is CPU work, never wall time (NO-LOAD-BLOCK).
-    const work = await cpuWorkOfAsync(async () => {
-      await fireEvent.click(row.querySelector<HTMLButtonElement>('[data-verb-id="tools.breaker/set"]')!);
-    });
+    const t0 = threadCpuWorkMs();
+    await fireEvent.click(row.querySelector<HTMLButtonElement>('[data-verb-id="tools.breaker/set"]')!);
+    const work = threadCpuWorkMs() - t0;
     expect(pendingActs.get()["breaker:edit_file"]).toBeDefined();
     expect(work).toBeLessThan(ACT_ACK_BUDGET_MS);
     // …and the acknowledgement is visible on the row, with the consequence.

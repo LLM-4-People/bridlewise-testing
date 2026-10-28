@@ -39,7 +39,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { readRunCpu } from "../../src/shared/run-cpu.ts";
+import { requireRunCpuMs } from "../../src/shared/run-cpu.ts";
 import type { TestExecutionConfig } from "../../src/kernel/config-contracts.ts";
 
 /** The declaration, as `testExecution.testCpuClasses` holds it. */
@@ -68,18 +68,6 @@ export function cpuClassOf(classes: TestCpuClasses, file: string): Readonly<{ na
 export function deadClassFiles(classes: TestCpuClasses, repositoryRoot: string): string | null {
   const dead = classes.classes.flatMap((one) => one.files.filter((file) => !existsSync(join(repositoryRoot, file))).map((file) => `${one.name}: ${file}`));
   return dead.length === 0 ? null : `${TEST_CPU_CLASSES_SITE} names test files that do not exist (${dead.join(", ")}); a class must name the files it was measured for`;
-}
-
-/** This process's CPU work so far (its own and its reaped children's), in ms. */
-function cpuWorkMs(): number {
-  const reading = readRunCpu();
-  if (reading === null) {
-    throw new Error(
-      "test-cpu-class: this process's CPU work is unreadable (no /proc/self/stat), so no test here can be judged; " +
-        "a judgement with no measurement behind it would pass everything",
-    );
-  }
-  return reading.totalCpuMs;
 }
 
 /** The verdict on one test's work, or null when it is within its class. */
@@ -117,11 +105,11 @@ export function installTestCpuJudgement<Context>(
 ): void {
   let start: Readonly<{ cpuMs: number; wallMs: number }> | null = null;
   hooks.beforeEach(() => {
-    start = { cpuMs: cpuWorkMs(), wallMs: performance.now() };
+    start = { cpuMs: requireRunCpuMs(), wallMs: performance.now() };
   });
   hooks.afterEach((context) => {
     if (start === null) throw new Error("test-cpu-class: an afterEach ran with no beforeEach reading, so this test's work is unmeasured");
-    const reading = { cpuMs: Math.max(0, cpuWorkMs() - start.cpuMs), wallMs: Math.round(performance.now() - start.wallMs) };
+    const reading = { cpuMs: Math.max(0, requireRunCpuMs() - start.cpuMs), wallMs: Math.round(performance.now() - start.wallMs) };
     start = null;
     record?.(context, reading);
     const failure = cpuCeilingFailure(classes, fileOf(context), reading.cpuMs, reading.wallMs);
