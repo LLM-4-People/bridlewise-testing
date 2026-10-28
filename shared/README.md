@@ -47,10 +47,11 @@ two cannot drift.
   each in one pass (no double unescaping, no token formed across a removed
   region). `tests/public/markup-owner.test.mjs` refuses a hand-rolled copy
   anywhere in the tree.
-- `site-page.ts` — WHAT EVERY PAGE OF THE PUBLIC SITE CARRIES: the
-  Content-Security-Policy (`sitePolicy`, with the Markdown table alignments
-  as its only hashed style attributes) and where a reader's theme choice is
-  remembered. The site builder writes them into the pages, and the rendered
+- `site-page.ts` — WHAT EVERY PAGE OF THE PUBLIC SITE CARRIES: the two
+  Content-Security-Policies (`sitePolicies`: the origin, and the site's
+  base path on a shared origin; the Markdown table alignments are the only
+  hashed style attributes), the extensions Pages serves as HTML, the
+  palette burn-down list, and where a reader's theme choice is remembered. The site builder writes them into the pages, and the rendered
   judge checks them on every built page.
 - `token-reader.ts` — THE TOKEN OWNER READ AS DATA: the one door between
   the design system (`src/cockpit/tokens.css`) and every surface that cannot

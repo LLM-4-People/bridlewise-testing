@@ -13,31 +13,49 @@ import { createHash } from "node:crypto";
  */
 export const MARKDOWN_STYLE_ATTRIBUTES: readonly string[] = Object.freeze(["text-align: left", "text-align: center", "text-align: right"]);
 
+/** The style attributes' hashes the policies allow (with 'unsafe-hashes'), generated from the list above. */
+function attributeHashes(): string {
+  return MARKDOWN_STYLE_ATTRIBUTES.map((value) => `'sha256-${createHash("sha256").update(value).digest("base64")}'`).join(" ");
+}
+
+/** A base path as the policies scope it: "" for a site at the root, otherwise "/x" with no trailing slash. */
+export function scopeBase(baseurl: string): string {
+  const trimmed = baseurl.replace(/\/+$/u, "");
+  return trimmed === "" ? "" : trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
 /**
- * THE SITE'S CONTENT-SECURITY-POLICY, the boundary the browser enforces on
- * every page whatever spelling produced it. Only the site's own files load:
- * - no inline script and no event handler;
- * - no inline `<style>`, and no style attribute beyond the table
- *   alignments above;
- * - no remote sheet, font, image or connection;
- * - no `<base>`, no plugin, no form posting elsewhere.
- * The builder writes it into `_includes/csp.html`. Every page includes it
- * right after its charset, before anything that loads.
+ * THE SITE'S CONTENT-SECURITY-POLICIES, the boundary the browser enforces on
+ * every page whatever spelling produced it. A page carries both, and the
+ * browser enforces their intersection:
+ * - the ORIGIN policy: only the page's own origin (`'self'`) loads anything;
+ *   no inline script, no event handler, no inline `<style>`, no style
+ *   attribute beyond the table alignments above, no `<base>`, no plugin,
+ *   no form posting elsewhere;
+ * - the PATH policy: every source is scoped to the site's base path
+ *   (`*:*<base>/`), because the Pages origin is shared by every site of the
+ *   organisation (each repository is a path on it), and `'self'` alone would
+ *   admit their files. Together: only files under this site's own path on
+ *   its origin load.
+ * What path scoping does not do: another site on the same origin can still
+ * reach this one's pages by script (the same-origin policy knows no paths).
+ * Only a dedicated origin closes that.
+ * The builder writes both into `_includes/csp.html`, and every page includes
+ * it right after its charset, before anything that loads.
  */
-export function sitePolicy(): string {
-  const hashes = MARKDOWN_STYLE_ATTRIBUTES.map((value) => `'sha256-${createHash("sha256").update(value).digest("base64")}'`);
+export function sitePolicies(baseurl: string): readonly [string, string] {
+  const hashes = attributeHashes();
+  const scope = `*:*${scopeBase(baseurl)}/`;
   return [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self'",
-    `style-src-attr 'unsafe-hashes' ${hashes.join(" ")}`,
-    "font-src 'self'",
-    "img-src 'self'",
-    "connect-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'self'",
-  ].join("; ");
+    [
+      "default-src 'self'", "script-src 'self'", "style-src 'self'", `style-src-attr 'unsafe-hashes' ${hashes}`,
+      "font-src 'self'", "img-src 'self'", "connect-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'",
+    ].join("; "),
+    [
+      `default-src ${scope}`, `script-src ${scope}`, `style-src ${scope}`, `style-src-attr 'unsafe-hashes' ${hashes}`,
+      `font-src ${scope}`, `img-src ${scope}`, `connect-src ${scope}`, "object-src 'none'", "base-uri 'none'", `form-action ${scope}`,
+    ].join("; "),
+  ];
 }
 
 /**
@@ -59,3 +77,6 @@ export const PALETTE_BURN_DOWN: ReadonlyMap<string, string> = new Map([
   ["run/run-demo.css", "#161: the run demo's own palette"],
   ["policy-lab/policy-lab.css", "#161: the policy lab's own palette"],
 ]);
+
+/** The file extensions Pages serves as HTML (any case): every one is a page that must carry the policies. */
+export const SERVED_HTML = /\.(?:x?html?)$/iu;

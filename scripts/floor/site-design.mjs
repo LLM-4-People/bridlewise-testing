@@ -19,9 +19,9 @@
  *   a preload for each upright face (the first paint's text), and the lead
  *   theme's ground as the browser's `theme-color`.
  *
- * - `_includes/csp.html`: the Content-Security-Policy meta tag
- *   (`shared/site-page.ts` `sitePolicy`), the browser-enforced boundary every
- *   page includes first.
+ * - `_includes/csp.html`: the two Content-Security-Policy meta tags (origin
+ *   and base path, `shared/site-page.ts` `sitePolicies`), the
+ *   browser-enforced boundary every page includes first.
  *
  * The layout includes the includes; nothing here is committed.
  */
@@ -30,7 +30,7 @@ import { dirname, join } from "node:path";
 
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { escapeHtml } from "../../shared/markup.ts";
-import { sitePolicy } from "../../shared/site-page.ts";
+import { sitePolicies } from "../../shared/site-page.ts";
 import { readNames, readTokenOwner, themeColor, tokenSheet } from "../../shared/token-reader.ts";
 import { SHARED_CSS } from "./design-coverage.mjs";
 
@@ -104,7 +104,7 @@ function shellStylesheets(outRoot) {
 }
 
 /** Writes the design assets (see the header) into the Jekyll source at `outRoot`. */
-export function writeSiteDesign({ root, outRoot }) {
+export function writeSiteDesign({ root, outRoot, baseurl }) {
   const owner = readTokenOwner(readFileSync(join(root, TOKEN_OWNER), "utf8"));
   const used = new Set([...shellStylesheets(outRoot).flatMap((css) => [...readNames(css)]), ...markTokens()]);
   const fontsUrl = `../${SITE_FONTS.split("/").pop()}`;
@@ -120,7 +120,7 @@ export function writeSiteDesign({ root, outRoot }) {
   for (const font of fonts) copyFileSync(join(root, font.source), join(outRoot, ...SITE_FONTS.split("/"), font.name));
   copyFileSync(join(root, FONT_LICENCE), join(outRoot, ...SITE_FONTS.split("/"), "OFL.txt"));
 
-  write(outRoot, CSP_INCLUDE, `<meta http-equiv="Content-Security-Policy" content="${escapeHtml(sitePolicy())}">\n`);
+  write(outRoot, CSP_INCLUDE, `${sitePolicies(baseurl).map((policy) => `<meta http-equiv="Content-Security-Policy" content="${escapeHtml(policy)}">`).join("\n")}\n`);
   write(outRoot, MARK_INCLUDE, markInclude());
   const preloads = fonts
     .filter((font) => font.upright)

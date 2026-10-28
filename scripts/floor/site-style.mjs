@@ -54,9 +54,10 @@
  * - a `<meta http-equiv="refresh">` or a `<base>`;
  * - an inline `<script>` (a data block such as JSON-LD excepted) or an
  *   `on…` event handler attribute.
- * This parse is fast feedback. The boundary is the Content-Security-Policy
- * every page carries (`shared/site-page.ts` `sitePolicy`), which the browser
- * enforces whatever spelling produced the markup.
+ * This parse is fast feedback. The boundary is the two
+ * Content-Security-Policies every page carries (`shared/site-page.ts`
+ * `sitePolicies`), which the browser enforces whatever spelling produced the
+ * markup. `builtPolicyViolations` holds the built output to them.
  * Markdown pages are judged where they render, by the rendered-site checker
  * (#409): a parse of their source would read the prose's code spans as tags.
  *
@@ -72,7 +73,7 @@ import { join, sep } from "node:path";
 import * as csstree from "css-tree";
 import { parse as parseHtml } from "parse5";
 
-import { PALETTE_BURN_DOWN } from "../../shared/site-page.ts";
+import { PALETTE_BURN_DOWN, SERVED_HTML, sitePolicies } from "../../shared/site-page.ts";
 import { readTokenOwner } from "../../shared/token-reader.ts";
 import { SITE_TOKEN_SHEET } from "./site-design.mjs";
 
@@ -303,7 +304,7 @@ export function siteMarkupViolations(html) {
 export function siteMarkupFiles(sourceRoot) {
   return readdirSync(sourceRoot, { recursive: true })
     .map((path) => String(path).split(sep).join("/"))
-    .filter((path) => (/\.html?$/iu.test(path) || /^_includes\//u.test(path)) && statSync(join(sourceRoot, path)).isFile())
+    .filter((path) => (SERVED_HTML.test(path) || /^_includes\//u.test(path)) && statSync(join(sourceRoot, path)).isFile())
     .sort();
 }
 
@@ -341,4 +342,39 @@ export function judgeSiteStyles({ root, sourceRoot }) {
     findings.push(...siteMarkupViolations(readFileSync(join(sourceRoot, ...path.split("/")), "utf8")).map((finding) => `${path}:${finding}`));
   }
   return { sheets, markup, findings };
+}
+
+/**
+ * Every HTML file a BUILT site serves (any case of `.html`, `.htm`,
+ * `.xhtml`), and whether it carries the site's two policies first: the
+ * head's first element is `<meta charset>`, the next two are the origin and
+ * path policies exactly (`shared/site-page.ts` `sitePolicies`), and the
+ * document holds no other policy tag. A snapshot under `v/<version>/` is
+ * scoped to its own base path. This is an allow-list on the output, so no
+ * spelling of a layout-less page escapes it.
+ */
+export function builtPolicyViolations({ siteRoot, baseurl, versions = [] }) {
+  const findings = [];
+  const files = readdirSync(siteRoot, { recursive: true }).map((path) => String(path).split(sep).join("/"))
+    .filter((path) => SERVED_HTML.test(path) && statSync(join(siteRoot, path)).isFile()).sort();
+  for (const path of files) {
+    const version = versions.find((name) => path.startsWith(`v/${name}/`));
+    const [origin, scoped] = sitePolicies(version === undefined ? baseurl : `${baseurl.replace(/\/+$/u, "")}/v/${version}`);
+    const document = parseHtml(readFileSync(join(siteRoot, ...path.split("/")), "utf8"));
+    const policies = [];
+    const walk = (node) => {
+      if (node.tagName === "meta" && node.attrs.some((attribute) => attribute.name === "http-equiv" && attribute.value.trim().toLowerCase() === "content-security-policy")) policies.push(node);
+      for (const child of node.childNodes ?? []) walk(child);
+      if (node.content !== undefined) walk(node.content);
+    };
+    walk(document);
+    const head = document.childNodes.find((node) => node.tagName === "html")?.childNodes.find((node) => node.tagName === "head");
+    const first = (head?.childNodes ?? []).filter((node) => node.tagName !== undefined).slice(0, 3);
+    const content = (node) => node?.attrs.find((attribute) => attribute.name === "content")?.value;
+    const charset = first[0]?.tagName === "meta" && first[0].attrs.some((attribute) => attribute.name === "charset");
+    if (!charset || policies.length !== 2 || first[1] !== policies[0] || first[2] !== policies[1] || content(first[1]) !== origin || content(first[2]) !== scoped) {
+      findings.push(`${path} does not carry the site's two policies right after its charset (${String(policies.length)} policy tag(s)); every served HTML page renders through a layout that includes csp.html`);
+    }
+  }
+  return findings;
 }

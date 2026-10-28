@@ -35,6 +35,7 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 import { candidateSiteFiles, crawlSiteLinks, pageUrlForSitePath, resolveSiteHref } from "../../scripts/floor/site-links.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { legacyAliases, prettyPermalink, publishedDocsPage, rewritePageLinks, siteSourceViolations, sitePlan } from "../../scripts/floor/site-pages.mjs";
+import { sitePolicies } from "../../shared/site-page.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { buildRedirectSite, buildSiteSource, finishSite, readVersions, redirectTarget } from "../../scripts/floor/site.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
@@ -319,18 +320,6 @@ describe("D. the source step", () => {
     ]);
   });
 
-  test("a page that wears no layout but renders as HTML is refused; a non-HTML page may", async () => {
-    const root = repository({
-      "docs/bare.md": "---\nlayout: null\ntitle: Bare\n---\n\n<style>p { color: red; }</style>\n",
-      "docs/app/index.html": "---\nlayout: none\npermalink: /app/\n---\n<!doctype html><html><head></head><body></body></html>\n",
-      "docs/feed.json": "---\nlayout: null\n---\n{}\n",
-      "docs/notes.txt": "---\nlayout: null\npermalink: /notes.txt\n---\nplain\n",
-    });
-    const refused = siteSourceViolations({ root }).filter((violation: string) => violation.includes("site_page_without_layout"));
-    expect(refused.map((violation: string) => violation.split(":")[0])).toEqual(["docs/app/index.html", "docs/bare.md"]);
-    await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/site_page_without_layout/u);
-  });
-
   test("a plain page holding {% endraw %} is refused (it would end the raw block early)", async () => {
     const root = repository({ "docs/process/x.md": "# X\n\n{% endraw %}\n" });
     await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/cannot contain \{% endraw %\}/u);
@@ -374,9 +363,15 @@ describe("D. the source step", () => {
   });
 });
 
+/** A built page as the layout leaves it: the charset, the site's two policies for `base`, then what loads. */
+function policied(body: string, base = "/bridlewise"): string {
+  const [origin, scoped] = sitePolicies(base);
+  return `<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${origin}"><meta http-equiv="Content-Security-Policy" content="${scoped}"><link rel="stylesheet" href="/bridlewise/assets/css/style.css"></head><body><main id="main" class="wrap article">${body}</main></body></html>\n`;
+}
+
 /** A built site as Jekyll would leave it for `buildSiteSource` with `versions`. */
 function builtSite(versions: readonly string[], pages: Readonly<Record<string, string>> = {}): string {
-  const page = (body: string): string => `<html><head><link rel="stylesheet" href="/bridlewise/assets/css/style.css"></head><body><main id="main" class="wrap article">${body}</main></body></html>\n`;
+  const page = (body: string): string => policied(body);
   return site({
     "index.html": page('<p class="lede">Home</p><a href="/bridlewise/v/">Versions</a>'),
     "v/index.html": page(versions.map((version) => `<a href="/bridlewise/v/${version}/">${version}</a>`).join("")),
@@ -395,6 +390,26 @@ function snapshots(entries: Readonly<Record<string, Readonly<Record<string, stri
 }
 
 describe("E. the finish step: released snapshots merge whole, then the whole site is judged", () => {
+  test("every HTML file the built site serves carries the two policies first; any other output is refused", () => {
+    const [origin, scoped] = sitePolicies("/bridlewise");
+    const meta = (content: string): string => `<meta http-equiv="Content-Security-Policy" content="${content}">`;
+    const bare = "<html><head><title>bare</title></head><body><main id=\"main\" class=\"wrap article\"><p class=\"lede\">x</p></main></body></html>";
+    const siteRoot = builtSite([], {
+      "bare/index.html": bare,
+      "loud/PAGE.HTML": bare,
+      "old/page.htm": bare,
+      "one/index.html": `<html><head><meta charset="utf-8">${meta(origin)}</head><body></body></html>`,
+      "late/index.html": `<html><head><meta charset="utf-8"><title>t</title>${meta(origin)}${meta(scoped)}</head><body></body></html>`,
+      "elsewhere/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(sitePolicies("/other")[1])}</head><body></body></html>`,
+      "third/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(scoped)}</head><body><noscript>${meta("default-src *")}</noscript></body></html>`,
+      "good/index.html": policied('<p class="lede">fine</p>'),
+      "feed.xml": "<feed/>",
+    });
+    const refusal = (() => { try { finishSite({ site: siteRoot, baseurl: "/bridlewise" }); return ""; } catch (error) { return (error as Error).message; } })();
+    const refused = refusal.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("policy: ")).map((line) => line.slice("policy: ".length).split(" ")[0]);
+    expect(refused).toEqual(["bare/index.html", "elsewhere/index.html", "late/index.html", "loud/PAGE.HTML", "old/page.htm", "one/index.html", "third/index.html"]);
+  });
+
   test("versions sort newest first, a release before its pre-releases", () => {
     const dir = snapshots({ "0.2.0": { "index.html": "x" }, "0.10.0": { "index.html": "x" }, "0.10.0-rc.1": { "index.html": "x" }, "1.0.0": { "index.html": "x" } });
     expect(readVersions(dir)).toEqual(["1.0.0", "0.10.0", "0.10.0-rc.1", "0.2.0"]);
@@ -402,7 +417,7 @@ describe("E. the finish step: released snapshots merge whole, then the whole sit
   });
 
   test("a snapshot merges at /v/<version>/ and its links are crawled with the rest", () => {
-    const dir = snapshots({ "0.1.0": { "index.html": '<a href="/bridlewise/v/0.1.0/quickstart/">Quickstart</a><a href="/bridlewise/v/">Other versions</a>', "quickstart/index.html": '<a href="../">Back</a>' } });
+    const dir = snapshots({ "0.1.0": { "index.html": policied('<a href="/bridlewise/v/0.1.0/quickstart/">Quickstart</a><a href="/bridlewise/v/">Other versions</a>', "/bridlewise/v/0.1.0"), "quickstart/index.html": policied('<a href="../">Back</a>', "/bridlewise/v/0.1.0") } });
     const siteRoot = builtSite(["0.1.0"]);
     const result = finishSite({ site: siteRoot, baseurl: "/bridlewise", versionsDir: dir });
     expect(result.versions).toEqual(["0.1.0"]);

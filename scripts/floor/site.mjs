@@ -38,7 +38,7 @@ import { stableJson } from "./files.mjs";
 import { LEGACY_BASEURL, SITE_URL, coordinatesOf } from "./repository.mjs";
 import { crawlSiteLinks } from "./site-links.mjs";
 import { writeSiteDesign } from "./site-design.mjs";
-import { judgeSiteStyles } from "./site-style.mjs";
+import { builtPolicyViolations, judgeSiteStyles } from "./site-style.mjs";
 import { BUILDER_OWNED_CONFIG_KEYS, DOCS_ROOT, legacyAliases, rewritePageLinks, siteLinkTargets, siteSourceViolations, sitePlan, siteUrlForPermalink } from "./site-pages.mjs";
 import { buildStatus } from "./status.mjs";
 
@@ -226,7 +226,7 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
       frontMatter({ layout: "default", page_class: "article", title: `Moved: ${name}` })
         + `<div class="callout-warning" role="status">\n  <p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</div>\n`
         // The forward is a file beside the page, not an inline script: the
-        // page's Content-Security-Policy runs only the site's own files.
+        // page's Content-Security-Policies run only files under the site's path.
         + `<script src="${MOVED_SCRIPT}"></script>\n`,
     );
     writeFileSync(join(directory, MOVED_SCRIPT), `location.replace(${JSON.stringify(target)});\n`);
@@ -262,7 +262,7 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   writeFileSync(join(outRoot, "floor/data/status.json"), stableJson(status));
   // The design system's generated half: the token sheet, fonts, icon, mark
   // and figures, from their one owners (`site-design.mjs`).
-  writeSiteDesign({ root: repositoryRoot, outRoot });
+  writeSiteDesign({ root: repositoryRoot, outRoot, baseurl });
   // Every stylesheet this source hands Jekyll reads the owner's tokens and
   // declares none of its own, and no layout, include or HTML page carries a
   // style or loads from elsewhere (`site-style.mjs`).
@@ -327,6 +327,9 @@ export function finishSite({ site, baseurl, versionsDir = null }) {
   const links = crawlSiteLinks({ siteRoot, baseurl });
   const design = coverage(siteRoot, { exclude: versions.map((version) => `/${VERSIONS_FOLDER}/${version}/`) });
   const findings = [
+    // An allow-list judged on what was built: every HTML file Pages serves
+    // carries the site's two policies first, whatever produced it.
+    ...builtPolicyViolations({ siteRoot, baseurl, versions }).map((finding) => `policy: ${finding}`),
     ...links.unresolved.map((entry) => `link: ${entry.page}: ${entry.href} → ${entry.resolved}`),
     ...[...design.missing].map(([name, pages]) => `design: .${name} has no CSS rule (${pages.slice(0, 3).join(", ")})`),
     ...[...design.unused].map(([name]) => `design: floor.css declares .${name} but no page uses it`),

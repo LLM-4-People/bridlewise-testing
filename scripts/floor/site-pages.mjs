@@ -313,31 +313,6 @@ export function inVersionsFolder(sitePath) {
 }
 const TEXT_FILE = /\.(?:md|markdown|html?|txt|json|ya?ml|xml|js|css|svg)$/iu;
 
-/** What a front-matter `layout` that wears no layout says. */
-const NO_LAYOUT = new Set(["null", "none", "~", "false", ""]);
-
-/**
- * A page Jekyll renders as HTML with no layout escapes the head every layout
- * carries: the Content-Security-Policy first, the theme, the fonts. Only a
- * page whose output is not HTML (a feed, `robots.txt`, `search.json`) may
- * wear no layout. A standalone page wears `standalone`.
- */
-export function barePageViolation(path, text) {
-  if (!hasFrontMatter(text)) return null;
-  const opening = text.startsWith("---\r\n") ? 4 : 3;
-  const end = text.indexOf("\n---", opening);
-  if (end === -1) return null;
-  const fields = new Map(text.slice(opening, end).split(/\r?\n/u).flatMap((line) => {
-    const colon = line.indexOf(":");
-    return colon > 0 && !/^\s/u.test(line) ? [[line.slice(0, colon).trim(), line.slice(colon + 1).trim().replace(/^(["'])(.*)\1$/u, "$2")]] : [];
-  }));
-  if (!fields.has("layout") || !NO_LAYOUT.has(fields.get("layout").toLowerCase())) return null;
-  const permalink = fields.get("permalink") ?? "";
-  const output = permalink !== "" ? (permalink.endsWith("/") ? ".html" : (/\.[a-z0-9]+$/iu.exec(permalink)?.[0] ?? ".html")) : (/\.[a-z0-9]+$/iu.exec(path)?.[0] ?? "");
-  if (![".html", ".htm", ".md", ".markdown"].includes(output.toLowerCase())) return null;
-  return `${path}: wears no layout but renders as HTML, so it would carry no Content-Security-Policy (site_page_without_layout); give it a layout (\`standalone\` for a page with its own body)`;
-}
-
 function textFiles(root) {
   const out = [];
   const visit = (relative) => {
@@ -375,8 +350,6 @@ export function siteSourceViolations({ root }) {
   }
   for (const path of textFiles(root)) {
     const text = readFileSync(resolve(root, ...path.split("/")), "utf8");
-    const bare = barePageViolation(path, text);
-    if (bare !== null) violations.push(bare);
     const record = RECORD_ROOTS.some(({ root: recordRoot }) => path.startsWith(recordRoot));
     const page = plan.pages.get(path);
     const pageUrl = page === undefined ? null : page.permalink;

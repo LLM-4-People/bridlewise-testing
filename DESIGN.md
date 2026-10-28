@@ -125,12 +125,18 @@ Three judges hold the site to this system, fastest first:
   token `var()` (with no fallback), a theme or token declared outside the
   owner, a mix, anything imported or fetched from elsewhere, a Sass source,
   and a style or script written into markup;
-- the browser enforces the boundary: every page wears a layout (`default`,
-  or `standalone` for a page with its own body), and every layout carries
-  one Content-Security-Policy first (`shared/site-page.ts` `sitePolicy`).
-  Only the site's own scripts, sheets, fonts and images load, and there is
-  no inline script or `<style>`. The only style attributes are the Markdown
-  table alignments, allowed by hash;
+- the browser enforces the boundary: every page renders through a layout
+  (`default`, or `standalone` for a page with its own body) that carries two
+  Content-Security-Policies first (`shared/site-page.ts` `sitePolicies`). The
+  finish step refuses any served HTML file, in any case of `.html`, `.htm` or
+  `.xhtml`, that does not carry them. The origin policy admits only the
+  site's origin. The path policy admits only the site's base path on it,
+  because the Pages origin is shared by every site of the organisation.
+  Together, only files under this site's path load. There is no inline
+  script or `<style>`, and the only style attributes are the Markdown table
+  alignments, allowed by hash. Path scoping limits what loads, not what
+  another site on the shared origin can reach by script; only a dedicated
+  origin closes that;
 - the rendered judge (`scripts/rendered/`) loads every built page in both
   themes and requires, in what the browser computed:
   - the policy, first and exactly once, with no violation of it;

@@ -20,7 +20,7 @@ import { markInclude, markRules } from "../../scripts/floor/site-design.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
 import { declaredTokens, judgeSiteStyles, siteMarkupFiles, siteMarkupViolations, siteStyleViolations } from "../../scripts/floor/site-style.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
-import { MARKDOWN_STYLE_ATTRIBUTES, PALETTE_BURN_DOWN, SITE_THEME_STORAGE, sitePolicy } from "../../shared/site-page.ts";
+import { MARKDOWN_STYLE_ATTRIBUTES, PALETTE_BURN_DOWN, SITE_THEME_STORAGE, sitePolicies } from "../../shared/site-page.ts";
 import { readNames, readTokenOwner, themeColor, THEMES, tokenSheet } from "../../shared/token-reader.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -152,19 +152,25 @@ test("the layouts, includes and HTML pages hold no style of their own and load n
   for (const html of nearMisses) assert.deepEqual(siteMarkupViolations(html), [], `near-miss: ${html}`);
 });
 
-test("every page carries the one Content-Security-Policy first: only the site's own files load, no inline script or style", () => {
-  const policy = new Map(sitePolicy().split("; ").map((directive) => {
+test("every page carries the two policies first: only files under the site's own path on its origin load, no inline script or style", () => {
+  const directives = (policy) => new Map(policy.split("; ").map((directive) => {
     const [name, ...values] = directive.split(" ");
     return [name, values];
   }));
-  for (const name of ["default-src", "script-src", "style-src", "font-src", "img-src", "connect-src", "form-action"]) assert.deepEqual(policy.get(name), ["'self'"], `${name} is 'self' only`);
-  for (const name of ["object-src", "base-uri"]) assert.deepEqual(policy.get(name), ["'none'"], `${name} is 'none'`);
-  assert.ok(!sitePolicy().includes("unsafe-inline") && !sitePolicy().includes("unsafe-eval"), "no inline script or style, no eval");
-  const [unsafeHashes, ...hashes] = policy.get("style-src-attr");
-  assert.equal(unsafeHashes, "'unsafe-hashes'");
-  assert.equal(hashes.length, MARKDOWN_STYLE_ATTRIBUTES.length, "only the Markdown table alignments, by hash");
+  const [originPolicy, pathPolicy] = sitePolicies("/bridlewise-testing");
+  const origin = directives(originPolicy);
+  const scoped = directives(pathPolicy);
+  const LOADS = ["default-src", "script-src", "style-src", "font-src", "img-src", "connect-src", "form-action"];
+  for (const name of LOADS) assert.deepEqual(origin.get(name), ["'self'"], `origin policy: ${name} is 'self' only`);
+  // The Pages origin is shared by every site of the organisation, so every
+  // source is also scoped to this site's base path (the browser enforces both).
+  for (const name of LOADS) assert.deepEqual(scoped.get(name), ["*:*/bridlewise-testing/"], `path policy: ${name} is the base path only`);
+  for (const policy of [origin, scoped]) for (const name of ["object-src", "base-uri"]) assert.deepEqual(policy.get(name), ["'none'"], `${name} is 'none'`);
+  for (const policy of [originPolicy, pathPolicy]) assert.ok(!policy.includes("unsafe-inline") && !policy.includes("unsafe-eval"), "no inline script or style, no eval");
   assert.deepEqual(MARKDOWN_STYLE_ATTRIBUTES, ["text-align: left", "text-align: center", "text-align: right"]);
-  assert.deepEqual(hashes, MARKDOWN_STYLE_ATTRIBUTES.map((value) => `'sha256-${createHash("sha256").update(value).digest("base64")}'`), "exactly the three alignments' hashes, generated");
+  const expected = MARKDOWN_STYLE_ATTRIBUTES.map((value) => `'sha256-${createHash("sha256").update(value).digest("base64")}'`);
+  for (const policy of [origin, scoped]) assert.deepEqual(policy.get("style-src-attr"), ["'unsafe-hashes'", ...expected], "exactly the three alignments' hashes, generated, in both");
+  assert.deepEqual(["", "/", "/x", "/x/", "x"].map((base) => sitePolicies(base)[1].split("; ")[0]), ["default-src *:*/", "default-src *:*/", "default-src *:*/x/", "default-src *:*/x/", "default-src *:*/x/"], "the base path is normalised once");
   // Every layout is a whole document that includes the policy right after
   // its charset, before anything that loads, whatever attributes its tags
   // carry; no page holds a <head> of its own (a page wears a layout).
