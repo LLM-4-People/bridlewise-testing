@@ -9,7 +9,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
-import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -495,6 +495,8 @@ export function generatedOutputPaths(): ReadonlySet<string> {
     // scans (`scripts/verification/ratchet-baselines.ts`; already
     // repository-relative).
     ...Object.values(ROOT_POLICY.verification.ratchetBaselines),
+    // The architecture judge's baseline: a fixed path in code, never a policy entry (ratchet-baselines.ts).
+    VERIFICATION_PATHS.architectureJudgeBaseline,
     // The decision index a regenerate pass rebuilds from the decision files
     // (`DECISION_INDEX.generator`).
     DECISION_INDEX.path,

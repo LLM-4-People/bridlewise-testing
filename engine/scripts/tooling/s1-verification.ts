@@ -1810,7 +1810,6 @@ function verifyTrustedBootstrapSurface(root: string, paths: readonly string[], v
     source,
     violations,
     true,
-    new Set(["fchmodSync"]),
   );
   const analysis = analyzeStaticSource(source, TRUSTED_BOOTSTRAP_PATH);
   // The bootstrap's import of the root policy is RELATIVE to the script's own
@@ -1829,6 +1828,10 @@ function verifyTrustedBootstrapSurface(root: string, paths: readonly string[], v
     // which is the point — the import landed without this line and the
     // resulting diagnostic sat unread inside a slow-gated test file.
     "../../src/filesystem/link-containment.ts",
+    // Its one mode change goes through the one owner of "this file holds
+    // exactly this mode" (settled only when it differs: a same-mode chmod
+    // moves the ctime a concurrent configuration bootstrap compares, #293).
+    "../../src/filesystem/file-mode.ts",
     "../../src/kernel/integrity.ts",
     "../../src/filesystem/linux-path.ts",
     rootPolicySpecifier,
@@ -1854,11 +1857,9 @@ function verifyTrustedBootstrapSurface(root: string, paths: readonly string[], v
   }
   const tokens = tokenize(source, TRUSTED_BOOTSTRAP_PATH);
   const identifiers = tokens.filter((token) => token.kind === "identifier").map((token) => token.value);
-  const forbiddenEffects = [...new Set(identifiers.filter((identifier) =>
-    isForbiddenEffectIdentifier(identifier) && identifier !== "fchmodSync"
-  ))];
+  const forbiddenEffects = [...new Set(identifiers.filter((identifier) => isForbiddenEffectIdentifier(identifier)))];
   const descriptorModeChanges = tokens.filter((token, index) =>
-    token.value === "fchmodSync" && tokens[index + 1]?.value === "("
+    token.value === "settleDescriptorMode" && tokens[index + 1]?.value === "("
   ).length;
   if (forbiddenEffects.length > 0 || descriptorModeChanges !== 1) {
     violations.push("trusted-bootstrap-effect-surface");
@@ -2320,13 +2321,23 @@ function parseArguments(argv: readonly string[]): Readonly<{ root: string; attem
 }
 
 /**
+ * THE TREE-STRUCTURAL FINDING KINDS: the ones a source edit can create and a
+ * generator or a decision line resolves — the census's layers, realms and
+ * effects, governed sinks and exports, the production graph, the product
+ * boundary, environment and process acquisition. Only these are the
+ * architecture-judge ratchet's keys (scripts/verification/ratchet-baselines.ts).
+ */
+const STRUCTURAL_FINDING_PREFIXES: readonly string[] = Object.freeze([
+  "architecture-", "governed-", "production-", "standalone-", "environment-", "process-member-",
+  "module-acquisition-", "nonliteral-module-load",
+]);
+
+/**
  * THE FINDINGS THAT JUDGE A TEST RUN, NOT THE TREE: each reads the test-run
  * inventory (`VERIFICATION_PATHS.testInventory`, a cache a run writes, ignored
  * and never committed, #221), so the same tree answers differently with and
  * without a local run (measured: the commit guard's staged tree, which has no
- * run, reported all five; this worktree, after a run, none). They stay judged
- * where they belong — S1 over a receipted run — and the structure door reports
- * them apart (`runEvidence`), by name, never silently.
+ * run, reported all five; this worktree, after a run, none).
  */
 const RUN_EVIDENCE_FINDINGS: readonly string[] = Object.freeze([
   "test-inventory-invalid-or-incomplete",
@@ -2336,16 +2347,29 @@ const RUN_EVIDENCE_FINDINGS: readonly string[] = Object.freeze([
   "s2-behavior-test-missing",
 ]);
 
+/**
+ * The structure door's answer: the tree-structural findings (gated by the
+ * ratchet), and everything else the judge reports, SHOWN by family, never
+ * gated here — a test run's evidence, and the findings another generator's own
+ * check judges (an artifact's provenance, the requirements registry's schema
+ * artifact, a contract identity, the package manifests).
+ */
+function structureAnswer(violations: readonly string[]): Readonly<{ structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>> }> {
+  const kind = (violation: string): string => violation.split(":")[0]!;
+  const structural = violations.filter((violation) => STRUCTURAL_FINDING_PREFIXES.some((prefix) => kind(violation).startsWith(prefix)));
+  const runEvidence = violations.filter((violation) => RUN_EVIDENCE_FINDINGS.includes(kind(violation)));
+  const ownedElsewhere = violations.filter((violation) => !structural.includes(violation) && !runEvidence.includes(violation));
+  return { structural, shown: { "run evidence": runEvidence, "owned by another generator's check": ownedElsewhere } };
+}
+
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  // `--root . --structure`: the structural judge alone (no receipt), every finding as one sorted list — the
+  // `--root . --structure`: the structural judge alone (no receipt), its findings split by structureAnswer — the
   // architecture-judge ratchet's instrument (scripts/verification/ratchet-baselines.ts), asked as a subprocess
   // so the shipped ratchet never imports this testing-floor module.
   const argv = process.argv.slice(2);
   if (argv.length === 3 && argv[0] === "--root" && argv[1] === "." && argv[2] === "--structure") {
-    const all = verifyS1Structure(".").violations;
-    const isRunEvidence = (violation: string): boolean => RUN_EVIDENCE_FINDINGS.includes(violation.split(":")[0]!);
-    process.stdout.write(`${canonicalJson({ violations: all.filter((violation) => !isRunEvidence(violation)), runEvidence: all.filter(isRunEvidence) })}\n`);
+    process.stdout.write(`${canonicalJson(structureAnswer(verifyS1Structure(".").violations))}\n`);
   } else try {
     const input = parseArguments(argv);
     const receipt = loadTestResultFromExecution(configuredExecutionAuthority().receipt, input.attemptId);

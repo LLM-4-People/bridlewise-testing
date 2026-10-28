@@ -4,6 +4,10 @@ import { ROOT_POLICY } from "./root-policy.ts";
 /** Neutral path authority shared by runtime-neutral verification cores and scripts. */
 export const VERIFICATION_PATHS = deepFreeze({
   testInventory: "traceability/s1-test-inventory.json",
+  // The architecture judge's ratchet baseline (repository-relative): a FIXED path in code, never a
+  // policy-editable one (scripts/verification/ratchet-baselines.ts); a declared generator input, so the
+  // generators' engine-only copies carry it (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+  architectureJudgeBaseline: "tests/prevention/architecture-judge-baseline.json",
 } as const);
 
 /**

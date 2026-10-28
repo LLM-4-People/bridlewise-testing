@@ -2186,10 +2186,6 @@ const ROOT_POLICY_VALUE = {
       // engine-only working copy (the generators' copies) does not carry it and
       // is converged by its absence, like the web baseline above.
       "dead-markdown-links": "tests/prevention/markdown-links-baseline.json",
-      // The derived architecture judge (S1's architecture and governed-source verifiers over the
-      // census): outside the engine, like the two above, so the generators' engine-only working
-      // copies are converged by its absence rather than paying the judge on every check.
-      "architecture-judge": "tests/prevention/architecture-judge-baseline.json",
     },
     /**
      * THE FROZEN-RECORD ROOTS (repository-relative folder prefixes): closed

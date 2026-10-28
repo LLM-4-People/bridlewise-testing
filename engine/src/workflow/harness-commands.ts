@@ -12,7 +12,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -306,7 +306,7 @@ export type CommunityFilesArm = Readonly<{
 export type RatchetBaselinesArm = Readonly<{
   status: "current" | "regenerated";
   converged: boolean;
-  results: readonly Readonly<{ id: string; path: string; status: string; stale: readonly string[]; unbaselined: readonly string[] }>[];
+  results: readonly Readonly<{ id: string; path: string; status: string; stale: readonly string[]; unbaselined: readonly string[]; shown?: Readonly<Record<string, readonly string[]>> }>[];
 }>;
 
 export type HarnessSyncStepSummary = Readonly<{
@@ -361,6 +361,9 @@ export function ratchetBaselinesStep(ratchetBaselines: RatchetBaselinesArm): Che
       ...ratchetBaselines.results.filter((result) => result.status === "missing").map((result) => `${result.path} is missing: this tree carries its folder, so the ${result.id} gate would be off — restore it (a baseline is never deleted to pass)`),
       ...(ratchetBaselines.results.some((result) => result.stale.length > 0) ? [`ratchet baselines hold debt that fell (run harness sync to prune): ${ratchetBaselines.results.flatMap((result) => result.stale.map((key) => `${result.path}: ${key}`)).join("; ")}`] : []),
       ...(newDebt.length === 0 ? [] : [`new debt no ratchet baseline accepts (fix each site; a baseline never takes a new entry): ${newDebt.join("; ")}`]),
+      // Shown, never gated: what a guard reports that another owner judges (a test run's evidence, another generator's drift).
+      ...ratchetBaselines.results.flatMap((result) => Object.entries(result.shown ?? {}).filter(([, findings]) => findings.length > 0)
+        .map(([family, findings]) => `shown, not gated — ${result.id} ${family} (${String(findings.length)}): ${findings.join("; ")}`)),
     ].join(" | ") || "no ratchet baseline holds an entry its guard no longer finds, and no guard finds debt its baseline does not hold",
     details: ratchetBaselines,
   });
@@ -1215,7 +1218,7 @@ export function regenerateRatchetBaselines(root: string, write: boolean): Ratche
   return deepFreeze({
     status: parsed.results.some((result) => result.status === "pruned") ? "regenerated" : "current",
     converged: answer.ok && parsed.allCurrent,
-    results: parsed.results.map(({ id, path, status, stale, unbaselined }) => ({ id, path, status, stale, unbaselined })),
+    results: parsed.results.map(({ id, path, status, stale, unbaselined, shown }) => ({ id, path, status, stale, unbaselined, shown: shown ?? {} })),
   });
 }
 
@@ -1353,7 +1356,8 @@ export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegene
   dispositionManifest: null,
   schemaArtifact: null,
   pinAuthorities: null,
-  ratchetBaselines: null,
+  // The architecture judge runs in every tree that holds the engine's testing floor, a copy too: its baseline comes along.
+  ratchetBaselines: (repositoryPath: string) => repositoryPath === VERIFICATION_PATHS.architectureJudgeBaseline,
   readmeConsumers: null,
   decisionIndex: null,
   trackerBoard: null,
