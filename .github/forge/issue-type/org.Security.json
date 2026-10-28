@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Security",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Security",
+    "color": "red",
+    "description": "A security issue (published only after its advisory)",
+    "is_enabled": true
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "kind": "repository-settings",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-evidence"
+  },
+  "key": "bridlewise-evidence",
+  "unavailableOnPlan": [],
+  "desired": {
+    "allow_merge_commit": true,
+    "allow_rebase_merge": false,
+    "allow_squash_merge": false,
+    "merge_commit_title": "PR_TITLE",
+    "merge_commit_message": "PR_BODY",
+    "allow_auto_merge": false,
+    "delete_branch_on_merge": true,
+    "allow_update_branch": true,
+    "web_commit_signoff_required": true,
+    "has_wiki": false,
+    "has_discussions": false,
+    "has_projects": false
+  }
+}

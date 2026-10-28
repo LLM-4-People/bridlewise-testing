@@ -56,7 +56,7 @@ import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } fro
 import { syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
 import { configuredForgeSection } from "./forge/configured-forge.ts";
-import { syncForgeFiles } from "./forge/generated-files.ts";
+import { forgeFileSources, syncForgeFiles } from "./forge/generated-files.ts";
 import { acceptFrozenRecords, frozenRecordsMessage, syncFrozenRecords, type FrozenRecordsReport } from "./record-links.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
@@ -1388,7 +1388,9 @@ function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexAr
 
 /** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
 function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
-  const report = syncForgeFiles(trackedTop(root), configuredForgeSection(), write);
+  const top = trackedTop(root);
+  const settings = configuredForgeSection();
+  const report = syncForgeFiles(top, settings === undefined ? undefined : forgeFileSources(top, settings), write);
   return deepFreeze({ status: report.status, converged: report.converged, changed: report.changed });
 }
 
@@ -2194,7 +2196,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge",
+  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2332,6 +2334,9 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "slot") {
       const { runSlotCli } = await import("./slot-cli.ts");
       answer = await runSlotCli(rest);
+    } else if (subcommand === "community") {
+      const { runCommunityCli } = await import("./community/community-cli.ts");
+      answer = await runCommunityCli(root, rest);
     } else if (subcommand === "forge") {
       // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
       const { runForgeCli } = await import("./forge/cli.ts");

@@ -14,6 +14,7 @@
  *                [--release-hold --reason <text>]
  *   forge-publish [--profile <name>] [--source <rev>] --out <file>
  *                [--accept-target-edits <path>… --reason <text>] [--allow-deletions --reason <text>]
+ *   verify       [--profile <name>] [--commit <product commit>] [--source <rev>]
  *   rollback     [--profile <name>] --to <promotion commit> --reason <text>
  *   hold         [--profile <name>] --reason <text>
  *   release-hold [--profile <name>] --reason <text>
@@ -29,7 +30,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { PromotionError } from "./codes.ts";
 
-const PROMOTION_VERBS = deepFreeze(["status", "plan", "explain", "apply", "forge-publish", "rollback", "hold", "release-hold", "auto"] as const);
+const PROMOTION_VERBS = deepFreeze(["status", "plan", "explain", "apply", "forge-publish", "verify", "rollback", "hold", "release-hold", "auto"] as const);
 export type PromotionVerb = typeof PROMOTION_VERBS[number];
 
 /**
@@ -57,6 +58,8 @@ export type PromotionRequest = Readonly<{
   refs?: string;
   /** `forge-publish`: where the projection receipt is written. */
   out?: string;
+  /** `verify`: the product commit checked (default: the target's tip). */
+  commit?: string;
 }>;
 
 function isPromotionVerb(value: string | undefined): value is PromotionVerb {
@@ -83,6 +86,7 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
   let to: string | undefined;
   let refs: string | undefined;
   let out: string | undefined;
+  let commit: string | undefined;
   let acceptTargetEdits: string[] | undefined;
   const flags = new Set<string>();
   const paths: string[] = [];
@@ -95,12 +99,13 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
       return next;
     };
     if (argument === "--profile" && verb !== "auto") profile = value();
-    else if (argument === "--source" && ["status", "plan", "explain", "apply", "forge-publish"].includes(verb)) source = value();
+    else if (argument === "--source" && ["status", "plan", "explain", "apply", "forge-publish", "verify"].includes(verb)) source = value();
     else if (VERB_FLAGS[verb]?.includes(argument) === true) flags.add(argument);
     else if (argument === "--reason" && (verb === "apply" || verb === "forge-publish" || REASONED_VERBS.has(verb))) reason = value();
     else if (argument === "--to" && verb === "rollback") to = value();
     else if (argument === "--refs" && verb === "auto") refs = value();
     else if (argument === "--out" && verb === "forge-publish") out = value();
+    else if (argument === "--commit" && verb === "verify") commit = value();
     else if (argument === "--accept-target-edits" && (verb === "apply" || verb === "forge-publish")) {
       acceptTargetEdits = [];
       while (argv[index + 1] !== undefined && !argv[index + 1]!.startsWith("--")) acceptTargetEdits.push(argv[++index]!);
@@ -141,6 +146,7 @@ export function parsePromoteArguments(argv: readonly string[]): PromotionRequest
     ...(to === undefined ? {} : { to }),
     ...(refs === undefined ? {} : { refs }),
     ...(out === undefined ? {} : { out }),
+    ...(commit === undefined ? {} : { commit }),
   });
 }
 
@@ -161,6 +167,7 @@ export function formatPromoteArguments(request: PromotionRequest): readonly stri
     ...(request.to === undefined ? [] : ["--to", request.to]),
     ...(request.refs === undefined ? [] : ["--refs", request.refs]),
     ...(request.out === undefined ? [] : ["--out", request.out]),
+    ...(request.commit === undefined ? [] : ["--commit", request.commit]),
     ...(request.reason === undefined ? [] : ["--reason", request.reason]),
     ...(request.paths ?? []),
   ]);
