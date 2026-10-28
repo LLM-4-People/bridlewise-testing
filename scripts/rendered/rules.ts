@@ -452,14 +452,18 @@ function judgeTokenColours(args: { input: TokenInput; surface: Surface; top: boo
   const near = (a: readonly number[], b: readonly number[]): boolean => (a[3]! === 0 && b[3]! === 0) || a.every((channel, index) => Math.abs(channel - b[index]!) <= 2);
   const shapes = new Set(["rect", "circle", "ellipse", "path", "polygon", "polyline", "text", "tspan"]);
   const off = new Map<string, string[]>();
-  // A property in flight — a finite transition or animation still running or
-  // pending — is judged where it lands: the judge finishes every finite
-  // animation and judges again (judgeFuture), and a value between two tokens
-  // is not a colour the page sets. A finished animation that fills forwards
-  // holds its end value, and that held value is judged like any other. An
-  // infinite animation never lands, so each colour its keyframes name is
-  // judged directly (resolved on the element itself, so var() reads what the
-  // element reads).
+  // Every colour an animation names in its keyframes is judged, whatever its
+  // play state, finite or infinite: an animation may pass through a colour it
+  // never lands on, or never land at all. Each is resolved on the element
+  // itself, so var() and currentcolor read what the element reads. A
+  // transition's keyframes are not: it goes only from where the property stood
+  // to where the page sets it, never holds, and always ends, so its colour is
+  // judged where it lands (and Chrome reports a currentcolor end as black).
+  // The property's current value is skipped only while an animation is
+  // running or pending, since it then sits between two keyframes; a finished
+  // animation that fills forwards holds its end value, judged like any other,
+  // and the judge finishes every finite animation and judges again
+  // (judgeFuture).
   const offInKeyframes: string[] = [];
   const moving = new WeakMap<Element, Set<string>>();
   const inFlight = (element: Element): Set<string> => {
@@ -467,24 +471,24 @@ function judgeTokenColours(args: { input: TokenInput; surface: Surface; top: boo
     if (properties === undefined) {
       properties = new Set<string>();
       for (const animation of element.getAnimations()) {
-        if (animation.playState !== "running" && !animation.pending) continue;
         const effect = animation.effect as KeyframeEffect | null;
-        const endless = !Number.isFinite(Number(effect?.getComputedTiming().endTime));
+        const moves = animation.playState === "running" || animation.pending;
         const transition = animation as Animation & { transitionProperty?: string };
         const named = new Set<string>();
-        if (typeof transition.transitionProperty === "string") named.add(transition.transitionProperty);
+        if (moves && typeof transition.transitionProperty === "string") named.add(transition.transitionProperty);
         for (const frame of effect?.getKeyframes?.() ?? []) {
+          const judged = typeof transition.transitionProperty !== "string";
           for (const [key, value] of Object.entries(frame)) {
             if (["offset", "computedOffset", "easing", "composite"].includes(key)) continue;
             const property = key.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`);
-            named.add(property);
-            if (endless && /color$|^fill$|^stroke$/u.test(property) && typeof value === "string") {
+            if (moves) named.add(property);
+            if (judged && /color$|^fill$|^stroke$/u.test(property) && typeof value === "string" && value !== "none" && !value.startsWith("url(")) {
               const probe = document.createElement("span");
               element.append(probe);
               probe.style.setProperty("color", value);
               const resolved = getComputedStyle(probe).color;
               probe.remove();
-              if (!allowed.some((colour) => near(colour, paint(resolved)))) offInKeyframes.push(`${property} ${value} in an endless animation on ${kit.describe(element)}`);
+              if (!allowed.some((colour) => near(colour, paint(resolved)))) offInKeyframes.push(`${property} ${value} in a keyframe of an animation on ${kit.describe(element)}`);
             }
           }
         }
@@ -506,7 +510,7 @@ function judgeTokenColours(args: { input: TokenInput; surface: Surface; top: boo
   };
   for (const element of [document.body, ...kit.elements(document)]) {
     if (element.getClientRects().length === 0) continue;
-    inFlight(element); // judges the colours an endless animation names, on every shown element
+    inFlight(element); // judges every keyframe colour, on every shown element
     const s = getComputedStyle(element);
     const text = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0);
     if (text) note("color", s.color, element);
@@ -644,7 +648,7 @@ export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string; why: s
   { id: "past-the-future", limit: `work a page schedules later than ${String(FUTURE_MS)} ms of page time into its future is not run`, why: "the future must end for a judgement to end: a page that polls schedules work forever" },
   { id: "real-time-loops", limit: "work driven by the browser's own task queues in wall time — a MessageChannel or postMessage loop, a chain on network or idle callbacks the clock does not fake — is judged only as far as it got by each judgement", why: "the page clock fakes timers, intervals and animation frames, not the task queues; running those forward needs the browser's virtual time, which cannot be handed back to real time (the capture walk needs real time between views)" },
   { id: "infinite-animations", limit: "an infinite CSS or Web animation is judged where it stands at each judgement, not at every point of its cycle, except its colours: every colour its keyframes name is judged against the tokens", why: "it has no end to finish to; its keyframes are the only place its colours can all be read" },
-  { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement), its colours only at its end, since a running colour is between two tokens; a keyframe off the tokens only before its end is not seen", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
+  { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement), and every colour its keyframes name is judged against the tokens; a value between two keyframes is not judged", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
   { id: "forced-states-together", limit: "hover, active and focus are forced on every element at once (focus only where an element can take it), not one element at a time", why: "one forced pass shows any rule those states turn on; combinations that cannot occur together may also be judged" },
   { id: "hostile-pages", limit: "a page written to hide from the judgement — one that takes a removed frame's setters, or stops the Content-Security-Policy violation event before the judge's listener — can evade it", why: "the judge's threat model is our own pages making mistakes; it records in the page, where such a page can interfere" },
 ];
