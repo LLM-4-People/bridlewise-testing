@@ -13,7 +13,7 @@
     {
       "id": "typed-refusals",
       "kind": "holds-when-green",
-      "text": "A refusal is typed: it names the rule and what to do, never a quiet substitute",
+      "text": "A refusal is typed: it names the rule it applies and what to do next",
       "checks": [
         "testing.ci"
       ],
@@ -49,7 +49,7 @@
     {
       "id": "redaction-before-provider",
       "kind": "holds-when-green",
-      "text": "Secrets are redacted before the provider sees the prompt",
+      "text": "Secrets the harness detects are redacted before the prompt reaches the provider",
       "checks": [
         "testing.ci"
       ],
@@ -58,7 +58,7 @@
     {
       "id": "no-committed-secrets",
       "kind": "holds-when-green",
-      "text": "No secret is committed to the public tree",
+      "text": "Every change passes a secret scan before it lands in the public tree",
       "checks": [
         "testing.secret"
       ],

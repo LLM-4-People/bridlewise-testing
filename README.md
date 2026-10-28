@@ -15,12 +15,12 @@ This repository is the development floor: the source of Bridlewise together with
 | Claim | Checked by | Proof |
 |---|---|---|
 | It tells you it is not ready for production: its readiness check answers harnessReady false | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
-| A refusal is typed: it names the rule and what to do, never a quiet substitute | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| A refusal is typed: it names the rule it applies and what to do next | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
 | From chat, the model cannot commit: git\_commit answers governance\_required and the commit stays yours | `testing.ci` | [tests/unit/tool-executor-unified.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/unit/tool-executor-unified.test.ts) |
 | A run executes once: reopening it never starts a second execution | `testing.ci` | [tests/prevention/run-executes-once.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/run-executes-once.test.ts) |
 | Commands the model starts cannot read outside the project (Linux, Landlock) | `testing.ci` | [tests/prevention/subprocess-confinement-owner.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/subprocess-confinement-owner.test.ts) |
-| Secrets are redacted before the provider sees the prompt | `testing.ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
-| No secret is committed to the public tree | `testing.secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
+| Secrets the harness detects are redacted before the prompt reaches the provider | `testing.ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
+| Every change passes a secret scan before it lands in the public tree | `testing.secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
 | CodeQL analyses every change | `testing.codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
 
 A claim whose check is red is struck out on the [live claims page](https://llm-4-people.github.io/bridlewise-testing/floor/claims/) until it passes again.
