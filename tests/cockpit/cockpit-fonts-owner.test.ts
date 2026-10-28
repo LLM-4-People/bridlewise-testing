@@ -42,6 +42,7 @@
  * mutation-tested below with planted violations of every kind and
  * near-misses that must pass.
  */
+import { vendoredFaces, type FontLock } from "../../scripts/vendor-fonts.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, globSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -433,7 +434,7 @@ export function buildInputs(config: { root?: string; publicDir?: string | false;
   return { files: [...seen].map((f) => relative(root, f).split("\\").join("/")).sort(), findings };
 }
 
-type Lock = { schema: string; packages: { name: string; version: string; family: string; integrity: string }[]; files: { file: string; package: string; path: string; sha256: string }[] };
+type Lock = FontLock;
 
 describe("fonts: one declaration, pinned files, no other source", () => {
   const owner = read(TOKENS);
@@ -465,19 +466,15 @@ describe("fonts: one declaration, pinned files, no other source", () => {
     expect(existsSync(`${FONT_DIR}/OFL.txt`), "the OFL licence travels with the fonts").toBe(true);
   });
 
-  test("each @font-face block loads its family from that family's own pinned files (the binding the rendered judgement holds pages to)", () => {
-    const lock = JSON.parse(read(LOCK)) as Lock;
+  test("each @font-face block loads its family from that family's own files, as vendoredFaces() states them (the list the rendered judgement holds pages to)", () => {
+    // The one derivation the judge uses (scripts/vendor-fonts.ts), never a second one here.
+    const faces = vendoredFaces();
     const blocks = [...owner.matchAll(/@font-face\s*\{([^}]*)\}/gu)].map((m) => ({
       family: (/font-family\s*:\s*([^;]*)/u.exec(m[1]!)?.[1] ?? "").replace(/["']/gu, "").trim(),
-      file: /url\(\s*["']?\/fonts\/([^"')]+)/u.exec(m[1]!)?.[1] ?? "",
+      url: /url\(\s*["']?([^"')]+)/u.exec(m[1]!)?.[1] ?? "",
     }));
-    expect(blocks.length).toBe(lock.files.length);
-    for (const block of blocks) {
-      const entry = lock.files.find((f) => f.file === block.file);
-      const family = lock.packages.find((p) => p.name === entry?.package)?.family;
-      expect(family, `${block.file} is pinned with a family`).toBeDefined();
-      expect(block.family, `${block.file} is ${family}'s file`).toBe(family);
-    }
+    expect(blocks.map((b) => b.url).sort(), "the owner declares exactly the vendored files").toEqual(faces.flatMap((face) => face.files).sort());
+    for (const block of blocks) expect(faces.find((face) => face.files.includes(block.url))?.family, `${block.url} is ${block.family}'s own file`).toBe(block.family);
   });
 
   test("everything the build consumes loads no font from elsewhere and declares no family twice", () => {
