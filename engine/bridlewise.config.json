@@ -823,9 +823,11 @@
     "fullSuiteInProcessSerialPhaseConcurrency": 4,
     "fullSuiteParallelConcurrency": 12,
     "compileCachePruning": {
-      "maxEntryAgeDays": 7,
-      "maxEntries": 400000,
-      "timeBudgetMs": 10000
+      "maxBytes": 4294967296,
+      "maxEntryAgeHours": 72,
+      "inUseMinutes": 60,
+      "intervalMinutes": 60,
+      "maxDeletionsPerPrune": 50000
     },
     "integrationSuiteCpuBudget": {
       "metric": "calibrated-work/v1",
@@ -840,7 +842,7 @@
       "phase": "accumulation",
       "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "derivedAtTestFileCount": 536,
+      "derivedAtTestFileCount": 538,
       "calibrationDriftMaxFraction": 0.15,
       "validThroughLoad5PerCpu": 1.7,
       "legacy": {

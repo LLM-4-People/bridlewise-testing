@@ -18,6 +18,8 @@
  *   `POST /app/installations/{id}/access_tokens` require a valid RS256 JWT
  *   whose `iss` is the client id; the token is minted with exactly the asked
  *   permissions and repositories (a permission the installation lacks is 422);
+ *   `GET /app/installations` (JWT) answers the App's one installation, and
+ *   `GET /installation/repositories` the repositories a token reaches;
  * - the MANIFEST FLOW: {@link FakeGithub.pendingConversion} plants a code;
  *   `POST /app-manifests/{code}/conversions` answers its material once, as
  *   GitHub does (owner, name, permissions, events, the key);
@@ -301,6 +303,22 @@ export function fakeGithub(): FakeGithub {
       if (app === undefined) return json(401, { message: "A JSON web token could not be decoded" });
       if (!app.repositories.includes(`${installation[1]!}/${installation[2]!}`)) return json(404, { message: "Not Found" });
       return json(200, { id: app.installationId, app_id: app.appId, app_slug: app.slug, permissions: app.permissions });
+    }
+    if (request.method === "GET" && request.path === "/app/installations") {
+      // The App's own installations (its JWT): one, on the owner of its repositories, on selected repositories.
+      const app = jwtApp(request.headers.get("authorization"));
+      if (app === undefined) return json(401, { message: "A JSON web token could not be decoded" });
+      const owner = app.repositories[0]?.split("/")[0] ?? "LLM-4-People";
+      return json(200, [{ id: app.installationId, app_id: app.appId, app_slug: app.slug, account: { login: owner, type: "Organization" }, repository_selection: "selected", permissions: app.permissions, events: [] }]);
+    }
+    if (request.method === "GET" && request.path === "/installation/repositories") {
+      // The repositories an installation token reaches (GitHub wraps the list).
+      const minted = tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "");
+      if (minted?.kind !== "installation") return json(403, { message: "Resource not accessible by integration" });
+      const app = apps.find((candidate) => candidate.slug === minted.principal)!;
+      const owner = app.repositories[0]!.split("/")[0]!;
+      const names = minted.repositories ?? [];
+      return json(200, { total_count: names.length, repository_selection: "selected", repositories: names.map((name) => ({ name, full_name: `${owner}/${name}` })) });
     }
     const accessTokens = /^\/app\/installations\/(\d+)\/access_tokens$/u.exec(request.path);
     if (request.method === "POST" && accessTokens !== null) {

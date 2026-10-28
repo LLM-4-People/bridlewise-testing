@@ -8,7 +8,10 @@ offline-capable.
 
 - `manifest.json` — the PWA manifest: the app's name, theme colors, display
   mode, and the icon set under `icons/`. `index.html` links it.
-- `sw.js` — the hand-written service worker (no dependencies). Cache-first
+- `sw.js` — the hand-written service worker (no dependencies). Its cache
+  version is a hand-raised generation plus a generated digest of every asset it
+  caches (`scripts/service-worker-cache.ts`; the build sets the built worker's
+  digest over every emitted file, bundles included). Cache-first
   for immutable static assets, stale-while-revalidate for JS/CSS modules,
   network-first for navigations and GET API calls, passthrough for mutations
   and SSE streams.

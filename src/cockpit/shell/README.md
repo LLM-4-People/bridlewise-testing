@@ -4,7 +4,8 @@ The cockpit shell: the HORIZON, DESK, ROOMS, and SCOPE grammar — the keyboard 
 
 ## What each file does
 
-- `Brand.svelte` — shared existing bridlewise brand mark for account and registration surfaces.
+- `Brand.svelte` — the brand mark for account and registration surfaces, drawn inline from `brand-mark.ts` in the live theme's tokens.
+- `brand-mark.ts` — the one brand-mark geometry (rein, record lines, beam), shared with the icon generator `scripts/generate-pwa-icons.mjs`.
 
 - `annunciator-data.ts` — THE ANNUNCIATOR FEED — what lights the HORIZON.
 - `chords.ts` — THE chord formatter — the one owner of on-screen chord spelling.

@@ -3,7 +3,13 @@
  * enter CacheStorage. Navigation uses fresh HTML with a public shell fallback;
  * immutable production bundles and icons can work offline. Updates retain the
  * existing user-controlled reload notification in shell/sw-update.ts. */
-const CACHE_VERSION = "v5";
+// The cache generation: raise it when this worker's caching logic changes.
+const CACHE_GENERATION = "v5";
+// BEGIN GENERATED: the cached assets' digest (scripts/service-worker-cache.ts)
+const ASSETS_DIGEST = "02a8f79b2521";
+// END GENERATED: the cached assets' digest
+// A changed icon, font or bundle is a new cache, so an installed app refreshes.
+const CACHE_VERSION = `${CACHE_GENERATION}-${ASSETS_DIGEST}`;
 const STATIC_CACHE = `harness-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `harness-runtime-${CACHE_VERSION}`;
 const PRECACHE_URLS = [
@@ -27,7 +33,7 @@ self.addEventListener("activate", (event) => {
     const keys = await caches.keys();
     // CacheStorage is shared by the whole origin. Retire only this worker's
     // exact versioned namespace, including old URL-keyed private API entries.
-    await Promise.all(keys.filter((key) => /^harness-(?:static|runtime)-v\d+$/.test(key)
+    await Promise.all(keys.filter((key) => /^harness-(?:static|runtime)-v\d+(?:-[0-9a-f]{12})?$/.test(key)
       && key !== STATIC_CACHE && key !== RUNTIME_CACHE).map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
