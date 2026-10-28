@@ -36,9 +36,25 @@ const pathOrPrefix = z.string().refine((value) => {
 /** A folder prefix: a repository-relative folder path with its trailing `/`. */
 const folderPrefix = z.string().refine((value) => value.endsWith("/") && pathOrPrefix.safeParse(value).success, "must be a repository folder prefix ending in /");
 
+/**
+ * THE PROFILE NAME RULE, the one owner (the schema's `name`): a lower-case
+ * letter, then up to 62 lower-case letters, digits and hyphens. A name is
+ * also a folder (the profile's private directory) and a file name, so the
+ * rule is what keeps it ONE path segment: no `/`, no `..`, never absolute.
+ */
+const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/u;
+
+/** The profile-name rule, spelled for a refusal. */
+export const PROFILE_NAME_RULE = "a lower-case letter, then up to 62 lower-case letters, digits or hyphens";
+
+/** Is `name` a profile name ({@link PROFILE_NAME_PATTERN}): one path segment, never a path? */
+export function isProfileName(name: string): boolean {
+  return PROFILE_NAME_PATTERN.test(name);
+}
+
 const promotionProfileShape = z.strictObject({
   schema: z.literal(PROMOTION_PROFILE_SCHEMA_VERSION),
-  name: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+  name: z.string().regex(PROFILE_NAME_PATTERN),
   source: z.strictObject({ ref: refName }),
   target: z.strictObject({ ref: refName }),
   /** The remote both refs are published to; `null`: a local-only pair. */
@@ -253,14 +269,54 @@ export function parsePromotionProfile(
 }
 
 /** Every profile `reader` holds: each `<profileDirectory>/<name>.json`, parsed and validated (see {@link parsePromotionProfile}). */
+/** The profile files `reader` holds: `<profileDirectory>/<name>.json`, one level deep. */
+function profileFiles(reader: TreeReader, profileDirectory: string): readonly string[] {
+  const prefix = profileDirectory.endsWith("/") ? profileDirectory : `${profileDirectory}/`;
+  const files = reader.paths().filter((path) => path.startsWith(prefix) && path.endsWith(".json") && !path.slice(prefix.length).includes("/"));
+  reader.prefetch(files);
+  return files;
+}
+
+/** What the trigger reads of a profile BEFORE any judgement of it (see `trigger.ts`). */
+export type ProfileTriggerHeader = Readonly<{ name: string; trigger: string; remote: string | null; sourceRef: string; targetRef: string }>;
+
+/**
+ * THE TRIGGER'S READ of the profiles `reader` holds: each one's name,
+ * trigger, remote and refs, read as plain JSON fields, with no schema
+ * judgement. The trigger decides from these alone which profile a moved ref
+ * concerns. The profile itself is judged only by the promotion it starts,
+ * run by the source's own committed promoter, never by this checkout's code
+ * (#259). A file that does not even spell these fields concerns no ref and
+ * is passed over, never a refusal of the run (#121). The NAME is held to the
+ * schema's rule (`PROFILE_NAME_PATTERN`) and to its file's name here, before
+ * anything uses it as a path: a name the rule refuses (`..`, an absolute
+ * path, an over-long one) never reaches the filesystem.
+ */
+export function profileTriggerHeaders(reader: TreeReader, profileDirectory: string): readonly ProfileTriggerHeader[] {
+  return deepFreeze(profileFiles(reader, profileDirectory).flatMap((path) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(reader.text(path) ?? "");
+    } catch {
+      return [];
+    }
+    const fields = (value ?? {}) as { name?: unknown; trigger?: unknown; remote?: unknown; source?: { ref?: unknown }; target?: { ref?: unknown } };
+    const sourceRef = fields.source?.ref;
+    const targetRef = fields.target?.ref;
+    if (typeof fields.name !== "string" || !PROFILE_NAME_PATTERN.test(fields.name) || `${fields.name}.json` !== path.slice(path.lastIndexOf("/") + 1) || typeof fields.trigger !== "string" || !(fields.remote === null || typeof fields.remote === "string")
+      || typeof sourceRef !== "string" || !sourceRef.startsWith("refs/heads/") || typeof targetRef !== "string" || !targetRef.startsWith("refs/heads/")) {
+      return [];
+    }
+    return [{ name: fields.name, trigger: fields.trigger, remote: fields.remote, sourceRef, targetRef }];
+  }));
+}
+
 export function loadPromotionProfiles(
   reader: TreeReader,
   profileDirectory: string,
   commandNames: ReadonlySet<string>,
 ): readonly LoadedPromotionProfile[] {
-  const prefix = profileDirectory.endsWith("/") ? profileDirectory : `${profileDirectory}/`;
-  const files = reader.paths().filter((path) => path.startsWith(prefix) && path.endsWith(".json") && !path.slice(prefix.length).includes("/"));
-  reader.prefetch(files);
+  const files = profileFiles(reader, profileDirectory);
   return deepFreeze(files.map((path) => deepFreeze({
     profile: parsePromotionProfile(reader.text(path)!, { path, profileDirectory, commandNames }),
     path,
