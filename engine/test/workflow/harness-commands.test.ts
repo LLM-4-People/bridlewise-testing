@@ -223,7 +223,8 @@ test("HarnessCommands: harnessRegenerate produces valid result", () => {
   assert.equal(result.result.pinAuthorities.status, "current");
   // The ratchet arm (a2b-design H2): every registered baseline is judged
   // against its guard's scan, and on a synced tree none holds debt that fell.
-  assert.deepEqual(result.result.ratchetBaselines.results.map((arm) => arm.id), Object.keys(ROOT_POLICY_AT_LOAD.verification.ratchetBaselines));
+  // The policy's baselines, then the architecture judge's at its fixed path in code (never a policy entry).
+  assert.deepEqual(result.result.ratchetBaselines.results.map((arm) => arm.id), [...Object.keys(ROOT_POLICY_AT_LOAD.verification.ratchetBaselines), "architecture-judge"]);
   assert.equal(result.result.ratchetBaselines.converged, true, `the ratchet arm must converge on this tree: ${JSON.stringify(result.result.ratchetBaselines.results)}`);
 });
 

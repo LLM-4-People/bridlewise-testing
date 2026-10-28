@@ -2321,45 +2321,355 @@ function parseArguments(argv: readonly string[]): Readonly<{ root: string; attem
 }
 
 /**
- * THE TREE-STRUCTURAL FINDING KINDS: the ones a source edit can create and a
- * generator or a decision line resolves — the census's layers, realms and
- * effects, governed sinks and exports, the production graph, the product
- * boundary, environment and process acquisition. Only these are the
- * architecture-judge ratchet's keys (scripts/verification/ratchet-baselines.ts).
+ * EVERY FINDING KIND OF THE STRUCTURAL JUDGE, CLASSIFIED BY NAME — no prefix,
+ * no catch-all. A kind is GATED by the architecture-judge ratchet
+ * (scripts/verification/ratchet-baselines.ts) when a source edit can create it
+ * and a generator, a decision line or a code fix resolves it; it is NOT GATED
+ * here when another check owns it, and the table names that check. A kind in
+ * neither list (a new one) is refused (`s1_finding_unclassified`) until it is
+ * classified, so nothing escapes either way.
  */
-const STRUCTURAL_FINDING_PREFIXES: readonly string[] = Object.freeze([
-  "architecture-", "governed-", "production-", "standalone-", "environment-", "process-member-",
-  "module-acquisition-", "nonliteral-module-load",
+const GATED_FINDING_KINDS: ReadonlySet<string> = new Set([
+  "architecture-adapter-construction",
+  "architecture-composition-root-boundary",
+  "architecture-composition-root-drift",
+  "architecture-composition-root-duplicate",
+  "architecture-composition-root-list-invalid",
+  "architecture-composition-root-missing",
+  "architecture-composition-root-realm",
+  "architecture-duplicate-authority",
+  "architecture-effect-boundary",
+  "architecture-effect-owner",
+  "architecture-effect-unmodeled",
+  "architecture-external-command-effects-invalid",
+  "architecture-external-command-id-duplicate",
+  "architecture-external-command-invalid",
+  "architecture-external-command-list-invalid",
+  "architecture-external-command-module-conflict",
+  "architecture-external-command-publication-population-drift",
+  "architecture-external-command-source-not-published",
+  "architecture-external-command-source-unreadable",
+  "architecture-finding-duplicate",
+  "architecture-finding-incomplete",
+  "architecture-import-cycle",
+  "architecture-independent-export-disagreement",
+  "architecture-independent-import-disagreement",
+  "architecture-independent-type-reference-disagreement",
+  "architecture-lexical-module-unmodeled",
+  "architecture-local",
+  "architecture-local-errors-authority",
+  "architecture-module-registration-drift",
+  "architecture-open-blocking-finding",
+  "architecture-owner-duplicate",
+  "architecture-package-command-root-unregistered",
+  "architecture-physical-layout-status-drift",
+  "architecture-pinned-process-internal-import-denied",
+  "architecture-realm-direction",
+  "architecture-reverse-layer",
+  "architecture-source-node-limit",
+  "architecture-source-parse",
+  "architecture-source-too-large",
+  "architecture-source-unreadable",
+  "architecture-unregistered-command-root",
+  "architecture-unregistered-dependency",
+  "environment-acquisition-unmodeled",
+  "environment-configuration-source",
+  "evidence-graph-authority-file-unreadable",
+  "evidence-graph-competing-authority",
+  "evidence-graph-root-source",
+  "evidence-graph-root-source-unreadable",
+  "evidence-graph-taxonomy-invalid",
+  "governed-export-unmodeled",
+  "governed-sink-unmodeled",
+  "governed-static-analysis-depth",
+  "governed-static-analysis-parse",
+  "module-acquisition-unmodeled",
+  "nonliteral-module-load",
+  "process-member-unmodeled",
+  "process-member-write-unmodeled",
+  "production-dependency-denied",
+  "production-effect-api",
+  "production-effect-builtin",
+  "production-effect-sink-unmodeled",
+  "production-graph-incomplete-or-extra",
+  "production-import-unreadable",
+  "production-open-call-surface",
+  "production-relative-import-denied",
+  "standalone-product-boundary-file-unreadable",
+  "standalone-product-boundary-reference",
+  "standalone-product-boundary-root-source",
+  "standalone-product-boundary-root-source-unreadable",
+  "standalone-runtime-sink-unmodeled",
 ]);
 
-/**
- * THE FINDINGS THAT JUDGE A TEST RUN, NOT THE TREE: each reads the test-run
- * inventory (`VERIFICATION_PATHS.testInventory`, a cache a run writes, ignored
- * and never committed, #221), so the same tree answers differently with and
- * without a local run (measured: the commit guard's staged tree, which has no
- * run, reported all five; this worktree, after a run, none).
- */
-const RUN_EVIDENCE_FINDINGS: readonly string[] = Object.freeze([
-  "test-inventory-invalid-or-incomplete",
-  "s2-test-inventory-unavailable",
-  "s2.4-test-inventory-unavailable",
-  "s3.1-test-inventory-unavailable",
-  "s2-behavior-test-missing",
-]);
+/** S1 over a receipted run (`--root . --attempt <id>`): no required job runs it yet (#599). */
+const S1_RECEIPTED_RUN = "S1 over a receipted run (scripts/tooling/s1-verification.ts --attempt; runs in no required job yet, #599)";
+
+/** `harness check`'s config-schema-artifact step: the generated configuration schema against its contract source. */
+const CONFIG_SCHEMA_STEP = "harness check: the config-schema-artifact step";
+
+/** `harness check`'s artifact step: the artifact record against the tree it inventories (scripts/tooling/artifact-manifest.ts). */
+const ARTIFACT_MANIFEST_STEP = "harness check: the artifact-manifest step (scripts/tooling/artifact-manifest.ts --check)";
 
 /**
- * The structure door's answer: the tree-structural findings (gated by the
- * ratchet), and everything else the judge reports, SHOWN by family, never
- * gated here — a test run's evidence, and the findings another generator's own
- * check judges (an artifact's provenance, the requirements registry's schema
- * artifact, a contract identity, the package manifests).
+ * The kinds this door does NOT gate, each with the check that owns it: a test
+ * run's evidence (each reads the ignored test-run inventory, so the same tree
+ * answers differently with and without a run), S1's own hand pins (the
+ * requirements registry's schema artifact, the contract identity, which no
+ * generator re-derives, so an ordinary requirements edit would trip them), and
+ * the judgements of the artifact inventory and of the package manifests, the
+ * artifact record's own admission and the configuration contract's artifact,
+ * which `harness check` judges itself, and every other judgement S1 makes over
+ * a receipted run. The table lists every kind S1's verifiers emit, by name.
  */
-function structureAnswer(violations: readonly string[]): Readonly<{ structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>> }> {
+const NOT_GATED_FINDING_OWNERS: Readonly<Record<string, string>> = Object.freeze({
+  "artifact-admission-derivation-refused": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-inventory-drift": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-manifest-missing-or-invalid": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-policy-drift": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-record-population-drift": ARTIFACT_MANIFEST_STEP,
+  "artifact-bytes-missing": S1_RECEIPTED_RUN,
+  "artifact-classification-drift": S1_RECEIPTED_RUN,
+  "artifact-content-format-drift": S1_RECEIPTED_RUN,
+  "artifact-identity-drift": S1_RECEIPTED_RUN,
+  "artifact-independent-review-pending": S1_RECEIPTED_RUN,
+  "artifact-independent-review-status-drift": S1_RECEIPTED_RUN,
+  "artifact-integrity-drift": S1_RECEIPTED_RUN,
+  "artifact-license-unresolved": S1_RECEIPTED_RUN,
+  "artifact-original-byte-reconstruction-drift": S1_RECEIPTED_RUN,
+  "artifact-path-forbidden": S1_RECEIPTED_RUN,
+  "artifact-provenance-link-missing": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-authority-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-expanded-root-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-identity-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-projection-count-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-replacement-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-sidecar-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-source-binding-drift": S1_RECEIPTED_RUN,
+  "artifact-rejection-identity-drift": S1_RECEIPTED_RUN,
+  "artifact-rejection-replacement-missing": S1_RECEIPTED_RUN,
+  "artifact-search-projection-drift": S1_RECEIPTED_RUN,
+  "artifact-search-projection-unreadable": S1_RECEIPTED_RUN,
+  "artifact-secret-or-binary-admission": S1_RECEIPTED_RUN,
+  "artifact-source-locator-forbidden": S1_RECEIPTED_RUN,
+  "artifact-text-authority-drift": S1_RECEIPTED_RUN,
+  "audit-matrix-applicability": S1_RECEIPTED_RUN,
+  "audit-matrix-cross-surface-evidence": S1_RECEIPTED_RUN,
+  "audit-matrix-evidence-missing": S1_RECEIPTED_RUN,
+  "audit-matrix-independent-evidence-missing": S1_RECEIPTED_RUN,
+  "audit-matrix-independent-outcome-before-evidence-admission": S1_RECEIPTED_RUN,
+  "audit-matrix-order-or-coverage": S1_RECEIPTED_RUN,
+  "audit-matrix-outcome-before-evidence-admission": S1_RECEIPTED_RUN,
+  "candidate-manifest-or-test-receipt-unavailable": S1_RECEIPTED_RUN,
+  "command-effect-blocked-registration-has-contract": S1_RECEIPTED_RUN,
+  "command-effect-closure-limit": S1_RECEIPTED_RUN,
+  "command-effect-closure-source-missing": S1_RECEIPTED_RUN,
+  "command-effect-composition-root-missing": S1_RECEIPTED_RUN,
+  "command-effect-contract-id-duplicate": S1_RECEIPTED_RUN,
+  "command-effect-contract-incomplete": S1_RECEIPTED_RUN,
+  "command-effect-contract-missing": S1_RECEIPTED_RUN,
+  "command-effect-external-effects-drift": S1_RECEIPTED_RUN,
+  "command-effect-external-path-invalid": S1_RECEIPTED_RUN,
+  "command-effect-external-qualified-forbidden": S1_RECEIPTED_RUN,
+  "command-effect-import-guard-missing": S1_RECEIPTED_RUN,
+  "command-effect-local-import-missing": S1_RECEIPTED_RUN,
+  "command-effect-node-limit": S1_RECEIPTED_RUN,
+  "command-effect-parse": S1_RECEIPTED_RUN,
+  "command-effect-python-executable-invalid": S1_RECEIPTED_RUN,
+  "command-effect-python-parse": S1_RECEIPTED_RUN,
+  "command-effect-python-result-invalid": S1_RECEIPTED_RUN,
+  "command-effect-registration-missing": S1_RECEIPTED_RUN,
+  "command-effect-registration-path-invalid": S1_RECEIPTED_RUN,
+  "command-effect-registration-source-missing": S1_RECEIPTED_RUN,
+  "command-effect-source-path-invalid": S1_RECEIPTED_RUN,
+  "command-effect-source-size": S1_RECEIPTED_RUN,
+  "command-effect-unmodeled": S1_RECEIPTED_RUN,
+  "config-contract-artifact-drift": CONFIG_SCHEMA_STEP,
+  "config-contract-artifact-invalid": CONFIG_SCHEMA_STEP,
+  "config-contract-artifact-unreadable": CONFIG_SCHEMA_STEP,
+  "config-contract-lexical-policy-projection": CONFIG_SCHEMA_STEP,
+  "config-contract-root-policy-projection": CONFIG_SCHEMA_STEP,
+  "config-contract-root-policy-unreadable": CONFIG_SCHEMA_STEP,
+  "config-contract-source-hash": CONFIG_SCHEMA_STEP,
+  "config-contract-source-unreadable": CONFIG_SCHEMA_STEP,
+  "config-document-refused": S1_RECEIPTED_RUN,
+  "content-addressed-evidence-byte-drift": S1_RECEIPTED_RUN,
+  "content-addressed-evidence-missing-or-invalid": S1_RECEIPTED_RUN,
+  "epoch-historical-completeness-overclaimed": S1_RECEIPTED_RUN,
+  "epoch-kind-must-remain-mixed-changing-worktree": S1_RECEIPTED_RUN,
+  "extension-copied-policy-denied": S1_RECEIPTED_RUN,
+  "extension-direct-entrypoint-denied": S1_RECEIPTED_RUN,
+  "extension-manifest-invalid": S1_RECEIPTED_RUN,
+  "extension-policy-hash-mismatch": S1_RECEIPTED_RUN,
+  "extension-policy-inheritance-incomplete": S1_RECEIPTED_RUN,
+  "extension-registration-invalid": S1_RECEIPTED_RUN,
+  "extension-waiver-unavailable": S1_RECEIPTED_RUN,
+  "false-central-prevention-class": S1_RECEIPTED_RUN,
+  "false-central-prevention-empty-scope": S1_RECEIPTED_RUN,
+  "false-central-prevention-status": S1_RECEIPTED_RUN,
+  "forbidden-lock-package": S1_RECEIPTED_RUN,
+  "forbidden-production-source": S1_RECEIPTED_RUN,
+  "handoff-continuity-occurrence-bundle-schema-version-invalid": S1_RECEIPTED_RUN,
+  "handoff-continuity-occurrence-locator-duplicate": S1_RECEIPTED_RUN,
+  "handoff-continuity-occurrence-ordinal-gap": S1_RECEIPTED_RUN,
+  "historical-source-schema-coupling": S1_RECEIPTED_RUN,
+  "historical-source-schema-marker": S1_RECEIPTED_RUN,
+  "historical-source-schema-root-source": S1_RECEIPTED_RUN,
+  "incident-omitted": S1_RECEIPTED_RUN,
+  "incident-unsubstantiated": S1_RECEIPTED_RUN,
+  "json-missing-or-invalid": S1_RECEIPTED_RUN,
+  "lock-dependency-missing": S1_RECEIPTED_RUN,
+  "lock-identity-or-version": S1_RECEIPTED_RUN,
+  "lock-package-evidence-invalid": S1_RECEIPTED_RUN,
+  "lock-package-unreachable": S1_RECEIPTED_RUN,
+  "lock-packages-invalid": S1_RECEIPTED_RUN,
+  "lock-root-package-mismatch": S1_RECEIPTED_RUN,
+  "manifest-directory-unreadable": S1_RECEIPTED_RUN,
+  "manifest-entry-unreadable": S1_RECEIPTED_RUN,
+  "manifest-exclusion-invalid": S1_RECEIPTED_RUN,
+  "model-vigilance-only-disposition": S1_RECEIPTED_RUN,
+  "model-vigilance-role-authoritative": S1_RECEIPTED_RUN,
+  "package-alternate-entrypoint": S1_RECEIPTED_RUN,
+  "package-development-dependencies": S1_RECEIPTED_RUN,
+  "package-development-range-policy": S1_RECEIPTED_RUN,
+  "package-export-surface": S1_RECEIPTED_RUN,
+  "package-identity-or-engine": S1_RECEIPTED_RUN,
+  "package-runtime-dependencies": S1_RECEIPTED_RUN,
+  "package-runtime-range-policy": S1_RECEIPTED_RUN,
+  "package-script-surface": S1_RECEIPTED_RUN,
+  "pinned-config-root-invalid": S1_RECEIPTED_RUN,
+  "repository-hardlink": S1_RECEIPTED_RUN,
+  "repository-root-boundary": S1_RECEIPTED_RUN,
+  "repository-root-or-source-tree-unsafe": S1_RECEIPTED_RUN,
+  "repository-special-entry": S1_RECEIPTED_RUN,
+  "repository-symlink": S1_RECEIPTED_RUN,
+  "requirements-registry-duplicate-trace-link": S1_RECEIPTED_RUN,
+  "requirements-registry-file-hash-drift": S1_RECEIPTED_RUN,
+  "requirements-registry-manifest-missing": S1_RECEIPTED_RUN,
+  "requirements-registry-missing-or-invalid": S1_RECEIPTED_RUN,
+  "requirements-registry-schema-artifact-drift": S1_RECEIPTED_RUN,
+  "requirements-registry-schema-artifact-missing": S1_RECEIPTED_RUN,
+  "requirements-registry-unknown-trace-link": S1_RECEIPTED_RUN,
+  "requirements-source-artifact-drift": S1_RECEIPTED_RUN,
+  "requirements-source-artifact-manifest-missing": S1_RECEIPTED_RUN,
+  "requirements-source-artifact-missing-or-unreadable": S1_RECEIPTED_RUN,
+  "review-schema-version-invalid": S1_RECEIPTED_RUN,
+  "root-policy-trace-id-mismatch": S1_RECEIPTED_RUN,
+  "root-policy-trace-id-projection-invalid": S1_RECEIPTED_RUN,
+  "row-boundary-invalid": S1_RECEIPTED_RUN,
+  "row-class-invalid": S1_RECEIPTED_RUN,
+  "row-class-rationale-duplicate": S1_RECEIPTED_RUN,
+  "row-class-rationale-mismatch": S1_RECEIPTED_RUN,
+  "row-classification-false-or-drifted": S1_RECEIPTED_RUN,
+  "row-closed-with-open-prevention-or-evidence": S1_RECEIPTED_RUN,
+  "row-duplicate": S1_RECEIPTED_RUN,
+  "row-prevention-status-invalid": S1_RECEIPTED_RUN,
+  "row-regression-distinct-scenarios-below-three": S1_RECEIPTED_RUN,
+  "row-regression-repetitions-below-three": S1_RECEIPTED_RUN,
+  "row-review-state-invalid": S1_RECEIPTED_RUN,
+  "row-self-approved": S1_RECEIPTED_RUN,
+  "row-source-incident-mismatch": S1_RECEIPTED_RUN,
+  "row-source-unknown": S1_RECEIPTED_RUN,
+  "row-unreviewed-has-reviewer": S1_RECEIPTED_RUN,
+  "s2-behavior-identity": S1_RECEIPTED_RUN,
+  "s2-behavior-test-missing": S1_RECEIPTED_RUN,
+  "s2-contract-artifact-dialect": S1_RECEIPTED_RUN,
+  "s2-contract-artifact-drift": S1_RECEIPTED_RUN,
+  "s2-contract-artifact-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-contract-identity-mismatch": S1_RECEIPTED_RUN,
+  "s2-fixture-empty-or-invalid": S1_RECEIPTED_RUN,
+  "s2-fixture-hash-mismatch": S1_RECEIPTED_RUN,
+  "s2-fixture-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-fixture-not-distinct": S1_RECEIPTED_RUN,
+  "s2-fixture-path-invalid": S1_RECEIPTED_RUN,
+  "s2-fixture-surface-incomplete-or-duplicate": S1_RECEIPTED_RUN,
+  "s2-official-fragment-invalid": S1_RECEIPTED_RUN,
+  "s2-official-fragment-line-boundary": S1_RECEIPTED_RUN,
+  "s2-official-fragment-manifest-drift": S1_RECEIPTED_RUN,
+  "s2-official-fragment-manifest-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-official-fragment-missing": S1_RECEIPTED_RUN,
+  "s2-official-fragment-source-mismatch": S1_RECEIPTED_RUN,
+  "s2-official-fragment-surface-drift": S1_RECEIPTED_RUN,
+  "s2-product-specific-source": S1_RECEIPTED_RUN,
+  "s2-research-source-evidence-mismatch": S1_RECEIPTED_RUN,
+  "s2-research-source-manifest-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-test-inventory-unavailable": S1_RECEIPTED_RUN,
+  "s2-traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "s2.4-authority-or-capability-regression": S1_RECEIPTED_RUN,
+  "s2.4-behavior-order-or-identity": S1_RECEIPTED_RUN,
+  "s2.4-registry-identity-mismatch": S1_RECEIPTED_RUN,
+  "s2.4-scenario-coverage-invalid": S1_RECEIPTED_RUN,
+  "s2.4-test-inventory-link-missing": S1_RECEIPTED_RUN,
+  "s2.4-test-inventory-unavailable": S1_RECEIPTED_RUN,
+  "s2.4-traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "s3.1-authority-or-capability-regression": S1_RECEIPTED_RUN,
+  "s3.1-behavior-order-or-scenario-identity": S1_RECEIPTED_RUN,
+  "s3.1-config-surface-expanded": S1_RECEIPTED_RUN,
+  "s3.1-contract-identity-mismatch": S1_RECEIPTED_RUN,
+  "s3.1-forbidden-key-property": S1_RECEIPTED_RUN,
+  "s3.1-forensic-schema-artifact-drift": S1_RECEIPTED_RUN,
+  "s3.1-forensic-schema-artifact-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s3.1-forensic-schema-dialect": S1_RECEIPTED_RUN,
+  "s3.1-product-specific-source": S1_RECEIPTED_RUN,
+  "s3.1-reference-fragment-identity": S1_RECEIPTED_RUN,
+  "s3.1-source-evidence-surface-drift": S1_RECEIPTED_RUN,
+  "s3.1-source-manifest-drift": S1_RECEIPTED_RUN,
+  "s3.1-source-manifest-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s3.1-test-inventory-link-missing": S1_RECEIPTED_RUN,
+  "s3.1-test-inventory-unavailable": S1_RECEIPTED_RUN,
+  "s3.1-traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "single-pinned-config-document": S1_RECEIPTED_RUN,
+  "source-duplicate": S1_RECEIPTED_RUN,
+  "source-fact-drift": S1_RECEIPTED_RUN,
+  "source-incident-link-omitted": S1_RECEIPTED_RUN,
+  "source-omitted": S1_RECEIPTED_RUN,
+  "source-unreferenced": S1_RECEIPTED_RUN,
+  "source-unsubstantiated": S1_RECEIPTED_RUN,
+  "test-execution-operation-root-source": S1_RECEIPTED_RUN,
+  "test-execution-operation-root-source-unreadable": S1_RECEIPTED_RUN,
+  "test-inventory-invalid-or-incomplete": S1_RECEIPTED_RUN,
+  "traceability-applicability-projection-drift": S1_RECEIPTED_RUN,
+  "traceability-applicability-projection-invalid": S1_RECEIPTED_RUN,
+  "traceability-behavior-identity": S1_RECEIPTED_RUN,
+  "traceability-behavior-values-or-links": S1_RECEIPTED_RUN,
+  "traceability-capability-state": S1_RECEIPTED_RUN,
+  "traceability-derived-order-or-value": S1_RECEIPTED_RUN,
+  "traceability-link-missing": S1_RECEIPTED_RUN,
+  "traceability-link-unknown": S1_RECEIPTED_RUN,
+  "traceability-requirements-order-or-value": S1_RECEIPTED_RUN,
+  "traceability-scenario-duplicate": S1_RECEIPTED_RUN,
+  "traceability-scenario-total": S1_RECEIPTED_RUN,
+  "traceability-scenarios": S1_RECEIPTED_RUN,
+  "traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-effect-surface": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-environment-source": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-import-surface": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-module-surface": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-script-missing": S1_RECEIPTED_RUN,
+  "unavailable-source-claim-limit-weak": S1_RECEIPTED_RUN,
+  "unavailable-source-disposition-invalid": S1_RECEIPTED_RUN,
+  "universal-policy-parallel-authority": S1_RECEIPTED_RUN,
+  "universal-policy-root-source": S1_RECEIPTED_RUN,
+  "universal-policy-root-source-unreadable": S1_RECEIPTED_RUN,
+  "universal-policy-unregistered-entrypoint": S1_RECEIPTED_RUN,
+});
+
+/**
+ * The structure door's answer: the gated findings, the others SHOWN under the
+ * check that owns them, and the findings of a kind nobody classified.
+ */
+export function structureAnswer(violations: readonly string[]): Readonly<{ structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>>; unclassified: readonly string[] }> {
   const kind = (violation: string): string => violation.split(":")[0]!;
-  const structural = violations.filter((violation) => STRUCTURAL_FINDING_PREFIXES.some((prefix) => kind(violation).startsWith(prefix)));
-  const runEvidence = violations.filter((violation) => RUN_EVIDENCE_FINDINGS.includes(kind(violation)));
-  const ownedElsewhere = violations.filter((violation) => !structural.includes(violation) && !runEvidence.includes(violation));
-  return { structural, shown: { "run evidence": runEvidence, "owned by another generator's check": ownedElsewhere } };
+  const shown: Record<string, string[]> = {};
+  const structural: string[] = [];
+  const unclassified: string[] = [];
+  for (const violation of violations) {
+    const owner = NOT_GATED_FINDING_OWNERS[kind(violation)];
+    if (GATED_FINDING_KINDS.has(kind(violation))) structural.push(violation);
+    else if (owner !== undefined) (shown[owner] ??= []).push(violation);
+    else unclassified.push(violation);
+  }
+  return { structural, shown, unclassified };
 }
 
 if (isEntryPoint(import.meta.url)) {

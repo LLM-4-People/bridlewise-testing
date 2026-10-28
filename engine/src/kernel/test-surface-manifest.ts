@@ -139,6 +139,9 @@ function isDefaultDisposition(entry: TestSurfaceDispositionEntry): boolean {
   return entry.disposition === "canonical-node-test" && entry.evidenceLinks.length === 0 && defaultDispositionEntry(entry.path) !== undefined;
 }
 
+/** How many paths a coverage refusal names before it only counts them. */
+const NAMED_IN_A_REFUSAL = 10;
+
 /**
  * EVERY RECOGNIZABLE SOURCE'S DISPOSITION: its entry, or the default it takes
  * without one. Refuses (`test_surface_disposition_coverage_incomplete`) when a
@@ -156,8 +159,8 @@ export function effectiveDispositionEntries(
   if (undecided.length > 0 || stale.length > 0) {
     throw new HarnessError(
       "test-surface disposition coverage is incomplete" +
-        (undecided.length === 0 ? "" : `: ${String(undecided.length)} recognizable source(s) outside the qualified patterns have no entry (${undecided.slice(0, 10).join(", ")})`) +
-        (stale.length === 0 ? "" : `; ${String(stale.length)} entr${stale.length === 1 ? "y names a source" : "ies name sources"} not on the surface (${stale.slice(0, 10).join(", ")})`),
+        (undecided.length === 0 ? "" : `: ${String(undecided.length)} recognizable source(s) outside the qualified patterns have no entry (${undecided.slice(0, NAMED_IN_A_REFUSAL).join(", ")})`) +
+        (stale.length === 0 ? "" : `; ${String(stale.length)} entr${stale.length === 1 ? "y names a source" : "ies name sources"} not on the surface (${stale.slice(0, NAMED_IN_A_REFUSAL).join(", ")})`),
       "test_surface_disposition_coverage_incomplete",
       false,
       { undecided: String(undecided.length), stale: String(stale.length) },

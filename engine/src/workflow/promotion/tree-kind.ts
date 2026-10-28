@@ -3,14 +3,17 @@
  * the product projection or a source tree?", asked by every gate that belongs
  * to the source tree's testing floor (the architecture-judge ratchet).
  *
- * A DECLARATION, never an inference from what is missing: the product
- * projection carries `TREE-KIND.txt` at its root, shipped by the profile's
- * overlay (`product-only/TREE-KIND.txt`, its whole text `product`). A tree
- * without it is a source tree, so a source checkout that loses a file (S1,
- * a baseline) never reads as the product — its gate refuses instead. And a
- * tree that holds promotion profiles is the source the projection is computed
- * FROM: it carrying the declaration is a contradiction, refused by name, so a
- * testing checkout can never declare itself the product.
+ * The product projection DECLARES itself: it carries `TREE-KIND.txt` at its
+ * root (its whole text `product`), shipped by the profile's overlay
+ * (`product-only/TREE-KIND.txt`). A declaration alone proves nothing — a
+ * source checkout could add one — so the product is the tree that carries the
+ * declaration AND none of the testing floor's facts (the testing-floor paths
+ * a projection strips: the structural judge, the test trees, the baselines,
+ * the promotion profiles). A tree that carries the declaration beside any of
+ * them is CONTRADICTED: it is judged as the source tree it is, and the
+ * contradiction is reported for its gate to refuse. A tree without the
+ * declaration is a source tree. Nothing is ever inferred from what a tree
+ * lacks alone.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,20 +26,23 @@ export const PRODUCT_TREE_DECLARATION = "TREE-KIND.txt";
 /** Its whole text. */
 const PRODUCT_TREE_DECLARATION_TEXT = "product\n";
 
-export type TreeKind = "source" | "product";
+export type TreeKind = Readonly<{
+  kind: "source" | "product";
+  /** The testing-floor facts present beside a product declaration: non-empty means the declaration is a contradiction. */
+  contradiction: readonly string[];
+}>;
 
 /**
- * The declared kind of the tree at `repositoryRoot`. `profileDirectory` is
- * where a source tree holds its promotion profiles (`promotion.profileDirectory`).
+ * The declared kind of the tree at `repositoryRoot`. `testingFloor` lists the
+ * repository-relative paths only a source tree holds (its owner passes them:
+ * the structural judge, the test trees, the baselines, the profile directory).
  */
-export function declaredTreeKind(repositoryRoot: string, profileDirectory: string): TreeKind {
+export function declaredTreeKind(repositoryRoot: string, testingFloor: readonly string[]): TreeKind {
   const declaration = join(repositoryRoot, PRODUCT_TREE_DECLARATION);
-  if (!existsSync(declaration)) return "source";
+  if (!existsSync(declaration)) return Object.freeze({ kind: "source", contradiction: Object.freeze([]) });
   if (readFileSync(declaration, "utf8") !== PRODUCT_TREE_DECLARATION_TEXT) {
     throw new InputError(`${PRODUCT_TREE_DECLARATION} declares no tree kind this harness knows (its whole text is "product")`, "tree_kind_declaration_invalid");
   }
-  if (existsSync(join(repositoryRoot, profileDirectory))) {
-    throw new InputError(`this tree holds promotion profiles (${profileDirectory}/), so it is a source tree, yet it declares itself the product (${PRODUCT_TREE_DECLARATION}): remove the declaration`, "tree_kind_contradicted");
-  }
-  return "product";
+  const present = testingFloor.filter((path) => existsSync(join(repositoryRoot, path)));
+  return Object.freeze({ kind: present.length === 0 ? "product" : "source", contradiction: Object.freeze(present) });
 }

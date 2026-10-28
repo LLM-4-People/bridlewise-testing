@@ -15,13 +15,15 @@
  * change any file but the two it added, so no aggregate is shared at all.
  */
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { ownedFiles } from "../../src/git/repository-ownership.ts";
+import { stageInCopy } from "../../src/git/working-copy.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { harnessRegenerate } from "../../src/workflow/harness-commands.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
@@ -38,7 +40,8 @@ function snapshot(root: string): ReadonlyMap<string, string> {
     const absolute = join(root, path);
     if (statSync(absolute).isFile()) files.set(path, sha256(readFileSync(absolute)));
   }
-  files.delete("engine/traceability/s1-test-inventory.json");
+  // The test inventory is a cache a run writes (its one owner names it), never committed.
+  files.delete(`engine/${VERIFICATION_PATHS.testInventory}`);
   return files;
 }
 
@@ -67,8 +70,9 @@ function addAndRegenerate(branch: Branch): readonly string[] {
   const symbol = branch.name.replaceAll("-", "");
   writeFileSync(join(branch.root, branch.added[0]!), `/** A module added on its own branch. */\nexport function ${symbol}(): number {\n  return 1;\n}\n`);
   writeFileSync(join(branch.root, branch.added[1]!), `import assert from "node:assert/strict";\nimport test from "node:test";\n\nimport { ${symbol} } from "../../src/workflow/${branch.name}.ts";\n\ntest("${branch.name} answers one", () => {\n  assert.equal(${symbol}(), 1);\n});\n`);
-  // The copy's own index holds the new sources, as a commit would (a new test source must be in the index).
-  execFileSync("git", ["add", "-N", "--", ...branch.added], { cwd: branch.root });
+  // The copy's own index holds the new sources, as a commit would (a new test source must be in the index),
+  // staged through the one staging door.
+  stageInCopy(branch.root, branch.added);
   const regenerated = harnessRegenerate(branch.engineRoot, { write: true });
   assert.equal(regenerated.status, "pass", `the regenerate of ${branch.name} converges: ${JSON.stringify(regenerated.result).slice(0, 2000)}`);
   return changed(branch.before, snapshot(branch.root));

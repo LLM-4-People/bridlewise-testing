@@ -17,14 +17,20 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { structureAnswer } from "../../scripts/tooling/s1-verification.ts";
 import { RATCHET_SCHEMA, ratchetGrowthSince } from "../../scripts/verification/ratchet.ts";
 import { ratchetBaseline, syncRatchetBaselines, type RatchetBaselineSpec } from "../../scripts/verification/ratchet-baselines.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
+import { stageInCopy } from "../../src/git/working-copy.ts";
+import { workingTreeReader } from "../../src/git/tree-reader.ts";
+import { loadPromotionProfiles } from "../../src/workflow/promotion/profile.ts";
+import { classifyTree, shippedSources } from "../../src/workflow/promotion/projection.ts";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { declaredTreeKind, PRODUCT_TREE_DECLARATION } from "../../src/workflow/promotion/tree-kind.ts";
 
@@ -60,12 +66,70 @@ test("in every tree but the DECLARED product, a missing baseline is refused — 
   git("update-index", "--no-skip-worktree", "--", PATH);
   git("rm", "-q", "-r", "--cached", "--", "tests");
   assert.equal(syncRatchetBaselines(root, false, [spec]).results[0]!.status, "missing");
-  // The product projection DECLARES itself (the overlay ships TREE-KIND.txt at its root): no gate, and it says so.
+  // A declaration beside any testing-floor fact (here: this gate's own folder and baseline) is a CONTRADICTION: the
+  // tree is judged as the source it is — the gate still runs — and the declaration is refused.
+  writeFileSync(join(root, PATH), document(["debt:a"]));
   writeFileSync(join(root, PRODUCT_TREE_DECLARATION), "product\n");
-  assert.equal(syncRatchetBaselines(root, false, [spec]).results[0]!.status, "not-in-this-tree");
-  // A tree that holds promotion profiles is a source tree: declaring itself the product is refused by name.
-  mkdirSync(join(root, "promotion"), { recursive: true });
-  assert.throws(() => syncRatchetBaselines(root, false, [spec]), (error: unknown) => (error as { code?: unknown }).code === "tree_kind_contradicted");
+  const contradicted = syncRatchetBaselines(root, false, [spec]);
+  assert.equal(contradicted.results[0]!.status, "current", "the gate ran");
+  assert.deepEqual(contradicted.results[0]!.contradiction, ["tests", PATH], "every testing-floor fact present is named");
+  assert.equal(contradicted.allCurrent, false, "the declaration is refused");
+  // Only a tree with the declaration and NONE of the testing floor is the product: no gate, and it says so.
+  rmSync(join(root, "tests"), { recursive: true, force: true });
+  const product = syncRatchetBaselines(root, false, [spec]);
+  assert.equal(product.results[0]!.status, "not-in-this-tree");
+  assert.equal(product.allCurrent, true);
+});
+
+test("the real judge refuses a module on a folder default that does not fit it — and the reviewer's forgery (a declaration plus a deleted promotion/) cannot switch it off: the gate RUNS and refuses", () => {
+  const copy = createRepositoryWorkingCopy("architecture-judge-forgery-");
+  try {
+    writeFileSync(join(copy.root, PRODUCT_TREE_DECLARATION), "product\n");
+    rmSync(join(copy.root, "promotion"), { recursive: true, force: true });
+    // src/workflow/'s default is the runtime realm; this module reaches into the builder realm.
+    writeFileSync(join(copy.engineRoot, "src", "workflow", "zz-forged.ts"), `import { RATCHET_SCHEMA } from "../../scripts/verification/ratchet.ts";\n\n/** A module on a default that does not fit it. */\nexport const forged = RATCHET_SCHEMA;\n`);
+    // The reviewer's README plant: a competing evidence authority in prose is gated too.
+    appendFileSync(join(copy.engineRoot, "src", "filesystem", "README.md"), "\nauthority: timeline\n");
+    stageInCopy(copy.root, ["engine/src/workflow/zz-forged.ts", "engine/src/filesystem/README.md"]);
+    const judged = syncRatchetBaselines(copy.root, false, [ratchetBaseline("architecture-judge")]);
+    const result = judged.results[0]!;
+    assert.notEqual(result.status, "not-in-this-tree", "a testing tree can never read as the product");
+    assert.ok(result.contradiction.includes("tests") && result.contradiction.includes("engine/test"), result.contradiction.join(", "));
+    assert.ok(result.unbaselined.includes("architecture-realm-direction:src/workflow/zz-forged.ts->scripts/verification/ratchet.ts"), result.unbaselined.join(", "));
+    assert.ok(result.unbaselined.includes("evidence-graph-competing-authority:src/filesystem/README.md"), result.unbaselined.join(", "));
+    assert.equal(judged.allCurrent, false);
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
+test("the REAL profile ships TREE-KIND.txt and none of the testing floor, and over that projection the gate reports not-in-this-tree", () => {
+  const repositoryRoot = join(import.meta.dirname, "..", "..", "..");
+  const document = loadPinnedConfigSnapshot().document;
+  const tree = workingTreeReader(repositoryRoot);
+  const profiles = loadPromotionProfiles(tree, document.promotion!.profileDirectory, new Set(Object.keys(document.workspaceIsolation?.commands ?? {})));
+  const product = profiles.find((loaded) => loaded.profile.name === document.promotion?.release?.profile);
+  assert.ok(product !== undefined, "the release profile is loaded (liveness)");
+  const shipped = shippedSources(classifyTree(tree, product.profile));
+  assert.equal(shipped.get(PRODUCT_TREE_DECLARATION), `product-only/${PRODUCT_TREE_DECLARATION}`, "the overlay ships the declaration at the product's root");
+  for (const fact of ["engine/scripts/tooling/s1-verification.ts", VERIFICATION_PATHS.architectureJudgeBaseline]) assert.equal(shipped.has(fact), false, `${fact} ships`);
+  for (const folder of ["tests/", "engine/test/", `${document.promotion!.profileDirectory}/`]) {
+    assert.equal([...shipped.keys()].some((path) => path.startsWith(folder)), false, `${folder} ships`);
+  }
+  // The projection's files the gate reads: the declaration, and none of the testing floor.
+  const projected = createTempDir("product-projection-");
+  writeFileSync(join(projected, PRODUCT_TREE_DECLARATION), readFileSync(join(repositoryRoot, shipped.get(PRODUCT_TREE_DECLARATION)!), "utf8"));
+  const answer = syncRatchetBaselines(projected, false, [ratchetBaseline("architecture-judge")]);
+  assert.equal(answer.results[0]!.status, "not-in-this-tree");
+  assert.equal(answer.allCurrent, true);
+});
+
+test("every finding kind is classified by name: gated, or shown under the check that owns it; a kind nobody classified is reported for refusal", () => {
+  const answer = structureAnswer(["architecture-reverse-layer:a->b", "s2-test-inventory-unavailable", "evidence-graph-competing-authority:x.md", "a-kind-nobody-classified:y"]);
+  assert.deepEqual(answer.structural, ["architecture-reverse-layer:a->b", "evidence-graph-competing-authority:x.md"]);
+  assert.deepEqual(Object.values(answer.shown).flat(), ["s2-test-inventory-unavailable"]);
+  assert.ok(Object.keys(answer.shown).every((owner) => owner.includes("#599") || owner.startsWith("harness check:")), "each shown family names the check that owns it");
+  assert.deepEqual(answer.unclassified, ["a-kind-nobody-classified:y"]);
 });
 
 test("a testing tree whose architecture judge (S1) is deleted is refused, not skipped", () => {
@@ -73,7 +137,7 @@ test("a testing tree whose architecture judge (S1) is deleted is refused, not sk
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
   mkdirSync(join(root, "tests", "prevention"), { recursive: true });
   writeFileSync(join(root, VERIFICATION_PATHS.architectureJudgeBaseline), `${JSON.stringify({ schema: RATCHET_SCHEMA, id: "architecture-judge", entries: [] }, null, 2)}\n`);
-  assert.equal(declaredTreeKind(root, "promotion"), "source", "an undeclared tree is a source tree");
+  assert.equal(declaredTreeKind(root, ["promotion"]).kind, "source", "an undeclared tree is a source tree");
   assert.throws(() => syncRatchetBaselines(root, false, [ratchetBaseline("architecture-judge")]), (error: unknown) => (error as { code?: unknown }).code === "ratchet_instrument_absent");
 });
 
@@ -96,17 +160,3 @@ test("growth against the base is the commit guard's judgement, by id: a grown ba
   assert.throws(() => ratchetGrowthSince(root, "0".repeat(40)), (error: unknown) => (error as { code?: unknown }).code === "ratchet_base_unknown");
 });
 
-test("the real judge refuses a module that takes a folder default which does not fit it", () => {
-  const copy = createRepositoryWorkingCopy("architecture-judge-default-");
-  try {
-    // src/workflow/'s default is the runtime realm; this module reaches into the builder realm.
-    writeFileSync(join(copy.engineRoot, "src", "workflow", "zz-wrong-default.ts"), `import { RATCHET_SCHEMA, ratchetGrowthSince } from "../../scripts/verification/ratchet.ts";\n\n/** A module on a default that does not fit it. */\nexport const planted = RATCHET_SCHEMA;\n`);
-    execFileSync("git", ["add", "-N", "--", "engine/src/workflow/zz-wrong-default.ts"], { cwd: copy.root });
-    const judged = syncRatchetBaselines(copy.root, false, [ratchetBaseline("architecture-judge")]).results[0]!;
-    assert.equal(judged.status, "current", `the copy's baseline matches its judge apart from the plant: ${judged.stale.slice(0, 5).join(", ")}`);
-    assert.ok(judged.unbaselined.includes("architecture-realm-direction:src/workflow/zz-wrong-default.ts->scripts/verification/ratchet.ts"),
-      `the silent default is new debt: ${judged.unbaselined.join(", ")}`);
-  } finally {
-    removeRepositoryLocalTemporaryDirectory(copy.root);
-  }
-});

@@ -801,6 +801,13 @@
           ]
         },
         {
+          "name": "adding-modules-merges",
+          "measuredCpuMs": 117097,
+          "files": [
+            "engine/test/prevention/adding-modules-merges.test.ts"
+          ]
+        },
+        {
           "name": "architecture-baseline-clean",
           "measuredCpuMs": 60041,
           "files": [

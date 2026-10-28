@@ -164,7 +164,10 @@ function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFind
   }
   const answer = spawnSync(process.execPath, [instrument, "--root", ".", "--structure"], { cwd: join(repositoryRoot, "engine"), encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
   if (answer.status !== 0) throw new InputError(`the architecture judge did not answer (exit ${String(answer.status)}): ${(answer.stderr ?? "").slice(0, 2000)}`, "ratchet_instrument_failed");
-  const { structural, shown } = JSON.parse(answer.stdout) as { structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>> };
+  const { structural, shown, unclassified } = JSON.parse(answer.stdout) as { structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>>; unclassified: readonly string[] };
+  if (unclassified.length > 0) {
+    throw new InputError(`the architecture judge reported findings of a kind nobody classified (gated, or owned by a named check: s1-verification.ts): ${unclassified.join("; ")}`, "s1_finding_unclassified");
+  }
   architectureJudgeShown = shown;
   return structural.map((violation) => ({ key: violation, where: violation.slice(violation.indexOf(":") + 1) }));
 }
@@ -254,6 +257,8 @@ export type RatchetBaselineResult = Readonly<{
   grown: readonly string[];
   /** Findings the guard reports but does not gate, by family (shown by `harness check`). */
   shown: Readonly<Record<string, readonly string[]>>;
+  /** The testing-floor facts beside a product declaration (`TREE-KIND.txt`): non-empty is a refusal; the gate still runs. */
+  contradiction: readonly string[];
 }>;
 
 /**
@@ -270,10 +275,13 @@ export function syncRatchetBaselines(
   const growth = grownSince === undefined ? new Map<string, readonly string[]>() : new Map(ratchetGrowthSince(repositoryRoot, grownSince).map((entry) => [entry.id, entry.grown] as const));
   const results = baselines.map((spec): RatchetBaselineResult => {
     const grown = growth.get(spec.id) ?? [];
-    const empty = { stale: [], unbaselined: [], grown, shown: {} } as const;
-    if (spec.testingFloor === true && declaredTreeKind(repositoryRoot, configuredProfileDirectory()) === "product") {
-      return Object.freeze({ id: spec.id, path: spec.path, status: "not-in-this-tree", ...empty });
-    }
+    // The tree's declared kind, for a testing-floor gate: the product only with the declaration and NONE of
+    // the testing floor's facts (this gate's instrument and baseline, the test trees, the promotion profiles).
+    const tree = spec.testingFloor === true
+      ? declaredTreeKind(repositoryRoot, [ARCHITECTURE_JUDGE_INSTRUMENT, "tests", "engine/test", spec.path, configuredProfileDirectory()])
+      : { kind: "source" as const, contradiction: [] };
+    const empty = { stale: [], unbaselined: [], grown, shown: {}, contradiction: tree.contradiction } as const;
+    if (tree.kind === "product") return Object.freeze({ id: spec.id, path: spec.path, status: "not-in-this-tree", ...empty });
     const absolute = resolve(repositoryRoot, spec.path);
     if (!existsSync(absolute)) return Object.freeze({ id: spec.id, path: spec.path, status: spec.testingFloor === true ? "missing" : "absent", ...empty });
     const baseline = parseRatchetBaseline(readFileSync(absolute, "utf8"), spec.path);
@@ -289,9 +297,13 @@ export function syncRatchetBaselines(
       unbaselined: verdict.unbaselined,
       grown,
       shown: spec.id === "architecture-judge" ? architectureJudgeShown : {},
+      contradiction: tree.contradiction,
     });
   });
-  return Object.freeze({ allCurrent: results.every((result) => result.status !== "stale" && result.status !== "missing" && result.status !== "grown"), results: Object.freeze(results) });
+  return Object.freeze({
+    allCurrent: results.every((result) => result.status !== "stale" && result.status !== "missing" && result.status !== "grown" && result.contradiction.length === 0),
+    results: Object.freeze(results),
+  });
 }
 
 /**

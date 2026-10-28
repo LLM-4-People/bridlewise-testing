@@ -145,6 +145,15 @@ jobs:
         working-directory: engine
         run: node src/cli.ts harness sync --with-bundle
 
+      # The product projection declares itself (TREE-KIND.txt, shipped by the
+      # promotion overlay); the testing repository never carries the declaration.
+      - name: The testing repository never declares itself the product
+        run: |
+          if [ -e TREE-KIND.txt ]; then
+            echo "::error::TREE-KIND.txt declares the product projection; it ships only from product-only/ (engine/src/workflow/promotion/tree-kind.ts)"
+            exit 1
+          fi
+
       # A ratchet only shrinks, judged against the base the change lands on (the
       # local hook judges against HEAD; this is the server's half). On a push
       # to main there is no base to land on, and nothing to judge.

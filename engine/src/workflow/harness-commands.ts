@@ -306,7 +306,7 @@ export type CommunityFilesArm = Readonly<{
 export type RatchetBaselinesArm = Readonly<{
   status: "current" | "regenerated";
   converged: boolean;
-  results: readonly Readonly<{ id: string; path: string; status: string; stale: readonly string[]; unbaselined: readonly string[]; shown?: Readonly<Record<string, readonly string[]>> }>[];
+  results: readonly Readonly<{ id: string; path: string; status: string; stale: readonly string[]; unbaselined: readonly string[]; shown?: Readonly<Record<string, readonly string[]>>; contradiction?: readonly string[] }>[];
 }>;
 
 export type HarnessSyncStepSummary = Readonly<{
@@ -358,6 +358,7 @@ export function ratchetBaselinesStep(ratchetBaselines: RatchetBaselinesArm): Che
     status: ratchetBaselines.converged && newDebt.length === 0 ? "pass" : "fail",
     message: [
       ...(ratchetBaselines.results.length === 0 && !ratchetBaselines.converged ? ["the ratchet judge did not answer (see its details)"] : []),
+      ...ratchetBaselines.results.filter((result) => (result.contradiction ?? []).length > 0).map((result) => `this tree declares itself the product (TREE-KIND.txt) yet holds the testing floor (${(result.contradiction ?? []).join(", ")}): the declaration is refused, and the ${result.id} gate runs`),
       ...ratchetBaselines.results.filter((result) => result.status === "missing").map((result) => `${result.path} is missing: this tree carries its folder, so the ${result.id} gate would be off — restore it (a baseline is never deleted to pass)`),
       ...(ratchetBaselines.results.some((result) => result.stale.length > 0) ? [`ratchet baselines hold debt that fell (run harness sync to prune): ${ratchetBaselines.results.flatMap((result) => result.stale.map((key) => `${result.path}: ${key}`)).join("; ")}`] : []),
       ...(newDebt.length === 0 ? [] : [`new debt no ratchet baseline accepts (fix each site; a baseline never takes a new entry): ${newDebt.join("; ")}`]),
@@ -1218,7 +1219,7 @@ export function regenerateRatchetBaselines(root: string, write: boolean): Ratche
   return deepFreeze({
     status: parsed.results.some((result) => result.status === "pruned") ? "regenerated" : "current",
     converged: answer.ok && parsed.allCurrent,
-    results: parsed.results.map(({ id, path, status, stale, unbaselined, shown }) => ({ id, path, status, stale, unbaselined, shown: shown ?? {} })),
+    results: parsed.results.map(({ id, path, status, stale, unbaselined, shown, contradiction }) => ({ id, path, status, stale, unbaselined, shown: shown ?? {}, contradiction: contradiction ?? [] })),
   });
 }
 
