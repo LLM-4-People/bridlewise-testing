@@ -1,4 +1,3 @@
-import { constants as osConstants } from "node:os";
 import { fileURLToPath } from "node:url";
 import { handleError } from "../shared/debug/debug-system.ts";
 
@@ -57,26 +56,6 @@ export class ConfigWriteLockTimeout extends HarnessError {
   ) {
     super(message, "config_write_lock_timeout", true, safeDetails);
   }
-}
-
-/**
- * A wait for the one instrument lock ended by a signal
- * (`instrument_lock_wait_interrupted`): the door exits 128 + its number,
- * holding nothing. Here, at the bottom of the import graph, so the CLI maps it
- * to its exit code by type without loading the lock's module (design LOW 14).
- */
-export class InstrumentLockWaitInterrupted extends HarnessError {
-  readonly signal: NodeJS.Signals;
-  constructor(runner: string, signal: NodeJS.Signals) {
-    super(`${runner} stopped waiting for the one instrument lock: ${signal} received (nothing was taken)`, "instrument_lock_wait_interrupted");
-    this.name = "InstrumentLockWaitInterrupted";
-    this.signal = signal;
-  }
-}
-
-/** The exit code of a door whose wait a signal ended (128 + the signal's number, the shell's convention), or `undefined` for any other error. */
-export function interruptedWaitExitCode(error: unknown): number | undefined {
-  return error instanceof InstrumentLockWaitInterrupted ? 128 + osConstants.signals[error.signal] : undefined;
 }
 
 /**

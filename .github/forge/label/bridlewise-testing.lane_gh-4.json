@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "lane:gh-4",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "lane:gh-4",
+    "color": "5319e7",
+    "description": "Work of the GH-4 writer lane"
+  }
+}

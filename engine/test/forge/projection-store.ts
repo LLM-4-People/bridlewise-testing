@@ -1,7 +1,7 @@
 /**
  * AN IN-MEMORY PROJECTION STORE (src/workflow/forge/projector/store.ts) for
  * the projector's tests: it keeps each object's git-owned fields, counts the
- * writes, and plays GitHub's failure modes on demand — a field it silently
+ * writes and the notices it posts, and plays GitHub's failure modes on demand — a field it silently
  * does not keep (V-28), a refusal at the n-th write, an edit made by someone
  * else (V-27).
  */
@@ -20,17 +20,22 @@ export type MemoryStore = Readonly<{
   store: ProjectionStore;
   /** Every write the store received, in order. */
   writes: () => readonly ProjectionWrite[];
+  /** Every notice posted (an issue comment), in order: `<class>/<key>: <text>`. */
+  notices: () => readonly string[];
   /** The live object, or undefined. */
   get: (klass: ProjectionClass, key: string) => LiveObject | undefined;
   /** An edit by someone else: set `fields` directly (V-27). */
   edit: (klass: ProjectionClass, key: string, fields: Fields) => void;
   /** An object someone else created (`owned`: whether it carries the projector's marker or namespace). */
   put: (object: LiveObject) => void;
+  /** An object someone deleted on GitHub. */
+  remove: (klass: ProjectionClass, key: string) => void;
 }>;
 
 export function memoryStore(options: MemoryStoreOptions = {}): MemoryStore {
   const objects = new Map<string, LiveObject>();
   const received: ProjectionWrite[] = [];
+  const posted: string[] = [];
   const kept = (klass: ProjectionClass, fields: Fields): Fields => Object.fromEntries(Object.entries(fields)
     .filter(([field]) => FIELD_PHASES[klass][field] !== undefined && !(options.drops ?? []).includes(`${klass}.${field}`)));
   const copy = (value: Json): Json => JSON.parse(JSON.stringify(value)) as Json;
@@ -42,6 +47,11 @@ export function memoryStore(options: MemoryStoreOptions = {}): MemoryStore {
       if (options.refuseAt?.write === index) throw options.refuseAt.error;
       const id = `${write.class}/${write.key}`;
       const current = objects.get(id);
+      if (write.kind === "notice") {
+        if (current === undefined) throw new HarnessError(`${id} does not exist`, "memory_store_missing");
+        posted.push(`${id}: ${String(write.fields.text)}`);
+        return;
+      }
       if (write.kind === "create") {
         if (current !== undefined) throw new HarnessError(`${id} already exists`, "memory_store_conflict");
         objects.set(id, { class: write.class, key: write.key, fields: { ...BORN_FIELDS[write.class], ...kept(write.class, write.fields) }, owned: true });
@@ -54,6 +64,7 @@ export function memoryStore(options: MemoryStoreOptions = {}): MemoryStore {
   return {
     store,
     writes: () => [...received],
+    notices: () => [...posted],
     get: (klass, key) => objects.get(`${klass}/${key}`),
     edit: (klass, key, fields) => {
       const current = objects.get(`${klass}/${key}`);
@@ -61,5 +72,6 @@ export function memoryStore(options: MemoryStoreOptions = {}): MemoryStore {
       objects.set(`${klass}/${key}`, { ...current, fields: { ...current.fields, ...fields } });
     },
     put: (object) => { objects.set(`${object.class}/${object.key}`, object); },
+    remove: (klass, key) => { objects.delete(`${klass}/${key}`); },
   };
 }

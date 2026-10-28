@@ -340,7 +340,7 @@ test("SECURITY (planted): a commit merged into the source branch from a side bra
   assert.equal(verifyTarget(repository, { verb: "verify", commit: productCommitFrom(fixture, built, fixture.tip(SOURCE)) }).context.source, fixture.tip(SOURCE));
 });
 
-test("SECURITY (planted): the source branch is trusted only as its remote published it — a local branch ahead of the fetched one, or a profile with no remote, is refused", async () => {
+test("SECURITY (planted): the source branch is trusted only as its remote publishes it now — a local branch ahead or behind, a forged tracking ref, an unreachable remote, or no remote at all is refused", async () => {
   const fixture = landing("publish-verify-unconfirmed", {}, { remote: true });
   fixture.publish(SOURCE);
   const built = await builtByTheFixture(fixture);
@@ -349,7 +349,18 @@ test("SECURITY (planted): the source branch is trusted only as its remote publis
   // A local commit on the source branch that was never published.
   fixture.commit(SOURCE, { "product/lib/helper.ts": "export const helper = 9;\n" }, "local only");
   const unconfirmed = await refusedWith("promotion_verify_source_unconfirmed", async () => verifyTarget(repository, { verb: "verify", commit: productCommitFrom(fixture, built, fixture.tip(SOURCE)) }));
-  assert.deepEqual([unconfirmed.facts["local"], unconfirmed.facts["published"]], [fixture.tip(SOURCE), fixture.git(["rev-parse", `refs/remotes/origin/${SOURCE}`])]);
+  assert.deepEqual([unconfirmed.facts["local"], unconfirmed.facts["published"]], [fixture.tip(SOURCE), fixture.remoteGit(["rev-parse", `refs/heads/${SOURCE}`])]);
+  // The remote moves on while this repository's tracking ref is made to agree with local: the remote itself is read, never the tracking ref.
+  const local_ = fixture.tip(SOURCE);
+  fixture.publish(SOURCE);
+  const ahead = fixture.git(["commit-tree", fixture.git(["rev-parse", `${local_}^{tree}`]), "-p", local_, "-m", "published elsewhere"]);
+  fixture.git(["push", "-q", "origin", `${ahead}:refs/heads/${SOURCE}`]);
+  fixture.git(["update-ref", `refs/remotes/origin/${SOURCE}`, local_]);
+  const stale = await refusedWith("promotion_verify_source_unconfirmed", async () => verifyTarget(repository, { verb: "verify", commit: productCommitFrom(fixture, built, local_) }));
+  assert.deepEqual([stale.facts["local"], stale.facts["published"]], [local_, ahead], "what the remote publishes, not the forged tracking ref");
+  // An unreachable remote is a typed refusal, never a fallback to the local copy.
+  fixture.git(["remote", "set-url", "origin", join(createTempDir("publish-verify-gone-"), "no-such-remote.git")]);
+  await refusedWith("promotion_verify_remote_unreachable", async () => verifyTarget(repository, { verb: "verify", commit: productCommitFrom(fixture, built, local_) }));
   // A profile that names no remote has nothing to confirm against.
   const local = landing("publish-verify-no-remote");
   const localBuilt = await builtByTheFixture(local);
