@@ -129,6 +129,25 @@ test("enqueue: GraphQL enqueuePullRequest with expectedHeadOid, the enqueued hea
   await assert.rejects(() => forge.enqueue(7, { expectedHeadSha: SHA("a") }), (error: unknown) => isForgeError(error, "github_response_invalid"));
 });
 
+test("the merge queue: ONE GraphQL read of the branch's queue, in GitHub's own positions, each head fetched from refs/pull/<n>/head; an empty or absent queue is none; a malformed answer is the forge's error", async () => {
+  const fake = fakeGithub();
+  let answer: unknown = { data: { repository: { mergeQueue: { entries: { nodes: [
+    { position: 2, pullRequest: { number: 9, headRefOid: SHA("b") } },
+    { position: 1, pullRequest: { number: 8, headRefOid: SHA("c") } },
+  ] } } } } };
+  const graphql = graphqlRoutes(fake, { "mergeQueue(branch: $branch)": () => answer });
+  const forge = forgeOn(fake);
+  assert.deepEqual(await forge.mergeQueue("main"), [
+    { number: 8, headSha: SHA("c"), fetchRef: "refs/pull/8/head" },
+    { number: 9, headSha: SHA("b"), fetchRef: "refs/pull/9/head" },
+  ], "queue order is GitHub's positions, not the answer's order");
+  assert.deepEqual(graphql.at(-1)!.variables, { owner: "o", name: "r", branch: "main" });
+  answer = { data: { repository: { mergeQueue: null } } };
+  assert.deepEqual(await forge.mergeQueue("main"), [], "a branch with no queue has none queued");
+  answer = { data: { repository: { mergeQueue: { entries: { nodes: [{ position: 1, pullRequest: null }] } } } } };
+  await assert.rejects(() => forge.mergeQueue("main"), (error: unknown) => isForgeError(error, "github_response_invalid"));
+});
+
 test("the pull request: opened as a draft, regenerated, readied and drafted by node id, closed with its comment", async () => {
   const fake = fakeGithub();
   fake.route("POST", /^\/repos\/o\/r\/pulls$/u, () => ({ status: 201, body: { number: 7 } }));

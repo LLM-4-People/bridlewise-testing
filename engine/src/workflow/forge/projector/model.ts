@@ -139,10 +139,31 @@ export type ProjectionInput = Readonly<{
   }>[];
 }>;
 
+/** The marker's parts: `<!-- bridlewise:item=<key> digest=<sha256> -->`. */
+const MARKER_OPEN = "<!-- bridlewise:item=";
+const MARKER_DIGEST = " digest=";
+const MARKER_CLOSE = " -->";
+const DIGEST = /^[0-9a-f]{64}$/u;
+
 /** The projector's marker opening an item's generated block; `digest` is filled in by the host (the confined program imports no hash). */
 export function itemMarker(id: string, digest: string): string {
-  return `<!-- bridlewise:item=${id} digest=${digest} -->`;
+  return `${MARKER_OPEN}${id}${MARKER_DIGEST}${digest}${MARKER_CLOSE}`;
 }
+
+/** Where the first well-formed {@link itemMarker} in `text` begins and the key it names, or `null` when there is none. */
+export function findItemMarker(text: string): Readonly<{ index: number; key: string }> | null {
+  for (let index = text.indexOf(MARKER_OPEN); index >= 0; index = text.indexOf(MARKER_OPEN, index + 1)) {
+    const start = index + MARKER_OPEN.length;
+    const digestAt = text.indexOf(MARKER_DIGEST, start);
+    const closeAt = text.indexOf(MARKER_CLOSE, start);
+    if (digestAt < 0 || closeAt < 0 || closeAt < digestAt) continue;
+    const key = text.slice(start, digestAt);
+    if (key === "" || /\s/u.test(key) || !DIGEST.test(text.slice(digestAt + MARKER_DIGEST.length, closeAt))) continue;
+    return { index, key };
+  }
+  return null;
+}
+
 /** GitHub's limit on an issue body, in characters: a projected body is kept under it. */
 export const ISSUE_BODY_LIMIT = 65_536;
 

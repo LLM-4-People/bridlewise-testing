@@ -37,7 +37,7 @@ import { appInstallationCredential } from "./forge/credentials.ts";
 import { forgeEndpoint, trunkRepository } from "./forge/forge-config.ts";
 import type { ForgeClient } from "./forge/port.ts";
 import { repositoryPath } from "./forge/repository-reads.ts";
-import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeTreeEntry, WorkspaceForge, WorkspaceForgeFactory } from "./workspace-forge.ts";
+import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeQueueEntry, ForgeTreeEntry, WorkspaceForge, WorkspaceForgeFactory } from "./workspace-forge.ts";
 
 /** The repository the forge serves, `owner/name`. */
 export type GithubWorkspaceRepository = Readonly<{ owner: string; name: string }>;
@@ -46,6 +46,13 @@ export type GithubWorkspaceRepository = Readonly<{ owner: string; name: string }
 const PULL_REQUEST_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) { id number url headRefOid baseRefName isDraft state merged mergeCommit { oid } isInMergeQueue }
+  }
+}`;
+
+/** The merge queue of one branch, in queue order (GitHub's own positions). */
+const MERGE_QUEUE_QUERY = `query($owner: String!, $name: String!, $branch: String!) {
+  repository(owner: $owner, name: $name) {
+    mergeQueue(branch: $branch) { entries(first: 100) { nodes { position pullRequest { number headRefOid } } } }
   }
 }`;
 
@@ -185,6 +192,20 @@ export function githubWorkspaceForge(client: ForgeClient, repository: GithubWork
         if (isForgeError(error, "github_validation_failed", "github_conflict", "github_precondition_failed")) return Object.freeze({ kind: "refused", message: error.message });
         throw error;
       }
+    },
+    async mergeQueue(branch: string): Promise<readonly ForgeQueueEntry[]> {
+      const data = await client.graphql<{ repository?: { mergeQueue?: { entries?: { nodes?: unknown } } | null } | null }>(MERGE_QUEUE_QUERY, { owner: repository.owner, name: repository.name, branch });
+      const nodes = data.repository?.mergeQueue?.entries?.nodes ?? [];
+      if (!Array.isArray(nodes)) invalid("mergeQueue.entries");
+      return Object.freeze((nodes as { position?: unknown; pullRequest?: { number?: unknown; headRefOid?: unknown } | null }[])
+        .map((node) => {
+          const number = node.pullRequest?.number;
+          if (typeof number !== "number" || typeof node.position !== "number") invalid("mergeQueue.entries.nodes");
+          // A queued head is fetched from GitHub's own pull-request ref: a fork's head too.
+          return { position: node.position as number, entry: Object.freeze({ number, headSha: text(node.pullRequest?.headRefOid, "mergeQueue.headRefOid"), fetchRef: `refs/pull/${String(number)}/head` }) };
+        })
+        .toSorted((left, right) => left.position - right.position)
+        .map(({ entry }) => entry));
     },
   });
 }
