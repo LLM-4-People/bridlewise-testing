@@ -6,6 +6,7 @@
     "workflows": [
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
+      ".github/workflows/commit-records.yml",
       ".github/workflows/dependency-review.yml",
       ".github/workflows/docs-links.yml",
       ".github/workflows/forge-apps-audit.yml",
@@ -43,6 +44,7 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/forge-apps-audit.yml",
@@ -62,6 +64,7 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
@@ -236,6 +239,7 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/forge-apps-audit.yml",
@@ -270,6 +274,7 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",

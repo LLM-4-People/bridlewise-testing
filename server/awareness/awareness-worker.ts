@@ -19,7 +19,7 @@
  * Built-in `node:worker_threads` — no new runtime dependency.
  */
 
-import { parentPort, workerData } from "node:worker_threads";
+import { workerData } from "node:worker_threads";
 import { createAwarenessEngine } from "../../engine/src/awareness/engine.ts";
 import { configureAwareness } from "../../engine/src/awareness/config.ts";
 // TYPE-ONLY: erased at compile time, so the worker still evaluates only the
@@ -30,7 +30,7 @@ import type { AwarenessSnapshot } from "../kernel/canonical.ts";
 // project's own `.git/config` names — so running it from this unconfined
 // process was an escape, measured end to end. See `runGitConfined`.
 import { runGitConfined } from "../intelligence/git-bridge.ts";
-import { postWorkerResult } from "../run/worker-ipc.ts";
+import { postWorkerResult, requireWorkerThread } from "../run/worker-ipc.ts";
 
 type WorkerInput = Readonly<{ projectPath: string }>;
 type WorkerOk = Readonly<{ ok: true; snapshot: AwarenessSnapshot }>;
@@ -43,9 +43,7 @@ type WorkerResult = WorkerOk | WorkerErr;
 // The `satisfies WorkerResult` checks keep the payload type aliases used
 // (noUnusedLocals) + type-check the posted shape.
 
-if (parentPort === null) {
-  process.exit(1);
-}
+requireWorkerThread();
 
 const input = workerData as WorkerInput | undefined;
 if (input === undefined || typeof input.projectPath !== "string" || input.projectPath.length === 0) {

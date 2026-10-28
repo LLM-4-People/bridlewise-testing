@@ -51,13 +51,23 @@ export function appJwtCredential(custody: AppKeyCustody, role: ForgeAppRole): Fo
   });
 }
 
+/**
+ * THE FORGE'S ONE READ of a value handed to the process in its environment
+ * (a token, an App's key or client id): read at each use and held nowhere.
+ * A blank value is no value.
+ */
+export function handedValue(variable: string): string | undefined {
+  const value = process.env[variable];
+  return value === undefined || value.trim() === "" ? undefined : value;
+}
+
 /** A token handed to the process in `variable`, read at call time. */
 export function environmentCredential(principal: string, variable: string): ForgeCredential {
   return Object.freeze({
     principal,
     authorization: async () => {
-      const token = process.env[variable];
-      if (token === undefined || token.trim() === "") throw new ForgeError("forge_token_unavailable", `The environment variable ${variable} holds no token.`, { variable, principal });
+      const token = handedValue(variable);
+      if (token === undefined) throw new ForgeError("forge_token_unavailable", `The environment variable ${variable} holds no token.`, { variable, principal });
       return `Bearer ${token.trim()}`;
     },
   });

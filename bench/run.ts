@@ -88,7 +88,8 @@ function main(): void {
         .map((k) => `${k} (${SCALE_PROFILES[k]!.description})`)
         .join("; ")}`,
     );
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const before = snapshotMachine();
@@ -155,7 +156,8 @@ function main(): void {
 
   console.log(`\nreports in ${BENCH_OUT_DIR}`);
   console.log("═".repeat(78));
-  process.exit(failures.length > 0 ? 1 : 0);
+  // The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
+  process.exitCode = failures.length > 0 ? 1 : 0;
 }
 
 main();

@@ -28,7 +28,6 @@ const DEFAULT_ENABLED_CHECKS: readonly string[] = [
   "duplicate-body-detector",
   "duplicated-literals",
   "dead-exports",
-  "schema-drift",
 ];
 
 /** Per-process quality state. */

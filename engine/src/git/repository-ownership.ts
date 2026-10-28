@@ -82,25 +82,6 @@ export function directoryGitEnvironment(base: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
- * THE GIT IDENTITY a commit made at `directory` would carry, as git resolves
- * it there — the repository's, the user's global or the system's
- * `user.name`/`user.email` — or `null` when git has none (it would refuse the
- * commit). The one reader: a copy that commits as its source (the candidate
- * checkout) and the workspace integrator, whose pinned git reads the
- * repository's own config only (its global config is `/dev/null`), so the
- * identity is resolved here once and handed to it (A5-design L8).
- */
-export function configuredGitIdentity(directory: string): Readonly<{ name: string; email: string }> | null {
-  const read = (key: string): string | null => {
-    const answer = spawnSync("git", ["config", "--get", key], { cwd: directory, env: directoryGitEnvironment(), encoding: "utf8" });
-    return answer.status === 0 && answer.stdout.trim().length > 0 ? answer.stdout.trim() : null;
-  };
-  const name = read("user.name");
-  const email = read("user.email");
-  return name === null || email === null ? null : Object.freeze({ name, email });
-}
-
-/**
  * Whether git accepts `ref` as a ref name (`git check-ref-format`, the one
  * authority on ref syntax: a name ending in git's lock suffix, `a..b` or `x.`
  * pass a character class and fail git's own rules). A question about the name alone, so no repository

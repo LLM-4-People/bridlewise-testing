@@ -258,12 +258,15 @@ async function main(): Promise<void> {
   const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../engine/", import.meta.url)));
   if (keptOut !== undefined) {
     process.stderr.write(`[run-tests] REFUSED (temporary_root_kept_out) — ${keptOut}\n`);
-    process.exit(1);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
+    process.exitCode = 1;
+    return;
   }
   const watchdog = readWebSuiteWatchdog();
   if ("missing" in watchdog) {
     process.stderr.write(`[run-tests] ${watchdog.missing}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const strays = strayVitest();
   if (strays.length > 0) {
@@ -298,16 +301,20 @@ async function main(): Promise<void> {
   if (runForInvocation(history, invocationId) !== undefined) {
     if (tree === null || readMeasuredTree(projectDir) !== tree) {
       process.stderr.write("[run-tests] current qualification tree changed or is unreadable\n");
-      process.exit(1);
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
     }
     try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, run.terminal, run.ending)); }
     catch {
       process.stderr.write("[run-tests] current qualification finalization refused\n");
-      process.exit(1);
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
     }
   }
   instrumentLock.release();
-  process.exit(completion.kind === "pass" ? run.exitCode : 1);
+  process.exitCode = completion.kind === "pass" ? run.exitCode : 1;
 }
 
 // Only run when invoked as a script, so the tests above can import the

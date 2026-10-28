@@ -6,7 +6,6 @@ import {
   deadBranchCheck,
   deadSymbolCheck,
   duplicateLogicCheck,
-  schemaDriftCheck,
   syntaxCheck,
   typeCheck,
   undefinedSymbolCheck,
@@ -29,8 +28,8 @@ test("ts-pack: pack has version", () => {
   assert.ok(typescriptPack.version.length > 0);
 });
 
-test("ts-pack: pack has 12 checks", () => {
-  assert.equal(typescriptPack.checks.length, 12);
+test("ts-pack: pack has 11 checks", () => {
+  assert.equal(typescriptPack.checks.length, 11);
 });
 
 test("ts-pack: all check ids are unique", () => {
@@ -310,28 +309,6 @@ test("ts-pack duplicate: same name different kind not flagged", () => {
   assert.equal(diags.length, 0);
 });
 
-// ========== Schema drift check tests ==========
-
-test("ts-pack schema-drift: no manifest produces no diagnostics", () => {
-  const ctx = makeQualityContext({ "test.ts": "function f(): number { return 1; }\n" });
-  const diags = schemaDriftCheck.run(ctx);
-  assert.equal(diags.length, 0);
-});
-
-test("ts-pack schema-drift: manifest with matching exports produces no diagnostics", () => {
-  const manifestSource = `export const MANIFEST = {
-  modules: [
-    { id: "test-mod", path: "src/test-mod.ts", publicApi: { exportCount: 1, namesSha256: "abc" } },
-  ],
-};\n`;
-  const ctx = makeQualityContext({
-    "src/architecture-manifest.ts": manifestSource,
-    "src/test-mod.ts": "export function foo(): void {}\n",
-  });
-  const diags = schemaDriftCheck.run(ctx);
-  assert.equal(diags.length, 0);
-});
-
 // ========== Config outside contract check tests ==========
 
 test("ts-pack config: clean file without hardcoded values produces no diagnostics", () => {
@@ -408,11 +385,6 @@ test("ts-pack: dead branch check has correct metadata", () => {
 test("ts-pack: duplicate logic check has correct metadata", () => {
   assert.equal(duplicateLogicCheck.id, "duplicate-logic");
   assert.equal(duplicateLogicCheck.category, "duplicate-logic");
-});
-
-test("ts-pack: schema drift check has correct metadata", () => {
-  assert.equal(schemaDriftCheck.id, "schema-drift");
-  assert.equal(schemaDriftCheck.category, "schema-drift");
 });
 
 test("ts-pack: config check has correct metadata", () => {
@@ -492,7 +464,6 @@ test("ts-pack: empty files produce no diagnostics for any check", () => {
   assert.equal(unusedExportCheck.run(ctx).length, 0);
   assert.equal(deadBranchCheck.run(ctx).length, 0);
   assert.equal(duplicateLogicCheck.run(ctx).length, 0);
-  assert.equal(schemaDriftCheck.run(ctx).length, 0);
   assert.equal(configOutsideContractCheck.run(ctx).length, 0);
 });
 

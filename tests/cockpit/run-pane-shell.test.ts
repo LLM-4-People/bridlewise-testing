@@ -35,6 +35,7 @@ import { RUN_PANE_DOCK_MIN_PX } from "../../src/cockpit/shell/config.ts";
 import { applyUiControlAction } from "../../src/state/ui-control.ts";
 import { clearCache } from "../../src/data/broker.ts";
 import type { AgentState } from "../../shared/types.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 let captureRead: () => Promise<Response>;
@@ -62,13 +63,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 function pressRunChord(): void {
   window.dispatchEvent(
@@ -137,7 +131,7 @@ describe("the single right menu in the mounted shell", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
     setProjects([{ id: "p", name: "Project", path: "/test/project", createdAt: "t", updatedAt: "t" }]);
     currentProjectId.set("p");
     setChats(["a", "b"].map(id => ({ id, projectId: "p", title: "Conversation " + id, createdAt: "t", updatedAt: "t", modelId: null, pinned: false })));
@@ -173,13 +167,13 @@ describe("the single right menu in the mounted shell", () => {
 
   test("every declared group has a titled mouse path and one real selected body", async () => {
     openRightMenu("run");
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     for (const [id, group] of Object.entries(RIGHT_MENU_GROUPS)) {
       const button = groupCap(id)!;
       expect(button.getAttribute("data-chord-target")).toBe(group.chord);
       expect(button.title.length).toBeGreaterThan(0);
       button.click();
-      await waitFor(() => button.getAttribute("aria-selected") === "true");
+      await until(() => button.getAttribute("aria-selected") === "true");
       expect(rightMenu.get()).toBe(id);
       expect(host.querySelectorAll('aside.right-menu')).toHaveLength(1);
       expect(host.querySelectorAll('.section-tab[aria-selected="true"]')).toHaveLength(1);
@@ -188,10 +182,10 @@ describe("the single right menu in the mounted shell", () => {
 
   test("the same presentation decision leaves a wide Editor reachable and contains a compact overlay", async () => {
     requestShellView({ kind: "room", id: "editor" });
-    await waitFor(() => host.querySelector('[data-room-active="true"]') !== null);
+    await until(() => host.querySelector('[data-room-active="true"]') !== null);
     mediaChanges.get(`(min-width: ${RUN_PANE_DOCK_MIN_PX}px)`)?.({ matches: true });
     openRightMenu("run");
-    await waitFor(() => menuEl()?.getAttribute("data-presentation") === "room-docked");
+    await until(() => menuEl()?.getAttribute("data-presentation") === "room-docked");
     const first = host.querySelector<HTMLButtonElement>('[data-verb-id="right-menu.files"]')!;
     first.focus();
     const wideTab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
@@ -201,7 +195,7 @@ describe("the single right menu in the mounted shell", () => {
     expect(menuEl()?.getAttribute("role")).toBe("complementary");
     expect((host.querySelector('[data-room-active="true"]') as HTMLElement).inert).toBe(false);
     mediaChanges.get(`(min-width: ${RUN_PANE_DOCK_MIN_PX}px)`)?.({ matches: false });
-    await waitFor(() => menuEl()?.getAttribute("data-presentation") === "overlay");
+    await until(() => menuEl()?.getAttribute("data-presentation") === "overlay");
     expect(menuEl()?.getAttribute("aria-modal")).toBe("true");
     expect((host.querySelector('[data-room-active="true"]') as HTMLElement).inert).toBe(true);
     first.focus();
@@ -216,22 +210,22 @@ describe("the single right menu in the mounted shell", () => {
     expect(forwardTab.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(first);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await waitFor(() => menuEl() === null);
+    await until(() => menuEl() === null);
     expect(host.querySelector('[data-room-active="true"]')).not.toBeNull();
   });
 
   test("the chord toggles the single menu open and closed, landing at the run group", async () => {
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     expect(rightMenu.get()).toBe("run");
     pressRunChord();
-    await waitFor(() => menuEl() === null);
+    await until(() => menuEl() === null);
     expect(rightMenu.get()).toBeNull();
   });
 
   test("the single menu declares itself ONE complementary landmark named for both halves", async () => {
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     const aside = menuEl()!;
     expect(aside.getAttribute("aria-label")).toBe("workspace inspector");
     // ONE aside for the one column — the groups are named caps inside it,
@@ -242,7 +236,7 @@ describe("the single right menu in the mounted shell", () => {
 
   test("one column exposes both tabs and mounts only the selected body's sections", async () => {
     pressRunChord();
-    await waitFor(() => host.querySelector('[data-disclosure="run-sec-progress"]') !== null);
+    await until(() => host.querySelector('[data-disclosure="run-sec-progress"]') !== null);
     expect(groupCap("run")!.getAttribute("aria-selected")).toBe("true");
     expect(groupCap("arm")!.getAttribute("aria-selected")).toBe("false");
     expect(groupCap("run")!.getAttribute("aria-controls")).toBe("inspector-body");
@@ -254,7 +248,7 @@ describe("the single right menu in the mounted shell", () => {
     // `run`; the arm chord's own control is the arm group's cap inside the
     // open menu — a real, titled, floor-cleared button the guard can read.
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     const railButtons = host.querySelectorAll<HTMLButtonElement>('.side-rail [data-chord-target]');
     expect(railButtons.length, "the rail holds ONE button").toBe(1);
     expect(railButtons[0]!.getAttribute("data-chord-target")).toBe("run");
@@ -270,30 +264,30 @@ describe("the single right menu in the mounted shell", () => {
 
   test("mouse and sweep landing select the same group and retain the toggle law", async () => {
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     groupCap("arm")!.click();
-    await waitFor(() => host.querySelector('[data-disclosure="arm-sec-fire-when"]') !== null);
+    await until(() => host.querySelector('[data-disclosure="arm-sec-fire-when"]') !== null);
     expect(rightMenu.get()).toBe("arm");
     expect(groupCap("run")!.getAttribute("aria-selected")).toBe("false");
     expect(host.querySelector('[data-disclosure="run-sec-progress"]')).toBeNull();
     toggleRightMenu("arm");
-    await waitFor(() => menuEl() === null);
+    await until(() => menuEl() === null);
     openRightMenu("arm");
-    await waitFor(() => groupCap("arm")?.getAttribute("aria-selected") === "true");
+    await until(() => groupCap("arm")?.getAttribute("aria-selected") === "true");
   });
   test("the toggle law, per group: the landed group's own press closes; the other group's press re-lands", async () => {
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     expect(rightMenu.get()).toBe("run");
     // A press naming the OTHER group re-lands the open menu — the old
     // two-column replacement, expressed as one gesture.
     toggleRightMenu("arm");
-    await waitFor(() => groupCap("arm")!.getAttribute("aria-selected") === "true");
+    await until(() => groupCap("arm")!.getAttribute("aria-selected") === "true");
     expect(menuEl(), "re-landing keeps the ONE menu open").not.toBeNull();
     expect(rightMenu.get()).toBe("arm");
     // A press naming the LANDED group closes it.
     toggleRightMenu("arm");
-    await waitFor(() => menuEl() === null);
+    await until(() => menuEl() === null);
     expect(rightMenu.get()).toBeNull();
   });
 
@@ -310,13 +304,13 @@ describe("the single right menu in the mounted shell", () => {
     expect(grip!.getAttribute("title")).toContain("Ctrl+Shift+A");
     expect(grip!.querySelector('svg[aria-hidden="true"]'), "the button has a drawn icon and an accessible name").not.toBeNull();
     grip!.click();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     expect(rightMenu.get()).toBe("run");
-    await waitFor(() => grip!.getAttribute("aria-pressed") === "true");
+    await until(() => grip!.getAttribute("aria-pressed") === "true");
     expect(grip!.disabled).toBe(false);
     grip!.click();
-    await waitFor(() => menuEl() === null);
-    await waitFor(() => grip!.getAttribute("aria-pressed") === "false");
+    await until(() => menuEl() === null);
+    await until(() => grip!.getAttribute("aria-pressed") === "false");
   });
 
   test("a remount (what a reload is to an unpersisted store) does not reopen the menu", async () => {
@@ -324,7 +318,7 @@ describe("the single right menu in the mounted shell", () => {
     // fresh boot must not land in a column nobody re-asked for. A remount
     // over the same world is that boot — the store survives nothing.
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     unmount(app!);
     app = null;
     host.remove();
@@ -333,14 +327,14 @@ describe("the single right menu in the mounted shell", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
     expect(rightMenu.get()).toBeNull();
     expect(menuEl()).toBeNull();
   });
 
   test("a pane view request (the LLM's set_tab → agents) opens it through the same door", async () => {
     requestShellView({ kind: "pane" });
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     expect(consumeShellViewRequest()).toBeNull();
   });
 
@@ -351,7 +345,7 @@ describe("the single right menu in the mounted shell", () => {
   // rest, the annunciator's own resting law).
   test("the arm cap carries its cocked count while triggers wait — and stays dark with none", async () => {
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     // No triggers: no count on the cap — dark is the resting state.
     expect(groupCap("arm")!.querySelector(".group-count")).toBeNull();
     // Two cocked, one fired: the cap counts the COCKED (waiting) ones.
@@ -369,109 +363,109 @@ describe("the single right menu in the mounted shell", () => {
         armedAtMs: 1, firedAtMs: 9_000, storage: "local",
       }),
     ]);
-    await waitFor(() => {
+    await until(() => {
       const count = groupCap("arm")!.querySelector(".group-count");
       return count !== null && count.textContent === "2 watching";
     });
     expect(groupCap("arm")!.querySelector(".group-count")!.textContent).toBe("2 watching");
     // The count is LIVE through a store tick (collapsed body or not).
     armedTriggers.set((armedTriggers.get()).slice(0, 1));
-    await waitFor(() => groupCap("arm")!.querySelector(".group-count")!.textContent === "1 watching");
+    await until(() => groupCap("arm")!.querySelector(".group-count")!.textContent === "1 watching");
     armedTriggers.set([]);
-    await waitFor(() => groupCap("arm")!.querySelector(".group-count") === null);
+    await until(() => groupCap("arm")!.querySelector(".group-count") === null);
   });
 
   test("an agent upsert lands on screen through the whole shell (store→component is live)", async () => {
     pressRunChord();
-    await waitFor(() => host.querySelector('[data-verb-id="disclosure.run-sec-agents"]') !== null);
+    await until(() => host.querySelector('[data-verb-id="disclosure.run-sec-agents"]') !== null);
     // The agents section defaulted by presence: no agents → collapsed,
     // its count visible in the header. The reader's click path opens it.
     const agentsGrip = host.querySelector<HTMLButtonElement>('[data-verb-id="disclosure.run-sec-agents"]')!;
     expect(agentsGrip.getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector("#run-sec-agents")).toBeNull();
     agentsGrip.click();
-    await waitFor(() => host.querySelector("#run-sec-agents") !== null);
+    await until(() => host.querySelector("#run-sec-agents") !== null);
     expect(host.querySelector("#run-sec-agents")!.textContent).toContain("no agents yet");
     upsertAgent(RUNNING_AGENT);
-    await waitFor(() =>
+    await until(() =>
       host.querySelector("#run-sec-agents")!.textContent!.includes("shell-agent-1"),
     );
   });
 
   test("manual section choice survives closing and reopening the menu", async () => {
     pressRunChord();
-    await waitFor(() => host.querySelector('[data-verb-id="disclosure.run-sec-agents"]') !== null);
+    await until(() => host.querySelector('[data-verb-id="disclosure.run-sec-agents"]') !== null);
     const grip = host.querySelector<HTMLButtonElement>('[data-verb-id="disclosure.run-sec-agents"]')!;
     expect(grip.getAttribute("aria-expanded")).toBe("false");
     grip.click();
-    await waitFor(() => grip.getAttribute("aria-expanded") === "true");
+    await until(() => grip.getAttribute("aria-expanded") === "true");
     host.querySelector<HTMLButtonElement>(".right-menu .close")!.click();
-    await waitFor(() => menuEl() === null);
+    await until(() => menuEl() === null);
     pressRunChord();
-    await waitFor(() => host.querySelector('[data-verb-id="disclosure.run-sec-agents"]')?.getAttribute("aria-expanded") === "true");
+    await until(() => host.querySelector('[data-verb-id="disclosure.run-sec-agents"]')?.getAttribute("aria-expanded") === "true");
   });
   test("all declared sections are discoverable before mounting their body", async () => {
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     const input = host.querySelector<HTMLInputElement>('[aria-label="find an inspector section or action"]')!;
     for (const section of INSPECTOR_SECTION_ENTRIES) {
       input.value = section.label;
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      await waitFor(() => host.querySelector('[data-verb-id="right-menu.find-' + section.id + '"]') !== null);
+      await until(() => host.querySelector('[data-verb-id="right-menu.find-' + section.id + '"]') !== null);
     }
     expect(host.querySelector('[data-disclosure="arm-sec-fire-when"]')).toBeNull();
     applyUiControlAction({ action: "inspect", mode: "open", section: "arm-sec-palette" });
-    await waitFor(() => host.querySelector('[data-verb-id="disclosure.arm-sec-palette"]')?.getAttribute("aria-expanded") === "true");
+    await until(() => host.querySelector('[data-verb-id="disclosure.arm-sec-palette"]')?.getAttribute("aria-expanded") === "true");
   });
 
   test("watch draft survives switching tabs and reopening", async () => {
     openRightMenu("arm");
-    await waitFor(() => host.querySelector('[name="arm-custom-expression"]') !== null || host.querySelector('[data-verb-id="disclosure.arm-sec-palette"]') !== null);
+    await until(() => host.querySelector('[name="arm-custom-expression"]') !== null || host.querySelector('[data-verb-id="disclosure.arm-sec-palette"]') !== null);
     const grip = host.querySelector<HTMLButtonElement>('[data-verb-id="disclosure.arm-sec-palette"]')!;
     if (grip.getAttribute("aria-expanded") !== "true") grip.click();
-    await waitFor(() => host.querySelector('[name="arm-custom-expression"]') !== null);
+    await until(() => host.querySelector('[name="arm-custom-expression"]') !== null);
     const input = host.querySelector<HTMLInputElement>('[name="arm-custom-expression"]')!;
     input.value = "tool.failed && event.type == 'tool'";
     input.dispatchEvent(new Event("input", { bubbles: true }));
     groupCap("run")!.click();
-    await waitFor(() => host.querySelector('[name="arm-custom-expression"]') === null);
+    await until(() => host.querySelector('[name="arm-custom-expression"]') === null);
     groupCap("arm")!.click();
-    await waitFor(() => host.querySelector<HTMLInputElement>('[name="arm-custom-expression"]')?.value === "tool.failed && event.type == 'tool'");
+    await until(() => host.querySelector<HTMLInputElement>('[name="arm-custom-expression"]')?.value === "tool.failed && event.type == 'tool'");
   });
 
   test("a first section jump remains open while the real capture read settles", async () => {
     let answer!: (value: Response) => void;
     captureRead = () => new Promise(resolve => { answer = resolve; });
     applyUiControlAction({ action: "inspect", mode: "open", section: "arm-sec-captured" });
-    await waitFor(() => typeof answer === "function");
-    await waitFor(() => host.querySelector('[data-verb-id="disclosure.arm-sec-captured"]')?.getAttribute("aria-expanded") === "true");
+    await until(() => typeof answer === "function");
+    await until(() => host.querySelector('[data-verb-id="disclosure.arm-sec-captured"]')?.getAttribute("aria-expanded") === "true");
     expect(host.textContent).not.toContain("has no entries in this context yet");
     answer(captureResponse([{ id: "capture-ready", kind: "range", t0: 100, t1: 900, label: "A useful moment", recordedAt: new Date(1000).toISOString() }]));
-    await waitFor(() => host.querySelector("#arm-sec-captured")?.textContent?.includes("A useful moment") === true);
+    await until(() => host.querySelector("#arm-sec-captured")?.textContent?.includes("A useful moment") === true);
     expect(host.querySelector('[data-verb-id="disclosure.arm-sec-captured"]')?.getAttribute("aria-expanded")).toBe("true");
   });
 
   test("an overlay contains Tab and Escape restores its real opener", async () => {
     const opener = host.querySelector<HTMLButtonElement>('[data-verb-id="chord.run"]')!;
     opener.focus(); opener.click();
-    await waitFor(() => host.querySelector('[data-disclosure="run-sec-preparation"]') !== null);
+    await until(() => host.querySelector('[data-disclosure="run-sec-preparation"]') !== null);
     const first = host.querySelector<HTMLButtonElement>('[data-verb-id="right-menu.files"]')!;
     expect(document.activeElement).toBe(first);
     first.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
     expect(document.activeElement?.closest('.right-menu')).toBe(menuEl());
     expect(document.activeElement).not.toBe(first);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await waitFor(() => menuEl() === null && document.activeElement === opener);
+    await until(() => menuEl() === null && document.activeElement === opener);
     expect(host.querySelector('.flow-outlet')?.hasAttribute("inert")).toBe(false);
   });
 
   test("switching conversations in the same project retires the previous live run", async () => {
     openRightMenu("run");
     setRun({ runId: "owned-by-a", projectId: "p", status: "running", startedAt: Date.now(), modelLabel: null });
-    await waitFor(() => host.querySelector('.run-state')?.textContent === "● Run active");
+    await until(() => host.querySelector('.run-state')?.textContent === "● Run active");
     selectChat("b");
     expect(currentRun.get()).toBeNull();
-    await waitFor(() => host.querySelector('.run-state') === null);
+    await until(() => host.querySelector('.run-state') === null);
     expect(host.querySelector('.inspector-heading h2')?.textContent).toBe("Conversation inspector");
     expect(host.querySelector('.conversation-summary'), "section links retain the counts and destinations without a duplicate summary").toBeNull();
     expect(host.querySelector('.place-conversation')?.textContent).toBe("Conversation b");
@@ -481,7 +475,7 @@ describe("the single right menu in the mounted shell", () => {
   test("project-only inspector exposes project state and explains unavailable conversation sections", async () => {
     selectChat(null);
     openRightMenu("run");
-    await waitFor(() => host.querySelector('[data-disclosure="run-sec-codebase"]') !== null);
+    await until(() => host.querySelector('[data-disclosure="run-sec-codebase"]') !== null);
     expect(host.querySelector('[data-disclosure="run-sec-progress"]')).toBeNull();
     expect(host.querySelector('[data-verb-id="right-menu.files"]')).not.toBeNull();
     const heading = host.querySelector('.inspector-heading')!;
@@ -491,14 +485,14 @@ describe("the single right menu in the mounted shell", () => {
     }
     expect(host.textContent).not.toContain("Project settings & activity");
     applyUiControlAction({ action: "inspect", mode: "open", section: "run-sec-calls" });
-    await waitFor(() => host.textContent?.includes("Open a conversation to see Tool calls.") === true);
+    await until(() => host.textContent?.includes("Open a conversation to see Tool calls.") === true);
   });
 
   test("the menu's own close control closes it", async () => {
     pressRunChord();
-    await waitFor(() => menuEl() !== null);
+    await until(() => menuEl() !== null);
     host.querySelector<HTMLButtonElement>(".right-menu .close")!.click();
-    await waitFor(() => menuEl() === null);
+    await until(() => menuEl() === null);
   });
 
   test("the side rail renders inert from first paint, revealed as chrome with the boot", async () => {
@@ -514,7 +508,7 @@ describe("the single right menu in the mounted shell", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".side-rail") !== null);
+    await until(() => host.querySelector(".side-rail") !== null);
     const grips = host.querySelectorAll<HTMLButtonElement>(".side-rail .rail-grip");
     expect(grips.length, "the rail holds exactly one grip").toBe(1);
     const grip = grips[0]!;
@@ -528,7 +522,7 @@ describe("the single right menu in the mounted shell", () => {
     // control after; never live before the reveal, never dead after it).
     const revealedNow = host.querySelector(".shell")?.getAttribute("data-revealed") === "true";
     expect(grip.disabled, "the grip is inert exactly until the reveal").toBe(!revealedNow);
-    await waitFor(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
     expect(grip.disabled).toBe(false);
   });
 });

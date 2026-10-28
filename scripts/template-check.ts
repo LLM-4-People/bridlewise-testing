@@ -58,9 +58,9 @@ const require = createRequire(import.meta.url);
 const TS_ALIAS = "typescript5";
 const REQUIRED_TS_MAJOR = "5";
 
+/** A refusal: thrown (exit 1), never `process.exit()`, which can deadlock at shutdown (Node #54918, #351). */
 function fail(message: string): never {
-  process.stderr.write(`[template-check] ${message}\n`);
-  process.exit(1);
+  throw new Error(`[template-check] ${message}`);
 }
 
 // ── 1. The alias must exist, and must really be TypeScript 5 ───────────────

@@ -111,6 +111,7 @@ server has no DNS.
 
 ## What each file does
 
+- `host-facts.ts` — THE HOST'S FACTS ABOUT ITSELF — where the harness is, which folders of this repository are the harness's own code, and which files are this server's own state — fed into the ONE keep-out list (`engine/src/filesystem/self-protection/keep-out.ts`) by every…
 - `safety-bridge.ts` — the pre-dispatch hallucination gate: the single web-UI
   owner that checks a tool call before the model can invoke it.
 - `safety-runtime-bridge.ts` — the single composition point for the engine's
@@ -132,20 +133,9 @@ server has no DNS.
   temporaries: a leftover the sweep cannot remove is skipped and reported,
   never a refusal of the next spawn.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/safety/`.
-
-- `artifact-check.ts` is consumed by `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
-- `host-facts.ts` is consumed by `server/filesystem/fs-gate.ts`, `server/index.ts`, `server/safety/landlock-runner.ts`.
-- `landlock-runner.ts` is consumed by `server/awareness/auto-check-runner.ts`, `server/blocks/tools.ts`, `server/integrations/mcp-bridge.ts`, `server/integrations/mcp-runtime-bridge.ts`, `server/intelligence/git-bridge.ts`, `server/tools/tool-executor.ts`.
-- `safety-bridge.ts` is consumed by `server/routes/safety.ts`, `server/run/run-executor.ts`, `server/tools/tool-executor.ts`.
-- `safety-invariants.ts` is consumed by `server/auth/auth.ts`, `server/index.ts`.
-- `safety-runtime-bridge.ts` is consumed by `server/index.ts`, `server/run/run-executor.ts`, `server/tools/tool-executor.ts`.
-
-<!-- /consumers:generated -->
 
 Captured planned commands register their native child with the existing
 component registry at creation and retire it at capture completion, including

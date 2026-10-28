@@ -36,6 +36,7 @@ import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { auditEvent } from "../../shared/debug/debug-system.ts";
 import { FORGE_APPS, forgeApp, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
+import { handedValue } from "./credentials.ts";
 
 const RECORD_SCHEMA = schemaId("forge-app-key", 2);
 /** The key home's folder of App records. */
@@ -187,18 +188,21 @@ export function keyHomeCustody(keyHome: AdmittedKeyHome): AppKeyCustody {
  * and a host App never signs through here.
  */
 export function environmentKeyCustody(): AppKeyCustody {
-  const handed = (role: ForgeAppRole): Readonly<{ keySecret: string; clientIdVariable: string }> => {
+  const handed = (role: ForgeAppRole, field: "keySecret" | "clientIdVariable"): Readonly<{ variable: string; value: string }> => {
     const custody = FORGE_APPS[role].custody;
     if (custody.kind !== "environment") throw new ForgeError("forge_app_key_unavailable", `The ${role} App's key lives in the key home, not in an environment.`, { role });
     for (const variable of [custody.keySecret, custody.clientIdVariable]) {
-      if ((process.env[variable] ?? "").trim() === "") {
+      if (handedValue(variable) === undefined) {
         throw new ForgeError("forge_app_key_unavailable", `${variable} is not set: the ${role} App's key and client id exist only inside a job of the '${custody.environment}' environment.`, { role, variable, environment: custody.environment });
       }
     }
-    return custody;
+    return { variable: custody[field], value: handedValue(custody[field])! };
   };
   return Object.freeze({
-    clientId: (role: ForgeAppRole): string => process.env[handed(role).clientIdVariable]!.trim(),
-    signRs256: (role: ForgeAppRole, data: Uint8Array): Uint8Array => sign("sha256", data, privateKeyOf(process.env[handed(role).keySecret]!, role, handed(role).keySecret)),
+    clientId: (role: ForgeAppRole): string => handed(role, "clientIdVariable").value.trim(),
+    signRs256: (role: ForgeAppRole, data: Uint8Array): Uint8Array => {
+      const key = handed(role, "keySecret");
+      return sign("sha256", data, privateKeyOf(key.value, role, key.variable));
+    },
   });
 }

@@ -8,14 +8,6 @@ The text-processing layer: the canonical authority for translating between UTF-1
 - `utf8-offsets.ts` — Canonical shared UTF-16-code-unit ↔ UTF-8-byte offset authority.
 - `yaml-emit.ts` — THE ONE YAML EMITTER for every generated file GitHub reads as YAML (the forms; the generated workflows): block style, insertion-ordered keys, a plain scalar only where no YAML 1.1 or 1.2 reader can read it as anything else, literal blocks for multi-line text, double quotes otherwise with every character a reader folds or refuses raw escaped, reserved words quoted as keys too, numbers only in a form every reader reads back, `Commented` for a trailing comment; anything else is `yaml_unrepresentable`. Its round trip is `tests/public/yaml-emit-round-trip.test.mjs`.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/text/`.
-
-- `json-repair.ts` is consumed by `server/llm/llm-bridge.ts`.
-- `utf8-offsets.ts` is consumed by `engine/scripts/verification/authority/occurrence-selectors.ts`, `engine/src/editor/edit-operations.ts`, `engine/src/privacy/redaction-engine.ts`.
-- `yaml-emit.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/forge/repository-files.ts`.
-
-<!-- /consumers:generated -->
