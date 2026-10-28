@@ -8,6 +8,8 @@
  */
 import { describe, expect, test } from "vitest";
 
+import { cpuWorkOf } from "../../engine/src/shared/run-cpu.ts";
+
 import { HeightIndex } from "../../src/cockpit/flow/heights.ts";
 
 function brute(heights: number[], y: number): number {
@@ -110,14 +112,15 @@ describe("HeightIndex correctness", () => {
 describe("HeightIndex perf — 5k beats (§3.8 proving size, §1.5 budgets)", () => {
   test("5k appends + 5k measured updates + 10k window queries stay inside 150ms", () => {
     const idx = new HeightIndex(56, 16);
-    const t0 = performance.now();
-    idx.append(5000);
-    for (let i = 0; i < 5000; i += 1) idx.update(i, 24 + (i % 400));
     let acc = 0;
-    for (let q = 0; q < 10_000; q += 1) {
-      acc += idx.indexAtOffset((q * 137) % idx.totalHeight());
-    }
-    const ms = performance.now() - t0;
+    // CPU work, never wall time (NO-LOAD-BLOCK).
+    const ms = cpuWorkOf(() => {
+      idx.append(5000);
+      for (let i = 0; i < 5000; i += 1) idx.update(i, 24 + (i % 400));
+      for (let q = 0; q < 10_000; q += 1) {
+        acc += idx.indexAtOffset((q * 137) % idx.totalHeight());
+      }
+    });
     expect(acc).toBeGreaterThan(0);
     // Whole-log rebuild + 10k queries in 150ms leaves a single scroll frame's
     // work (2 queries + ~40 offsets) far under 1ms.
@@ -128,14 +131,14 @@ describe("HeightIndex perf — 5k beats (§3.8 proving size, §1.5 budgets)", ()
     const idx = new HeightIndex(56, 16);
     idx.append(5000);
     for (let i = 0; i < 5000; i += 1) idx.update(i, 24 + (i % 400));
-    const t0 = performance.now();
-    // A frame: 2 indexAtOffset + ~46 offsetOf (window of 40 + overscan).
-    for (let frame = 0; frame < 100; frame += 1) {
-      const start = idx.indexAtOffset((frame * 977) % idx.totalHeight());
-      idx.indexAtOffset(((frame * 977) % idx.totalHeight()) + 900);
-      for (let k = 0; k < 46; k += 1) idx.offsetOf(start + k);
-    }
-    const msPerFrame = (performance.now() - t0) / 100;
+    // A frame: 2 indexAtOffset + ~46 offsetOf (window of 40 + overscan); CPU work, never wall time.
+    const msPerFrame = cpuWorkOf(() => {
+      for (let frame = 0; frame < 100; frame += 1) {
+        const start = idx.indexAtOffset((frame * 977) % idx.totalHeight());
+        idx.indexAtOffset(((frame * 977) % idx.totalHeight()) + 900);
+        for (let k = 0; k < 46; k += 1) idx.offsetOf(start + k);
+      }
+    }) / 100;
     expect(msPerFrame).toBeLessThan(16);
   });
 });

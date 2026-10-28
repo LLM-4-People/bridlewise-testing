@@ -195,6 +195,50 @@ export function readThreadCpuMs(): number | null {
   return (user + system) / 1000;
 }
 
+/**
+ * This thread's CPU work so far, in ms, for a budget that must be judged: an
+ * unreadable reading is a REFUSAL (a budget with no measurement behind it
+ * would pass everything), never a zero.
+ */
+export function threadCpuWorkMs(): number {
+  const reading = readThreadCpuMs();
+  if (reading === null) {
+    throw new Error("run-cpu: this runtime gives no per-thread CPU reading (process.threadCpuUsage), so no CPU budget can be judged here");
+  }
+  return reading;
+}
+
+/**
+ * THE CPU WORK OF ONE PIECE OF CODE (NO-LOAD-BLOCK), for a performance
+ * budget: the least CPU work `fn` did on this thread across `runs` calls
+ * (each given its run's index, for a fixture that must differ per run). A
+ * busy host makes the code WAIT for a core, which this never counts; a wall
+ * clock around the same call judges the host (measured: sweep-perf failed a
+ * required shard at 144 ms against 100 under load). The least of several
+ * runs keeps a GC pause or a cold cache, real work but not the code's own,
+ * out of the reading.
+ */
+export function cpuWorkOf(fn: (run: number) => void, runs = 1): number {
+  let least = Number.POSITIVE_INFINITY;
+  for (let run = 0; run < runs; run += 1) {
+    const start = threadCpuWorkMs();
+    fn(run);
+    least = Math.min(least, threadCpuWorkMs() - start);
+  }
+  return least;
+}
+
+/** {@link cpuWorkOf} for code that awaits (a render that settles, a stubbed fetch): what awaiting costs is waiting, never counted. */
+export async function cpuWorkOfAsync(fn: (run: number) => Promise<void>, runs = 1): Promise<number> {
+  let least = Number.POSITIVE_INFINITY;
+  for (let run = 0; run < runs; run += 1) {
+    const start = threadCpuWorkMs();
+    await fn(run);
+    least = Math.min(least, threadCpuWorkMs() - start);
+  }
+  return least;
+}
+
 /** The calibration workload's identity — recorded with every reading. */
 const CALIBRATION_WORKLOAD = "int-mem-l2/v1" as const;
 

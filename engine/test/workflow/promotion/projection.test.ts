@@ -225,12 +225,12 @@ test("T-P13: up to date — the target's last promotion carries this source: no 
   const tree = fixture.git(["rev-parse", `${TARGET}^{tree}`]);
   const promoted = fixture.git(["commit-tree", tree, "-p", fixture.tip(TARGET), "-p", source, "-m", `promote\n\nProjected-From: ${source}\nPromotion-Profile: dev-to-prod@${blob}`]);
   fixture.git(["update-ref", `refs/heads/${TARGET}`, promoted]);
-  const started = Date.now();
   const plan = await fixture.plan();
   assert.equal(plan.code, "promotion_up_to_date");
   assert.deepEqual(plan.lastPromoted, { commit: promoted, source, bootstrap: false });
-  assert.ok(Date.now() - started < 10_000, "the short-circuit is cheap");
-  assert.equal(fixture.git(["worktree", "list", "--porcelain"]).split("\n").filter((line) => line.startsWith("worktree ")).length, 1, "no worktree was created");
+  // The short-circuit is cheap BY ITS PATH, not by a wall clock (NO-LOAD-BLOCK):
+  // the expensive path projects in a worktree, and none was created.
+  assert.equal(fixture.git(["worktree", "list", "--porcelain"]).split("\n").filter((line) => line.startsWith("worktree ")).length, 1, "no worktree was created: the short-circuit did no projection");
 });
 
 test("T-P14: a gitlink in the projection is refused", async () => {

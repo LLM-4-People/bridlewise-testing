@@ -14,12 +14,14 @@
  *     regress silently;
  *   - the cost is LINEAR in visible size, not quadratic in document size.
  *
- * MEASUREMENT. Every budget is the BEST of several runs, not a single
- * sample. The suite runs many files in parallel worker threads, so a lone
- * timing measures scheduler contention as much as it measures the code —
- * which makes a real budget flaky and therefore worthless. The minimum is
- * the least-disturbed sample, so it measures the work itself; the budget
- * stays a genuine 16ms frame instead of being inflated to absorb noise.
+ * MEASUREMENT. Every budget is CPU WORK on this thread (`cpuWorkOf`,
+ * engine/src/shared/run-cpu.ts), never wall time (NO-LOAD-BLOCK): the suite
+ * runs many files in parallel, and a wall timing measures how long the code
+ * WAITED for a core as much as the code — a correct test went red that way.
+ * Waiting is not CPU work. Every budget is still the BEST of several runs:
+ * a collection pause or a cold cache is real work, but not the code's own,
+ * and the least-disturbed sample leaves it out; the budget stays a genuine
+ * 16ms frame instead of being inflated to absorb noise.
  *
  * A RATIO between two timings needs more than that, and taking the minimum
  * of each side separately is not enough. The larger side runs several times
@@ -40,6 +42,7 @@
  */
 import { describe, expect, test } from "vitest";
 
+import { cpuWorkOf, threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
 import { parseProse } from "../../shared/markdown.ts";
 import { highlight } from "../../src/cockpit/render/highlight.ts";
 import { parseUnifiedDiff, firstHunkOf, paintDiffLine } from "../../src/cockpit/render/diff.ts";
@@ -58,16 +61,9 @@ const VISIBLE_BEATS = 40;
 /** How many samples to take when timing; the best one is reported. */
 const SAMPLES = 7;
 
-/** Elapsed time of the least-disturbed of SAMPLES runs (see MEASUREMENT). */
+/** CPU work of the least-disturbed of SAMPLES runs (see MEASUREMENT); never wall time, which judges the host (NO-LOAD-BLOCK). */
 function elapsed(fn: () => void): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (let s = 0; s < SAMPLES; s += 1) {
-    const t0 = performance.now();
-    fn();
-    const ms = performance.now() - t0;
-    if (ms < best) best = ms;
-  }
-  return best;
+  return cpuWorkOf(fn, SAMPLES);
 }
 
 /**
@@ -78,11 +74,11 @@ function elapsed(fn: () => void): number {
 function ratio(small: () => void, big: () => void): number {
   let best = Number.POSITIVE_INFINITY;
   for (let s = 0; s < SAMPLES; s += 1) {
-    const t0 = performance.now();
+    const t0 = threadCpuWorkMs();
     small();
-    const t1 = performance.now();
+    const t1 = threadCpuWorkMs();
     big();
-    const t2 = performance.now();
+    const t2 = threadCpuWorkMs();
     const smallMs = t1 - t0;
     if (smallMs <= 0) continue;
     const q = (t2 - t1) / smallMs;

@@ -21,14 +21,19 @@
  * trains people to re-run until green, which is how a real regression gets
  * dismissed as flakiness.
  *
- * The MINIMUM of several samples is the least-disturbed one, so it measures
- * the work itself. That keeps the number an honest 10ms rather than one
+ * So every budget here is CPU WORK on this thread (`cpuWorkOf`,
+ * engine/src/shared/run-cpu.ts), never wall time (NO-LOAD-BLOCK): waiting
+ * for a core is not the code's cost, and no load can fail it. The MINIMUM
+ * of several samples is still taken: a collection pause is real work but
+ * not the code's own, and the least-disturbed sample measures the work
+ * itself. That keeps the number an honest 10ms rather than one
  * inflated to absorb noise: taking the best sample TIGHTENS the assertion
  * instead of loosening it, which is the whole reason it is the right answer
  * here and raising the threshold is not.
  */
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { cpuWorkOf } from "../../engine/src/shared/run-cpu.ts";
 import {
   appendMessage,
   clearMessages,
@@ -89,9 +94,7 @@ afterEach(() => {
 describe("latency budgets on a 5k log", () => {
   test("hydrating 5k messages rebuilds the whole log inside 1.5s (one-off)", () => {
     startIngest();
-    const t0 = performance.now();
-    setMessages(history(5000));
-    const ms = performance.now() - t0;
+    const ms = cpuWorkOf(() => setMessages(history(5000)));
     expect(beatCount()).toBe(5000);
     expect(ms).toBeLessThan(1500);
   });
@@ -103,13 +106,9 @@ describe("latency budgets on a 5k log", () => {
     // deduplicated and the second "append" would time a no-op, which is the
     // easy way to make this budget pass while measuring nothing.
     const SAMPLES = 7;
-    let best = Number.POSITIVE_INFINITY;
-    for (let s = 0; s < SAMPLES; s += 1) {
-      const t0 = performance.now();
+    const best = cpuWorkOf((s) => {
       appendMessage({ id: `h-u-live-${s}`, role: "user", content: "live", timestamp: 9e9 + s });
-      const ms = performance.now() - t0;
-      if (ms < best) best = ms;
-    }
+    }, SAMPLES);
     // Every sample must have landed, or the "best" is the cost of a rejected
     // append rather than of an accepted one.
     expect(beatCount()).toBe(5000 + SAMPLES);
@@ -148,13 +147,7 @@ describe("latency budgets on a 5k log", () => {
     };
     // Best of several sweeps — the least-disturbed one measures the window
     // math rather than the worker scheduler. See the header.
-    let best = Number.POSITIVE_INFINITY;
-    for (let s = 0; s < 3; s += 1) {
-      const t0 = performance.now();
-      oneSweep();
-      const msPerFrame = (performance.now() - t0) / FRAMES;
-      if (msPerFrame < best) best = msPerFrame;
-    }
+    const best = cpuWorkOf(oneSweep, 3) / FRAMES;
     expect(best, `${best.toFixed(3)}ms per frame`).toBeLessThan(16);
   });
 });

@@ -18,6 +18,8 @@
  */
 import { describe, expect, test, vi } from "vitest";
 
+import { threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
+
 import { createRegistration, type ProbeLine } from "../../src/cockpit/boot/probes.ts";
 
 const WARM_BOOT_CLIENT_OVERHEAD_MS = 100; // half the §1.5 200ms warm budget
@@ -43,7 +45,9 @@ describe("cockpit latency budget — client-side boot overhead", () => {
     );
 
     const lines: ProbeLine[] = [];
-    const t0 = performance.now();
+    // CPU work on this thread, never wall time (NO-LOAD-BLOCK): the probes'
+    // stubbed answers make the boot pure client orchestration.
+    const t0 = threadCpuWorkMs();
     let doneMs = -1;
     const reg = createRegistration({
       onLine: (l) => lines.push(l),
@@ -51,7 +55,7 @@ describe("cockpit latency budget — client-side boot overhead", () => {
         throw new Error("warm signed-in boot must not gate");
       },
       onComplete: () => {
-        doneMs = performance.now() - t0;
+        doneMs = threadCpuWorkMs() - t0;
       },
     });
     await reg.start();
