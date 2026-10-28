@@ -18,13 +18,26 @@
  * the cap: admission moves the ADMITTING PROCESS ITSELF into a cgroup v2
  * scope of the run's own (`bridlewise-run-<record nonce>.scope`, made by the
  * systemd user manager's `StartTransientUnit` with this process's pid:
- * `MemoryMax` and `CPUWeight` from `testExecution.instrumentLock.perRun`)
+ * `MemoryMax` and `CPUWeight` from `testExecution.instrumentLock.perRun`,
+ * `MemorySwapMax=0` and `OOMPolicy=continue`)
  * and under the CPU-time limit of every harness subprocess
  * (`src/process/subprocess-bounds.ts` `limitOwnCpu`). Everything the run
  * starts from then on — a supervised command, a worker, a child spawned
  * directly — is born inside the scope and under the limit; nothing it starts
  * is uncapped. A host that cannot make the scope or set the limit REFUSES
  * the run, typed (`per_run_caps_unavailable`): there is no uncapped mode.
+ *
+ * THE MEMORY CAP MEANS THE CAP. Without `MemorySwapMax=0` a run past its
+ * `MemoryMax` is swapped out, not stopped: measured (GH-7, #553), 1 GiB
+ * allocated under a 1% cap went to swap and the run ended normally. So the
+ * scope allows no swap, and admission READS BACK the kernel's own
+ * `memory.swap.max` (it must be 0) and `memory.max` (it must be a number):
+ * a host whose cgroup v2 has no swap accounting, or that did not apply
+ * either, is refused typed (`per_run_caps_unavailable`), never run under
+ * cap-plus-swap. Past the cap the kernel kills the run's largest process;
+ * `OOMPolicy=continue` keeps the rest of the scope (the door that admitted
+ * the run) alive to say so, and the door turns it into a typed refusal
+ * (`run_memory_cap_exceeded`, {@link runScopeOomKills}).
  *
  * NESTING, read from the records' structured fields AND the kernel's: a
  * process BORROWS a live run (a validate's suites, a slot run's command,
@@ -56,7 +69,7 @@ import type { WholeInstrumentKind } from "../kernel/config-contracts.ts";
 import { hostUserCacheFolder } from "../filesystem/user-folders.ts";
 import { repositoryToplevel } from "../git/repository-ownership.ts";
 import { ownedInstrumentHold, setOwnedInstrumentHold } from "./instrument-lock-adoption.ts";
-import { ancestorsOf, isOwnProcessIdentityLive, ownCgroupPath } from "./process-facts.ts";
+import { ancestorsOf, isOwnProcessIdentityLive, ownCgroupFile, ownCgroupPath } from "./process-facts.ts";
 
 export type InstrumentLockConfig = Readonly<{
   /** The lock file, relative to the host user's cache folder (`hostUserCacheFolder`). */
@@ -193,7 +206,7 @@ export function admittedRuns(lockPath: string): readonly string[] {
 /** The refusal of a run whose caps this host cannot put in force. */
 function capsUnavailable(caps: PerRunCaps, why: string): HarnessError {
   return new HarnessError(
-    `a heavy run is admitted only under its per-run caps (its own cgroup v2 scope: MemoryMax ${String(caps.memoryMaxPercent)}%, CPUWeight ${String(caps.cpuWeight)}; ` +
+    `a heavy run is admitted only under its per-run caps (its own cgroup v2 scope: MemoryMax ${String(caps.memoryMaxPercent)}% with no swap, CPUWeight ${String(caps.cpuWeight)}; ` +
       `and the CPU-time limit), and this host could not put them in force (${why}). Nothing runs uncapped: give the host a running systemd user manager ` +
       "(`loginctl enable-linger`), `busctl` and `prlimit`.",
     "per_run_caps_unavailable",
@@ -214,7 +227,8 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
   const unit = runScopeUnit(nonce);
   const memoryScale = Math.min(0xffffffff, Math.round((caps.memoryMaxPercent / 100) * 0xffffffff));
   const started = spawnSync("busctl", ["--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
-    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "4", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
+    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "6", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
+    "MemorySwapMax", "t", "0", "OOMPolicy", "s", "continue",
     "CPUWeight", "t", String(caps.cpuWeight), "CollectMode", "s", "inactive-or-failed", "0"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (started.error !== undefined || started.status !== 0) {
     throw capsUnavailable(caps, `busctl StartTransientUnit ${started.error !== undefined ? started.error.message : `exited ${String(started.status)}: ${started.stderr.trim()}`}`);
@@ -228,8 +242,28 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
     if (Date.now() - since > cpu.hangBackstopMs) throw capsUnavailable(caps, `HUNG: the start job of ${unit} was still pending at the ${String(cpu.hangBackstopMs / 1000)} s hang backstop (wall)`);
     Atomics.wait(PAUSE, 0, 0, 5);
   }
+  // READ BACK what the kernel holds: a cap the host did not apply is no cap.
+  const swapMax = ownCgroupFile("memory.swap.max");
+  if (swapMax === undefined) throw capsUnavailable(caps, `this host's cgroup v2 has no memory.swap.max for ${unit} (swap accounting is off), so its memory cap would be cap-plus-swap`);
+  if (swapMax !== "0") throw capsUnavailable(caps, `${unit} holds memory.swap.max ${swapMax}, not 0: the run could swap past its memory cap`);
+  const memoryMax = ownCgroupFile("memory.max");
+  if (memoryMax === undefined || !/^\d+$/u.test(memoryMax)) throw capsUnavailable(caps, `${unit} holds memory.max ${memoryMax ?? "(absent)"}, not a byte count`);
   const limited = limitOwnCpu(cpu);
   if (limited !== null) throw capsUnavailable(caps, limited);
+}
+
+/**
+ * How many processes the kernel has killed in the admitted run's scope THIS
+ * process is inside for passing the run's memory cap (`memory.events`
+ * `oom_kill`); `undefined` outside a run's scope (a light run has no cap of
+ * its own). Read before and after a run's command: a rise means the command
+ * ended because it passed the run's memory cap.
+ */
+export function runScopeOomKills(): number | undefined {
+  if (!/\/bridlewise-run-[^/]+\.scope$/u.test(ownCgroupPath() ?? "")) return undefined;
+  const events = ownCgroupFile("memory.events");
+  const kills = events === undefined ? undefined : /^oom_kill (\d+)$/mu.exec(events)?.[1];
+  return kills === undefined ? undefined : Number(kills);
 }
 
 /**

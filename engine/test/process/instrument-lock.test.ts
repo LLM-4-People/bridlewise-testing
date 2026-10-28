@@ -153,13 +153,13 @@ test("EVERY SUPERVISOR AN ADMITTED RUN STARTS RUNS UNDER ITS CAPS: a cgroup scop
     `const { superviseCommand } = await import(${JSON.stringify(SUPERVISOR_OWNER)});`,
     `const lock = admitInstrumentRun(process.argv[2], "a capped run", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuLimitSeconds: 77, cpuKillGraceSeconds: 3, hangBackstopMs: 600_000 });`,
     "let out = '';",
-    `await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
+    `await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) swapmax=$(cat $g/memory.swap.max) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
     "lock.release();",
     "process.stdout.write(out);",
   ].join("\n"));
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr);
-  assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ soft=77 hard=80/u, ran.stdout);
+  assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ swapmax=0 soft=77 hard=80/u, ran.stdout);
   const total = Number(procfsDocument("meminfo")!.match(/^MemTotal:\s+(\d+) kB/mu)![1]) * 1024;
   const memmax = Number(/memmax=(\d+)/u.exec(ran.stdout)![1]);
   assert.ok(Math.abs(memmax - total * 0.37) < total * 0.01, `MemoryMax is 37% of the host's memory (${String(memmax)} of ${String(total)})`);
@@ -361,6 +361,34 @@ test("THE SUPERVISING DOOR (`harness slot run`, the coverage run, the perf profi
   const cli = readFileSync(join(ENGINE, "src", "workflow", "slot-cli.ts"), "utf8");
   assert.ok(cli.includes('wholeInstrumentTestFileCount(declaredInstrumentLock(readTestExecutionConfig(engineRoot).instrumentLock), "slot")'), "a slot run is heavy by config's word (wholeInstruments)");
   assert.match(cli, /await runInsideInstrumentLock\(slotRunLabel\(command\), count, command\)/u);
+});
+
+test("THE MEMORY CAP MEANS THE CAP (GH-7, #553): an allocation past it is not swapped out and run on — the kernel ends it and the door refuses typed (run_memory_cap_exceeded), never a success", () => {
+  const lockPath = join(createTempDir("instrument-lock-swap-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-swap-script-"), "door.mjs");
+  writeFileSync(script, [
+    `const { runInsideInstrumentLock } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "slot-cli.ts")).href)});`,
+    "const [lockPath, ...command] = process.argv.slice(2);",
+    "try {",
+    "  const { exitCode, ending } = await runInsideInstrumentLock(\"an allocation past its cap\", Number.POSITIVE_INFINITY, command, { lockPath, caps: { memoryMaxPercent: 1, cpuWeight: 100 } });",
+    "  console.log(\"ENDED \" + JSON.stringify({ exitCode, ending }));",
+    "} catch (error) {",
+    "  console.log(\"REFUSED \" + String(error.code));",
+    "}",
+  ].join("\n"));
+  // Three times the cap (1% of the host's memory), every page written, so
+  // nothing stays unbacked; a run that could swap would print SURVIVED.
+  const allocate = [
+    "const total = Number(/^MemTotal:\\s+(\\d+) kB/m.exec(require('node:fs').readFileSync('/proc/meminfo', 'utf8'))[1]) * 1024;",
+    "const held = [];",
+    "for (let size = 0; size < total * 0.03; size += 16 << 20) held.push(Buffer.alloc(16 << 20, 1));",
+    "console.log('SURVIVED ' + String(held.length));",
+  ].join("\n");
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath, process.execPath, "-e", allocate], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr.slice(0, 2_000));
+  assert.doesNotMatch(ran.stdout, /SURVIVED/u, "the allocation ran on past its cap (swapped out instead of stopped)");
+  assert.match(ran.stdout, /^REFUSED run_memory_cap_exceeded$/mu, ran.stdout);
+  assert.deepEqual(admittedRuns(lockPath), [], "the refused run released its record");
 });
 
 test("NESTING READS ADOPTED PROCESSES TOO (correctness M2): a run whose ancestor is a process the admitted run ADOPTED (a supervisor it runs a command under) borrows it; one outside it does not", (t) => {
