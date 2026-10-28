@@ -19,6 +19,7 @@ import test from "node:test";
 import {
   advertisedKeepAliveMs,
   closeConnection,
+  connectionCloser,
   closeOutboundConnections,
   connectionFreshForMs,
   isLoopbackHostName,
@@ -35,7 +36,7 @@ import {
 import { processUnderTest } from "../../src/filesystem/checkout-write-door.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { installOutboundPolicySource, OUTBOUND_POLICY_SCHEMA, outboundSignals } from "../../src/shared/outbound-policy.ts";
-import { configureDebugSystem, createCollectingSink, resetDebugSystem } from "../../src/shared/debug/debug-system.ts";
+import { configureDebugSystem, createCollectingSink, resetDebugSystem, type DebugEvent } from "../../src/shared/debug/debug-system.ts";
 import { DEBUG_CONFIG_DEFAULTS } from "../../src/shared/debug/debug-config.ts";
 import { address, origin, received, resolveAs, serve } from "../support/loopback-upstream.ts";
 import { requireHost } from "../support/host-requirement.ts";
@@ -305,6 +306,7 @@ test("outbound http: a stale-at-write request whose pool was EVICTED meanwhile (
   };
   diagnosticsChannel.subscribe("undici:request:create", stall);
   try {
+    const ended = await networkEventRecords(async (seen) => {
     const first = await outboundFetch(request({ url: server.url, method: "POST", body: "{}" }));
     assert.equal(await readBody(first, AbortSignal.timeout(5_000), 64, 100, "llm"), "ok");
     stallOnce.armed = true;
@@ -316,10 +318,14 @@ test("outbound http: a stale-at-write request whose pool was EVICTED meanwhile (
     assert.equal(answered, "ok", "the admitted POST was resent and answered on the evicted pool");
     assert.equal(server.staleBytes(), 0, "nothing was written on the stale connection");
     // A pool closed while its request was on it keeps no connection after it settles (H-L1): the client retires it.
-    // Within a moment: well before the client would close an idle kept-alive connection on its own (seconds).
-    const retiredBy = Date.now() + 300;
-    while (server.open() > 0 && Date.now() < retiredBy) await new Promise((resolveSoon) => setTimeout(resolveSoon, 20));
-    assert.equal(server.open(), 0, "the evicted pool retired the resent request's connection when it settled");
+    // Waited for by its EVENT (the connection's end, recorded by the door), never a wall window (NO-LOAD-BLOCK).
+    const endedHere = (): number => seen.filter((event) => event.message === "outbound_connection_ended" && new URL(String(event.context["origin"])).origin === new URL(server.url).origin).length;
+    // Both connections end: the one judged stale at the write, and the resent request's once it settled.
+    while (server.open() > 0 || endedHere() < 2) await new Promise((resolveSoon) => setTimeout(resolveSoon, 20));
+    });
+    // WHO ended it, by the door's own record: the pool RETIRED it — not the client's idle bound, not the server.
+    const closers = ended.filter((event) => event.message === "outbound_connection_ended" && new URL(String(event.context["origin"])).origin === new URL(server.url).origin).map((event) => event.context["by"]);
+    assert.deepEqual(closers, ["retired", "retired"], "the pool retired both: the connection stale at the write, and the resent request's once it settled on the evicted pool");
   } finally {
     diagnosticsChannel.unsubscribe("undici:request:create", stall);
     await Promise.all(others);
@@ -361,16 +367,21 @@ test("outbound http: a request whose pool is DESTROYED during the stall, before 
   }
 });
 
-/** Run `body` with the network category's debug events collected; answers the event names seen. */
-async function networkEvents(body: () => Promise<void>): Promise<readonly string[]> {
+/** Run `body` with the network category's debug events collected; answers the events seen (`body` may read them as they arrive). */
+async function networkEventRecords(body: (seen: readonly DebugEvent[]) => Promise<void>): Promise<readonly DebugEvent[]> {
   const sink = createCollectingSink();
   configureDebugSystem({ ...DEBUG_CONFIG_DEFAULTS, enabled: true, level: "debug", categories: ["network"], sinks: { enabledSinks: ["collecting"] } }, [sink]);
   try {
-    await body();
+    await body(sink.events);
   } finally {
     resetDebugSystem();
   }
-  return sink.events.map((event) => (event as { message?: string }).message ?? "");
+  return [...sink.events];
+}
+
+/** {@link networkEventRecords}, answering the event names seen. */
+async function networkEvents(body: () => Promise<void>): Promise<readonly string[]> {
+  return (await networkEventRecords(body)).map((event) => event.message);
 }
 
 test("outbound http: an idle connection past its freshness is CLOSED AT DISPATCH, before any request is tied to it — the write-time check is the second line, not the first (correctness H-L1 M3)", async () => {
@@ -782,4 +793,13 @@ test("the pool's summed state refuses a client state that is not a number (the p
   const state = Symbol("kRunning");
   assert.equal(summedDispatcherState([{ [state]: 2 }, { [state]: true }, { [state]: 0 }], state), 3);
   assert.throws(() => summedDispatcherState([{ [state]: 1 }, {}], state), (error: unknown) => (error as { code?: string }).code === "outbound_pool_state_unreadable" && /answers its Symbol\(kRunning\) state as undefined, not a number/u.test((error as Error).message));
+});
+
+test("outbound http: a connection's end names WHO ended it — the pool (stale, retired), the client's idle bound, or the peer — read from the door's own record, never from how long it took", () => {
+  assert.equal(connectionCloser("retired", new Error("The client is destroyed")), "retired");
+  assert.equal(connectionCloser("stale", undefined), "stale");
+  const idle = Object.assign(new Error("socket idle timeout"), { name: "InformationalError" });
+  assert.equal(connectionCloser(undefined, idle), "idle-timeout");
+  assert.equal(connectionCloser(undefined, Object.assign(new Error("other side closed"), { name: "SocketError" })), "peer");
+  assert.equal(connectionCloser(undefined, undefined), "peer");
 });
