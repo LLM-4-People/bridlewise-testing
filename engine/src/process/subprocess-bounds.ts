@@ -14,24 +14,21 @@
  * - one very large WALL backstop, the only wall bound left: a run still going
  *   at it is HUNG, never slow.
  *
+
+ * The harness's values are `SUBPROCESS_BOUNDS` (src/workflow/workflow-config.ts);
+ * this module is the mechanism, so the process layer (an admitted run puts
+ * its own process under the limit, {@link limitOwnCpu}) and the workflow
+ * layer share it.
+ *
  * {@link boundedEnding} says how a run that left no answer ended: its exit
  * status, the signal, and which bound fired. Never just "failed".
  */
-import {
-  SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS,
-  SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS,
-  SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
-} from "./workflow-config.ts";
+import { spawnSync } from "node:child_process";
+
+import { ownCpuTimeLimit } from "./process-facts.ts";
 
 /** How a subprocess is bounded: its CPU per process, and the one hang backstop. */
 export type SubprocessBounds = Readonly<{ cpuLimitSeconds: number; cpuKillGraceSeconds: number; hangBackstopMs: number }>;
-
-/** The harness's bounds (workflow-config.ts); a test hands smaller ones to drive each bound. */
-export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
-  cpuLimitSeconds: SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS,
-  cpuKillGraceSeconds: SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS,
-  hangBackstopMs: SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
-});
 
 /**
  * `command args…` under the CPU limit: the soft limit first (it may not
@@ -45,6 +42,22 @@ export function cpuLimitedInvocation(command: string, args: readonly string[], b
     args: ["-c", 'ulimit -S -t "$1" && ulimit -H -t "$2" && shift 2 && exec "$@"', "sh",
       String(bounds.cpuLimitSeconds), String(bounds.cpuLimitSeconds + bounds.cpuKillGraceSeconds), command, ...args],
   };
+}
+
+/**
+ * Puts THIS process under `bounds`' CPU limit (soft, then hard: SIGXCPU, then
+ * SIGKILL), through `prlimit`; every process it starts from now on inherits
+ * the limit, each counting its own CPU work. Returns why it could not, or
+ * null once `/proc/self/limits` shows the limit in force.
+ */
+export function limitOwnCpu(bounds: SubprocessBounds): string | null {
+  const soft = bounds.cpuLimitSeconds;
+  const hard = bounds.cpuLimitSeconds + bounds.cpuKillGraceSeconds;
+  const set = spawnSync("prlimit", ["--pid", String(process.pid), `--cpu=${String(soft)}:${String(hard)}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (set.error !== undefined || set.status !== 0) return `prlimit ${set.error !== undefined ? set.error.message : `exited ${String(set.status)}: ${set.stderr.trim()}`}`;
+  const inForce = ownCpuTimeLimit();
+  return inForce?.soft === String(soft) && inForce.hard === String(hard) ? null
+    : `the CPU limit in force reads ${inForce === undefined ? "nothing" : `${inForce.soft}:${inForce.hard}`}, not ${String(soft)}:${String(hard)} s`;
 }
 
 /** How a bounded run ended, in words: its status, the signal, and which bound fired. */

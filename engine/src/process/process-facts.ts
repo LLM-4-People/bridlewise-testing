@@ -50,6 +50,18 @@ export function procfsDocument(...segments: readonly string[]): string | undefin
   }
 }
 
+/** THIS process's cgroup v2 path (the unified `0::` line of `/proc/self/cgroup`), or `undefined` when it cannot be read. */
+export function ownCgroupPath(): string | undefined {
+  return procfsDocument("self", "cgroup")?.split("\n").find((line) => line.startsWith("0::"))?.slice(3);
+}
+
+/** THIS process's CPU-time limit in force (`/proc/self/limits`), soft and hard, as written there (seconds, or "unlimited"); `undefined` when unreadable. */
+export function ownCpuTimeLimit(): Readonly<{ soft: string; hard: string }> | undefined {
+  const line = procfsDocument("self", "limits")?.split("\n").find((one) => one.startsWith("Max cpu time"));
+  const [, soft, hard] = /^Max cpu time\s+(\S+)\s+(\S+)/u.exec(line ?? "") ?? [];
+  return soft === undefined || hard === undefined ? undefined : { soft, hard };
+}
+
 /**
  * Whether `pid` names a live process: it exists (EPERM means it exists but is
  * not ours to signal — alive) and it is not a ZOMBIE. A killed process whose
