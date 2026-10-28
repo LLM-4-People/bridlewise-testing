@@ -292,10 +292,6 @@ describe("the kept-alive editor room's draft binding survives every excursion", 
     return el!;
   }
 
-  async function settle(ms = 40): Promise<void> {
-    await new Promise((r) => setTimeout(r, ms));
-  }
-
   /** Wait until the pane has actually read the file (the open is probe-first
    * and async; the textarea does not exist until the edit verb is offered). */
   async function untilEditOffered(): Promise<void> {
@@ -431,7 +427,8 @@ describe("the kept-alive editor room's draft binding survives every excursion", 
     type("x");
     expect(dirty()).toBe(true);
     verb("editor.save").click();
-    await settle();
+    // Waited for by the save's own word on screen, never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => host.textContent?.includes("saved to") === true);
     expect(host.textContent).toContain("saved to");
     // The saved text is both base and draft: nothing unsaved, session live.
     expect(draft()).toBe(`${ON_DISK}x`);
@@ -464,7 +461,8 @@ describe("the kept-alive editor room's draft binding survives every excursion", 
     // tab) after the file was opened.
     sizeOnDisk = 84;
     verb("editor.delete").click();
-    await settle();
+    // Waited for by the confirmation on screen, never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => host.querySelector(".loss") !== null);
     const loss = host.querySelector(".loss");
     expect(loss, "the delete confirmation must be on screen").not.toBeNull();
     expect(loss!.textContent).toContain("84 bytes");
@@ -480,7 +478,8 @@ describe("the kept-alive editor room's draft binding survives every excursion", 
     area.focus();
     expect(document.activeElement).toBe(area);
     verb("editor.save").click();
-    await settle();
+    // Waited for by the save's own word on screen (its folder re-read has run), never a fixed pause.
+    await until(() => host.textContent?.includes("saved to") === true);
     // The save re-reads the parent folder; the transient reading state
     // unmounts and remounts every tree row. The roving-focus pulse must not
     // re-fire on the re-bind — observed live, it stole focus to the tree row,

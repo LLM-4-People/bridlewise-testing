@@ -458,11 +458,10 @@ afterAll(async () => {
 
 type Frame = { id: number | null; event: string; data: string };
 
-/** Read an SSE response for `ms`, returning its status and frames. */
+/** Read an SSE response until the server closes it, returning its status and frames. */
 async function drain(
   path: string,
   extraHeaders: Record<string, string>,
-  ms: number,
 ): Promise<{ status: number; frames: Frame[] }> {
   const res = await fetch(`${baseUrl}${path}`, { headers: { ...authHeaders, ...extraHeaders } });
   const frames: Frame[] = [];
@@ -474,17 +473,15 @@ async function drain(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const deadline = Date.now() + ms;
+  // READ UNTIL THE SERVER CLOSES THE STREAM, never for a wall-clock window
+  // (NO-LOAD-BLOCK): the route closes it once the run's ending is sent (a
+  // live subscription when its feed ends; a replay of an ended run right
+  // after the replay), so the frames read are the whole record, however busy
+  // the host. A stream that never closes is a hang, ended and named by the
+  // test's hang backstop.
   try {
     for (;;) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      const chunk = await Promise.race([
-        reader.read(),
-        new Promise<{ done: true; value: undefined }>((r) =>
-          setTimeout(() => r({ done: true, value: undefined }), remaining),
-        ),
-      ]);
+      const chunk = await reader.read();
       if (chunk.done) break;
       buffer += decoder.decode(chunk.value as Uint8Array, { stream: true });
       let split = buffer.indexOf("\n\n");
@@ -586,7 +583,7 @@ describe("a run that stops publishes a terminal frame, on every path", () => {
       // published something, so there is something to interrupt — is both
       // faster and a stronger precondition than a constant that happens to be
       // long enough today.
-      const live = drain(`/api/run/${runId}/stream`, {}, 3_000);
+      const live = drain(`/api/run/${runId}/stream`, {});
       // The condition is the PROVIDER having been reached and having reported
       // which branch it took — not a frame count, because the run publishes
       // its context frame before it calls anyone, so "two frames" is true
@@ -623,7 +620,7 @@ describe("a run that stops publishes a terminal frame, on every path", () => {
       // THE VERDICT THAT MATTERS: what the NEXT connection is handed. The
       // loop lived here — a reconnect that receives no terminal frame does
       // not close, and comes back again.
-      const reconnect = await drain(`/api/run/${runId}/stream`, {}, 1_200);
+      const reconnect = await drain(`/api/run/${runId}/stream`, {});
       expect(reconnect.status).toBe(200);
       expect(reconnect.frames.length).toBeGreaterThan(0);
       expect(
@@ -651,7 +648,7 @@ describe("a run that stops publishes a terminal frame, on every path", () => {
       const { runId } = await startRun("complete normally");
       await runToCompletion(runId);
 
-      const replay = await drain(`/api/run/${runId}/stream`, {}, 1_200);
+      const replay = await drain(`/api/run/${runId}/stream`, {});
       const terminals = replay.frames.filter((f) =>
         ["done", "cancelled", "error"].includes(f.event),
       );
@@ -828,7 +825,7 @@ describe("the safety-findings frame carries each finding's own ledger address (t
       await runToCompletion(runId);
       expect(providerBranches.slice(-3), "the switch branch must have fired").toContain("switch");
 
-      const { frames } = await drain(`/api/run/${runId}/stream`, {}, 1_500);
+      const { frames } = await drain(`/api/run/${runId}/stream`, {});
       const safetyFrame = frames.find((f) => f.event === "safety_findings");
       expect(safetyFrame, "the run must publish its safety verdict").toBeDefined();
       const data = JSON.parse(safetyFrame!.data) as {
@@ -962,7 +959,7 @@ describe("the run's ending carries the gate auto-trip revert it performed", () =
       const before = providerBranches.length;
       tripBranchCalls = 0;
       const { runId } = await startRun(`block create_artifact identically ${TRIP_MARKER}`);
-      const live = drain(`/api/run/${runId}/stream`, {}, 10_000);
+      const live = drain(`/api/run/${runId}/stream`, {});
       await runToCompletion(runId);
       const gateFrames = (await live).frames.filter((frame) => frame.event === "hallucination")
         .map((frame) => JSON.parse(frame.data) as { eventId?: string; message: string });
@@ -998,7 +995,7 @@ describe("the run's ending carries the gate auto-trip revert it performed", () =
       // the retained feed's replay carries the done frame, and its data
       // carries the revert fact the client turns into the panel's
       // re-read.
-      const replay = await drain(`/api/run/${runId}/stream`, {}, 1_500);
+      const replay = await drain(`/api/run/${runId}/stream`, {});
       const doneFrame = replay.frames.filter((f) => f.event === "done").at(-1);
       expect(doneFrame, "the run's done frame must be in the retained replay").toBeDefined();
       const doneData = JSON.parse(doneFrame!.data) as { runId?: string; autoTripsReverted?: boolean };
@@ -1013,7 +1010,7 @@ describe("the run's ending carries the gate auto-trip revert it performed", () =
       const plain = await startRun("a plain turn with no tools in it");
       await runToCompletion(plain.runId);
       expect(providerBranches.slice(plainBefore)).toContain("fast");
-      const plainReplay = await drain(`/api/run/${plain.runId}/stream`, {}, 1_200);
+      const plainReplay = await drain(`/api/run/${plain.runId}/stream`, {});
       const plainDone = plainReplay.frames.filter((f) => f.event === "done").at(-1);
       expect(plainDone, "the ordinary run's done frame must be in the replay").toBeDefined();
       const plainData = JSON.parse(plainDone!.data) as { autoTripsReverted?: boolean };
@@ -1045,7 +1042,7 @@ describe("a run whose last call failed ends by saying so", () => {
       // own error event is captured as published — the bounded buffer
       // evicts early frames by the time a reconnect reads the record, so
       // the live capture is the one honest witness of what the call said.
-      const live = drain(`/api/run/${runId}/stream`, {}, 4_000);
+      const live = drain(`/api/run/${runId}/stream`, {});
       await runToCompletion(runId);
 
       // LIVENESS OF THE SCENARIO: the provider really took the fail branch
@@ -1062,7 +1059,7 @@ describe("a run whose last call failed ends by saying so", () => {
 
       // THE VERDICT — the ending a reconnect is handed within the
       // retention window.
-      const reconnect = await drain(`/api/run/${runId}/stream`, {}, 1_500);
+      const reconnect = await drain(`/api/run/${runId}/stream`, {});
       const terminals = reconnect.frames.filter((f) =>
         ["done", "cancelled", "error"].includes(f.event),
       );
@@ -1125,7 +1122,7 @@ describe("a run whose last call failed ends by saying so", () => {
       // flight (the branch is taken; the refusal lands 400 ms later), and
       // the live subscriber captures the drain's own `steered` frame —
       // the bounded buffer will have evicted it by the reconnect.
-      const live = drain(`/api/run/${runId}/stream`, {}, 4_000);
+      const live = drain(`/api/run/${runId}/stream`, {});
       // the failing call never reached the provider, so there was no in-flight call to steer otherwise (no wall deadline: a hang is ended by the backstop).
       await until(() => providerBranches.slice(before).includes("fail"));
       const steered = await steerRun(runId, "answer plainly after the refusal");
@@ -1158,7 +1155,7 @@ describe("a run whose last call failed ends by saying so", () => {
       expect(errorRows.length, "the failed call's error row survives the continuation").toBe(1);
 
       // THE VERDICT — the run's own ending is its LAST call's fate.
-      const reconnect = await drain(`/api/run/${runId}/stream`, {}, 1_500);
+      const reconnect = await drain(`/api/run/${runId}/stream`, {});
       const terminals = reconnect.frames.filter((f) =>
         ["done", "cancelled", "error"].includes(f.event),
       );
@@ -1177,12 +1174,10 @@ test.each([false, true])("policy refusal stops queued continuation and permits a
   policyBarrier = { ready: ready.resolve, released: released.promise, native };
   writeFileSync(join(projectRoot, policyEditArgs.path), policyEditArgs.oldString);
   const before = providerBranches.length; const wireBefore = providerRequests.length; const toolsBefore = db.listToolCallsByChat(chatId, ownerUserId).length;
-  let watchdog: ReturnType<typeof setTimeout> | undefined;
   try {
     const { runId } = await startRun(POLICY_MARKER);
-    const live = drain(`/api/run/${runId}/stream`, {}, 4_000);
-    await Promise.race([ready.promise, new Promise<never>((_, reject) => { watchdog = setTimeout(() => reject(new Error("policy request did not reach provider")), 5_000); })]);
-    clearTimeout(watchdog);
+    const live = drain(`/api/run/${runId}/stream`, {});
+    await ready.promise; // the policy request reached the provider (no wall deadline: a hang is ended by the backstop)
     const steered = await steerRun(runId, "queued instruction must remain undispatched");
     expect(steered.status).toBe(200); expect(steered.queued).toBe(1);
     released.resolve(); await runToCompletion(runId);
@@ -1200,7 +1195,7 @@ test.each([false, true])("policy refusal stops queued continuation and permits a
     }
     expect(frames.some(frame => frame.event === "tool_result" || frame.event === "model" && JSON.parse(frame.data).type === "tool_call_done")).toBe(false);
     expect(frames.some(frame => frame.event === "steered" && JSON.parse(frame.data).delivery === "drain")).toBe(false);
-    const ending = (await drain(`/api/run/${runId}/stream`, {}, 1_500)).frames.filter(frame => ["done", "cancelled", "error"].includes(frame.event));
+    const ending = (await drain(`/api/run/${runId}/stream`, {})).frames.filter(frame => ["done", "cancelled", "error"].includes(frame.event));
     expect(ending).toHaveLength(1); expect(ending[0]!.event).toBe("error");
     expect(JSON.parse(ending[0]!.data).code).toBe("llm_misalignment_policy_violation");
     const refused = await startRun("operator review words do not resume this conversation");
@@ -1212,7 +1207,7 @@ test.each([false, true])("policy refusal stops queued continuation and permits a
     const explicit = await startRun(native ? POLICY_EDIT_MARKER : "new explicit request after operator review"); await runToCompletion(explicit.runId);
     expect(providerBranches.slice(before)).toEqual(native ? ["policy", "policy-edit", "fast"] : ["policy", "fast"]);
     expect(readFileSync(join(projectRoot, policyEditArgs.path), "utf8")).toBe(native ? policyEditArgs.newString : policyEditArgs.oldString);
-  } finally { clearTimeout(watchdog); released.resolve(); policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "unrelated after policy" }, ownerUserId).id; }
+  } finally { released.resolve(); policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "unrelated after policy" }, ownerUserId).id; }
 });
 
 test.each([false, true])("observed policy closes steering before persistence and survives an explicit cancellation record (cancel=%s)", async (cancel) => {
@@ -1220,11 +1215,10 @@ test.each([false, true])("observed policy closes steering before persistence and
   const reached = Promise.withResolvers<void>(), released = Promise.withResolvers<void>();
   policyPersistence = { ready: reached.resolve, released: released.promise };
   policyBarrier = { ready() {}, released: Promise.resolve(), native: false };
-  const before = providerBranches.length; let timer: ReturnType<typeof setTimeout> | undefined; let heldRunId: string | undefined;
+  const before = providerBranches.length; let heldRunId: string | undefined;
   try {
     const { runId } = await startRun(POLICY_MARKER); heldRunId = runId;
-    await Promise.race([reached.promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("policy persistence not reached")), 5_000); })]);
-    clearTimeout(timer);
+    await reached.promise; // policy persistence was reached (no wall deadline)
     const steer = await steerRun(runId, "must refuse during policy persistence");
     expect(steer.status).toBe(200); expect(steer.queued).toBeNull(); expect(steer.refusalCode).toBe("llm_misalignment_policy_violation");
     if (cancel) expect(await cancelRun(runId)).toBe(200);
@@ -1232,10 +1226,10 @@ test.each([false, true])("observed policy closes steering before persistence and
     expect(providerBranches.slice(before)).toEqual(["policy"]);
     const recorded = db.listMessages(chatId, ownerUserId).filter(row => row.run_id === runId && row.role === "error");
     expect(recorded).toHaveLength(1); expect((recorded[0]!.metadata as {errorCode?: string}).errorCode).toBe("llm_misalignment_policy_violation");
-    const ending = (await drain(`/api/run/${runId}/stream`, {}, 1_500)).frames.filter(frame => ["done", "cancelled", "error"].includes(frame.event));
+    const ending = (await drain(`/api/run/${runId}/stream`, {})).frames.filter(frame => ["done", "cancelled", "error"].includes(frame.event));
     expect(ending).toHaveLength(1); expect(ending[0]!.event).toBe(cancel ? "cancelled" : "error");
     if (!cancel) expect(JSON.parse(ending[0]!.data).code).toBe("llm_misalignment_policy_violation");
-  } finally { clearTimeout(timer); released.resolve(); if (heldRunId) await runToCompletion(heldRunId); policyPersistence = undefined; policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "unrelated after policy persistence" }, ownerUserId).id; }
+  } finally { released.resolve(); if (heldRunId) await runToCompletion(heldRunId); policyPersistence = undefined; policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "unrelated after policy persistence" }, ownerUserId).id; }
 });
 
 // ── 3. A refused start leaves nothing behind ──────────────────────────────
@@ -1285,7 +1279,7 @@ describe("a start refused at the door leaves no feed and no registry entry", () 
       // A SUBSCRIBER TO THE CORPSE. This was accepted — 200, one `connected`
       // frame, and the socket held open forever on a run that would never
       // publish, consuming one of the eight per-user stream slots.
-      const corpse = await drain(`/api/run/${refused[0]!}/stream`, {}, 1_000);
+      const corpse = await drain(`/api/run/${refused[0]!}/stream`, {});
       expect(corpse.status).toBe(404);
       expect(corpse.frames.length).toBe(0);
     },
@@ -1330,7 +1324,7 @@ describe("a run that dies in the executor's setup window ends by its own termina
         // A subscriber attaches and STAYS OPEN — the round's own liveness
         // contract: whatever ends this run must reach the reader that is
         // watching, not strand it on a pane that never settles.
-        const live = drain(`/api/run/${admitted.runId}/stream`, {}, 4_000);
+        const live = drain(`/api/run/${admitted.runId}/stream`, {});
         await runToCompletion(admitted.runId);
         const liveFrames = await live;
 
@@ -1371,7 +1365,7 @@ describe("a run that dies in the executor's setup window ends by its own termina
 
         // THE VERDICT — the ending a reconnect is handed within the
         // retention window.
-        const reconnect = await drain(`/api/run/${admitted.runId}/stream`, {}, 1_500);
+        const reconnect = await drain(`/api/run/${admitted.runId}/stream`, {});
         const terminals = reconnect.frames.filter((f) =>
           ["done", "cancelled", "error"].includes(f.event),
         );
@@ -1446,7 +1440,7 @@ describe("a run that dies in the executor's setup window ends by its own termina
         // verdict must PRECEDE the ending, because nothing follows the
         // ending. Both halves of that ordering are asserted: the verdict
         // exists, and the terminal is the run's last word.
-        const reconnect = await drain(`/api/run/${admitted.runId}/stream`, {}, 1_500);
+        const reconnect = await drain(`/api/run/${admitted.runId}/stream`, {});
         const safetyIdx = reconnect.frames.findIndex((f) => f.event === "safety_findings");
         const terminalIdx = reconnect.frames.findIndex((f) =>
           ["done", "cancelled", "error"].includes(f.event),
@@ -1510,7 +1504,7 @@ describe("a replay that cannot be continuous says so", () => {
       // The buffer's arithmetic, at the bound.
       expect(state.nextSequence).toBe(state.frames + state.droppedBefore + 1);
 
-      const resumed = await drain(`/api/run/${runId}/stream`, { "Last-Event-ID": "1" }, 1_200);
+      const resumed = await drain(`/api/run/${runId}/stream`, { "Last-Event-ID": "1" });
       const gap = resumed.frames.find((f) => f.event === "replay_gap");
       expect(gap, "a subscriber resuming below the buffer must be TOLD, not silently skipped").toBeDefined();
       const payload = JSON.parse(gap!.data) as {
@@ -1536,7 +1530,7 @@ describe("a replay that cannot be continuous says so", () => {
       const state = runFeedState(runId)!;
 
       const ahead = String(state.nextSequence + 1_000);
-      const res = await drain(`/api/run/${runId}/stream`, { "Last-Event-ID": ahead }, 1_200);
+      const res = await drain(`/api/run/${runId}/stream`, { "Last-Event-ID": ahead });
       expect(res.status).toBe(200);
       const gap = res.frames.find((f) => f.event === "replay_gap");
       expect(
@@ -1553,7 +1547,6 @@ describe("a replay that cannot be continuous says so", () => {
       const atEnd = await drain(
         `/api/run/${runId}/stream`,
         { "Last-Event-ID": String(state.nextSequence - 1) },
-        1_200,
       );
       expect(atEnd.frames.some((f) => f.event === "replay_gap")).toBe(false);
     },
@@ -1843,10 +1836,10 @@ test("reserved policy admission sees a stop appended while its run mapping was a
   db.createMessage({ chat_id: chatId, role: "user", content: "seed", run_id: runId }, ownerUserId);
   const ready = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(); let calls = 0;
   mappingObserver = async id => { if (id === target && ++calls === 2) { ready.resolve(); await release.promise; } };
-  let pending: ReturnType<typeof startRun> | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  let pending: ReturnType<typeof startRun> | undefined;
   try {
     pending = startRun("race admission");
-    await Promise.race([ready.promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("reserved mapping not reached")), 5_000); })]); clearTimeout(timer);
+    await ready.promise; // the reserved mapping was reached (no wall deadline)
     const { activeRunForChat } = await import("../../server/run/run-registry.ts");
     expect(activeRunForChat(chatId, ownerUserId)).toBeDefined();
     const { getTimelineRecorder } = await import("../../server/observability/timeline-bridge.ts");
@@ -1854,7 +1847,7 @@ test("reserved policy admission sees a stop appended while its run mapping was a
     release.resolve(); const result = await pending;
     expect(result.runId).toBe(""); expect(result.refusalCode).toBe("llm_misalignment_policy_violation");
     expect(activeRunForChat(chatId, ownerUserId)).toBeUndefined(); expect(providerBranches.slice(before)).toEqual([]);
-  } finally { clearTimeout(timer); release.resolve(); await pending; mappingObserver = undefined; chatId = db.createChat({ project_id: projectId, title: "after policy race" }, ownerUserId).id; }
+  } finally { release.resolve(); await pending; mappingObserver = undefined; chatId = db.createChat({ project_id: projectId, title: "after policy race" }, ownerUserId).id; }
 });
 
 test("a steer admitted before policy cannot queue after its message persistence completes", async () => {
@@ -1862,15 +1855,15 @@ test("a steer admitted before policy cannot queue after its message persistence 
   const providerReady = Promise.withResolvers<void>(), providerRelease = Promise.withResolvers<void>();
   const ready = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   policyBarrier = { ready: providerReady.resolve, released: providerRelease.promise, native: false }; steerPersistence = { ready: ready.resolve, released: release.promise };
-  const before = providerBranches.length; let pending: ReturnType<typeof steerRun> | undefined, heldRunId: string | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  const before = providerBranches.length; let pending: ReturnType<typeof steerRun> | undefined, heldRunId: string | undefined;
   try {
     const started = await startRun(POLICY_MARKER); heldRunId = started.runId;
-    const watchdog = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("steer race barrier not reached")), 5_000); });
-    await Promise.race([providerReady.promise, watchdog]); pending = steerRun(started.runId, "held steer persistence"); await Promise.race([ready.promise, watchdog]); clearTimeout(timer);
+    // The steer race's barriers, awaited with no wall deadline (NO-LOAD-BLOCK).
+    await providerReady.promise; pending = steerRun(started.runId, "held steer persistence"); await ready.promise;
     providerRelease.resolve(); await runToCompletion(started.runId); release.resolve();
     const steered = await pending; expect(steered.queued).toBeNull(); expect(steered.refusalCode).toBe("llm_misalignment_policy_violation");
     expect(providerBranches.slice(before)).toEqual(["policy"]);
-  } finally { clearTimeout(timer); providerRelease.resolve(); release.resolve(); await pending; if (heldRunId) await runToCompletion(heldRunId); policyBarrier = undefined; steerPersistence = undefined; chatId = db.createChat({ project_id: projectId, title: "after steer race" }, ownerUserId).id; }
+  } finally { providerRelease.resolve(); release.resolve(); await pending; if (heldRunId) await runToCompletion(heldRunId); policyBarrier = undefined; steerPersistence = undefined; chatId = db.createChat({ project_id: projectId, title: "after steer race" }, ownerUserId).id; }
 });
 
 test("a cancellation before forwarding an actual native policy error retains the durable stop", async () => {
@@ -1890,13 +1883,13 @@ test("a cancellation before forwarding an actual native policy error retains the
   chatId = db.createChat({ project_id: projectId, title: "policy delivery cancel" }, ownerUserId).id;
   const ready = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   policyBarrier = { ready: ready.resolve, released: release.promise, native: true, empty: true };
-  const before = providerBranches.length; let timer: ReturnType<typeof setTimeout> | undefined;
+  const before = providerBranches.length;
   try {
     runId = (await startRun(POLICY_MARKER)).runId;
-    await Promise.race([ready.promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("policy delivery barrier not reached")), 5_000); })]); clearTimeout(timer);
+    await ready.promise; // the policy delivery barrier was reached (no wall deadline)
     release.resolve(); await runToCompletion(runId); expect(cancelled).toBe(1);
     expect(getTimelineStore().querySummaries({ runIds: [runId], errorCode: "llm_misalignment_policy_violation", limit: 1 })).toHaveLength(1);
     const refused = await startRun("operator review is not authority"); expect(refused.refusalCode).toBe("llm_misalignment_policy_violation"); expect(refused.runId).toBe("");
     expect(providerBranches.slice(before)).toEqual(["policy"]); expect(db.listToolCallsByChat(chatId, ownerUserId)).toHaveLength(0);
-  } finally { clearTimeout(timer); release.resolve(); if (runId) await runToCompletion(runId); spy.mockRestore(); policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "after delivery cancel" }, ownerUserId).id; }
+  } finally { release.resolve(); if (runId) await runToCompletion(runId); spy.mockRestore(); policyBarrier = undefined; chatId = db.createChat({ project_id: projectId, title: "after delivery cancel" }, ownerUserId).id; }
 });

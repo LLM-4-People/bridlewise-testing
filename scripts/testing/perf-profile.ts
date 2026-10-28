@@ -55,8 +55,6 @@ import { prepareCockpitFixture } from "../../tests/performance/scale/prepare-fix
 import { readPortFromReadiness } from "../../tests/performance/scale/stack.ts";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..");
-/** How long a started server has to announce its port. */
-const READINESS_MS = 60_000;
 /** How long a stopped process group has after SIGTERM before SIGKILL. */
 const STOP_GRACE_MS = 5_000;
 
@@ -134,7 +132,7 @@ export async function runPerfProfile(): Promise<number> {
     });
     // Owned at spawn (KILL-OWNED-ONLY): the stop below signals exactly this group.
     started.push(ownedChild(api));
-    const apiPort = await readPortFromReadiness(api, "api", /server on http:\/\/[\d.]+:(\d+)/u, READINESS_MS);
+    const apiPort = await readPortFromReadiness(api, "api", /server on http:\/\/[\d.]+:(\d+)/u);
     client = await serveClient(apiPort);
     const webPort = client.port;
     // The profile spec alone: it is what writes the report (the config's other spec is the cockpit benchmark).

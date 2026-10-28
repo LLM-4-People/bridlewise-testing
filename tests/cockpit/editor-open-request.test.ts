@@ -67,10 +67,6 @@ function stubShell(overrides: Partial<Record<keyof ShellApi, unknown>> = {}): Sh
   } as unknown as ShellApi;
 }
 
-async function settle(ms = 40): Promise<void> {
-  await new Promise((r) => setTimeout(r, ms));
-}
-
 beforeEach(() => {
   consumeEditorOpenRequest();
   consumeShellViewRequest();
@@ -220,7 +216,8 @@ describe("C. the editor room consumes the seam through its own open mechanism", 
   test("a pending path is consumed on mount and opened probe-first, like a tree click", async () => {
     requestEditorOpen("src/app.ts");
     render(EditorRoom, { props: { shell: stubShell() } });
-    await settle();
+    // Waited for by the open itself (the read it makes), never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => readPaths.includes(`${ROOT}/src/app.ts`));
     expect(pendingEditorOpen.get()).toBeNull();
     expect(probed).toContain(`${ROOT}/src/app.ts`);
     expect(readPaths).toContain(`${ROOT}/src/app.ts`);
@@ -228,9 +225,9 @@ describe("C. the editor room consumes the seam through its own open mechanism", 
 
   test("a path arriving WHILE the room is open is honored too", async () => {
     render(EditorRoom, { props: { shell: stubShell() } });
-    await settle();
     requestEditorOpen("src/late.ts");
-    await settle();
+    // Waited for by the probe it makes, never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => probed.includes(`${ROOT}/src/late.ts`));
     expect(pendingEditorOpen.get()).toBeNull();
     expect(probed).toContain(`${ROOT}/src/late.ts`);
   });
@@ -238,7 +235,8 @@ describe("C. the editor room consumes the seam through its own open mechanism", 
   test("a path outside the project is refused in plain words, with no doomed probe", async () => {
     requestEditorOpen("/etc/passwd");
     const { container } = render(EditorRoom, { props: { shell: stubShell() } });
-    await settle();
+    // Waited for by the refusal on screen, never a fixed pause (NO-LOAD-BLOCK).
+    await until(() => container.textContent?.includes("outside this project") === true);
     expect(pendingEditorOpen.get()).toBeNull();
     expect(probed).toHaveLength(0);
     expect(container.textContent).toContain("outside this project");
