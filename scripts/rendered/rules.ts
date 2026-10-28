@@ -37,6 +37,7 @@
  * request rows stay on for the whole session.
  */
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
+import { vendoredFaces } from "../vendor-fonts.ts";
 
 export type Surface = "cockpit" | "site";
 
@@ -187,12 +188,6 @@ function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string
 /** A face the token owner vendors: its family, and the files (served paths) it may be loaded from. */
 export type VendoredFace = Readonly<{ family: string; files: readonly string[] }>;
 
-/**
- * THE VENDORED FACES the font rows bind each token family to. None yet: until
- * the font owner (#92) vendors IBM Plex under public/fonts and binds this to
- * its lock, a page may declare no font face at all.
- */
-const VENDORED_FACES: readonly VendoredFace[] = [];
 
 /**
  * Every element that renders text computes exactly a token stack; every face
@@ -390,7 +385,8 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     holds: "Every element that renders text (open shadow roots included) computes exactly a --face-* token stack; every font face is a token family loaded from its vendored files; every canvas font, in any frame, is exactly a --face-* stack.",
     surfaces: ["cockpit"],
     pending: { site: "the site declares its own --sans/--mono stacks until it wears the token owner (DESIGN, #201); DESIGN adds \"site\" here when it does" },
-    input: () => ({ faceTokens: FACE_TOKENS, faces: VENDORED_FACES }),
+    // Each token family is bound to the files the font owner vendors for it (scripts/vendor-fonts.ts, its lock).
+    input: () => ({ faceTokens: FACE_TOKENS, faces: vendoredFaces() satisfies readonly VendoredFace[] }),
     judge: judgeFonts as PageRule["judge"],
   },
   {

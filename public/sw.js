@@ -6,7 +6,7 @@
 // The cache generation: raise it when this worker's caching logic changes.
 const CACHE_GENERATION = "v5";
 // BEGIN GENERATED: the cached assets' digest (scripts/service-worker-cache.ts)
-const ASSETS_DIGEST = "48e3c931e89f";
+const ASSETS_DIGEST = "7db169c25df4";
 // END GENERATED: the cached assets' digest
 // A changed icon, font or bundle is a new cache, so an installed app refreshes.
 const CACHE_VERSION = `${CACHE_GENERATION}-${ASSETS_DIGEST}`;

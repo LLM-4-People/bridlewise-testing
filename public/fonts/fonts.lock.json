@@ -4,11 +4,13 @@
     {
       "name": "@ibm/plex-mono-variable",
       "version": "1.0.0",
+      "family": "IBM Plex Mono Variable",
       "integrity": "sha512-p8Sar7McgXp7wN6YJ7Qx+bIuY4Ce7QHXMUMvZf+6l4Ukma9l7cb7fFeaG0tf7OqGpzTFnVB3AmPuSsx7ayYHSw=="
     },
     {
       "name": "@ibm/plex-sans-variable",
       "version": "0.2.0",
+      "family": "IBM Plex Sans Variable",
       "integrity": "sha512-S8xew9E8CPPKFvitbu2gDtwNFVWwwhClheaIBeykDYg7DrVK3cV5Xq5MjMrWPP5Os0xyiRFjMOmtGBLzz3urTQ=="
     }
   ],

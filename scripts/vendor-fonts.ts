@@ -3,8 +3,9 @@
  * `public/fonts/` and its lock (`public/fonts/fonts.lock.json`).
  *
  * The lock names, for each vendored file, the npm package and the path inside
- * it that the bytes come from (the human choice: which package, which
- * version, which file), and records what is GENERATED from that choice: the
+ * it that the bytes come from, and for each package the family its files are
+ * (the human choice: which package, which version, which file, which family),
+ * and records what is GENERATED from that choice: the
  * registry's integrity for the package version (`npm view … dist.integrity`)
  * and each file's sha256. "Unmodified" is a receipt, not a claim:
  *
@@ -38,7 +39,7 @@ export const FONT_LOCK_SCHEMA = "bridlewise-font-lock/v1";
 
 export type FontLock = {
   schema: typeof FONT_LOCK_SCHEMA;
-  packages: { name: string; version: string; integrity: string }[];
+  packages: { name: string; version: string; family: string; integrity: string }[];
   files: { file: string; package: string; path: string; sha256: string }[];
 };
 
@@ -48,7 +49,18 @@ const sha512Integrity = (bytes: Uint8Array): string => `sha512-${createHash("sha
 function readLock(): FontLock {
   const lock = JSON.parse(readFileSync(LOCK_PATH, "utf8")) as FontLock;
   if (lock.schema !== FONT_LOCK_SCHEMA) throw new HarnessError(`${LOCK_PATH} is not a ${FONT_LOCK_SCHEMA} lock`, "font_lock_invalid");
+  for (const pkg of lock.packages) if (typeof pkg.family !== "string" || pkg.family.length === 0) throw new HarnessError(`${LOCK_PATH}: ${pkg.name} names no family`, "font_lock_invalid");
   return lock;
+}
+
+/**
+ * THE VENDORED FACES: each pinned family and the files (as the cockpit serves
+ * them, under /fonts/) it may be loaded from. The rendered judgement binds
+ * every font face a page declares to these (scripts/rendered/rules.ts).
+ */
+export function vendoredFaces(): { family: string; files: string[] }[] {
+  const lock = readLock();
+  return lock.packages.map((pkg) => ({ family: pkg.family, files: lock.files.filter((f) => f.package === pkg.name).map((f) => `/fonts/${f.file}`) }));
 }
 
 /** The registry's integrity for a package version, as npm reports it. */

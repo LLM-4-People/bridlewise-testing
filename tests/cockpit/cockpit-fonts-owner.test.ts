@@ -303,6 +303,9 @@ export function fontFindings(path: string, text: string, declared: ReadonlySet<s
     if (/\bWebFont\s*\.\s*load\s*\(/u.test(bare)) findings.push(`${where}: WebFont.load (a font loader)`);
     if (/\.\s*fontFamily\s*=(?!=)/u.test(bare)) findings.push(`${where}: sets style.fontFamily (a family named outside the owner)`);
     // A canvas names its family in `ctx.font` (and a style in `style.font`): a family outside the owner either way.
+    // This is fast feedback only — the rendered judgement (scripts/rendered/) records every canvas font at the
+    // context's prototype and holds it to exactly one --face-* stack. It refuses even a font that reads the token:
+    // the first canvas that draws text needs a declared route through the token owner, added here and there.
     if (/\.\s*font\s*=(?!=)/u.test(bare)) findings.push(`${where}: sets .font (a canvas or style font names a family outside the owner)`);
     for (const str of strings) {
       if (/^(?:@fontsource(?:-variable)?\/|typeface-|webfontloader$|@ibm\/plex)/u.test(str)) findings.push(`${where}: imports the font package ${str}`);
@@ -430,7 +433,7 @@ export function buildInputs(config: { root?: string; publicDir?: string | false;
   return { files: [...seen].map((f) => relative(root, f).split("\\").join("/")).sort(), findings };
 }
 
-type Lock = { schema: string; packages: { name: string; version: string; integrity: string }[]; files: { file: string; package: string; path: string; sha256: string }[] };
+type Lock = { schema: string; packages: { name: string; version: string; family: string; integrity: string }[]; files: { file: string; package: string; path: string; sha256: string }[] };
 
 describe("fonts: one declaration, pinned files, no other source", () => {
   const owner = read(TOKENS);
@@ -460,6 +463,21 @@ describe("fonts: one declaration, pinned files, no other source", () => {
     }
     expect([...declared].map((s) => s.replace(/^\/fonts\//u, "")).sort()).toEqual(vendored);
     expect(existsSync(`${FONT_DIR}/OFL.txt`), "the OFL licence travels with the fonts").toBe(true);
+  });
+
+  test("each @font-face block loads its family from that family's own pinned files (the binding the rendered judgement holds pages to)", () => {
+    const lock = JSON.parse(read(LOCK)) as Lock;
+    const blocks = [...owner.matchAll(/@font-face\s*\{([^}]*)\}/gu)].map((m) => ({
+      family: (/font-family\s*:\s*([^;]*)/u.exec(m[1]!)?.[1] ?? "").replace(/["']/gu, "").trim(),
+      file: /url\(\s*["']?\/fonts\/([^"')]+)/u.exec(m[1]!)?.[1] ?? "",
+    }));
+    expect(blocks.length).toBe(lock.files.length);
+    for (const block of blocks) {
+      const entry = lock.files.find((f) => f.file === block.file);
+      const family = lock.packages.find((p) => p.name === entry?.package)?.family;
+      expect(family, `${block.file} is pinned with a family`).toBeDefined();
+      expect(block.family, `${block.file} is ${family}'s file`).toBe(family);
+    }
   });
 
   test("everything the build consumes loads no font from elsewhere and declares no family twice", () => {
