@@ -4721,7 +4721,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-secret-signals", path: "src/privacy/secret-signals.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 19, namesSha256: "cef50c4d97a949168b5aefc5d3135018b1a5bdf68ee7860b24d75aa615e0bc73" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 20, namesSha256: "a8d208c1e8f3a6fc3829c259a150a48c0467e99df2400f97fc43bbb276b0395f" },
       dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts"],
     }),
     moduleContract({
@@ -5771,7 +5771,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-declarations", path: "src/workflow/forge/declarations.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "420c5049e262435b4d5740a28a438db6c806c9e74347d3954510311a628c43d5" },
-      dependencies: ["src/kernel/integrity.ts","src/workflow/community/sources.ts","src/workflow/forge/codes.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/forge-state.ts"],
+      dependencies: ["src/kernel/integrity.ts","src/workflow/community/sources.ts","src/workflow/failure-owners.ts","src/workflow/forge/codes.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/forge-state.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-forge-state", path: "src/workflow/forge/forge-state.ts", realm: "runtime", layer: "infrastructure",
@@ -5780,7 +5780,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-forge-live-state", path: "src/workflow/forge/live-state.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "c207234241cf9bb9ef88256f9e6a206a417edaae010eb94581c1a702c25a0784" },
+      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "eb7a589948916a5a7a50220709ad0c35a154543d02c910a4b5477dbcd9973925" },
       dependencies: ["src/workflow/forge/codes.ts"],
     }),
     moduleContract({
