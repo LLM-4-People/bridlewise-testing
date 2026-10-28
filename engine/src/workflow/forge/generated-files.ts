@@ -26,6 +26,7 @@ import { workingTreeReader } from "../../git/tree-reader.ts";
 import { COMMUNITY_DIRECTORY, readIntake, readRoles, type CommunityRoles } from "../community/sources.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
+import { jsonText } from "./forge-state.ts";
 import { forgeDeclarations, type DeclarationSources } from "./declarations.ts";
 import type { ForgeSettings } from "./forge-config.ts";
 import { repositoryIdentity, repositoryIdentityCopies, type RepositoryIdentity } from "./repository-identity.ts";
@@ -79,10 +80,6 @@ export function appManifest(role: ForgeAppRole, settings: ForgeSettings): Readon
     request_oauth_on_install: false,
     setup_on_update: false,
   });
-}
-
-function jsonText(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 /** Everything the generated files are a function of. */

@@ -12,6 +12,7 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 // is one refusal that cannot hold.
 import {
   createTestSurfaceDispositionManifest,
+  effectiveDispositionEntries,
   isQualifiedCanonicalNodeTestSource,
   isScannedRecognizableTestSource,
   NONEMPTY_STRING,
@@ -30,6 +31,7 @@ import { deadPatterns, patternLivenessFailure } from "./pattern-liveness.ts";
 // not a second definition.
 export {
   createTestSurfaceDispositionManifest,
+  effectiveDispositionEntries,
   isQualifiedCanonicalNodeTestSource,
   isScannedRecognizableTestSource,
   parseTestSurfaceDispositionManifest,
@@ -331,16 +333,15 @@ export function buildTestSurfaceScope(
     expected.some((path) => recognizableTestSourceLanguage(path) === undefined)) {
     throw new Error("recognizable test-surface input is invalid");
   }
-  const actual = manifest.entries.map((entry) => entry.path);
-  if (canonicalHash(expected) !== canonicalHash(actual)) {
-    throw new Error("test-surface disposition coverage is incomplete");
-  }
+  // Every source's disposition: its entry, or the default a qualified Node test source takes without one.
+  const effective = effectiveDispositionEntries(expected, manifest);
   const byDisposition = (disposition: TestSurfaceDispositionEntry["disposition"]): readonly string[] =>
-    manifest.entries.filter((entry) => entry.disposition === disposition).map((entry) => entry.path);
+    effective.filter((entry) => entry.disposition === disposition).map((entry) => entry.path);
   const pendingExternalSourceIds = byDisposition("pending-external-qualification");
   const unsupportedSourceIds = byDisposition("unsupported-blocking");
   return parseTestSurfaceScope({
-    dispositionManifestHash: manifest.integrityHash,
+    // The manifest's identity, derived (it commits no hash of itself).
+    dispositionManifestHash: canonicalHash(manifest),
     canonicalNodeSourceIds: byDisposition("canonical-node-test"),
     qualifiedExternalSourceIds: byDisposition("qualified-external-oracle"),
     pendingExternalSourceIds,

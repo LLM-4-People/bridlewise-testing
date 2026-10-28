@@ -6,6 +6,7 @@
     "workflows": [
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
+      ".github/workflows/commit-records.yml",
       ".github/workflows/dependency-review.yml",
       ".github/workflows/docs-links.yml",
       ".github/workflows/pages.yml",
@@ -42,6 +43,7 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
@@ -60,6 +62,7 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",
@@ -233,6 +236,7 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
@@ -270,6 +274,7 @@
         "package.json",
         "engine/package.json",
         ".github/workflows/ci.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",

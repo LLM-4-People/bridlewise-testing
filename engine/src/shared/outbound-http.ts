@@ -620,8 +620,25 @@ export function connectionFreshForMs(advertisedMs: number | undefined, idle: num
   return Math.min(advertisedMs ?? idle, idle) - threshold;
 }
 
-/** One connection of a {@link freshPoolClass} pool: its client, whether a request is on it, and since when it is idle. */
-type FreshConnection = { readonly client: Dispatcher; busy: boolean; idleSince: number; advertisedMs: number | undefined };
+/**
+ * One connection of a {@link freshPoolClass} pool: its client, whether a request is on it, since when it is idle, and
+ * — once the pool itself ends it — why (`closedBy`), so the end is recorded by WHO ended it (see the pool's
+ * `outbound_connection_ended`).
+ */
+type FreshConnection = { readonly client: Dispatcher; busy: boolean; idleSince: number; advertisedMs: number | undefined; closedBy?: "stale" | "retired" };
+
+/**
+ * WHO ENDED a pooled connection, as its `disconnect` says: the pool itself (`stale` at dispatch, `retired` after
+ * its pool closed or at the write), the client's own idle bound (`idle-timeout`: undici's keep-alive timer, its
+ * `InformationalError` "socket idle timeout"), or the PEER (anything else: the server closed it, or the socket
+ * failed). Recorded on every end, so a reader (and a test) learns the closer from the door's own word, never from
+ * how long it took.
+ */
+export function connectionCloser(closedBy: "stale" | "retired" | undefined, error: unknown): "stale" | "retired" | "idle-timeout" | "peer" {
+  if (closedBy !== undefined) return closedBy;
+  if (error instanceof Error && error.name === "InformationalError" && /idle timeout/u.test(error.message)) return "idle-timeout";
+  return "peer";
+}
 
 /** Undici's dispatcher-state symbols, which an Agent reads off the per-origin dispatchers it holds. */
 type DispatcherStateSymbols = Readonly<{ kConnected: symbol; kBusy: symbol; kPending: symbol; kRunning: symbol; kDispatch: symbol }>;
@@ -708,6 +725,9 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
       const emitter = this as unknown as { emit: (event: string, ...args: unknown[]) => boolean };
       for (const event of ["connect", "disconnect", "connectionError", "drain"] as const) {
         events.on(event, guarded("outbound.pool.client-event", (origin: unknown, targets: readonly unknown[], error?: unknown) => {
+          if (event === "disconnect") {
+            debugLog("network", "debug", "outbound_connection_ended", () => ({ origin: String(origin), by: connectionCloser(entry.closedBy, error), reason: error instanceof Error ? error.message : null }));
+          }
           if (event === "disconnect" && error instanceof Error && /GOAWAY/u.test(error.message)) {
             // Undici resends, once and on a new connection, only a stream above the last-stream-id whose response had not started and whose body is replayable — possibly none.
             debugLog("network", "warn", "outbound_http2_goaway", () => ({ origin: String(origin), reason: error.message, resend: "eligible streams only (above the last-stream-id, no response started, a replayable body), once; others fail" }));
@@ -732,6 +752,7 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
         if (entry.busy || at - entry.idleSince < connectionFreshForMs(entry.advertisedMs, this.#idle, this.#threshold)) continue;
         this.#connections.splice(this.#connections.indexOf(entry), 1);
         debugLog("network", "debug", "outbound_connection_stale_closed", () => ({ origin: String(this.#origin), idleMs: Math.round(at - entry.idleSince) }));
+        entry.closedBy = "stale";
         closeConnection(entry.client, this.#origin, "stale");
       }
       const idle = this.#connections.find((one) => !one.busy);
@@ -746,6 +767,7 @@ function freshPoolClass(undici: typeof import("undici")): NonNullable<typeof fre
     #retire(entry: FreshConnection): void {
       const index = this.#connections.indexOf(entry);
       if (index >= 0) this.#connections.splice(index, 1);
+      entry.closedBy = "retired";
       closeConnection(entry.client, this.#origin, "retired");
     }
 

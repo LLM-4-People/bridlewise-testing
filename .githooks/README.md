@@ -106,6 +106,16 @@ file.
   case-sensitive, as `git log --grep` is
   (`engine/scripts/verification/lesson-trailers.ts`). git tells this hook
   nothing of `--amend`, so an amend is judged by `post-commit`. The same
+  mode judges test deletions (`engine/scripts/verification/test-deletions.ts`):
+  every path the commit takes off the recognizable test surface — a rename
+  too, every path of it — is named in its own `Test-deleted: <path>` trailer
+  (repository-relative), and a trailer naming a test the commit keeps is
+  refused (`test_deletion_undeclared`, `test_deletion_declared_not_deleted`).
+  A merge is judged only on what it deletes from every parent, so a merge
+  bringing in a named deletion needs no new trailer. `post-commit` reports an
+  amend that dropped one, and the required `commit-records` workflow (main's
+  definition and code, over every commit of a pull request and a merge
+  group) refuses what a skipped hook let through. The same
   mode checks every `Flake-cause: <ledger identity> => <paths>[ @ <commit>]`
   trailer (`flakeCauseTrailerProblems`, engine/src/git/flake-cause-fixes.ts)
   and refuses a malformed one by name; whether a declared fix explains a

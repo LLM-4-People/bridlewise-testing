@@ -116,28 +116,28 @@ function killQuietly(pid: number): void {
 test("runBoundedTestProcess is ITSELF bounded: a supervisor that never closes (a holder keeps its pipes) is refused within the ceiling plus two graces", (t) => {
   const fake = fakeSupervisor("never-closes");
   t.after(() => killQuietly(fake.holderPid()));
-  const started = Date.now();
   assert.throws(
     () => runBoundedTestProcess(fake.path, process.execPath, ["-e", "0"], { timeoutMs: 1_000, killGraceMs: 200 }),
     (error: unknown) => (error as { code?: string }).code === "test_process_supervisor_failed",
   );
-  const elapsed = Date.now() - started;
-  // 1400 ms is the bound; the fake itself would hold the call for 30 s.
-  assert.ok(elapsed < 10_000, `the bounded launch hung for ${String(elapsed)} ms`);
+  // ENDED BY ITS BOUND, observed by its path, never by a wall clock
+  // (NO-LOAD-BLOCK): the fake would have held the call until its holder's
+  // 30 s sleep ended, and the holder is still alive, so the bound ended it.
+  assert.equal(isProcessAlive(fake.holderPid()), true, "the launch waited for the holder to let go of its pipes");
 });
 
 test("the run is EXIT-BACKED: a supervisor that exits while a holder keeps its pipes settles within the grace, unverified and with its output marked incomplete", async (t) => {
   const fake = fakeSupervisor("exits");
   t.after(() => killQuietly(fake.holderPid()));
-  const started = Date.now();
   const run = await superviseCommand({
     supervisor: fake.path, command: process.execPath, args: ["-e", "0"], hardCeilingMs: 60_000, killGraceMs: 300,
     onStdout: () => undefined, onStderr: () => undefined,
   });
-  const elapsed = Date.now() - started;
   assert.equal(run.ending, "unverified", "no receipt came, so the run is not certified");
   assert.equal(run.outputComplete, false, "a pipe a holder kept open was reported complete");
-  assert.ok(elapsed < 10_000, `the run waited ${String(elapsed)} ms for pipes a holder kept open (30 s)`);
+  // SETTLED BY THE EXIT, observed by its path (NO-LOAD-BLOCK): the holder
+  // keeps the pipes open for 30 s and is still alive, so the run did not wait for them.
+  assert.equal(isProcessAlive(fake.holderPid()), true, "the run waited for pipes a holder kept open");
 });
 
 test("the recorded command marks its pipes INCOMPLETE when the supervised output did not end (the observation never claims bytes it did not see end)", async (t) => {
@@ -197,7 +197,6 @@ test("DRIVEN: a terminal Ctrl-C (SIGINT to the runner's whole process group) is 
 
 test("the grace is the CALLER's (the suite watchdog's killGraceMs): a command that ignores its stop is killed when that grace ends", async () => {
   const stop = new AbortController();
-  const started = Date.now();
   const run = await superviseCommand({
     supervisor: ensureTestProcessSupervisor(), command: process.execPath,
     args: ["-e", `process.on("SIGTERM", () => {}); process.stdout.write("ready\\n"); setInterval(() => {}, 1000);`],
@@ -205,7 +204,10 @@ test("the grace is the CALLER's (the suite watchdog's killGraceMs): a command th
     onStdout: (chunk) => { if (chunk.toString("utf8").includes("ready")) stop.abort(); }, onStderr: () => undefined, stop: stop.signal,
   });
   assert.equal(run.supervision?.commandKilled, true, "a command ignoring its stop was not killed");
-  assert.ok(Date.now() - started < 2_500, `the kill waited ${String(Date.now() - started)} ms for a 300 ms grace`);
+  // KILLED AT THE GRACE, read from the supervisor's own receipt (NO-LOAD-BLOCK):
+  // a kill that waited for the 60 s hard ceiling records that it timed out.
+  // (`run.ending` cannot tell them apart: a stopped run is "stopped" either way.)
+  assert.equal(run.supervision?.timedOut, false, "the stop's grace ended the command, not the hard ceiling");
 });
 
 test("DRIVEN: a runner that DIES (SIGKILL) stops its supervisor (the parent-death signal): the command gets its grace, and nothing outlives the runner", async (t) => {
