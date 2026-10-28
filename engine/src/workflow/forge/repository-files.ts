@@ -17,7 +17,7 @@ import { posix } from "node:path";
 
 import type { CommunityRoles } from "../community/sources.ts";
 import type { TreeReader } from "../../git/tree-reader.ts";
-import { emitYaml } from "../../text/yaml-emit.ts";
+import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
 import { ForgeError } from "./codes.ts";
 import type { ForgeSettings } from "./forge-config.ts";
 
@@ -113,8 +113,56 @@ export function forgeTreeFacts(tree: TreeReader, settings: ForgeSettings): Forge
   return Object.freeze({ workflowActions: Object.freeze(workflowActions), lockfileDirectories: Object.freeze({ npm: Object.freeze(directories.npm.sort()), cargo: Object.freeze(directories.cargo.sort()) }), hasWorkflows: workflows.length > 0 });
 }
 
-/** The Dependabot file (see the header). */
-export function dependabotFile(settings: ForgeSettings, facts: ForgeTreeFacts): string {
+type DependabotEcosystem = ForgeSettings["dependabot"]["packages"][number]["ecosystem"];
+
+/**
+ * DEPENDABOT'S PER-ECOSYSTEM KEY SUPPORT, as its options reference documents
+ * it (docs.github.com, "Dependabot options reference"):
+ * - `cooldown.default-days`, `include` and `exclude` hold for every ecosystem;
+ * - `cooldown.semver-major-days` and its minor and patch siblings only where
+ *   the reference marks SemVer support (npm and Cargo yes, GitHub Actions no);
+ * - and one FORGE POLICY, not a Dependabot rule: GitHub Actions is declared at
+ *   `directory: "/"` only (that entry covers `.github/workflows`; the forge
+ *   keeps no composite action elsewhere, so another directory is a mistake).
+ * Exhaustive over the ecosystems the forge section admits: a new one does
+ * not compile until it is classified here.
+ */
+const DEPENDABOT_SUPPORT: Readonly<Record<DependabotEcosystem, Readonly<{ semverCooldown: boolean; rootDirectoryOnly: boolean }>>> = Object.freeze({
+  "npm": { semverCooldown: true, rootDirectoryOnly: false },
+  "cargo": { semverCooldown: true, rootDirectoryOnly: false },
+  "github-actions": { semverCooldown: false, rootDirectoryOnly: true },
+});
+/** The keys an update entry may carry as the forge writes it, and the cooldown keys Dependabot knows. */
+const UPDATE_KEYS: readonly string[] = ["package-ecosystem", "directory", "schedule", "open-pull-requests-limit", "cooldown", "groups"];
+const COOLDOWN_KEYS: readonly string[] = ["default-days", "semver-major-days", "semver-minor-days", "semver-patch-days", "include", "exclude"];
+
+/**
+ * Every way `entry` (one emitted `updates` item, the `index`th) breaks
+ * Dependabot's documented per-ecosystem support: an ecosystem the table
+ * does not know, a key the forge does not write, a cooldown key Dependabot
+ * does not know, a SemVer cooldown on an ecosystem without SemVer support,
+ * or a GitHub Actions entry off the root. Empty when Dependabot will parse
+ * it. The generator refuses any of these, so `harness check` fails, never
+ * Dependabot after a merge.
+ */
+export function dependabotEntryViolations(entry: Readonly<Record<string, unknown>>, index: number): readonly string[] {
+  const where = `updates[${String(index)}]`;
+  const ecosystem = entry["package-ecosystem"];
+  const support = typeof ecosystem === "string" && Object.hasOwn(DEPENDABOT_SUPPORT, ecosystem) ? DEPENDABOT_SUPPORT[ecosystem as DependabotEcosystem] : undefined;
+  if (support === undefined) return [`${where}: package-ecosystem ${JSON.stringify(ecosystem)} is not one the forge classifies`];
+  const violations: string[] = [];
+  for (const key of Object.keys(entry)) if (!UPDATE_KEYS.includes(key)) violations.push(`${where}: ${key} is not a key the forge writes`);
+  const cooldown = (typeof entry.cooldown === "object" && entry.cooldown !== null ? entry.cooldown : {}) as Readonly<Record<string, unknown>>;
+  for (const key of Object.keys(cooldown)) {
+    if (!COOLDOWN_KEYS.includes(key)) violations.push(`${where}: cooldown.${key} is not a Dependabot cooldown key`);
+    else if (key.startsWith("semver-") && !support.semverCooldown) violations.push(`${where}: cooldown.${key} is not supported for the package ecosystem '${ecosystem}'`);
+  }
+  if (support.rootDirectoryOnly && entry.directory !== "/") violations.push(`${where}: ${ecosystem} takes directory "/" only`);
+  return violations;
+}
+
+/** The Dependabot file's `updates`, each refused unless Dependabot will parse it (see the header). */
+export function dependabotUpdates(settings: ForgeSettings, facts: ForgeTreeFacts): readonly Readonly<{ [key: string]: YamlValue }>[] {
   const { dependabot } = settings;
   for (const ecosystem of ["npm", "cargo"] as const) {
     const declared = dependabot.packages.filter((entry) => entry.ecosystem === ecosystem).map((entry) => entry.directory).sort();
@@ -130,18 +178,24 @@ export function dependabotFile(settings: ForgeSettings, facts: ForgeTreeFacts): 
     throw new ForgeError("forge_declaration_invalid", "Dependabot's github-actions entry must exist exactly when the tree has workflows.", {});
   }
   const { schedule } = dependabot;
-  // THE one YAML emitter writes it (no template): key order is the order stated here.
-  return emitYaml({
-    version: 2,
-    updates: dependabot.packages.map((entry) => ({
-      "package-ecosystem": entry.ecosystem,
-      directory: entry.directory,
-      schedule: { interval: schedule.interval, ...(schedule.interval === "weekly" ? { day: schedule.day } : {}), time: schedule.time, timezone: schedule.timezone },
-      "open-pull-requests-limit": dependabot.openPullRequestsLimit,
-      cooldown: { "default-days": dependabot.cooldownDays, "semver-major-days": dependabot.majorCooldownDays },
-      groups: { [entry.group]: { "applies-to": "version-updates", patterns: ["*"], "update-types": ["minor", "patch"] } },
-    })),
-  }, [HEADER_TEXT]);
+  const updates = dependabot.packages.map((entry) => ({
+    "package-ecosystem": entry.ecosystem,
+    directory: entry.directory,
+    schedule: { interval: schedule.interval, ...(schedule.interval === "weekly" ? { day: schedule.day } : {}), time: schedule.time, timezone: schedule.timezone },
+    "open-pull-requests-limit": dependabot.openPullRequestsLimit,
+    // The major-version cooldown only where Dependabot supports SemVer cooldowns; default-days everywhere.
+    cooldown: { "default-days": dependabot.cooldownDays, ...(DEPENDABOT_SUPPORT[entry.ecosystem].semverCooldown ? { "semver-major-days": dependabot.majorCooldownDays } : {}) },
+    groups: { [entry.group]: { "applies-to": "version-updates", patterns: ["*"], "update-types": ["minor", "patch"] } },
+  }));
+  const violations = updates.flatMap((entry, index) => dependabotEntryViolations(entry, index));
+  if (violations.length > 0) throw new ForgeError("forge_declaration_invalid", `The Dependabot file would not parse on GitHub: ${violations.join("; ")}.`, { violations });
+  return updates;
+}
+
+/** The Dependabot file (see the header). */
+export function dependabotFile(settings: ForgeSettings, facts: ForgeTreeFacts): string {
+  // THE one YAML emitter writes it (no template): key order is the order stated in dependabotUpdates.
+  return emitYaml({ version: 2, updates: dependabotUpdates(settings, facts) }, [HEADER_TEXT]);
 }
 
 /** CODEOWNERS (see the header). */
