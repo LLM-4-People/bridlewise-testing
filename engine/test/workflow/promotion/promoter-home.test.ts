@@ -12,13 +12,17 @@
  * `runInPromoterHome` in a home whose engine folder is this engine.
  */
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import test from "node:test";
+import test, { before } from "node:test";
 
 import { WorktreeGitError, WorktreeGitTimeout, configuredWorktreeGitPort, type WorktreeGitPort } from "../../../src/git/worktree-port.ts";
 import { engineRoot } from "../../../src/kernel/engine-root.ts";
+import { getConfigDocumentSchema } from "../../../src/kernel/config-contracts.ts";
+import { workingTreeReader } from "../../../src/git/tree-reader.ts";
+import { loadPromotionProfiles } from "../../../src/workflow/promotion/profile.ts";
+import { classifyTree } from "../../../src/workflow/promotion/projection.ts";
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
 import { acquireLock } from "../../../src/workflow/resource-lock.ts";
 import { repositoryRegistry, repositoryRegistryArea } from "../../../src/workflow/repository-registry.ts";
@@ -300,19 +304,34 @@ test("M6: where the engine lives — git's answer that it is in no checkout is a
   assert.deepEqual(engineCheckout(answering(() => top), join(top, "engine"), 5), { top, engineRelative: "engine" });
 });
 
-/** The engine's tracked files a CLI run needs (its tests, docs, verification corpus and experiments stay out). */
-const ENGINE_RUNTIME_EXCLUDED = /^(?:test|docs|verification|_experiments)\//u;
+/**
+ * What a promoter's engine holds: the paths under `engine/` and `shared/` (the
+ * repository folder the engine imports from outside itself) that the product
+ * profile PROJECTS from this checkout. The population is the one ownership
+ * reader's (`workingTreeReader`, over `ownedFiles`), and the profile's own
+ * classification decides what ships, so the engine under test is the engine
+ * a promotion carries. It is never a second listing of its own.
+ */
+function promotedEnginePaths(top: string): readonly string[] {
+  const document = getConfigDocumentSchema().parse(JSON.parse(readFileSync(join(engineRoot(), ROOT_POLICY.configuration.basename), "utf8")));
+  const tree = workingTreeReader(top);
+  const profiles = loadPromotionProfiles(tree, document.promotion!.profileDirectory, new Set(Object.keys(document.workspaceIsolation?.commands ?? {})));
+  assert.ok(profiles.length > 0, "the checkout declares the product's profile");
+  const projected = new Set(profiles.flatMap((loaded) => [...classifyTree(tree, loaded.profile).projected.keys()]));
+  return [...projected].filter((path) => path.startsWith("engine/") || path.startsWith("shared/")).sort();
+}
 
 /**
  * A fixture whose source profile only names commands both registries declare
- * (the fixture's and this engine's own), and whose source HOLDS this engine:
- * a real copy of its runtime files committed at `engine/` (with the
- * repository's `shared/` folder it imports), and its installed
- * dependencies through a committed `engine/node_modules` link (a promoter
- * home installs them; the link stands in). The engine answers for the
- * repository it lives in (`HARNESS_ROOT`, never the caller's working
- * directory: #54), so the engine under test must live in the fixture, as
- * the promoter's does in production.
+ * (the fixture's and this engine's own), and whose source HOLDS this engine
+ * as a promotion carries it ({@link promotedEnginePaths}), committed at
+ * `engine/` (and `shared/`), with its installed dependencies through a
+ * committed `engine/node_modules` link (a promoter home installs them; the
+ * link stands in). The engine answers for the repository it lives in
+ * (`HARNESS_ROOT`, never the caller's working directory: #54), so the engine
+ * under test must live in the fixture, as the promoter's does in production.
+ * Built ONCE for this file (`before`): N3 only reads it, and T-K5's home is a
+ * worktree of its own.
  */
 function realEngineFixture(prefix: string): Readonly<{ fixture: PromotionFixture; document: PromotionDocument; engine: string }> {
   const fixture = promotionFixture(prefix, { phases: { setup: [], converge: [], verify: ["engine-check"] } });
@@ -320,10 +339,7 @@ function realEngineFixture(prefix: string): Readonly<{ fixture: PromotionFixture
   const document: PromotionDocument = { ...fixture.document, workspaceIsolation: { ...isolation, commands: { ...isolation.commands, "engine-check": { cwd: ".", argv: ["true"], timeoutMs: 30_000 } } } };
   const engine = join(fixture.root, "engine");
   const top = dirname(engineRoot());
-  // The engine's runtime files, and the repository's `shared/` folder it imports from outside itself.
-  const tracked = execFileSync("git", ["ls-files", "-z", "engine", "shared"], { cwd: top, encoding: "utf8" }).split("\0")
-    .filter((path) => path.length > 0 && !(path.startsWith("engine/") && ENGINE_RUNTIME_EXCLUDED.test(path.slice("engine/".length))));
-  for (const path of tracked) {
+  for (const path of promotedEnginePaths(top)) {
     mkdirSync(dirname(join(fixture.root, path)), { recursive: true });
     copyFileSync(join(top, path), join(fixture.root, path));
   }
@@ -336,6 +352,11 @@ function realEngineFixture(prefix: string): Readonly<{ fixture: PromotionFixture
   return { fixture, document, engine };
 }
 
+let realEngine: ReturnType<typeof realEngineFixture>;
+before(() => {
+  realEngine = realEngineFixture("promotion-home-real");
+});
+
 /** The engine's two doors, spawned for real from the engine that lives in `engine`'s repository: each answers ONE envelope and exits with its class's code (N3: the command table run as the entry used to deadlock on its own top-level await, exit 13, no output). */
 function spawnEntry(engine: string, script: string, args: readonly string[]): Readonly<{ status: number | null; code: string }> {
   const run = spawnSync(process.execPath, [join(engine, script), ...args], { cwd: engine, encoding: "utf8", timeout: 120_000, killSignal: "SIGKILL" });
@@ -345,7 +366,7 @@ function spawnEntry(engine: string, script: string, args: readonly string[]): Re
 }
 
 test("N3: the REAL entry — `src/cli.ts harness promote` and the command table run as its own entry — answers one envelope with its class's exit code", () => {
-  const { fixture, engine } = realEngineFixture("promotion-home-entry");
+  const { fixture, engine } = realEngine;
   const source = fixture.tip(SOURCE);
   for (const [script, words] of [["src/cli.ts", ["harness", "promote"]], ["src/workflow/harness-commands.ts", ["promote"]]] as const) {
     const answered = spawnEntry(engine, script, [...words, "status", "--profile", PROFILE_NAME, "--source", source]);
@@ -358,7 +379,7 @@ test("N3: the REAL entry — `src/cli.ts harness promote` and the command table 
 });
 
 test("N3/T-K5: runInPromoterHome re-executes the REAL engine entry in the home (a real engine folder of the same repository, as in production) and answers its envelope", async () => {
-  const { fixture, document } = realEngineFixture("promotion-home-real");
+  const { fixture, document } = realEngine;
   const git = configuredWorktreeGitPort(document);
   const context = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, document);
   const placement: Extract<PromoterPlacement, { kind: "home" }> = { kind: "home", reason: "the real entry", home: join(fixture.workRoot, `promote-${PROFILE_NAME}-home`), engineRelative: "engine" };
