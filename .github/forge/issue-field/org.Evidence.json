@@ -8,7 +8,7 @@
   "desired": {
     "name": "Evidence",
     "data_type": "text",
-    "visibility": "all",
+    "visibility": "organization_members_only",
     "description": "The evidence record (evidence:<path>)"
   }
 }
