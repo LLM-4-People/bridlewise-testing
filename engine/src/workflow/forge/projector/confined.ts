@@ -31,10 +31,13 @@ import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { engineConfigDocumentPath } from "../../../kernel/config.ts";
 import { HarnessError } from "../../../kernel/errors.ts";
 import { identityOverlapIndex, resolveLocation } from "../../../filesystem/path-identity.ts";
 import { runConfinedNode } from "../../../filesystem/self-protection/confined-run.ts";
 import type { KeepOutFacts } from "../../../filesystem/self-protection/keep-out.ts";
+import { keyHomeLocation, openStoreRegistry } from "../../../filesystem/self-protection/key-home.ts";
+import { DEFAULT_PROJECTION_CPU_SECONDS, DEFAULT_PROJECTION_MEMORY_BYTES } from "../../workflow-config.ts";
 import { debugLog } from "../../../shared/debug/debug-system.ts";
 
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -65,6 +68,22 @@ export type ProjectorConfinement = Readonly<{
 
 /** The engine's source and the repository's `shared/` (the one Markdown parser lives there): the roots of the harness's own confined programs. */
 const HARNESS_PROGRAM_ROOTS = Object.freeze([SOURCE_ROOT, resolve(SOURCE_ROOT, "..", "..", "shared")]);
+
+
+/**
+ * THE HOST'S CONFINEMENT of a projection run outside a test: the engine at
+ * `engineRoot`, the host's own keep-out facts (its configuration document and
+ * every store its key home registers) and the default CPU and memory bounds.
+ * The roadmap feed and the live proving scenarios both compute through it.
+ */
+export function hostConfinement(engineRoot: string): ProjectorConfinement {
+  return Object.freeze({
+    harnessRoot: resolve(engineRoot),
+    keepOut: { hostPaths: [engineConfigDocumentPath()], registry: openStoreRegistry(keyHomeLocation()) },
+    cpuSeconds: DEFAULT_PROJECTION_CPU_SECONDS,
+    memoryBytes: DEFAULT_PROJECTION_MEMORY_BYTES,
+  });
+}
 
 /** The projection's program: `project.ts`'s `projectText`, and the pure modules it imports. */
 export const PROJECTION_PROGRAM: ConfinedModule = Object.freeze({

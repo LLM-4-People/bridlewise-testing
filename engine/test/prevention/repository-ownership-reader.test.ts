@@ -44,7 +44,7 @@ const REPOSITORY_ROOT = join(ENGINE_ROOT, "..");
 const READER = "engine/src/git/repository-ownership.ts";
 
 const DECLARED_EXCEPTIONS: Readonly<Record<string, string>> = {
-  "engine/scripts/tooling/candidate-manifest.ts":
+  "engine/scripts/verification/candidate-manifest.ts":
     "candidate-format integrity reader: runs the PINNED git executable with configuration overrides and strict UTF-8 refusal codes; uses VERSIONED_IGNORE_RULES",
   "engine/test/prevention/repository-ownership-reader.test.ts":
     "this guard's own planted spellings",

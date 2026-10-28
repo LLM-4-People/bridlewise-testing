@@ -33,7 +33,8 @@ open and every question helps.
 These are designed and tracked, not built yet. Each line links its tracking
 issue; a line moves out of this list when its feature is live.
 
-- Bot commands in issues and pull requests (`/status`, `/accept`, `/decline`, `/duplicate`, `/reproduce`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/105.
+- Bot commands in issues and pull requests (`/help`, `/status`, `/accept`, `/decline`, `/duplicate`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/105.
+- `/reproduce` runs the test a Flake report names on a hosted runner with no secrets, and posts the receipt. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/105.
 - `/track` turns an Ideas discussion or an objection to a decision into a tracker record. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/107.
 - A secret pasted into an issue is redacted by the publisher, with a comment saying why. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/109.
 - Issues, milestones and the project board generated from the harness's own records, with one Floor log comment per land. Planned; tracked in https://github.com/LLM-4-People/bridlewise-testing/issues/111.

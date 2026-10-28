@@ -1,0 +1,183 @@
+name: Community
+
+# The community bots (github-only §10.3, §10.4; engine/src/workflow/community/):
+# IssueOps commands on issue and pull-request comments, the newcomer's
+# welcome, and the first-landing thank-you. Every job runs main's code with
+# the publisher App's token from the `publish` environment; no job checks out
+# or runs a pull request's code, and every event's text reaches the harness
+# only through the event file ($GITHUB_EVENT_PATH), never through a command
+# line. Issue state (labels, type, fields, open or closed) is the
+# projector's: a triage command opens a pull request that adds a record.
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  comment:
+    name: Answer a command
+    # Only a comment that starts with a command reaches a runner, a publisher token or a deployment (the harness
+    # asks the same question first: a command starts the comment).
+    if: github.event_name == 'issue_comment' && github.event.comment.user.type != 'Bot' && startsWith(github.event.comment.body, '/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: publish
+    # One command at a time per issue, none dropped: a shared group with the queue kept whole.
+    concurrency:
+      group: community-comment-${{ github.event.issue.number }}
+      queue: max
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Mint the publisher token
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.PUBLISHER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLISHER_APP_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Carry out the command
+        working-directory: engine
+        env:
+          BRIDLEWISE_PUBLISHER_TOKEN: ${{ steps.token.outputs.token }}
+        run: node src/cli.ts harness community comment --event "$GITHUB_EVENT_PATH" --remote origin --text
+
+  welcome-issue:
+    name: Welcome a newcomer's issue
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: publish
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Mint the publisher token
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.PUBLISHER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLISHER_APP_KEY }}
+          permission-issues: write
+
+      - name: Welcome
+        working-directory: engine
+        env:
+          BRIDLEWISE_PUBLISHER_TOKEN: ${{ steps.token.outputs.token }}
+        run: node src/cli.ts harness community issue --event "$GITHUB_EVENT_PATH" --text
+
+  welcome-pulls:
+    name: Welcome newcomers' pull requests
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: publish
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Mint the publisher token
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.PUBLISHER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLISHER_APP_KEY }}
+          permission-pull-requests: write
+
+      - name: Welcome
+        working-directory: engine
+        env:
+          BRIDLEWISE_PUBLISHER_TOKEN: ${{ steps.token.outputs.token }}
+        run: node src/cli.ts harness community welcome-pulls --text
+
+  thank:
+    name: Thank a first landing
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: publish
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Mint the publisher token
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.PUBLISHER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLISHER_APP_KEY }}
+          permission-pull-requests: write
+
+      - name: Thank every first landing of the push
+        working-directory: engine
+        env:
+          BRIDLEWISE_PUBLISHER_TOKEN: ${{ steps.token.outputs.token }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: node src/cli.ts harness community thank --before "$PUSH_BEFORE" --after "$PUSH_AFTER" --text

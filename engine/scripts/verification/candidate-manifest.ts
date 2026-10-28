@@ -17,10 +17,10 @@ import {
   createCandidateFormatError,
   strictUtf8Text,
   type ImmutableTextSourceException,
-} from "../verification/candidate-format.ts";
+} from "./candidate-format.ts";
 import { probeRepositoryGit, repositoryTreeEntries, fileGitMode, gitBlobObjectId } from "./repository-git.ts";
 import { parseIndexRecords } from "../../src/git/index-entries.ts";
-import { parseS2OfficialFragmentManifestText } from "../verification/official-fragment-manifest.ts";
+import { parseS2OfficialFragmentManifestText } from "./official-fragment-manifest.ts";
 import {
   rawSafeRepositoryRootAccess,
   readSafeRepositoryFile,
@@ -28,7 +28,7 @@ import {
   safeRepositoryRootPathForInternalUse,
   type SafeRepositoryReadHooks,
   type SafeRepositoryRootAccessInput,
-} from "../verification/safe-repository-reader.ts";
+} from "./safe-repository-reader.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
 type GitMode = "100644" | "100755";
@@ -930,22 +930,31 @@ function safePathLabel(path: string): string {
   }
 }
 
-function parseRootArgument(argv: readonly string[]): string {
-  if (argv.length !== 2 || argv[0] !== "--root" || argv[1] !== ".") {
-    throw new Error("Usage: candidate-manifest --root .");
+/**
+ * `--root .` prints the manifest, or a refusal (its violations) on stderr and
+ * exit 1. `--root . --verdict` answers only whether the engine runner would
+ * accept the tree, the question `harness check`'s candidate-format step asks:
+ * `{"accepted":true,"files":N}`, or `{"accepted":false,"violations":[…]}` and
+ * exit 1 — on stdout either way, since the verdict IS the answer.
+ */
+function parseArguments(argv: readonly string[]): Readonly<{ root: string; verdict: boolean }> {
+  const verdict = argv.length === 3 && argv[2] === "--verdict";
+  if ((argv.length !== 2 && !verdict) || argv[0] !== "--root" || argv[1] !== ".") {
+    throw new Error("Usage: candidate-manifest --root . [--verdict]");
   }
-  return resolve(argv[1]);
+  return { root: resolve(argv[1]), verdict };
 }
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
+  const { root, verdict } = parseArguments(process.argv.slice(2));
   try {
-    process.stdout.write(`${canonicalJson(buildCandidateManifest(
-      rawSafeRepositoryRootAccess(parseRootArgument(process.argv.slice(2))),
-    ))}\n`);
+    const manifest = buildCandidateManifest(rawSafeRepositoryRootAccess(root));
+    process.stdout.write(`${canonicalJson(verdict ? { accepted: true, files: manifest.files.length } : manifest)}\n`);
   } catch (error) {
     const violations = candidateFormatErrorViolations(error) ?? ["candidate-manifest-unavailable"];
-    process.stderr.write(`${canonicalJson({
+    if (verdict) process.stdout.write(`${canonicalJson({ accepted: false, violations, message: extractErrorMessage(error) })}\n`);
+    else process.stderr.write(`${canonicalJson({
       error: "candidate_manifest_failed",
       violations,
       message: extractErrorMessage(error),
