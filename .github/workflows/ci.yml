@@ -89,7 +89,7 @@ jobs:
           sudo apt-get install -y -qq bpftrace >/dev/null
           ino=$(stat -c %i "$cfg")
           cat > "$RUNNER_TEMP/paths.bt" <<BT
-          kprobe:notify_change { \$d = (struct dentry *)arg1; if (\$d->d_inode->i_ino == $ino) { \$a = (struct iattr *)arg2; printf("notify_change pid=%d ppid=%d comm=%s fs=%s ia_valid=0x%x mode=%o\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, \$a->ia_valid, \$a->ia_mode); system("pstree -aps %d; echo cwd=\$(readlink /proc/%d/cwd); tr \"\\\\0\" \" \" < /proc/%d/cmdline; echo; tr \"\\\\0\" \" \" < /proc/%d/environ | grep -o \"NODE_TEST_CONTEXT=[^ ]*\"; echo ---", pid, pid, pid, pid); } }
+          kprobe:notify_change { \$d = (struct dentry *)arg1; if (\$d->d_inode->i_ino == $ino) { \$a = (struct iattr *)arg2; printf("notify_change pid=%d ppid=%d comm=%s fs=%s ia_valid=0x%x mode=%o\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, \$a->ia_valid, \$a->ia_mode); system("/tmp/w %d", pid); } }
           kprobe:vfs_link { \$d = (struct dentry *)arg0; if (\$d->d_inode->i_ino == $ino) { printf("vfs_link pid=%d ppid=%d comm=%s fs=%s new=%s\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, str(((struct dentry *)arg3)->d_name.name)); } }
           kprobe:vfs_unlink { \$d = (struct dentry *)arg2; if (\$d->d_inode->i_ino == $ino) { printf("vfs_unlink pid=%d ppid=%d comm=%s fs=%s name=%s\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, str(\$d->d_name.name)); } }
           kprobe:vfs_rename { \$r = (struct renamedata *)arg0; if (\$r->old_dentry->d_inode->i_ino == $ino) { printf("vfs_rename pid=%d ppid=%d comm=%s fs=%s\\n", pid, curtask->real_parent->tgid, comm, \$r->old_dentry->d_inode->i_sb->s_id); } }
@@ -98,6 +98,16 @@ jobs:
           cat > "$RUNNER_TEMP/ctime.bt" <<BT
           kprobe:inode_set_ctime_current { \$i = (struct inode *)arg0; if (\$i->i_ino == $ino) { printf("inode_set_ctime_current pid=%d ppid=%d comm=%s fs=%s%s\\n", pid, curtask->real_parent->tgid, comm, \$i->i_sb->s_id, kstack(8)); } }
           BT
+          # bpftrace strings are capped at 64 bytes: the process report is a script of its own.
+          cat > /tmp/w <<'SH'
+          #!/bin/sh
+          pstree -aps "$1"
+          echo "cwd=$(readlink /proc/$1/cwd)"
+          tr '\0' ' ' < /proc/$1/cmdline; echo
+          tr '\0' '\n' < /proc/$1/environ | grep -E '^(NODE_TEST_CONTEXT|NODE_OPTIONS)=' || true
+          echo ---
+          SH
+          chmod 755 /tmp/w
           cat "$RUNNER_TEMP/paths.bt"
           sudo nohup bpftrace --unsafe "$RUNNER_TEMP/paths.bt" > "$RUNNER_TEMP/bpf-paths.log" 2>&1 &
           sudo nohup bpftrace "$RUNNER_TEMP/ctime.bt" > "$RUNNER_TEMP/bpf-ctime.log" 2>&1 &
