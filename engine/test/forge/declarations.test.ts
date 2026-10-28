@@ -126,6 +126,18 @@ test("merge commits only (#486): the settings, the baseline's pull-request rule 
   assert.deepEqual(looseningOf("repository-settings", { allow_squash_merge: true }, { allow_squash_merge: false }), ["allow_squash_merge false -> true"]);
   assert.deepEqual(looseningOf("repository-settings", { allow_rebase_merge: true }, { allow_rebase_merge: false }), ["allow_rebase_merge false -> true"]);
   assert.deepEqual(looseningOf("repository-settings", { allow_squash_merge: false, allow_rebase_merge: false }, { allow_squash_merge: true, allow_rebase_merge: true }), [], "narrowing back to merge is not");
+  // The same for the two rules: widening the baseline's pull-request merge methods, or the trunk queue's merge method, is a loosening.
+  const declared = forgeDeclarations(SOURCES);
+  type Ruleset = { rules: { type: string; parameters?: Record<string, unknown> }[] };
+  const widened = (kind: string, key: string, type: string, parameters: Record<string, unknown>): Ruleset => {
+    const ruleset = find(declared, kind, key).desired as Ruleset;
+    return { ...ruleset, rules: ruleset.rules.map((rule) => rule.type === type ? { ...rule, parameters: { ...rule.parameters, ...parameters } } : rule) };
+  };
+  const baseline = find(declared, "org-ruleset", "baseline").desired;
+  const trunk = find(declared, "ruleset", "trunk").desired;
+  assert.notDeepEqual(looseningOf("org-ruleset", widened("org-ruleset", "baseline", "pull_request", { allowed_merge_methods: ["merge", "squash"] }), baseline), [], "the baseline allowing squash again");
+  assert.notDeepEqual(looseningOf("ruleset", widened("ruleset", "trunk", "merge_queue", { merge_method: "SQUASH" }), trunk), [], "the trunk queue squashing");
+  assert.deepEqual(looseningOf("org-ruleset", baseline, widened("org-ruleset", "baseline", "pull_request", { allowed_merge_methods: ["merge", "squash"] })), [], "narrowing the baseline back to merge is not");
 });
 
 test("a form naming a type outside the registry, or two labels with one name, refuses the declarations", () => {
