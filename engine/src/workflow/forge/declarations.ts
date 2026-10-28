@@ -178,7 +178,7 @@ function provingGrounds(settings: ForgeSettings): readonly ForgeObject[] {
     const scope: ForgeScope = { kind: "repo", repository: repository.name };
     return [
       // Merge commits only, as on the trunk (MERGE_ONLY): its queue lands merge commits, and its buttons may not offer another method.
-      object("repository-settings", scope, repository.name, { ...MERGE_ONLY.settings, delete_branch_on_merge: true }),
+      object("repository-settings", scope, repository.name, { ...MERGE_ONLY.settings, delete_branch_on_merge: true, allow_update_branch: false }),
       object("ruleset", scope, "proving-main", {
         name: "proving-main", target: "branch", enforcement: "active", bypass_actors: [],
         conditions: rulesetConditions(["~DEFAULT_BRANCH"]),
@@ -325,6 +325,9 @@ function organisation(settings: ForgeSettings, roles: CommunityRoles): readonly 
     repositories: governed.filter((repository) => repository.visibility === visibility).map((repository) => repository.name).sort(),
   }));
   const teams = teamsOf(roles);
+  // A members entry for a team the role table does not make would be ignored in silence: refused, named.
+  const unknownTeams = Object.keys(settings.teamMembers).filter((name) => !teams.some((team) => team.team === name)).sort();
+  if (unknownTeams.length > 0) throw new ForgeError("forge_declaration_invalid", `forge.teamMembers names ${unknownTeams.join(", ")}, which is no role team (docs/community/roles.json makes ${teams.map((team) => team.team).join(", ")}).`, { teams: unknownTeams.join(",") });
   const repositoryPermission = (level: string): string => ({ read: "pull", triage: "triage", write: "push", maintain: "maintain", admin: "admin" })[level] ?? level;
   return [
     object("org-settings", org, settings.organization, {

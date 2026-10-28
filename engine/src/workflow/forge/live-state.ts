@@ -259,16 +259,25 @@ const securityConfiguration: KindAdapter = {
  * in the UI is drift.
  */
 type AttachmentDesired = Readonly<{ repositories: readonly string[]; default_for_new_repos: string }>;
+/** The attachment statuses that mean the configuration governs the repository (or is about to). */
+const EFFECTIVE_ATTACHMENT: ReadonlySet<string> = new Set(["attached", "attaching", "enforced", "updating"]);
 const securityConfigurationRepositories: KindAdapter = {
   read: async (context, object) => {
     const configuration = await securityConfiguration.read(context, { ...object, kind: "security-configuration" });
     if (configuration === undefined) return undefined;
     const path = `${orgPath(context)}/code-security/configurations/${String(configuration.id)}`;
-    const attached = await context.client.paginate<{ repository?: { name?: unknown } }>({ path: `${path}/repositories` }, { maxPages: context.maxPages, perPage: 100 });
+    // Every status (GitHub's default lists failed, detached and removed ones too): only an EFFECTIVE attachment counts,
+    // and a failed one is a loud refusal, never a success.
+    const attached = await context.client.paginate<{ status?: unknown; repository?: { name?: unknown } }>({ path: `${path}/repositories`, query: { status: "all" } }, { maxPages: context.maxPages, perPage: 100 });
+    const failed = attached.filter((entry) => entry.status === "failed").flatMap((entry) => typeof entry.repository?.name === "string" ? [entry.repository.name] : []);
+    if (failed.length > 0) {
+      throw new ForgeError("forge_security_attach_failed", `The security configuration ${object.key} failed to attach to ${failed.sort().join(", ")} (a configuration GitHub cannot enable there, such as secret scanning on a private repository without Secret Protection).`, { key: object.key, repositories: failed.sort().join(",") });
+    }
+    const effective = attached.filter((entry) => typeof entry.status === "string" && EFFECTIVE_ATTACHMENT.has(entry.status));
     const defaults = await getOrAbsent<readonly { default_for_new_repos?: unknown; configuration?: { id?: unknown } }[]>(context, `${orgPath(context)}/code-security/configurations/defaults`);
     const defaultFor = (defaults ?? []).find((entry) => entry.configuration?.id === configuration.id)?.default_for_new_repos;
     return {
-      live: { repositories: attached.flatMap((entry) => typeof entry.repository?.name === "string" ? [entry.repository.name] : []).sort(), default_for_new_repos: typeof defaultFor === "string" ? defaultFor : "none" },
+      live: { repositories: effective.flatMap((entry) => typeof entry.repository?.name === "string" ? [entry.repository.name] : []).sort(), default_for_new_repos: typeof defaultFor === "string" ? defaultFor : "none" },
       ...(configuration.id === undefined ? {} : { id: configuration.id }),
     };
   },
@@ -435,8 +444,6 @@ export const KIND_ADAPTERS: Readonly<Record<ForgeObjectKind, KindAdapter>> = Obj
   },
   project,
 });
-
-/** What runs after a write of `object` (the security configuration's attachment). */
 
 /** Kinds whose undeclared live objects are drift (a ruleset or autolink nobody declared); the others are reported only. */
 export const EXCLUSIVE_KINDS: ReadonlySet<ForgeObjectKind> = new Set(["org-ruleset", "ruleset", "autolink"]);

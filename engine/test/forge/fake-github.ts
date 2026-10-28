@@ -87,6 +87,8 @@ export type FakeGithub = Readonly<{
   userToken: (principal: string) => string;
   installApp: (input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
   pendingConversion: (code: string, input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
+  /** Make every later attach of a security configuration to `owner/name` FAIL (its status `failed`). */
+  failSecurityAttach: (owner: string, name: string) => void;
   /** The principal a request's token belongs to (undefined when unknown). */
   principalOf: (request: FakeRequest) => string | undefined;
 }>;
@@ -121,7 +123,9 @@ export function fakeGithub(): FakeGithub {
   /** Team memberships, by `org/team-slug`. */
   const teamMembers = new Map<string, Set<string>>();
   /** Code security: each configuration's attached repository ids, and its default for new repositories. */
-  const attachments = new Map<number, Set<number>>();
+  const attachments = new Map<number, Map<number, string>>();
+  /** Repositories (by API path) where an attach FAILS, as GitHub's does for a feature it cannot enable there. */
+  const failingAttach = new Set<string>();
   const configurationDefaults = new Map<number, string>();
   /** A repository object's id (GitHub always answers one; a test that stored a repository without one gets a stable one). */
   const repositoryIds = new Map<string, number>();
@@ -254,7 +258,10 @@ export function fakeGithub(): FakeGithub {
       if (security[3] === "attach" && request.method === "POST" && id !== undefined) {
         if (body.scope !== "selected") return json(422, { message: `this fake attaches only selected repositories, not ${String(body.scope)}` });
         for (const set of attachments.values()) for (const repository of body.selected_repository_ids ?? []) set.delete(repository);
-        attachments.set(id, new Set([...(attachments.get(id) ?? []), ...(body.selected_repository_ids ?? [])]));
+        const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
+        const set = attachments.get(id) ?? new Map<number, string>();
+        for (const repository of body.selected_repository_ids ?? []) set.set(repository, failingAttach.has(byId.get(repository) ?? "") ? "failed" : "attached");
+        attachments.set(id, set);
         return json(202, {});
       }
       if (security[3] === "detach" && request.method === "DELETE" && id === undefined) {
@@ -270,7 +277,10 @@ export function fakeGithub(): FakeGithub {
       }
       if (security[3] === "repositories" && request.method === "GET" && id !== undefined) {
         const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
-        return json(200, [...(attachments.get(id) ?? [])].map((repository) => ({ status: "attached", repository: { id: repository, name: byId.get(repository)?.split("/").at(-1) ?? "", full_name: `${owner}/${byId.get(repository)?.split("/").at(-1) ?? ""}` } })));
+        // GitHub's `status` filter (comma-separated; `all` or none lists every status).
+        const wanted = request.query.get("status");
+        const statuses = wanted === null || wanted === "all" ? undefined : new Set(wanted.split(","));
+        return json(200, [...(attachments.get(id) ?? [])].filter(([, status]) => statuses === undefined || statuses.has(status)).map(([repository, status]) => ({ status, repository: { id: repository, name: byId.get(repository)?.split("/").at(-1) ?? "", full_name: `${owner}/${byId.get(repository)?.split("/").at(-1) ?? ""}` } })));
       }
     }
     const conversion = /^\/app-manifests\/([^/]+)\/conversions$/u.exec(request.path);
@@ -377,6 +387,7 @@ export function fakeGithub(): FakeGithub {
       conversions.set(code, app);
       return app;
     },
+    failSecurityAttach: (owner, name) => { failingAttach.add(`/repos/${owner}/${name}`); },
     principalOf: (request: FakeRequest) => tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "")?.principal,
   });
 }

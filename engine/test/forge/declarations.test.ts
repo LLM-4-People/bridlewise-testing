@@ -41,7 +41,7 @@ test("the declarations: every object once, in apply order, with the plan's unava
   const settingsScopes = objects.filter((entry) => entry.kind === "repository-settings").map((entry) => entry.key);
   assert.deepEqual(settingsScopes, ["bridlewise-testing", ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
   // The proving ground (P1.11): its main's queue and signatures, merge commits only, and merged branches deleted; nothing else a governed repository gets.
-  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true });
+  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true, allow_update_branch: false });
   const proving = find(objects, "ruleset", "proving-main");
   assert.deepEqual(proving.scope, { kind: "repo", repository: "forge-proving-ground" });
   assert.deepEqual((proving.desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "required_signatures"]);
@@ -179,6 +179,42 @@ test("the live trunk's protections move into the declared baseline at least as s
   const baseline = find(objects, "org-ruleset", "baseline").desired as { rules: { type: string; parameters?: Record<string, unknown> }[] };
   const weaker = { ...baseline, rules: baseline.rules.map((rule) => rule.type === "pull_request" ? { ...rule, parameters: { ...rule.parameters, require_extra_approval_for_unattributed_changes: false } } : rule) };
   assert.notDeepEqual(movedPremisesUnmet(loosening, live, weaker, "trunk"), []);
+});
+
+test("the plan review's decisions, pinned: a security configuration per visibility, attached only to the governed repositories; the private one without secret scanning or push protection; no default setup; a private project; no Update-branch button; github-pages governed; team members as data", () => {
+  const objects = forgeDeclarations(SOURCES);
+  const configuration = (key: string) => find(objects, "security-configuration", key).desired as Record<string, unknown>;
+  const attachment = (key: string) => find(objects, "security-configuration-repositories", key).desired as Record<string, unknown>;
+  // Public repositories: secret scanning and push protection on (bridlewise-evidence included: evidence never carries a secret, D-09).
+  assert.equal(configuration("bridlewise-baseline").secret_scanning, "enabled");
+  assert.equal(configuration("bridlewise-baseline").secret_scanning_push_protection, "enabled");
+  // Private repositories on this plan (no Secret Protection): neither, or the attach would fail there.
+  assert.equal(configuration("bridlewise-baseline-private").secret_scanning, "disabled");
+  assert.equal(configuration("bridlewise-baseline-private").secret_scanning_push_protection, "disabled");
+  for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "not_set", `${key}: CodeQL runs in advanced setup`);
+  // Attached to the governed repositories only, by visibility, and default for no new repository.
+  assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", "bridlewise-testing"], default_for_new_repos: "none" });
+  assert.deepEqual(attachment("bridlewise-baseline-private"), { repositories: ["bridlewise-coordination"], default_for_new_repos: "none" });
+  // With the add-on, the private configuration carries secret scanning too.
+  const withAddOn = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection: true } } });
+  assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).secret_scanning, "enabled");
+  // The project is private; no repository offers the Update-branch button; the Pages environment is governed.
+  assert.equal((find(objects, "project", SETTINGS.project.title).desired as { public: boolean }).public, false);
+  for (const settings of objects.filter((entry) => entry.kind === "repository-settings")) assert.equal((settings.desired as Record<string, unknown>).allow_update_branch, false, settings.key);
+  assert.deepEqual(find(objects, "environment", "github-pages").desired, { deployment_branch_policy: { protected_branches: false, custom_branch_policies: true }, can_admins_bypass: false, branch_policies: ["main"] });
+  // Team members are data: declared ones appear, and a team the role table does not make is refused, named.
+  const members = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, teamMembers: { reviewers: ["someone"] } } });
+  assert.deepEqual((find(members, "team", "reviewers").desired as { members: string[] }).members, ["someone"]);
+  assert.throws(() => forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, teamMembers: { "not-a-team": [] } } }), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /not-a-team/u.test(error.message));
+});
+
+test("an ENABLED dismissal restriction may only stay enabled with fewer allowed actors; an unrestricted one restricts nothing", () => {
+  const rule = (restriction: unknown) => ({ name: "r", target: "branch", enforcement: "active", rules: [{ type: "pull_request", parameters: { dismissal_restriction: restriction } }] });
+  const live = rule({ enabled: true, allowed_actors: [{ actor_id: 1 }, { actor_id: 2 }] });
+  assert.notDeepEqual(looseningOf("ruleset", rule({ enabled: false, allowed_actors: [] }), live), [], "turning it off loosens");
+  assert.notDeepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [{ actor_id: 1 }, { actor_id: 2 }, { actor_id: 3 }] }), live), [], "another dismisser loosens");
+  assert.deepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [{ actor_id: 1 }] }), live), [], "fewer dismissers is stricter");
+  assert.deepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [] }), rule({ enabled: false, allowed_actors: [] })), [], "restricting where nothing was is stricter");
 });
 
 test("a form naming a type outside the registry, or two labels with one name, refuses the declarations", () => {

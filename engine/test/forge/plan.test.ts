@@ -153,6 +153,20 @@ test("fields the plan does not allow are recorded and never written", async () =
   const drifted = entry(await forgePlan(contextOf(fake), [security, attachment], []), "security-configuration-repositories", "baseline");
   assert.equal(drifted.action, "update");
   assert.deepEqual(drifted.loosening, [`repositories ["${REPO}","not-governed"] -> ["${REPO}"]`]);
+  // The detach is applied only with its acknowledgement, and leaves the declared repositories alone.
+  await assert.rejects(forgeApply(contextOf(fake), [security, attachment], []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
+  await forgeApply(contextOf(fake), [security, attachment], [], new Set(["security-configuration-repositories:org:baseline"]));
+  assert.ok(fake.requests.some((request) => request.method === "DELETE" && request.path === `/orgs/${ORG}/code-security/configurations/detach` && JSON.stringify(request.body) === JSON.stringify({ selected_repository_ids: [notGoverned] })), "the hand-attached repository is detached by id");
+  assert.equal(entry(await forgePlan(contextOf(fake), [security, attachment], []), "security-configuration-repositories", "baseline").action, "unchanged", "only the declared repository is attached");
+  // A FAILED attach (a feature GitHub cannot enable there) is never a success: the plan refuses it loudly, naming it.
+  fake.objects.set(`/repos/${ORG}/failing`, { name: "failing" });
+  fake.failSecurityAttach(ORG, "failing");
+  const withFailing = object("security-configuration-repositories", "baseline", { repositories: [REPO, "failing"].sort(), default_for_new_repos: "none" }, { kind: "org" });
+  const failedOutcome = await forgeApply(contextOf(fake), [security, withFailing], []);
+  assert.equal(failedOutcome.verified, false, "a failed attach does not verify");
+  const refused = entry(await forgePlan(contextOf(fake), [security, withFailing], []), "security-configuration-repositories", "baseline");
+  assert.equal(refused.code, "forge_security_attach_failed");
+  assert.match(refused.message ?? "", /failing/u);
 });
 
 test("an issue field's update sends each existing option's id (an option sent without it is a new option, and every issue's value would be wiped); options compare without ids", async () => {
