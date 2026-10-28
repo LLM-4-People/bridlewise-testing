@@ -34,7 +34,7 @@ import { LandingError, branchCheckout, commitCandidate, landCommit, refuseUndecl
 import { importWorkspaceTimelineShard, openWorkspaceTimelineShard } from "./timeline-shard.ts";
 import { createWorkspaceRecordStore, refuseOwnedByOlder, workspaceRecordStores, type WorkspaceRecordStore } from "./workspace-registry.ts";
 import { remoteTrackingRef } from "../git/git-port.ts";
-import { fetchForgeBranches, publishBranch, remoteUrlOf, resolveForgeTarget, type ForgePullRequest, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
+import { fetchForgeBranches, publishBranch, queuePreflightConflict, remoteUrlOf, resolveForgeTarget, type ForgePullRequest, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
 import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS, WORKSPACE_NONCE_CHARACTERS, WORKSPACE_REFUSAL_PATHS_NAMED, WORKSPACE_SHORT_ID_CHARACTERS } from "./workflow-config.ts";
 import {
@@ -1821,6 +1821,17 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     record = store.save(transition(deepFreeze({ ...record, forge: deepFreeze({ ...state, land: deepFreeze({ head }) }) }), "merging", `the land of ${head} was requested (pull request #${String(number)})`));
     // Already merged (a land another tool finished) or already queued at this head: nothing to ask, only to wait.
     if (current.merged || current.queued) return record;
+    // THE QUEUE PREFLIGHT: never enter a queue that would drop this pull request (workspace-forge.ts).
+    const queued = (await forge.mergeQueue(target.trunk)).filter((entry) => entry.number !== number);
+    const conflict = queuePreflightConflict(git, worktreePath, target.remote, trunk, queued, head, timeouts);
+    if (conflict !== null) {
+      endLand(record, "validating", `the merge queue would drop it: ${conflict.paths.join(", ")} conflict with #${conflict.ahead.join(", #")}`);
+      throw new HarnessError(
+        `pull request #${String(number)} conflicts with the merge queue ahead of it (${conflict.ahead.length === 0 ? "the trunk" : `#${conflict.ahead.join(", #")}`}) in ${conflict.paths.join(", ")}: ` +
+          "the queue would drop it — wait for those to land, rebase onto the trunk, publish and validate again",
+        "workspace_queue_conflict", false, { workspaceId, paths: conflict.paths.join(","), ahead: conflict.ahead.join(",") },
+      );
+    }
     progress(`land: pull request #${String(number)} at ${head} into the ${target.trunk} merge queue`);
     const answer = await forge.enqueue(number, { expectedHeadSha: head });
     auditEvent("workspace-land-requested", { workspaceId, pullRequest: number, head, answer: answer.kind });

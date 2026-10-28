@@ -332,3 +332,50 @@ test("abort closes the workspace's open pull request (its branch kept)", async (
   assert.match(pull.comments.at(-1) ?? "", /ended: superseded\. Its branch is kept\./u);
   assert.equal(rawGit(bare, ["rev-parse", `refs/heads/${branch}`]), head);
 });
+
+/**
+ * Another pull request in the forge's merge queue (#2, ahead of this one): a
+ * commit on `main`'s base writing `path`, pushed as its own branch, opened,
+ * readied and queued — as another lane's land would leave it.
+ */
+async function queueAnotherPullRequest(fixture: Awaited<ReturnType<typeof readyFixture>>, path: string, text: string): Promise<number> {
+  const { bare, baseSha, forge } = fixture;
+  const scratch = mkWorkspaceTempDir("ws-queue-other");
+  rawGit(scratch, ["clone", "-q", bare, "."]);
+  rawGit(scratch, ["checkout", "-q", "-b", "another-lane", baseSha]);
+  commitFile(scratch, path, text, "Another lane's work");
+  rawGit(scratch, ["push", "-q", "origin", "another-lane:another-lane"]);
+  const pull = await forge.openDraftPullRequest({ head: "another-lane", base: "main", title: "another lane", body: "" });
+  await forge.markReadyForReview(pull.number);
+  const answer = await forge.enqueue(pull.number, { expectedHeadSha: rawGit(bare, ["rev-parse", "refs/heads/another-lane"]) });
+  assert.equal(answer.kind, "enqueued", "the other pull request is in the queue (liveness)");
+  return pull.number;
+}
+
+test("QUEUE PREFLIGHT: a pull request that conflicts with one ahead of it in the merge queue is refused BEFORE the queue — never enqueued, back to validating, the conflict named", async () => {
+  const fixture = await readyFixture("ws-queue-conflict");
+  const { manager, forge, workspaceId } = fixture;
+  // The same file, different bytes: the queue would merge #2, then drop this one.
+  const ahead = await queueAnotherPullRequest(fixture, "src/a.ts", "export const a = 2;\n");
+  const enqueuesBefore = fixture.enqueues();
+  await assert.rejects(() => manager.land(workspaceId), (error: unknown) => {
+    assert.ok(throwsCode("workspace_queue_conflict")(error), String(error));
+    assert.match(String((error as Error).message), new RegExp(`conflicts with the merge queue ahead of it \\(#${String(ahead)}\\) in src/a\\.ts`, "u"));
+    return true;
+  });
+  assert.equal(fixture.enqueues(), enqueuesBefore, "no enqueue: the queue was never entered");
+  assert.ok(forge.calls.some((call) => call.op === "mergeQueue"), "the queue was read");
+  assert.equal(manager.status(workspaceId).state, "validating", "the land ended: back to validating");
+  assert.equal(forgeStateOf(manager.status(workspaceId)).land, null);
+});
+
+test("QUEUE PREFLIGHT: a queue ahead that touches other files is no conflict — the pull request is enqueued", async () => {
+  const fixture = await readyFixture("ws-queue-clean");
+  const { manager, forge, workspaceId, head } = fixture;
+  await queueAnotherPullRequest(fixture, "src/other.ts", "export const other = 1;\n");
+  fixture.onWait(() => {
+    forge.dropFromQueue(1);
+  });
+  await assert.rejects(() => manager.land(workspaceId));
+  assert.deepEqual(forge.calls.filter((call) => call.op === "enqueue" && (call.request as { number: number }).number === 1).map((call) => call.request), [{ number: 1, expectedHeadSha: head }], "enqueued at its head: the queue ahead merges cleanly with it");
+});
