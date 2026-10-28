@@ -335,7 +335,7 @@ async function judgedFrames(page: Page, surface: Surface): Promise<readonly Fram
   return frames;
 }
 
-type DomNode = { nodeId: number; nodeType: number; nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
+export type DomNode = { nodeId: number; backendNodeId: number; nodeType: number; nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
 
 /** The browser's own tree of `page`, piercing every shadow root and frame (CDP). */
 async function domTree(page: Page): Promise<DomNode> {
@@ -448,32 +448,56 @@ const FOCUSABLE = new Set(["a", "area", "button", "details", "iframe", "input", 
  */
 async function judgeForcedStates(page: Page, surface: Surface, rules?: readonly PageRule[]): Promise<readonly string[]> {
   const cdp = sessions.get(page)!;
-  await cdp.send("DOM.enable");
-  await cdp.send("CSS.enable");
+  const send: CdpSend = (method, params) => cdp.send(method as never, params as never);
+  await send("DOM.enable");
+  await send("CSS.enable");
   try {
-    const root = await domTree(page);
-    const forced: { nodeId: number; classes: string[] }[] = [];
-    const walk = (node: DomNode): void => {
-      if (declaredFrame(node, surface)) return;
-      if (node.nodeType === 1) {
-        const attributes = node.attributes ?? [];
-        const focusable = FOCUSABLE.has(node.localName ?? "") || attributes.some((name, i) => i % 2 === 0 && (name === "tabindex" || name === "contenteditable"));
-        forced.push({ nodeId: node.nodeId, classes: focusable ? ["hover", "active", "focus", "focus-visible", "focus-within"] : ["hover", "active", "focus-within"] });
-      }
-      for (const shadow of node.shadowRoots ?? []) if (shadow.shadowRootType === "open") walk(shadow);
-      for (const child of node.children ?? []) walk(child);
-      if (node.contentDocument !== undefined) walk(node.contentDocument);
-    };
-    walk(root);
-    await Promise.all(forced.map(({ nodeId, classes }) => cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: classes })));
+    const forced = await forceEveryElement(send, surface);
     await ready(page);
-    const findings = await judgePage(page, surface, rules, closedRootsIn(root, surface));
-    await Promise.all(forced.map(({ nodeId }) => cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] }).catch(() => undefined)));
+    const findings = await judgePage(page, surface, rules, closedRootsIn(forced.root, surface));
+    await releaseForcedStates(send, forced);
     return findings;
   } finally {
-    await cdp.send("CSS.disable");
-    await cdp.send("DOM.disable");
+    await send("CSS.disable");
+    await send("DOM.disable");
   }
+}
+
+/** One CDP call on a page's session (the forcing below takes it as a port, so it is driven without a browser too). */
+export type CdpSend = (method: string, params?: object) => Promise<unknown>;
+
+/** What a forcing pass forced: the tree it read, and each element by node id with the classes it was given. */
+export type ForcedStates = Readonly<{ root: DomNode; targets: readonly Readonly<{ nodeId: number; classes: readonly string[] }>[] }>;
+
+/** Every element of a snapshot `root` the forcing reaches (not inside a declared frame), with the classes it is forced into. */
+function forcingTargets(root: DomNode, surface: Surface): { nodeId: number; backendNodeId: number; classes: string[] }[] {
+  const targets: { nodeId: number; backendNodeId: number; classes: string[] }[] = [];
+  const walk = (node: DomNode): void => {
+    if (declaredFrame(node, surface)) return;
+    if (node.nodeType === 1) {
+      const attributes = node.attributes ?? [];
+      const focusable = FOCUSABLE.has(node.localName ?? "") || attributes.some((name, i) => i % 2 === 0 && (name === "tabindex" || name === "contenteditable"));
+      targets.push({ nodeId: node.nodeId, backendNodeId: node.backendNodeId, classes: focusable ? ["hover", "active", "focus", "focus-visible", "focus-within"] : ["hover", "active", "focus-within"] });
+    }
+    for (const shadow of node.shadowRoots ?? []) if (shadow.shadowRootType === "open") walk(shadow);
+    for (const child of node.children ?? []) walk(child);
+    if (node.contentDocument !== undefined) walk(node.contentDocument);
+  };
+  walk(root);
+  return targets;
+}
+
+/** Forces every element of one snapshot of the page's tree into its states. */
+export async function forceEveryElement(send: CdpSend, surface: Surface): Promise<ForcedStates> {
+  const { root } = (await send("DOM.getDocument", { depth: -1, pierce: true })) as { root: DomNode };
+  const targets = forcingTargets(root, surface);
+  await Promise.all(targets.map(({ nodeId, classes }) => send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: classes })));
+  return { root, targets };
+}
+
+/** Releases what `forced` forced. */
+export async function releaseForcedStates(send: CdpSend, forced: ForcedStates): Promise<void> {
+  await Promise.all(forced.targets.map(({ nodeId }) => send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] }).catch(() => undefined)));
 }
 
 /**
