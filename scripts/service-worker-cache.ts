@@ -12,7 +12,9 @@
  *   precaches and caches (`public/` minus the worker and the READMEs):
  *   `node scripts/service-worker-cache.ts --write|--check`, run by the
  *   generators that change those assets (the icon generator, the font
- *   vendoring) and judged by tests/prevention/pwa.test.ts;
+ *   vendoring) and by every `harness sync` (SERVICE_WORKER_DIGEST, its arm in
+ *   engine/src/workflow/harness-commands.ts), and judged by `harness check`
+ *   and tests/prevention/pwa.test.ts;
  * - the production build rewrites the BUILT worker's line with the digest of
  *   every file the build emits next to it (the public assets AND the hashed
  *   bundles): `serviceWorkerDigestPlugin()`, in vite.config.ts.
@@ -146,7 +148,11 @@ export function serviceWorkerDigestPlugin(): { name: string; apply: "build"; wri
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  const report = syncServiceWorker(ROOT, process.argv.includes("--check"));
+  // `--root=<repository>`: the tree to judge or write (harness sync passes the one it was asked about); this one by default.
+  const [mode, ...rest] = process.argv.slice(2);
+  const rootArg = rest.find((arg) => arg.startsWith("--root="));
+  if ((mode !== "--write" && mode !== "--check") || rest.some((arg) => arg !== rootArg)) throw new HarnessError("usage: service-worker-cache.ts --write | --check [--root=<repository>]", "input_error");
+  const report = syncServiceWorker(rootArg === undefined ? ROOT : resolve(rootArg.slice("--root=".length)), mode === "--check");
   console.log(JSON.stringify(report));
   if (!report.allCurrent) process.exitCode = 1;
 }

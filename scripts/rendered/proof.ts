@@ -8,10 +8,11 @@
  *
  * Exits 1, naming each plant that passed or the clean page's findings.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createReadStream, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { type ServerResponse } from "node:http";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { parseArgs } from "node:util";
 
@@ -19,6 +20,7 @@ import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-deb
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { instrumentContext, judgeFuture, judgeStates, launchBrowser, navigate, openPage, serveSite, siteRestore } from "./judge.ts";
 import { tokenValues } from "../token-owner.ts";
+import { vendoredFaces } from "../vendor-fonts.ts";
 import { CONTENT_SECURITY_POLICY, JUDGE_LIMITS, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
@@ -42,6 +44,18 @@ const LOGBOOK = tokenValues("logbook", MARK_TOKENS);
 const declarations = (values: Readonly<Record<string, string>>): string => Object.entries(values).map(([name, value]) => `${name}: ${value};`).join(" ");
 /** The owner's sans stack, its first family, and its mono stack, as a canvas font names them. */
 const SANS_FAMILY = OWNER["--face-sans"]!.split(",")[0]!.trim().replace(/^"|"$/gu, "");
+
+/** The font owner's vendored faces (scripts/vendor-fonts.ts): the sans family's own file and another family's, served as the cockpit serves them. */
+const FACES = vendoredFaces();
+const SANS_FILE = FACES.find((face) => face.family === SANS_FAMILY)?.files[0];
+const OTHER_FILE = FACES.find((face) => face.family !== SANS_FAMILY)?.files[0];
+if (SANS_FILE === undefined || OTHER_FILE === undefined) throw new Error(`[rendered] the font owner vendors no file for ${SANS_FAMILY}, or no other family`);
+const PUBLIC = resolve(fileURLToPath(new URL("../../public", import.meta.url)));
+const servedFont = (path: string) => (response: ServerResponse): void => {
+  response.writeHead(200, { "content-type": "font/woff2" });
+  createReadStream(join(PUBLIC, path)).pipe(response);
+};
+const vendoredFace = (file: string): string => `<style>@font-face { font-family: "${SANS_FAMILY}"; src: url("${file}") format("woff2") }</style>`;
 const canvasFont = (token: "--face-sans" | "--face-mono"): string => `12px ${OWNER[token]!}`;
 
 /** The clean page: the owner's token values, a brand mark painted from its tokens, text in the stacks. */
@@ -134,6 +148,7 @@ const PLANTS: readonly Plant[] = [
   { name: "a change a delayed scheduler.postTask makes", body: `<script>scheduler.postTask(() => { ${GEORGIA_RULE}; }, { delay: 7000 })</script>`, rule: "judgeable" },
   { name: "a delayed postTask called through the prototype", body: "<script>Scheduler.prototype.postTask.call(scheduler, () => {}, { delay: 1 })</script>", rule: "judgeable" },
   // Faces: bound to the token owner's vendored files, whoever declares them.
+  { name: "a token family loaded from another family's vendored file", head: vendoredFace(OTHER_FILE), rule: "font-families" },
   { name: "a token family redefined to a local face", head: `<style>@font-face { font-family: "${SANS_FAMILY}"; src: local("DejaVu Serif"), local("Liberation Serif") }</style>`, rule: "font-families" },
   { name: "a face of another family from a local font", head: '<style>@font-face { font-family: "Shadow Serif"; src: local("DejaVu Serif") }</style>', rule: "font-families" },
   { name: "a face a script makes and never uses", body: "<script>const f = new FontFace(\"Evil\", \"local('DejaVu Serif')\"); document.fonts.add(f); f.load().catch(() => {})</script>", rule: "font-families" },
@@ -176,6 +191,7 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
   // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.
   // Every animation frame, as an animated list does (not a task-queue loop as fast as the browser runs it: that hogs the browser itself).
   { name: "a page that keeps replacing its nodes while the states are forced", body: '<ul id="churn"></ul><script>const ul = document.getElementById("churn"); const frame = () => { ul.replaceChildren(...Array.from({ length: 40 }, () => document.createElement("li"))); requestAnimationFrame(frame); }; requestAnimationFrame(frame);</script>', rule: "font-families" },
@@ -203,7 +219,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
     CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
       only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
-    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady });
+    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady, ...Object.fromEntries(FACES.flatMap((face) => face.files).map((file) => [file, servedFont(file)])) });
     const browser = await launchBrowser(executable);
     try {
       // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
