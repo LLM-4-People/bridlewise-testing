@@ -187,12 +187,12 @@ test("H1 (PROMO-3+4-FIX): an unattended run placed in the home whose source move
   const locks = repositoryRegistryArea(repositoryRegistry(join(fixture.root, ".git")), "locks");
   const launched: { source: string; homeLockFree: Promise<boolean>; placement: PromoterPlacement }[] = [];
   const contextOf = (profile: string, at: string) => resolvePromotionContext(fixture.root, profile, at, document);
-  const result = await withUnattendedChain(context, git, () => runInPromoterHome(context, git, placement, { verb: "apply", auto: true }, RUNNER(), engine), contextOf, (chained, at) => {
+  const result = await withUnattendedChain(context, git, () => runInPromoterHome(context, git, placement, { verb: "apply", auto: true }, RUNNER(), engine), (chained, at) => {
     launched.push({
       source: at,
       homeLockFree: acquireLock(fixture.root, `promotion-home-${PROFILE_NAME}`, { lockDirectory: locks, owner: "the chain's probe", timeoutMs: 0 }).then((lock) => { lock.release(); return true; }, () => false),
       // Where the chained run would run: its environment is a top-level run's (the child's placement variable dropped).
-      placement: promoterPlacement(chained, git, engine, unattendedEnvironment({ [VARIABLE]: engine.root }, "/chained.log")),
+      placement: promoterPlacement(contextOf(chained.profile, at), git, engine, unattendedEnvironment({ [VARIABLE]: engine.root }, "/chained.log")),
     });
     return 4242;
   });

@@ -253,14 +253,51 @@ export function parsePromotionProfile(
 }
 
 /** Every profile `reader` holds: each `<profileDirectory>/<name>.json`, parsed and validated (see {@link parsePromotionProfile}). */
+/** The profile files `reader` holds: `<profileDirectory>/<name>.json`, one level deep. */
+function profileFiles(reader: TreeReader, profileDirectory: string): readonly string[] {
+  const prefix = profileDirectory.endsWith("/") ? profileDirectory : `${profileDirectory}/`;
+  const files = reader.paths().filter((path) => path.startsWith(prefix) && path.endsWith(".json") && !path.slice(prefix.length).includes("/"));
+  reader.prefetch(files);
+  return files;
+}
+
+/** What the trigger reads of a profile BEFORE any judgement of it (see `trigger.ts`). */
+export type ProfileTriggerHeader = Readonly<{ name: string; trigger: string; remote: string | null; sourceRef: string; targetRef: string }>;
+
+/**
+ * THE TRIGGER'S READ of the profiles `reader` holds: each one's name,
+ * trigger, remote and refs, read as plain JSON fields, with no schema
+ * judgement. The trigger decides from these alone which profile a moved ref
+ * concerns. The profile itself is judged only by the promotion it starts,
+ * run by the source's own committed promoter, never by this checkout's code
+ * (#259). A file that does not even spell these fields concerns no ref and
+ * is passed over, never a refusal of the run (#121).
+ */
+export function profileTriggerHeaders(reader: TreeReader, profileDirectory: string): readonly ProfileTriggerHeader[] {
+  return deepFreeze(profileFiles(reader, profileDirectory).flatMap((path) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(reader.text(path) ?? "");
+    } catch {
+      return [];
+    }
+    const fields = (value ?? {}) as { name?: unknown; trigger?: unknown; remote?: unknown; source?: { ref?: unknown }; target?: { ref?: unknown } };
+    const sourceRef = fields.source?.ref;
+    const targetRef = fields.target?.ref;
+    if (typeof fields.name !== "string" || typeof fields.trigger !== "string" || !(fields.remote === null || typeof fields.remote === "string")
+      || typeof sourceRef !== "string" || !sourceRef.startsWith("refs/heads/") || typeof targetRef !== "string" || !targetRef.startsWith("refs/heads/")) {
+      return [];
+    }
+    return [{ name: fields.name, trigger: fields.trigger, remote: fields.remote, sourceRef, targetRef }];
+  }));
+}
+
 export function loadPromotionProfiles(
   reader: TreeReader,
   profileDirectory: string,
   commandNames: ReadonlySet<string>,
 ): readonly LoadedPromotionProfile[] {
-  const prefix = profileDirectory.endsWith("/") ? profileDirectory : `${profileDirectory}/`;
-  const files = reader.paths().filter((path) => path.startsWith(prefix) && path.endsWith(".json") && !path.slice(prefix.length).includes("/"));
-  reader.prefetch(files);
+  const files = profileFiles(reader, profileDirectory);
   return deepFreeze(files.map((path) => deepFreeze({
     profile: parsePromotionProfile(reader.text(path)!, { path, profileDirectory, commandNames }),
     path,

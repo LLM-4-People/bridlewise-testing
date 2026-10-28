@@ -21,7 +21,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import test from "node:test";
 
 import { configuredWorktreeGitPort } from "../../../src/git/worktree-port.ts";
@@ -149,7 +149,7 @@ test("T-T2: `auto` over the moved refs launches ONE unattended apply of the prof
   fixture.git(["symbolic-ref", "refs/remotes/origin/HEAD", `refs/remotes/origin/${SOURCE}`]);
   const launched: string[] = [];
   const result = promotionAuto(fixture.root, ` refs/remotes/origin/${SOURCE}\n refs/remotes/origin/prod\n refs/remotes/elsewhere/${SOURCE}\n refs/remotes/origin/HEAD`, fixture.document, (context, source) => {
-    launched.push(`${context.loaded.profile.name}@${source}`);
+    launched.push(`${context.profile}@${source}`);
     return 4242;
   }, {});
   assert.equal(result.code, "promotion_triggered", result.message);
@@ -201,6 +201,48 @@ test("T-T4: a profile whose previous run ended blocked gives exactly ONE notice 
   recorder.end(answer("promotion_published", "published", {}));
   assert.deepEqual((promotionAuto(fixture.root, ` refs/remotes/origin/${SOURCE}`, fixture.document, () => 1, {}).data as { notices: readonly string[] }).notices, [], "an ok run gives none");
   assert.equal(renderCommandAnswer(await runPromoteCli(fixture.root, ["auto", "--refs", ` refs/remotes/origin/${SOURCE}`], fixture.document, () => 1), "text"), "", "and prints nothing");
+});
+
+/** `fixture`'s source profile rewritten with `fields` (a newer schema the engine cannot read, a key it does not know), committed, published and fetched. */
+function publishProfile(fixture: PromotionFixture, fields: Readonly<Record<string, unknown>>, message: string): void {
+  const current = JSON.parse(fixture.git(["show", `${SOURCE}:${PROFILE_PATH}`])) as Record<string, unknown>;
+  fixture.commit(SOURCE, { [PROFILE_PATH]: json({ ...current, ...fields }) }, message);
+  fixture.publish(SOURCE);
+  fixture.git(["fetch", "-q", "origin"]);
+}
+
+test("#259/#121: a fetched ref's profiles are FILTERED by their trigger fields before anything judges them — a newer schema behind a manual trigger, or an unreadable profile on another ref, refuses nothing and prints nothing", async () => {
+  const never = () => assert.fail("nothing may be launched");
+  // A checkout behind main fetches a main whose (manual) profile is a schema this engine does not know.
+  const behind = triggered("promotion-auto-newer-manual", "manual");
+  publishProfile(behind, { schema: "bridlewise-promotion-profile/v999", futureField: { judged: "by its own code" } }, "a newer profile");
+  const quiet = await runPromoteCli(behind.root, ["auto", "--refs", ` refs/remotes/origin/${SOURCE}`], behind.document, never);
+  assert.equal(quiet.result.result.code, "promotion_not_due", quiet.result.result.message);
+  assert.equal(renderCommandAnswer(quiet, "text"), "", "the hook prints nothing on the fetcher's terminal");
+  assert.equal(quiet.exitCode, 0);
+  // #121: a PR ref holding an unreadable profile next to a real source move: the source move still triggers.
+  const host = triggered("promotion-auto-pr-ref");
+  const scratch = createTempDir("promotion-auto-pr-");
+  const prEnv = { GIT_INDEX_FILE: join(scratch, "index") };
+  writeFileSync(join(scratch, "profile.json"), "{ not json");
+  host.git(["read-tree", host.tip(SOURCE)], prEnv);
+  host.git(["update-index", "--add", "--cacheinfo", `100644,${host.git(["hash-object", "-w", join(scratch, "profile.json")])},${PROFILE_PATH}`], prEnv);
+  const prCommit = host.git(["commit-tree", host.git(["write-tree"], prEnv), "-p", host.tip(SOURCE), "-m", "a PR whose profile is unreadable"]);
+  host.git(["update-ref", "refs/remotes/pr/7", prCommit]);
+  const launched: string[] = [];
+  const both = promotionAuto(host.root, ` refs/remotes/pr/7\n refs/remotes/origin/${SOURCE}`, host.document, (pair, source) => { launched.push(`${pair.profile}@${source}`); return 1; }, {});
+  assert.equal(both.code, "promotion_triggered", both.message);
+  assert.deepEqual(launched, [`${PROFILE_NAME}@${host.tip(SOURCE)}`], "the unreadable profile ends nothing; the real source move triggers");
+});
+
+test("#259: the host's own source move with a profile this engine cannot judge still starts its promotion — the run, the source's own code, judges it", () => {
+  const host = triggered("promotion-auto-newer-host");
+  publishProfile(host, { schema: "bridlewise-promotion-profile/v999" }, "a newer profile on the host's source");
+  const launched: { profile: string; workDirectory: string; source: string }[] = [];
+  const result = promotionAuto(host.root, ` refs/remotes/origin/${SOURCE}`, host.document, (pair, source) => { launched.push({ profile: pair.profile, workDirectory: pair.workDirectory, source }); return 1; }, {});
+  assert.equal(result.code, "promotion_triggered", result.message);
+  assert.deepEqual(launched.map((entry) => [entry.profile, entry.source]), [[PROFILE_NAME, host.tip(SOURCE)]]);
+  assert.equal(basename(launched[0]!.workDirectory), PROFILE_NAME, "the pair names the profile's own private directory");
 });
 
 test("M3 (PROMO-3+4-FIX): an unattended run's log lives as long as the record that may point at it — a launch removes only the logs older than the record's start, never the record's own, never a newer one", () => {
