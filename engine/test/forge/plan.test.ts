@@ -202,6 +202,21 @@ test("a team's members are data: a member added in the UI is drift that apply re
   assert.deepEqual(entry(await forgePlan(context, [widened], []), "team", "reviewers").loosening, ['members [] -> ["newcomer"]']);
 });
 
+test("a security configuration's two features read back as GitHub answers them (advanced_security only, the per-feature fields null): the declared features match, and a change of either is drift", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  const declared = { name: "baseline", code_security: "disabled", secret_protection: "enabled", secret_scanning: "enabled" };
+  // GitHub's read: advanced_security "secret_protection" (Secret Protection on, Code Security off); code_security and secret_protection null.
+  fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "secret_protection", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  const object_ = object("security-configuration", "baseline", declared, { kind: "org" });
+  assert.equal(entry(await forgePlan(contextOf(fake), [object_], []), "security-configuration", "baseline").action, "unchanged");
+  // GitHub reading both features enabled: Code Security differs from the declaration.
+  const both = fakeGithub();
+  both.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  both.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "enabled", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  assert.deepEqual(entry(await forgePlan(contextOf(both), [object_], []), "security-configuration", "baseline").differences, ["/code_security"]);
+});
+
 /** A fake GitHub that answers every kind the declarations use, statefully. */
 function wholeGithub(): FakeGithub {
   const fake = fakeGithub();

@@ -240,6 +240,17 @@ const immutableReleases: KindAdapter = {
   update: async (context, object) => { await send(context, "PUT", `${repoPath(context, repositoryOf(object))}/immutable-releases`); },
 };
 
+/**
+ * The two Advanced Security features GitHub reads back only as `advanced_security` (its per-feature `code_security` and
+ * `secret_protection` come back null): `enabled` is both, `code_security` or `secret_protection` the one, `disabled`
+ * neither. A per-feature value GitHub does answer is kept as answered.
+ */
+const ADVANCED_SECURITY_FEATURES: Readonly<Record<string, Readonly<{ code_security: string; secret_protection: string }>>> = {
+  enabled: { code_security: "enabled", secret_protection: "enabled" },
+  code_security: { code_security: "enabled", secret_protection: "disabled" },
+  secret_protection: { code_security: "disabled", secret_protection: "enabled" },
+  disabled: { code_security: "disabled", secret_protection: "disabled" },
+};
 const securityConfiguration: KindAdapter = {
   ...namedCollection<Record<string, unknown>>({
     collection: (context) => `${orgPath(context)}/code-security/configurations`,
@@ -247,6 +258,14 @@ const securityConfiguration: KindAdapter = {
     idOf: (item) => item.id as number,
     itemPath: (context, _scope, id) => `${orgPath(context)}/code-security/configurations/${String(id)}`,
     updateMethod: "PATCH",
+    normalize: (item) => {
+      const derived = ADVANCED_SECURITY_FEATURES[String(item.advanced_security)];
+      return {
+        ...item,
+        code_security: typeof item.code_security === "string" ? item.code_security : derived?.code_security,
+        secret_protection: typeof item.secret_protection === "string" ? item.secret_protection : derived?.secret_protection,
+      };
+    },
   }),
 };
 /**
