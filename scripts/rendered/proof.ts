@@ -199,6 +199,7 @@ const PLANTS: readonly Plant[] = [
   { name: "a colour set by a script", head: SITE_INKS, body: '<script>document.getElementById("prose").style.backgroundColor = "gold"</script>', rule: "token-colours", only: SITE_ROWS },
   { name: "a drawn line stroked off its token", head: SITE_INKS, body: '<svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" style="stroke: rgb(250, 10, 10)"></line></svg>', rule: "token-colours", only: SITE_ROWS },
   { name: "a mark part painted off its token", head: `${SITE_INKS}<style>.brand circle { fill: orange !important }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a colour that lands off its token after a transition", head: `${SITE_INKS}<style>#prose { transition: color 600ms linear }</style>`, body: '<script>addEventListener("load", () => requestAnimationFrame(() => { document.getElementById("prose").style.color = "rgb(200, 30, 30)"; }))</script>', rule: "token-colours", only: ["token-colours"] },
   { name: "a duration that is no token", head: `${SITE_INKS}<style>#prose { transition: color 120ms }</style>`, rule: "token-durations", only: SITE_ROWS },
   { name: "an animation duration that is no token", head: `${SITE_INKS}<style>@keyframes k { to { opacity: 1 } } #prose { animation: k 2.5s infinite }</style>`, rule: "token-durations", only: SITE_ROWS },
   { name: "a third Content-Security-Policy meta tag", policy: POLICIES, head: cspMeta("default-src *"), rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
@@ -227,6 +228,7 @@ const CLEAN_TOO: readonly Plant[] = [
   { name: "the exact policies, spaced differently", policy: `${cspMeta(ORIGIN_POLICY.replace("; ", " ;  "))}${cspMeta(PATH_POLICY.replace("; ", " ;  "))}`, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
   { name: "text and ground in their tokens, the mark in its own", head: SITE_INKS, rule: "token-colours", only: SITE_ROWS },
   { name: "a page that fits, one main, one top heading, every image described", body: '<h1>t</h1><img alt="" src="figure.png">', rule: "landmarks", only: ["no-sideways-scroll", "layout-shift", "landmarks", "alt-text"] },
+  { name: "a colour in flight between two tokens, landing on a token", head: `${SITE_INKS}<style>#prose { transition: color 600ms linear }</style>`, body: '<script>addEventListener("load", () => requestAnimationFrame(() => { document.getElementById("prose").style.color = "var(--ink-2)"; }))</script>', rule: "token-colours", only: ["token-colours"] },
   { name: "a line stroked in a token (its fill paints nothing)", head: SITE_INKS, body: '<svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" style="stroke: var(--ink-2)"></line></svg>', rule: "token-colours", only: SITE_ROWS },
   { name: "a transition in the owner's duration", head: `${SITE_INKS}<style>#prose { transition: color calc(30ms * 3) }</style>`, rule: "token-durations", only: SITE_ROWS },
 ];

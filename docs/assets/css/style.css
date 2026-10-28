@@ -451,6 +451,7 @@ main dd {
 }
 
 .task-list-item-checkbox {
+  font: inherit;
   position: absolute;
   inset-inline-start: 0;
   top: 0.35em;
