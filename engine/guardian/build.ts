@@ -35,15 +35,30 @@ const guardianDir = here; // this script lives in guardian/
 const binPath = join(guardianDir, 'build', 'harness-landlock-guardian');
 
 /**
- * The native test-process supervisor (`engine/src/process/supervised-run.ts`
- * runs every test run under it), built by the existing native build owner —
- * make performs its normal incremental dependency check; no interpreter,
- * bespoke artifact cache or runtime addon — and its path returned. A build
- * that fails THROWS, typed (`code: test_process_supervisor_build_failed`, with
- * the compiler's own words): a run that cannot be supervised does not start.
+ * THE ONE WAY TO THE NATIVE TEST-PROCESS SUPERVISOR
+ * (`engine/src/process/supervised-run.ts` runs every supervised command under
+ * it): its path, BUILT FIRST by the one native build owner — make's
+ * incremental dependency check, once per process (memoized), writing nothing
+ * when the binary is up to date. There is no other way to name the binary
+ * (`engine/test/process/supervised-run.test.ts` refuses another spelling of
+ * its path), so no entry point can start supervised work without it.
+ *
+ * #293, #132: a resolve that BUILT on demand compiled
+ * `guardian/build/test-process-supervisor` into the live harness folder in
+ * the middle of a test run, on a runner where `make all` had not built it.
+ * The order is what prevents that, not the function. `make all` builds it,
+ * as does the checkout setup's `test-supervisor` command, and both suites'
+ * runners call this BEFORE they snapshot the harness folder. Inside a run,
+ * every call is a make that finds the binary current.
+ *
+ * A build that fails THROWS, typed (`code:
+ * test_process_supervisor_build_failed`, with the compiler's own words): a
+ * run that cannot be supervised does not start.
  */
-export function testProcessSupervisorBinary(): string {
-  const binary = join(guardianDir, 'build', 'test-process-supervisor');
+let ensuredSupervisor: string | undefined;
+
+export function ensureTestProcessSupervisor(): string {
+  if (ensuredSupervisor !== undefined) return ensuredSupervisor;
   const result = spawnSync('make', ['--no-print-directory', '-C', guardianDir, 'test_process_supervisor'], {
     encoding: 'utf8',
   });
@@ -52,12 +67,13 @@ export function testProcessSupervisorBinary(): string {
       code: 'test_process_supervisor_build_failed',
     });
   }
-  return binary;
+  ensuredSupervisor = join(guardianDir, 'build', 'test-process-supervisor');
+  return ensuredSupervisor;
 }
 
 function main(): void {
   if (process.argv[2] === '--test-process-supervisor') {
-    console.log(testProcessSupervisorBinary());
+    console.log(ensureTestProcessSupervisor());
     return;
   }
 

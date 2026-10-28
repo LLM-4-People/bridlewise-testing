@@ -182,6 +182,11 @@ export type MergeOursRequest = Readonly<{
 /** A merge left in progress: clean, or the paths git left conflicted (unmerged index entries). */
 export type MergeNoCommitResult = Readonly<{ clean: boolean; conflictPaths: readonly string[] }>;
 
+/** A merge computed in the object store alone (`git merge-tree --write-tree`): the merged tree, or the paths that conflict. */
+export type MergeTreeResult =
+  | Readonly<{ kind: "clean"; tree: string }>
+  | Readonly<{ kind: "conflict"; tree: string; paths: readonly string[] }>;
+
 export type CommitRequest = Readonly<{
   cwd: string;
   message: string;
@@ -254,6 +259,12 @@ export type WorktreeGitPort = Readonly<{
   /** Switches to an agent branch; `discard` drops local changes to tracked files (`checkout -f`: a workspace the integrator verified clean). */
   checkoutBranch(cwd: string, branch: string, timeoutMs: number, discard?: boolean): void;
   mergeNoCommit(request: MergeNoCommitRequest): MergeNoCommitResult;
+  /**
+   * `ours` and `theirs` (commits or trees) merged from `base` in the object
+   * store alone — no index, no worktree, no ref, no commit
+   * (`git merge-tree --write-tree --merge-base`).
+   */
+  mergeTree(repoRoot: string, request: Readonly<{ base: string; ours: string; theirs: string }>, timeoutMs: number): MergeTreeResult;
   mergeAbort(cwd: string, timeoutMs: number): void;
   /** `merge -s ours --no-ff --no-commit` of a commit: MERGE_HEAD names it, the tree stays HEAD's (a promotion's second parent). */
   mergeOursNoCommit(request: MergeOursRequest): void;
@@ -840,6 +851,20 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       assertGitSha(toSha, "toSha");
       const deleted = rawDiffEntries(nulRecords(textOf("diff-tree --raw", repoRoot, ["diff-tree", "-r", "--raw", "--no-abbrev", "--no-renames", "--diff-filter=D", "-z", fromSha, toSha], timeoutMs)));
       return deepFreeze(deleted.filter((entry) => GIT_OBJECT_NAME.test(entry.srcOid)).map((entry) => deepFreeze({ path: entry.path, blob: entry.srcOid })));
+    },
+
+    mergeTree(repoRoot: string, request: Readonly<{ base: string; ours: string; theirs: string }>, timeoutMs: number): MergeTreeResult {
+      assertAbsolutePath(repoRoot, "repoRoot");
+      assertGitSha(request.base, "base");
+      assertGitSha(request.ours, "ours");
+      assertGitSha(request.theirs, "theirs");
+      const result = run("merge-tree --write-tree", {
+        args: ["-c", "gc.auto=0", "-C", repoRoot, "merge-tree", "--write-tree", "--name-only", "--no-messages", `--merge-base=${request.base}`, request.ours, request.theirs],
+        cwd: repoRoot, timeoutMs, allowedExitCodes: [0, 1],
+      });
+      const [tree = "", ...paths] = result.stdout.split("\n").filter((line) => line.length > 0);
+      assertGitSha(tree, "mergeTree");
+      return result.status === 0 ? deepFreeze({ kind: "clean", tree }) : deepFreeze({ kind: "conflict", tree, paths: deepFreeze([...new Set(paths)].toSorted()) });
     },
 
     isAncestor(repoRoot: string, ancestor: string, descendant: string, timeoutMs: number): boolean {
