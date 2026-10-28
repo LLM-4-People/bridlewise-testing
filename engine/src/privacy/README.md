@@ -52,7 +52,7 @@ The folder lives at `engine/src/privacy/`.
 - `evidence-handler.ts` is consumed by `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/flake-cli.ts`.
 - `file-viewer.ts` is consumed by `engine/src/runtime/tool-registry.ts`.
 - `held-set.ts` is consumed by `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/privacy/responses-redaction.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/failover.ts` and 6 more.
-- `identity-grammars.ts` is consumed by `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/redaction-engine.ts`.
+- `identity-grammars.ts` is consumed by `engine/scripts/verification/sign-off.ts`, `engine/src/privacy/pii-registry.ts`, `engine/src/privacy/redaction-engine.ts`.
 - `operational-redaction.ts` is consumed by `engine/src/timeline/timeline-store.ts`.
 - `pii-registry.ts` is consumed by `engine/src/privacy/held-set.ts`, `engine/src/privacy/redaction-engine.ts`, `engine/src/shared/exposure/registrations/privacy.ts`, `engine/src/shared/llm/responses-preparation.ts`, `server/llm/redaction.ts`.
 - `privacy-config-section.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/performance/benchmark-cli.ts`, `server/kernel/canonical.ts`.

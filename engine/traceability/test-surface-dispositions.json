@@ -2173,6 +2173,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/prevention/process-ends-by-draining.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/prevention/process-liveness-owner.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -3861,6 +3869,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/verification/sign-off.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/verification/static-source-tokenizer.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4389,5 +4405,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "bf748512002776bff7d3084c0dd8b27b41a51d61bbf584d4d6e327b41fb61f19"
+  "integrityHash": "fa0da22cfb4a0802db7da5d7e1df4080e5246e0ac48a5fc96cfb15cec56b168b"
 }
