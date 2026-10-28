@@ -71,15 +71,21 @@ export type RunningStack = Readonly<{
 
 const REPO_ROOT = process.cwd();
 
-function waitForHttp(url: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+/**
+ * Waits until `url` answers, or REFUSES the moment the process meant to serve
+ * it has exited: the readiness of a server is bounded by the server's own
+ * life, never by a wall clock (NO-LOAD-BLOCK) — a busy host makes a booting
+ * server slow, not dead.
+ */
+function waitForHttp(url: string, server: ChildProcess, name: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tick = (): void => {
       fetch(url).then(
         () => resolve(),
         () => {
-          if (Date.now() > deadline) reject(new Error(`timed out waiting for ${url}`));
-          else setTimeout(tick, 200);
+          if (server.exitCode !== null || server.signalCode !== null) {
+            reject(new Error(`${name} exited (${String(server.exitCode ?? server.signalCode)}) before ${url} answered`));
+          } else setTimeout(tick, 200);
         },
       );
     };
@@ -93,22 +99,20 @@ function waitForHttp(url: string, timeoutMs: number): Promise<void> {
  * The child was bound to port 0, so the kernel picked the port atomically at
  * listen time; the only place the number exists is the line the child prints
  * once it is listening. `pattern` must capture the port in group 1. Resolves
- * on the first match; rejects if the child exits first or the deadline
- * passes — a child that never prints its readiness line is a failed start,
- * not a server to be probed for.
+ * on the first match; rejects the moment the child exits first — a child
+ * that ended without its readiness line is a failed start, not a server to
+ * be probed for. There is NO wall deadline (NO-LOAD-BLOCK): a busy host
+ * makes a booting server slow, not dead, and a child that lives but never
+ * announces is a hang, ended by the caller's own bound (a test's backstop,
+ * or the supervising door's ceiling).
  */
 export function readPortFromReadiness(
   child: ChildProcess,
   label: string,
   pattern: RegExp,
-  timeoutMs: number,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     let buf = "";
-    const deadline = setTimeout(() => {
-      cleanup();
-      reject(new Error(`${label} never announced its port within ${timeoutMs}ms. Log so far:\n${buf}`));
-    }, timeoutMs);
     const onData = (b: Buffer): void => {
       buf += b.toString();
       const match = buf.match(pattern);
@@ -122,7 +126,6 @@ export function readPortFromReadiness(
       reject(new Error(`${label} exited (${code ?? "signal"}) before announcing its port. Log:\n${buf}`));
     };
     const cleanup = (): void => {
-      clearTimeout(deadline);
       child.stdout?.off("data", onData);
       child.stderr?.off("data", onData);
       child.off("exit", onExit);
@@ -266,7 +269,7 @@ export async function startStack(profile: string): Promise<RunningStack> {
   // the web child, which needs it for the /api proxy target.
   let apiPort: number;
   try {
-    apiPort = await readPortFromReadiness(api, "api", /server on http:\/\/[\d.]+:(\d+)/, 60_000);
+    apiPort = await readPortFromReadiness(api, "api", /server on http:\/\/[\d.]+:(\d+)/);
   } catch (err) {
     await killAndWait(api, "api");
     throw err;
@@ -290,7 +293,7 @@ export async function startStack(profile: string): Promise<RunningStack> {
 
   let webPort: number;
   try {
-    webPort = await readPortFromReadiness(web, "vite", /Local:\s+https?:\/\/[\d.]+:(\d+)\//, 60_000);
+    webPort = await readPortFromReadiness(web, "vite", /Local:\s+https?:\/\/[\d.]+:(\d+)\//);
   } catch (err) {
     await Promise.all([killAndWait(api, "api"), killAndWait(web, "vite")]);
     throw err;
@@ -319,8 +322,8 @@ export async function startStack(profile: string): Promise<RunningStack> {
   process.once("SIGHUP", () => void stop().then(() => process.exit(129)));
 
   try {
-    await waitForHttp(`http://127.0.0.1:${apiPort}/api/health`, 60_000);
-    await waitForHttp(`${webOrigin}/`, 60_000);
+    await waitForHttp(`http://127.0.0.1:${apiPort}/api/health`, api, "api");
+    await waitForHttp(`${webOrigin}/`, web, "vite");
   } catch (err) {
     await stop();
     throw err;

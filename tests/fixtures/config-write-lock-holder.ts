@@ -99,14 +99,18 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-// Existing fixture park bound, shared by both coordinated child protocols.
-const PARK_LIMIT_MS = 20_000;
+// THE PARK IS BOUNDED BY THE TEST THAT PARKED IT, never by a wall clock
+// (NO-LOAD-BLOCK): the child waits for the test's go-marker for as long as
+// that test lives, and fails the moment it is orphaned (its parent gone).
+const PARKED_BY = process.ppid;
+function parentGone(): boolean {
+  return process.ppid !== PARKED_BY;
+}
 
 if (verb === "snapshot") {
   if (!argOne || !argTwo) fail("the snapshot verb needs go and status paths", 64);
-  const deadline = Date.now() + PARK_LIMIT_MS;
   while (!existsSync(argOne)) {
-    if (Date.now() >= deadline) fail("snapshot timed out waiting for the go-marker", 75);
+    if (parentGone()) fail("snapshot was orphaned waiting for the go-marker: the test that parked it is gone", 75);
     sleepSync(5);
   }
   const actualWait = Atomics.wait;
@@ -156,11 +160,8 @@ withConfigWriteLock(configPath, () => {
   const doc = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
   const base = typeof doc[field] === "number" ? (doc[field] as number) : 0;
   say(`READ ${String(base)}`);
-  const deadline = Date.now() + PARK_LIMIT_MS;
   while (!existsSync(markerPath)) {
-    if (Date.now() >= deadline) {
-      fail("park timed out waiting for the go-marker", 75);
-    }
+    if (parentGone()) fail("park was orphaned waiting for the go-marker: the test that parked it is gone", 75);
     sleepSync(5);
   }
   const next = base + 1;
