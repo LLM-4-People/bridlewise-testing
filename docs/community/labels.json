@@ -17,7 +17,7 @@
     {"name": "lane:mkt", "color": "5319e7", "description": "Work of the marketing and site lane"},
     {"name": "forge-drift", "color": "b60205", "description": "A live GitHub setting differs from .github/forge (harness forge audit)"},
     {"name": "key-rotation", "color": "d93f0b", "description": "An App key reaches its rotation age"},
-    {"name": "ci-failure", "color": "e11d21", "description": "A workflow failed (retired by the MAIN-RED projection, runbook P5.5)"},
+    {"name": "ci-failure", "color": "b60205", "description": "Automated report for a failed workflow"},
     {"name": "needs-evidence", "color": "fbca04", "description": "A claim waits for its evidence"}
   ]
 }
