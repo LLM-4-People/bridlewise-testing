@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 
 import { ensurePrivateStateDirectory } from "../../src/filesystem/private-state.ts";
 import { recognizableTestSourceLanguage } from "../../src/kernel/test-surface-manifest.ts";
-import { admitInstrumentRun, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, instrumentLockStamp, isHeavyRun, wholeInstrumentTestFileCount, type InstrumentLockConfig, type InstrumentLockStamp } from "../../src/process/instrument-lock.ts";
+import { admitInstrumentRun, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount, type InstrumentLockConfig } from "../../src/process/instrument-lock.ts";
 import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
 import type { WholeInstrumentKind } from "../../src/kernel/config-contracts.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
@@ -55,8 +55,6 @@ export interface TestRunLock {
   readonly owns: boolean;
   readonly runner: string;
   readonly path: string;
-  /** Whether the run this handle covers holds the one instrument lock (what its measurements record). */
-  readonly stamp: InstrumentLockStamp;
   release(): void;
 }
 
@@ -149,13 +147,8 @@ export function enforceTestRunLock(
     return borrowed;
   }
   if (options.lockDir !== undefined) {
-    if (!isHeavyRun(config, options.testFileCount)) return { owns: false, runner, path: lockPath, stamp: instrumentLockStamp(lockPath), release: () => undefined };
+    if (!isHeavyRun(config, options.testFileCount)) return { owns: false, runner, path: lockPath, release: () => undefined };
     return admitInstrumentRun(lockPath, runner, config.perRun, configuredSubprocessBounds());
   }
   return holdInstrumentLock({ config, harnessRoot: ENGINE_ROOT, runner, testFileCount: options.testFileCount, cpu: configuredSubprocessBounds() });
-}
-
-/** Whether THIS process runs inside a live hold of the host's instrument lock (a measurement's stamp). */
-export function currentInstrumentLockStamp(): InstrumentLockStamp {
-  return instrumentLockStamp(hostLockPath());
 }

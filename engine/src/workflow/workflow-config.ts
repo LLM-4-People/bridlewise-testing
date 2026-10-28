@@ -44,6 +44,22 @@ export function numericOption(value: number | undefined, fallback: number, name:
   return value;
 }
 
+// ── the roadmap feed (src/workflow/forge/projector/roadmap-feed.ts) ───────
+
+/** How many whole weeks of shipped history a milestone's ETA band needs; below it the band is `unknown`, never guessed. */
+export const DEFAULT_ROADMAP_ETA_MINIMUM_WEEKS = 4;
+
+/** The CPU-time ceiling, in seconds, of one confined projection or feed computation (the guardian's `cpu_seconds`). */
+export const DEFAULT_PROJECTION_CPU_SECONDS = 120;
+
+/**
+ * The address-space ceiling, in bytes, of the same computation (the guardian's
+ * `memory_bytes`, RLIMIT_AS). Address space, not resident memory: node 24
+ * reserves address space well beyond its working set and does not start under
+ * 1 GiB of it; 1.5 GiB starts it and stops a runaway allocation.
+ */
+export const DEFAULT_PROJECTION_MEMORY_BYTES = 1_610_612_736;
+
 // ── harness-commands.ts defaults ──────────────────────────────────────────
 
 

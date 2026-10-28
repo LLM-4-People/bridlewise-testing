@@ -415,7 +415,6 @@ function judgedRows(entries: readonly Record<string, unknown>[]): JudgedRunRecor
       ...(importedFrom !== undefined ? { importedFrom } : {}),
       ...(e.provisionalFailures === true ? { provisionalFailures: true } : {}),
       ...(mutation !== undefined ? { mutation } : {}),
-      ...(e.heavySlot === "held" || e.heavySlot === "unslotted" ? { heavySlot: e.heavySlot } : {}),
     });
   }
   return out;

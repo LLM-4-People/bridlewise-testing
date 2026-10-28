@@ -223,10 +223,10 @@ export function superviseCommand(options: SupervisedCommandOptions): Promise<Sup
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
   });
-  // A holder of the one instrument lock keeps it held while THIS supervisor
-  // lives (src/process/instrument-lock-adoption.ts): the supervisor ends only
-  // after the command's whole process tree is gone, so a holder killed
-  // outright never frees the lock under a command still running.
+  // An admitted run's record stays live while THIS supervisor lives
+  // (src/process/instrument-lock-adoption.ts): the supervisor ends only after
+  // the command's whole process tree is gone, so a run's owner killed
+  // outright never drops its record under a command still running.
   if (child.pid !== undefined) adoptIntoOwnedInstrumentLock(child.pid);
   const receipt: Buffer[] = [];
   // A stop is delivered once the supervisor has ANNOUNCED its command (its

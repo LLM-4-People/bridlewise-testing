@@ -55,7 +55,6 @@ import { HarnessError, InputError } from "../kernel/errors.ts";
 import type { WorkspaceIsolationConfig } from "../kernel/config-contracts.ts";
 import { trackedFiles } from "../git/repository-ownership.ts";
 import { CHECKOUT_COMMAND_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
-import { INSTRUMENT_LOCK_TOKEN_VARIABLE } from "../process/instrument-lock.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
 import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, configuredSubprocessBounds, commandRetryPolicy } from "./workflow-config.ts";
@@ -188,8 +187,9 @@ export function commandFailureClass(ending: SupervisedCommand["ending"], tail: s
  * namespace never passes the projection, so the harness forwards by name
  * only the coordination values its own children read, none of them a
  * secret:
- * - the instrument lock's acquisition token (a nonce: the command runs
- *   inside the hold this runner took, and a vitest door borrows it);
+ * (No instrument-lock token: an admitted run is borrowed from inside its
+ * own cgroup scope, by lineage, never by an environment value, and no
+ * measurement is stamped — NO-LOAD-BLOCK.)
  * - the checkout write door's marker (the JSON list of armed checkout
  *   roots, which keeps the door shut in a child);
  * - the run's invocation id.
@@ -197,7 +197,7 @@ export function commandFailureClass(ending: SupervisedCommand["ending"], tail: s
  * repository it runs in.
  */
 export function checkoutCommandEnvironment(environment: NodeJS.ProcessEnv, invocationId?: string): Readonly<Record<string, string>> {
-  const forwarded = [INSTRUMENT_LOCK_TOKEN_VARIABLE, ROOT_POLICY.verification.checkoutWriteDoor.markerEnvironmentVariable]
+  const forwarded = [ROOT_POLICY.verification.checkoutWriteDoor.markerEnvironmentVariable]
     .flatMap((name) => (typeof environment[name] === "string" ? [[name, environment[name]!] as const] : []));
   return Object.freeze({
     ...projectEnvironment(environment, CHECKOUT_COMMAND_ENVIRONMENT),
