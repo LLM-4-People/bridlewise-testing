@@ -15,7 +15,7 @@ import { z } from "zod";
 
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
-import { REPOSITORY_RELATIVE_PATH_SCHEMA, WORKSPACE_COMMAND_NAME_SCHEMA } from "../../kernel/config-contracts.ts";
+import { PROMOTION_PROFILE_NAME_SCHEMA, REPOSITORY_RELATIVE_PATH_SCHEMA, WORKSPACE_COMMAND_NAME_SCHEMA } from "../../kernel/config-contracts.ts";
 import { assertNoDuplicateJsonObjectKeys } from "../../kernel/json-integrity.ts";
 import { gitAcceptsRefName } from "../../git/repository-ownership.ts";
 import type { TreeReader } from "../../git/tree-reader.ts";
@@ -36,25 +36,14 @@ const pathOrPrefix = z.string().refine((value) => {
 /** A folder prefix: a repository-relative folder path with its trailing `/`. */
 const folderPrefix = z.string().refine((value) => value.endsWith("/") && pathOrPrefix.safeParse(value).success, "must be a repository folder prefix ending in /");
 
-/**
- * THE PROFILE NAME RULE, the one owner (the schema's `name`): a lower-case
- * letter, then up to 62 lower-case letters, digits and hyphens. A name is
- * also a folder (the profile's private directory) and a file name, so the
- * rule is what keeps it ONE path segment: no `/`, no `..`, never absolute.
- */
-const PROFILE_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/u;
-
-/** The profile-name rule, spelled for a refusal. */
-export const PROFILE_NAME_RULE = "a lower-case letter, then up to 62 lower-case letters, digits or hyphens";
-
-/** Is `name` a profile name ({@link PROFILE_NAME_PATTERN}): one path segment, never a path? */
+/** Is `name` a profile name ({@link PROMOTION_PROFILE_NAME_SCHEMA}, the one rule): one path segment, never a path? */
 export function isProfileName(name: string): boolean {
-  return PROFILE_NAME_PATTERN.test(name);
+  return PROMOTION_PROFILE_NAME_SCHEMA.safeParse(name).success;
 }
 
 const promotionProfileShape = z.strictObject({
   schema: z.literal(PROMOTION_PROFILE_SCHEMA_VERSION),
-  name: z.string().regex(PROFILE_NAME_PATTERN),
+  name: PROMOTION_PROFILE_NAME_SCHEMA,
   source: z.strictObject({ ref: refName }),
   target: z.strictObject({ ref: refName }),
   /** The remote both refs are published to; `null`: a local-only pair. */
@@ -288,7 +277,7 @@ export type ProfileTriggerHeader = Readonly<{ name: string; trigger: string; rem
  * run by the source's own committed promoter, never by this checkout's code
  * (#259). A file that does not even spell these fields concerns no ref and
  * is passed over, never a refusal of the run (#121). The NAME is held to the
- * schema's rule (`PROFILE_NAME_PATTERN`) and to its file's name here, before
+ * schema's rule (`isProfileName`) and to its file's name here, before
  * anything uses it as a path: a name the rule refuses (`..`, an absolute
  * path, an over-long one) never reaches the filesystem.
  */
@@ -303,7 +292,7 @@ export function profileTriggerHeaders(reader: TreeReader, profileDirectory: stri
     const fields = (value ?? {}) as { name?: unknown; trigger?: unknown; remote?: unknown; source?: { ref?: unknown }; target?: { ref?: unknown } };
     const sourceRef = fields.source?.ref;
     const targetRef = fields.target?.ref;
-    if (typeof fields.name !== "string" || !PROFILE_NAME_PATTERN.test(fields.name) || `${fields.name}.json` !== path.slice(path.lastIndexOf("/") + 1) || typeof fields.trigger !== "string" || !(fields.remote === null || typeof fields.remote === "string")
+    if (typeof fields.name !== "string" || !isProfileName(fields.name) || `${fields.name}.json` !== path.slice(path.lastIndexOf("/") + 1) || typeof fields.trigger !== "string" || !(fields.remote === null || typeof fields.remote === "string")
       || typeof sourceRef !== "string" || !sourceRef.startsWith("refs/heads/") || typeof targetRef !== "string" || !targetRef.startsWith("refs/heads/")) {
       return [];
     }
