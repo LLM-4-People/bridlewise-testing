@@ -941,6 +941,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/declarations.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/forge/github-client.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -957,7 +965,31 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/plan.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/forge/projector.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/proving-ground-api.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/proving-isolation.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -2413,6 +2445,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/privacy/sensitive-header-names.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/process/environment-projection.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -3845,6 +3885,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/community-categories.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/community-health-files.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4317,5 +4365,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "ba9a099f8d44a5e5cb761dfe6780db2ede27fb58253f3fb3d1c1b1beb548bd91"
+  "integrityHash": "1f115e8d12384c1ced4b20c0217d199293da9f64817f0e74596f0946d4c7bef6"
 }

@@ -32,7 +32,7 @@ The suite uses Node's built-in test runner and covers:
 - `bin/bridlewise.mjs` is executable, prints help/version, and lists every harness verb;
 - `harness` without a verb is a typed refusal, not a crash or a silent success;
 - `preflight` returns `harnessReady: false` and denies model invocation, repository mutation, and network egress;
-- the secret scanner passes a clean tree, fails on a provider-shaped key outside a fixture path, fails on an internal absolute path, and never prints the candidate value;
+- the secret scanner reads the one secret catalogue, exempts no path (test trees included: a test assembles any credential at runtime), fails on a credential shape or an internal absolute path, and never prints the candidate value;
 - the README carries the developer-preview and sensitive-codebase warning;
 - the CLI/testing/extending docs and the licence/community files exist.
 
@@ -126,8 +126,9 @@ performance-regression gate (`tests/performance/regression.test.ts`) judges. A p
 measurement, not a smoke test, so the conditions under which it is taken are part of the
 result:
 
-- **One profile at a time.** The step takes the host's one instrument lock. A second run
-  waits, and a run that did not hold the lock records no measurement.
+- **Admitted, never queued.** The step is admitted at once as a heavy run under its per-run
+  caps (a cgroup scope and a CPU-time limit); it never waits for another run, and a run that
+  was not admitted records no measurement.
 - **The host is otherwise idle.** No other suite, build, container, or browser runs on the
   same cores. The budgets judge worker CPU time, so contention inflates the measurement
   rather than the budget.

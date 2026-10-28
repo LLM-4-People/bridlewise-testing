@@ -58,12 +58,13 @@ import { currentQualificationOutcome, finalizeQualifiedRun, runForInvocation } f
 import type { RunQualificationTerminal } from "../../engine/src/shared/budget-verdict.ts";
 import { readTrackedTreeDirty } from "../../engine/src/shared/tree-identity.ts";
 import { readRunCpu, type CalibrationReading } from "../../engine/src/shared/run-cpu.ts";
-import { accumulationPopulation, measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
+import { accumulationPopulation, measureWebBudget, syncWebBudgetPopulation } from "../../scripts/testing/measure-web-budget.ts";
 import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
 import { procfsDocument } from "../../engine/src/process/process-facts.ts";
-import { waitForInstrumentLock } from "../../engine/src/process/instrument-lock.ts";
+import { admitInstrumentRun } from "../../engine/src/process/instrument-lock.ts";
+import { SUBPROCESS_BOUNDS } from "../../engine/src/workflow/workflow-config.ts";
 import { DEFAULT_VITEST_MODULE_CACHE_DIR, moduleCacheDirOf } from "../helpers/budget-paths.ts";
 
 const FULL = 417;
@@ -185,11 +186,11 @@ function passingProfileReport(): string {
   return path;
 }
 let heldLock: string | undefined;
-beforeAll(async () => {
+beforeAll(() => {
   // Made at the file's start, like the fixture repository: a temp folder made
-  // inside a test is removed when that test finishes, and the lock with it.
+  // inside a test is removed when that test finishes, and the registry with it.
   heldLock = join(createTempDir("reporter-instrument-lock-"), "instrument.lock");
-  await waitForInstrumentLock(heldLock, "reporter fixture drives", { onWait: () => undefined, pollIntervalMs: 50 });
+  admitInstrumentRun(heldLock, "reporter fixture drives", { memoryMaxPercent: 50, cpuWeight: 100 }, SUBPROCESS_BOUNDS);
 });
 function heldInstrumentLock(): string {
   if (heldLock === undefined) throw new Error("the held instrument lock is taken in beforeAll");
@@ -905,6 +906,33 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     // The LIVE population, not a frozen literal: re-basing the declaration
     // must not make this assertion pin the old tree.
     expect(report.declared.derivedAtTestFileCount).toBe(fullRunModuleCount());
+  });
+
+  test("HARNESS SYNC generates the population: this tree's accumulation population is the live supported count, judged current", () => {
+    // The arm harness sync and harness check run (scripts/testing/measure-web-budget.ts --population):
+    // no pull request types the number; a new test file moves it through here.
+    expect(syncWebBudgetPopulation(false)).toEqual({ allCurrent: true, status: "current", changed: [], population: fullRunModuleCount(), phase: "accumulation" });
+  });
+
+  test("the population arm: a stale count fails the check, naming the document; sync records the live count; the measured phase is left to its measurement", () => {
+    const live = fullRunModuleCount();
+    const real = readCpuBudget();
+    if (!("phase" in real)) throw new Error("this tree's budget is expected to be in its accumulation phase");
+    const recorded: number[] = [];
+    const sources = (declared: number) => ({ budget: () => ({ ...real, derivedAtTestFileCount: declared }) as ReturnType<typeof readCpuBudget>, live: () => live, record: (n: number) => { recorded.push(n); } });
+    // Stale, checked: refused, with the document named, and nothing written.
+    expect(syncWebBudgetPopulation(false, sources(live - 1))).toEqual({ allCurrent: false, status: "stale", changed: ["engine/bridlewise.config.json"], population: live, phase: "accumulation" });
+    expect(recorded).toEqual([]);
+    // Stale, synced: the LIVE count is recorded, once.
+    expect(syncWebBudgetPopulation(true, sources(live - 1))).toEqual({ allCurrent: true, status: "regenerated", changed: ["engine/bridlewise.config.json"], population: live, phase: "accumulation" });
+    expect(recorded).toEqual([live]);
+    // Current: nothing to write.
+    expect(syncWebBudgetPopulation(true, sources(live))).toMatchObject({ allCurrent: true, status: "current" });
+    expect(recorded).toEqual([live]);
+    // The measured phase: its population is the measurement's, never moved by the arm.
+    const measured = { budget: () => ({ metric: "calibrated-work/v1", baselineFloorUnitsPerTestFile: 100, derivedAtTestFileCount: live - 40 }) as unknown as ReturnType<typeof readCpuBudget>, live: () => live, record: (n: number) => { recorded.push(n); } };
+    expect(syncWebBudgetPopulation(true, measured)).toEqual({ allCurrent: true, status: "current", changed: [], population: live - 40, phase: "measured" });
+    expect(recorded).toEqual([live]);
   });
 
   test("the TOOL generates the accumulation population: current when it equals the live count, drifted on check, written on write", () => {

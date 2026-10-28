@@ -1,0 +1,24 @@
+{
+  "kind": "custom-property",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "kind",
+  "unavailableOnPlan": [],
+  "desired": {
+    "property_name": "kind",
+    "value_type": "single_select",
+    "required": true,
+    "default_value": "none",
+    "allowed_values": [
+      "trunk",
+      "meta",
+      "evidence",
+      "notes",
+      "archive",
+      "none"
+    ],
+    "values_editable_by": "org_actors",
+    "description": "Bridlewise topology role"
+  }
+}

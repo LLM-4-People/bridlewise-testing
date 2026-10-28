@@ -47,6 +47,16 @@ export const DECISION_INDEX = deepFreeze({
 } as const);
 
 /**
+ * THE WEB TEST BUDGET'S POPULATION: `generator` (repository-relative) writes
+ * the accumulation-phase `derivedAtTestFileCount` from the live supported
+ * population on every `harness sync`, and `harness check` judges it, so no
+ * pull request types the number (a new test file moves it through here).
+ */
+export const WEB_BUDGET_POPULATION = deepFreeze({
+  generator: "scripts/testing/measure-web-budget.ts",
+} as const);
+
+/**
  * THE SHIPPED HOOKS (`<directory>/<name>`, repository-relative): the tracked
  * hooks whose text is canonical — the `guarded` ones, which hand over to the
  * commit guard, and the promotion `trigger`. Each file's WHOLE text is a

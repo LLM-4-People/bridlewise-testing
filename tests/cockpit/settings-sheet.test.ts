@@ -1342,7 +1342,7 @@ describe("an OBJECT setting — the standing value is readable, the draft stays 
 
 describe("a value the display egress masks — the read-back is the proof, never a prefill", () => {
   /** A credential-shaped value, the class the free-form string rows accept. */
-  const RAW = "sk-live-r48-sheet-proof-7742a1c9";
+  const RAW = ("sk" + "-live-r48-sheet-proof-7742a1c9");
 
   test("the save lands and the sheet shows the server's masked read-back — the raw never stays on screen", async () => {
     maskNextSave = true;

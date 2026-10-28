@@ -1,0 +1,14 @@
+{
+  "kind": "actions-permissions",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-evidence"
+  },
+  "key": "bridlewise-evidence",
+  "unavailableOnPlan": [],
+  "desired": {
+    "enabled": true,
+    "allowed_actions": "selected",
+    "sha_pinning_required": true
+  }
+}

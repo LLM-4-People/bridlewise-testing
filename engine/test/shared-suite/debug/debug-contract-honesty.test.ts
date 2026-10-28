@@ -186,7 +186,7 @@ test("contract honesty: debug-system.ts's import list is EXACTLY the three its c
  * ⚠ THE CONTRACT THIS TEST ENFORCES HAS NARROWED, AND THE NARROWING IS THE
  * POINT. THE STRING HAD TO CHANGE WITH IT.
  *
- * It used to be `AKIAIOSFODNN7EXAMPLE`, chosen because the canonical engine
+ * It used to be `AKIA<16 characters>`, chosen because the canonical engine
  * detected it and it hit none of the eight key-name patterns the debug layer
  * was configured with. That second half is no longer true: the layer now
  * derives its content vocabulary from `SECRET_TEXT_SIGNAL_CATALOG`, whose
