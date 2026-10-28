@@ -23,7 +23,7 @@
  *   trigger's unattended run), in a session of its own with none of this
  *   process's stdio; it bounds its own work (its commands are supervised).
  *
- * The native binary is built by the caller (`testProcessSupervisorBinary()`,
+ * The native binary is built by the caller (`ensureTestProcessSupervisor()`,
  * `engine/guardian/build.ts`) and
  * handed in: this layer runs processes, it builds nothing.
  */
@@ -137,7 +137,7 @@ function endOrphanedGroup(announced: ProcessIdentity | undefined): boolean {
 }
 
 export type SupervisedCommandOptions = Readonly<{
-  /** The native supervisor binary (`testProcessSupervisorBinary()`). */
+  /** The native supervisor binary (`ensureTestProcessSupervisor()`). */
   supervisor: string;
   command: string;
   args: readonly string[];

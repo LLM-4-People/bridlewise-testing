@@ -44,7 +44,7 @@ const COMMIT_GUARD = join(INTEGRATION_ROOT, "scripts", "commit-guard.ts");
 
 /** `git commit` as DATA: the status is the verdict, so it must not throw. */
 function commit(root: string, message: string): Readonly<{ status: number; stderr: string }> {
-  const result = spawnSync("git", ["commit", "-q", "-m", message], {
+  const result = spawnSync("git", ["commit", "-s", "-q", "-m", message], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 1 << 24,
@@ -371,7 +371,7 @@ function contentJudgedRepository(): string {
 
 /** `git commit` with extra arguments, as data. */
 function commitWith(root: string, args: readonly string[]): Readonly<{ status: number; stderr: string }> {
-  const result = spawnSync("git", ["commit", "-q", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  const result = spawnSync("git", ["commit", "-s", "-q", ...args], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
   return { status: result.status ?? -1, stderr: result.stderr };
 }
 
@@ -442,7 +442,7 @@ test("DRIVEN: in a LINKED WORKTREE and under --git-dir/--work-tree the engine le
     for (const [form, run] of [
       ["linked worktree", (): Readonly<{ status: number; stderr: string }> => commitWith(worktree, ["-a", "-m", "engine break from a linked worktree"])],
       ["--git-dir/--work-tree", (): Readonly<{ status: number; stderr: string }> => {
-        const result = spawnSync("git", ["--git-dir", join(root, ".git"), "--work-tree", root, "commit", "-q", "-a", "-m", "engine break via flags"], {
+        const result = spawnSync("git", ["--git-dir", join(root, ".git"), "--work-tree", root, "commit", "-s", "-q", "-a", "-m", "engine break via flags"], {
           cwd: createTempDir("ch-commit-elsewhere-"), encoding: "utf8", maxBuffer: 1 << 24,
         });
         return { status: result.status ?? -1, stderr: result.stderr };
@@ -481,7 +481,7 @@ test("DRIVEN: git's automatic MERGE commit runs the same door (pre-merge-commit)
   assert.equal(commitWith(root, ["--no-verify", "-m", "an uncertified side commit"]).status, 0);
   execFileSync("git", ["switch", "-q", "-"], { cwd: root, stdio: "pipe" });
   const before = commitCount(root);
-  const merged = spawnSync("git", ["merge", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  const merged = spawnSync("git", ["merge", "--signoff", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
   assert.notEqual(merged.status, 0, "an automatic merge commit carrying a break was made — no hook ran");
   assert.match(merged.stderr, /does not compile/u);
   assert.equal(commitCount(root), before, "the refused merge commit landed");
@@ -526,6 +526,33 @@ test("DRIVEN: a commit that DELETES a guarded hook, or stages one that no longer
   execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
   const accepted = commit(root, "comment in the hook");
   assert.equal(accepted.status, 0, accepted.stderr);
+});
+
+test("DRIVEN: the DCO — a commit, and a merge, without the committer's sign-off is REFUSED (commit-msg)", () => {
+  const root = compileFixtureRepository("pass");
+  writeFile(root, "notes.txt", "one\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  const unsigned = spawnSync("git", ["commit", "-q", "-m", "an unsigned change"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.notEqual(unsigned.status, 0, "an unsigned commit was accepted");
+  assert.match(unsigned.stderr, /COMMIT REFUSED — the commit's records are wrong \(the DCO and the agent identity are binding\)/u);
+  const other = spawnSync("git", ["commit", "-q", "-m", "signed by another\n\nSigned-off-by: Someone Else <else@example.invalid>"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.notEqual(other.status, 0, "a commit signed off by someone other than its committer was accepted");
+  assertCommitted(root, "a signed change");
+  // A merge passes through commit-msg too: unsigned it is refused, `--signoff` lands it.
+  execFileSync("git", ["checkout", "-q", "-b", "side", "HEAD~0"], { cwd: root, stdio: "pipe" });
+  writeFile(root, "side.txt", "side\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "a side change");
+  execFileSync("git", ["checkout", "-q", "-"], { cwd: root, stdio: "pipe" });
+  writeFile(root, "main.txt", "main\n");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "a main change");
+  const merge = spawnSync("git", ["merge", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.notEqual(merge.status, 0, "an unsigned merge was accepted");
+  assert.match(merge.stderr, /git merge --signoff/u);
+  execFileSync("git", ["merge", "--abort"], { cwd: root, stdio: "pipe" });
+  const signed = spawnSync("git", ["merge", "--signoff", "--no-ff", "-q", "-m", "merge the side", "side"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 24 });
+  assert.equal(signed.status, 0, signed.stderr);
 });
 
 test("DRIVEN: a commit that turns a workflow lesson to acted must name it in a Lesson: trailer (commit-msg)", () => {
@@ -606,7 +633,7 @@ test("DRIVEN: a --no-ff MERGE of a branch whose own commit acted on a lesson (wi
   writeFile(root, "note.md", "unrelated\n");
   execFileSync("git", ["add", "--", "note.md"], { cwd: root, stdio: "pipe" });
   assertCommitted(root, "an unrelated change on the main line");
-  const merged = git(root, "merge", "--no-ff", "-q", "-m", "merge: workspace side", "side");
+  const merged = git(root, "merge", "--signoff", "--no-ff", "-q", "-m", "merge: workspace side", "side");
   assert.equal(merged.status, 0, `the merge of a branch that already named its lesson was refused:\n${merged.stderr}`);
 
   // The branch's commit acted WITHOUT the trailer (landed around the hook):
@@ -615,13 +642,13 @@ test("DRIVEN: a --no-ff MERGE of a branch whose own commit acted on a lesson (wi
   git(other.root, "checkout", "-q", "-b", "side");
   writeFile(other.root, other.path, lessonText("2026-01-01-unnamed", "acted"));
   execFileSync("git", ["add", "--", other.path], { cwd: other.root, stdio: "pipe" });
-  assert.equal(git(other.root, "commit", "-q", "--no-verify", "-m", "act without the trailer").status, 0);
+  assert.equal(git(other.root, "commit", "-s", "-q", "--no-verify", "-m", "act without the trailer").status, 0);
   git(other.root, "checkout", "-q", other.main);
   writeFile(other.root, "note.md", "unrelated\n");
   execFileSync("git", ["add", "--", "note.md"], { cwd: other.root, stdio: "pipe" });
   assertCommitted(other.root, "an unrelated change on the main line");
   const before = commitCount(other.root);
-  const refused = git(other.root, "merge", "--no-ff", "-q", "-m", "merge: workspace side", "side");
+  const refused = git(other.root, "merge", "--signoff", "--no-ff", "-q", "-m", "merge: workspace side", "side");
   assert.notEqual(refused.status, 0, "a merge bringing an unnamed act was accepted");
   assert.match(refused.stderr, /does not name them:\n {2}- L-2026-01-01-unnamed/u);
   assert.equal(commitCount(other.root), before, "the refused merge commit landed");
@@ -640,7 +667,7 @@ test("DRIVEN: the trailer is git's own parse — a verbose (-v) editor commit ke
   // wf-1b3a-correctness M1: `git commit -v` puts the diff under a scissors
   // line (a `#` line); dropping every `#` line first made the diff the last
   // paragraph, and the real trailer was never found. The editor keeps git's template.
-  const verbose = spawnSync("git", ["commit", "-q", "-v", "-e", "-m", "act on the lesson", "-m", "Lesson: L-2026-01-01-verbose"], {
+  const verbose = spawnSync("git", ["commit", "-s", "-q", "-v", "-e", "-m", "act on the lesson", "-m", "Lesson: L-2026-01-01-verbose"], {
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, GIT_EDITOR: "true" },
@@ -658,12 +685,12 @@ test("DRIVEN: an --amend that drops a lesson's trailer is REPORTED by post-commi
   const named = commit(root, "act on the lesson\n\nLesson: L-2026-01-01-amended");
   assert.equal(named.status, 0, named.stderr);
   assert.doesNotMatch(named.stderr, /LESSON TRAILER MISSING/u, "a commit naming its lesson was reported");
-  const amended = git(root, "commit", "-q", "--amend", "-m", "act on the lesson (reworded, trailer dropped)");
+  const amended = git(root, "commit", "-s", "-q", "--amend", "-m", "act on the lesson (reworded, trailer dropped)");
   for (const part of ["LESSON TRAILER MISSING", "- L-2026-01-01-amended", "Repair it now: git commit --amend"]) {
     assert.ok(amended.stderr.includes(part), `an amend dropping the trailer went unreported (no "${part}"): ${amended.stderr}`);
   }
   // The repair the report names clears it.
-  const repaired = git(root, "commit", "-q", "--amend", "-m", "act on the lesson\n\nLesson: L-2026-01-01-amended");
+  const repaired = git(root, "commit", "-s", "-q", "--amend", "-m", "act on the lesson\n\nLesson: L-2026-01-01-amended");
   assert.equal(repaired.status, 0, repaired.stderr);
   assert.doesNotMatch(repaired.stderr, /LESSON TRAILER MISSING/u);
 });

@@ -39,7 +39,7 @@
 
 import { fileURLToPath } from "node:url";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
@@ -63,7 +63,9 @@ export async function main(): Promise<void> {
         "argument, node --test discovers the whole tree — including non-test " +
         "`.mjs` scripts under verification/ — and fails on them.\n",
     );
-    process.exit(1);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
+    process.exitCode = 1;
+    return;
   }
   // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): a run of the
   // configured number of test files or more (the guards: a few hundred) is
@@ -76,8 +78,10 @@ export async function main(): Promise<void> {
   // it started, and the lock held until that is done — never a run orphaned
   // beside the next holder.
   const { engineSuiteWatchdog } = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url)));
+  // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
+  const supervisor = ensureTestProcessSupervisor();
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(),
+    supervisor,
     command: process.execPath,
     args: ["--experimental-strip-types", "--test", ...process.argv.slice(2)],
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
@@ -89,9 +93,10 @@ export async function main(): Promise<void> {
   lock.release();
   if (run.ending !== "exited") {
     process.stderr.write(`[test-guards] node --test ended by ${run.ending}${run.signal === null ? "" : ` (${run.signal})`}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
-  process.exit(run.exitCode);
+  process.exitCode = run.exitCode;
 }
 
 if (isEntryPoint(import.meta.url)) {

@@ -105,12 +105,12 @@ import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { extractErrorMessage, HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
-import { configuredGitIdentity, directoryGitEnvironment, repositoryToplevel } from "../../src/git/repository-ownership.ts";
+import { directoryGitEnvironment, repositoryToplevel } from "../../src/git/repository-ownership.ts";
 import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy, workingCopyDifferences } from "../../src/git/working-copy.ts";
 import { assertIndexAtBaseline, recordIndexBaseline } from "../../src/git/index-baseline.ts";
 import { assertSameFilesystem, checkoutCommandRunner, configuredCheckoutCommandRunner, engineRelativePath, owedSetup, prepareCheckout, rerunChangedSetup, type CheckoutCommandRunner, type CheckoutStep, type ConvergenceReport } from "../../src/workflow/checkout-setup.ts";
 import { pruneArguments } from "../../src/workflow/harness-commands.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { generatedOutputPaths, buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { importJudgedRuns, suiteLedgerPaths, withdrawImportedRuns } from "../../src/shared/run-history.ts";
@@ -288,7 +288,7 @@ function syncCandidate(target: string, engineRelative: string, prune: readonly s
 
 /** The runner of the candidate's declared commands: the source engine's native supervisor, as the configuration declares the runner. */
 function commandRunner(document: ReturnType<typeof loadPinnedConfigSnapshot>["document"], isolation: NonNullable<ReturnType<typeof loadPinnedConfigSnapshot>["document"]["workspaceIsolation"]>): CheckoutCommandRunner {
-  return configuredCheckoutCommandRunner(document, isolation, testProcessSupervisorBinary(), (step) => process.stderr.write(`${canonicalJson({ setup: step })}\n`));
+  return configuredCheckoutCommandRunner(document, isolation, ensureTestProcessSupervisor(), (step) => process.stderr.write(`${canonicalJson({ setup: step })}\n`));
 }
 
 function converge(target: string, engineRelative: string, prune: readonly string[]): ConvergenceReport {
@@ -351,15 +351,15 @@ async function run(options: Options): Promise<unknown> {
       // The source's hooks run in the candidate too (exit 1 = no hooksPath set).
       const hooksPath = sourceConfig(source, "core.hooksPath");
       if (hooksPath !== null) git(target, ["config", "core.hooksPath", hooksPath]);
-      // The source's git IDENTITY too (as git resolves it there: the local,
-      // global or system value), so a snapshot or a commit in the candidate
-      // is attributed as the source's would be — never git's refusal, never
-      // an invented author. A source without one is stated in the result.
-      const identity = configuredGitIdentity(source);
-      if (identity !== null) {
-        git(target, ["config", "user.name", identity.name]);
-        git(target, ["config", "user.email", identity.email]);
-      }
+      // A candidate is an agent's checkout: it commits as the project's agent
+      // identity, from the one declared source — never the source's or the
+      // host's user.name/user.email — and says it is an agent's, so the
+      // commit-msg hook refuses any other identity here
+      // (scripts/verification/sign-off.ts).
+      const { agent, agentCheckoutKey } = ROOT_POLICY.workflow.commitIdentity;
+      git(target, ["config", "user.name", agent.name]);
+      git(target, ["config", "user.email", agent.email]);
+      git(target, ["config", agentCheckoutKey, "true"]);
       const { document } = loadPinnedConfigSnapshot();
       const isolation = document.workspaceIsolation;
       if (isolation === undefined) throw new InputError("workspaceIsolation is not configured; it declares the checkout setup", "candidate_setup_unconfigured");
@@ -369,7 +369,7 @@ async function run(options: Options): Promise<unknown> {
         throw new HarnessError(`candidate setup failed: ${canonicalJson(setup)}`, "candidate_setup_failed");
       }
       const convergence = options.sync ? converge(target, engineRelative, options.prune) : "skipped";
-      return { target, head: copy.head, files: copy.paths.length, hooksPath, identity: identity ?? "none (the source has no git identity: commits in the candidate will be refused by git)", setup, convergence, indexBaseline };
+      return { target, head: copy.head, files: copy.paths.length, hooksPath, identity: agent, setup, convergence, indexBaseline };
     }
     case "refresh": {
       refuseSnapshotCandidate(target, "refresh");
