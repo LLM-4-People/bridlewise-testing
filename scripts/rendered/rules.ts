@@ -257,10 +257,12 @@ function judgeFonts(args: { input: { stacks: Readonly<Record<string, string>>; f
       return range.getClientRects().length > 0;
     });
     if (rendered) judge(getComputedStyle(el), kit.describe(el));
-    // A control whose value the browser draws as text (a text field, a button's label); a checkbox's or a range's value is never drawn.
+    // A control the browser draws text in: its value, placeholder or label (a text field, a date, a file's name, a
+    // button). Judged by EXCLUSION: only the input types HTML gives no text at all — hidden, a checkbox, a radio
+    // button, a slider, a colour well, a picture button — are passed, so a type added later is judged by default.
     const control = el as Partial<HTMLInputElement>;
-    const drawsValue = el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && /^(?:text|search|email|url|tel|password|number|submit|reset|button)$/u.test(control.type ?? ""));
-    if (drawsValue && `${control.value ?? ""}${control.placeholder ?? ""}`.trim().length > 0 && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its value)`);
+    const drawsText = el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && !/^(?:hidden|checkbox|radio|range|color|image)$/u.test(control.type ?? "text"));
+    if (drawsText && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its text)`);
     for (const pseudo of ["::before", "::after"]) {
       const style = getComputedStyle(el, pseudo);
       if (style.display === "none" || ["none", "normal", '""', "''"].includes(style.content)) continue;
