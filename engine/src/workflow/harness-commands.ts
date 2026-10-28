@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from "../process/subprocess-bounds.ts";
+import type { SpawnSyncReturns } from "node:child_process";
+import { boundedEnding, spawnBoundedSync, type SubprocessBounds } from "../process/subprocess-bounds.ts";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
@@ -1964,15 +1964,7 @@ function subprocessFailureSummary(lines: readonly string[]): string | undefined 
 
 /** One synchronous run of `command args…` under `bounds` (src/process/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
 function runBoundedSync(command: string, args: readonly string[], cwd: string, bounds: SubprocessBounds): SpawnSyncReturns<string> {
-  const invocation = cpuLimitedInvocation(command, args, bounds);
-  return spawnSync(invocation.command, [...invocation.args], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: bounds.hangBackstopMs,
-    killSignal: "SIGKILL",
-    maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES,
-  });
+  return spawnBoundedSync(command, args, bounds, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES });
 }
 
 export function runScriptSubprocess(
