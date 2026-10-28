@@ -13,7 +13,7 @@ import { constants } from "node:os";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { buildTestProcessSupervisor } from "../../guardian/build.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount } from "../process/instrument-lock.ts";
@@ -68,7 +68,7 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
     : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: SUBPROCESS_BOUNDS });
   try {
     const run = await superviseCommand({
-      supervisor: testProcessSupervisorBinary(),
+      supervisor: buildTestProcessSupervisor(),
       command: command[0]!,
       args: command.slice(1),
       hardCeilingMs: config.engineSuiteWatchdog.hardCeilingMs,

@@ -39,7 +39,10 @@ const binPath = join(guardianDir, 'build', 'harness-landlock-guardian');
  * runs every test run under it), BUILT BEFORE A RUN by the one native build
  * owner — make performs its normal incremental dependency check — and its
  * path returned: `make all`, the checkout setup's `test-supervisor` command,
- * and the engine suite's runner before it snapshots the harness folder. A
+ * and every ENTRY POINT that starts supervised work — both suites' runners
+ * (the engine's before it snapshots the harness folder), the guards runner,
+ * the workspace, candidate, flake, slot and promotion commands, the perf
+ * profile — before it starts. Up to date, it writes nothing. A
  * build that fails THROWS, typed (`code: test_process_supervisor_build_failed`,
  * with the compiler's own words): a run that cannot be supervised does not
  * start.
@@ -57,7 +60,8 @@ export function buildTestProcessSupervisor(): string {
 }
 
 /**
- * The built supervisor's path — RESOLVED, never built. Building it here wrote
+ * The built supervisor's path — RESOLVED, never built: what code INSIDE a run
+ * (a test, a nested runner's library) calls. Building it here wrote
  * into the live harness folder in the middle of a test run (on a runner where
  * `make all` had not built it, the first caller compiled
  * `guardian/build/test-process-supervisor`), and every configuration

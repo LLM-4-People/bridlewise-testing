@@ -110,7 +110,7 @@ import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy
 import { assertIndexAtBaseline, recordIndexBaseline } from "../../src/git/index-baseline.ts";
 import { assertSameFilesystem, checkoutCommandRunner, configuredCheckoutCommandRunner, engineRelativePath, owedSetup, prepareCheckout, rerunChangedSetup, type CheckoutCommandRunner, type CheckoutStep, type ConvergenceReport } from "../../src/workflow/checkout-setup.ts";
 import { pruneArguments } from "../../src/workflow/harness-commands.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { buildTestProcessSupervisor } from "../../guardian/build.ts";
 import { generatedOutputPaths, buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { importJudgedRuns, suiteLedgerPaths, withdrawImportedRuns } from "../../src/shared/run-history.ts";
@@ -288,7 +288,7 @@ function syncCandidate(target: string, engineRelative: string, prune: readonly s
 
 /** The runner of the candidate's declared commands: the source engine's native supervisor, as the configuration declares the runner. */
 function commandRunner(document: ReturnType<typeof loadPinnedConfigSnapshot>["document"], isolation: NonNullable<ReturnType<typeof loadPinnedConfigSnapshot>["document"]["workspaceIsolation"]>): CheckoutCommandRunner {
-  return configuredCheckoutCommandRunner(document, isolation, testProcessSupervisorBinary(), (step) => process.stderr.write(`${canonicalJson({ setup: step })}\n`));
+  return configuredCheckoutCommandRunner(document, isolation, buildTestProcessSupervisor(), (step) => process.stderr.write(`${canonicalJson({ setup: step })}\n`));
 }
 
 function converge(target: string, engineRelative: string, prune: readonly string[]): ConvergenceReport {
