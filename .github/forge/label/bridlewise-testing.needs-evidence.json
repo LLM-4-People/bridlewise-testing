@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "needs-evidence",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "needs-evidence",
+    "color": "fbca04",
+    "description": "A claim waits for its evidence"
+  }
+}

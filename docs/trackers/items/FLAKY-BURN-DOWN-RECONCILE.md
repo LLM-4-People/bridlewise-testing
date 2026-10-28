@@ -1,5 +1,6 @@
 ---
 schema: bridlewise-tracker-item/v1
+published: false
 id: FLAKY-BURN-DOWN-RECONCILE
 type: Task
 title: Reconcile the flaky burn-down list with the published memory

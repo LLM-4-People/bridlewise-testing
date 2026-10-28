@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "area:forge",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "area:forge",
+    "color": "0052cc",
+    "description": "GitHub, the one forge: settings as code, Apps, the port"
+  }
+}
