@@ -16,15 +16,6 @@ memory store directly — these modules build the prompt context once.
 - `memory-bridge.ts` — the single server-side owner of harness memory access;
   every memory store, retrieve, and inject goes through here.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/context/`.
-
-- `chat-history.ts` is consumed by `server/blocks/compose.ts`, `server/routes/run.ts`.
-- `context-bridge.ts` is consumed by `server/blocks/compose.ts`, `server/context/memory-bridge.ts`, `server/routes/run.ts`, `server/routes/safety.ts`, `server/run/run-executor.ts`, `server/run/run-registry.ts`.
-- `memory-bridge.ts` is consumed by `server/blocks/compose.ts`, `server/routes/memory.ts`, `server/routes/run.ts`, `server/run/run-executor.ts`, `server/tools/tool-executor.ts`.
-- `project-context.ts` is consumed by `server/context/context-bridge.ts`, `server/routes/settings.ts`.
-
-<!-- /consumers:generated -->
