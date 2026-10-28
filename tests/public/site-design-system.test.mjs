@@ -132,6 +132,7 @@ test("the layouts, includes and HTML pages hold no style of their own and load n
     ['<link rel="icon" href="data:image/svg+xml,%3Csvg%3E">', /inlines a data: resource/u],
     ['<meta http-equiv="Refresh" content="0; url=https://example.org/">', /<meta http-equiv="refresh">/u],
     ['<base href="https://cdn.example/">', /<base>/u],
+    ['<noscript><link rel="stylesheet" href="https://fonts.example/plex.css"></noscript>', /<link rel="stylesheet"> fetches from elsewhere/u],
     ["<head><script>window.x = 1;</script></head>", /an inline <script>/u],
     ['<script type="module">import "https://cdn.example/x.js";</script>', /an inline <script>/u],
     ['<img alt="" src="x.png" ONLOAD="alert(1)">', /<img onload>: an event handler/u],

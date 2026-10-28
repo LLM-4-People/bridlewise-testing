@@ -296,7 +296,9 @@ export function siteMarkupViolations(html) {
     for (const child of node.childNodes ?? []) walk(child);
     if (node.content !== undefined) walk(node.content);
   };
-  walk(parseHtml(html, { sourceCodeLocationInfo: true }));
+  // Parsed as a browser with scripting off reads it, so <noscript> content
+  // (a remote <link> a no-script reader would load) is markup, not text.
+  walk(parseHtml(html, { sourceCodeLocationInfo: true, scriptingEnabled: false }));
   return findings;
 }
 
@@ -360,7 +362,8 @@ export function builtPolicyViolations({ siteRoot, baseurl, versions = [] }) {
   for (const path of files) {
     const version = versions.find((name) => path.startsWith(`v/${name}/`));
     const [origin, scoped] = sitePolicies(version === undefined ? baseurl : `${baseurl.replace(/\/+$/u, "")}/v/${version}`);
-    const document = parseHtml(readFileSync(join(siteRoot, ...path.split("/")), "utf8"));
+    // Scripting off: a policy or a link inside <noscript> counts as the no-script reader gets it.
+    const document = parseHtml(readFileSync(join(siteRoot, ...path.split("/")), "utf8"), { scriptingEnabled: false });
     const policies = [];
     const walk = (node) => {
       if (node.tagName === "meta" && node.attrs.some((attribute) => attribute.name === "http-equiv" && attribute.value.trim().toLowerCase() === "content-security-policy")) policies.push(node);
