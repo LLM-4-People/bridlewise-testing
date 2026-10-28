@@ -98,6 +98,11 @@ export function workflowUsesOf(text: string, path: string): readonly string[] {
 }
 const LOCKFILES: Readonly<Record<string, "npm" | "cargo">> = { "package-lock.json": "npm", "Cargo.lock": "cargo" };
 
+/** Whether `path` (repository-relative) is a dependency lockfile, a root Dependabot must cover (frozen or not). */
+export function isDependencyLockfile(path: string): boolean {
+  return LOCKFILES[posix.basename(path)] !== undefined;
+}
+
 /** The tree facts, from the files the repository owns. */
 export function forgeTreeFacts(tree: TreeReader, settings: ForgeSettings): ForgeTreeFacts {
   const workflows = tree.paths().filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(path));

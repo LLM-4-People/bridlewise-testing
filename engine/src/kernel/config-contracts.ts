@@ -1344,14 +1344,20 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // host makes a test WAIT for a core, it does not make it do more work. The
   // ceiling is its file's class (`classes`, each naming the repository paths
   // of the files it holds), else `defaultCeilingMs`. A file sits in at most
-  // one class. Wall time survives only as `testHangBackstopMs`: an async hang
+  // one class. A class records what was MEASURED (`measuredCpuMs`, the most
+  // CPU work one of its tests did on a hosted runner), never a hand-picked
+  // ceiling: its ceiling is that measurement times the one declared
+  // `headroomFactor`, derived in one place (`classCeilingMs`,
+  // engine/src/workflow/workflow-config.ts), because CPU work still varies
+  // with the runner's processor model. Wall time survives only as `testHangBackstopMs`: an async hang
   // ends there, classified `hung`, and is never retried. It sits below each
   // suite's stall bound, so a hung test is named before its run is killed.
   const testCpuClassesSchema = z.strictObject({
     defaultCeilingMs: z.number().int().positive().max(3_600_000),
+    headroomFactor: z.number().min(1).max(10),
     classes: z.array(z.strictObject({
       name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
-      ceilingMs: z.number().int().positive().max(3_600_000),
+      measuredCpuMs: z.number().int().positive().max(3_600_000),
       files: z.array(z.string().min(1)).min(1),
     })),
   }).refine((declared) => new Set(declared.classes.map((one) => one.name)).size === declared.classes.length, {
@@ -1371,15 +1377,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     ]).default("auto"),
     parallelConcurrency: z.number().int().positive().max(64).optional(),
     fullSuiteParallelConcurrency: z.number().int().positive().max(64).optional(),
-    // `runtimeBudgetMs` is a per-test KILL TIMEOUT, not a budget: it is
-    // passed to the runner as `timeout`, so a test that never settles FAILS
-    // instead of removing the suite. It happens to read 120000 — the same
-    // number the deleted wall-clock suite budget (`suiteRuntimeBudgetMs`)
-    // carried — and that is a COINCIDENCE of history, not a relationship:
-    // the suite budget is a CPU budget now (`integrationSuiteCpuBudget`
-    // below) and this timeout is bounded from below by the slowest single
-    // test, a different derivation entirely.
-    runtimeBudgetMs: z.number().int().positive().max(600000).optional(),
+    // (`runtimeBudgetMs`, the engine's per-test WALL cap, is deleted: a test
+    // is judged by its CPU work against its file's class and ended only by
+    // the hang backstop, `testCpuClasses` and `testHangBackstopMs` below —
+    // NO-LOAD-BLOCK row G-05. The key is refused, never read.)
     serialPhaseConcurrency: z.number().int().positive().max(16).optional(),
     fullSuiteSerialPhaseConcurrency: z.number().int().positive().max(16).optional(),
     fullSuiteInProcessSerialPhaseConcurrency: z.number().int().positive().max(16).optional(),
@@ -1595,14 +1596,15 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     webSuiteWatchdog: suiteWatchdogSchema.optional(),
     // The ENGINE suite's watchdog (`scripts/tooling/inventory-test-run.ts`,
     // held by the worker that dispatches the test files — never by a file's
-    // own process, which is the one that hangs). `runtimeBudgetMs` fails a
-    // TEST that never settles, but a file whose cancelled test left a handle
-    // open never EXITS, and the runner waits for it forever (measured: two
-    // hours on one file's leaked servers). A phase that reports no test event
-    // for `stallTimeoutMs` (above `runtimeBudgetMs`, so a cancelled test
-    // always reports first), or a run still going at `hardCeilingMs`, is
-    // aborted: every file process still running is killed and reported as a
-    // failed, aborted file — a killed run is a failed run.
+    // own process, which is the one that hangs). The hang backstop
+    // (`testHangBackstopMs`) fails a TEST that never settles, but a file whose
+    // cancelled test left a handle open never EXITS, and the runner waits for
+    // it forever (measured: two hours on one file's leaked servers). A phase
+    // that reports no test event for `stallTimeoutMs` (above the backstop, so
+    // a hung test always reports first), or a run still going at
+    // `hardCeilingMs`, is aborted: every file process still running is killed
+    // and reported as a failed, aborted file — a killed run is a failed run.
+    // Both are hang bounds, never judgements of speed (NO-LOAD-BLOCK).
     engineSuiteWatchdog: suiteWatchdogSchema.optional(),
   }).optional();
   // Harness workflow timeouts: subprocess timeouts for harness commands

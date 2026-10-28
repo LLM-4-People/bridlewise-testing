@@ -21,12 +21,27 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
+import { GENERATOR_INPUTS_BEYOND_ENGINE, harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
 import { stageInCopy } from "../../src/git/working-copy.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const DELETED = "test/shared-suite/dev-mode-env.test.ts";
+
+test("a generator test's repository copy carries every path an arm declares it needs, derived from the arms' own declarations", () => {
+  // The forge arm refuses without its community sources, its workflows and every lockfile root (it read them since #123, and
+  // a hand-listed population went red): the population is DERIVED from GENERATOR_INPUTS_BEYOND_ENGINE, never listed.
+  for (const path of ["docs/community/intake.json", "docs/community/roles.json", ".github/workflows/ci.yml", "package-lock.json", ".github/CODEOWNERS", "CONTRIBUTING.md", "engine/src/cli.ts", "shared/markup.ts"]) {
+    assert.equal(engineGeneratorPopulation(path), true, path);
+  }
+  // Near misses: the web tree no generator reads stays out.
+  for (const path of ["src/main.ts", "server/index.ts", "docs/floor/roadmap.md", "tests/unit/x.test.ts"]) assert.equal(engineGeneratorPopulation(path), false, path);
+  // Every arm that declares inputs is honoured: each declared path of each arm is in the population.
+  for (const [arm, input] of Object.entries(GENERATOR_INPUTS_BEYOND_ENGINE)) {
+    if (input === null) continue;
+    assert.ok(["docs/community/intake.json", ".github/workflows/ci.yml", "package-lock.json", "CONTRIBUTING.md"].some((path) => input(path) && engineGeneratorPopulation(path)), arm);
+  }
+});
 
 test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", async () => {
   const copy = createRepositoryWorkingCopy("harness-prune-", { include: engineGeneratorPopulation });

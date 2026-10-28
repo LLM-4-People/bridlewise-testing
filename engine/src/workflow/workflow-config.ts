@@ -257,45 +257,44 @@ export const DEFAULT_S1_FILESYSTEM_CACHE_MAX_ENTRIES = 256 as const;
 // through to computation.
 export const DEFAULT_S1_FILESYSTEM_CACHE_DIRECTORY = "harness-s1-cache" as const;
 
-// THE POPULATION THIS BOUNDS IS ONE TEST CASE.
-//
-// It is the runner's per-test `timeout`, so a test that never settles fails
-// with `testTimeoutFailure` and the rest of its file still runs. Without it
-// the children ran at node's default of "never", and a hung test did not fail
-// the suite — it removed the suite. `suiteRuntimeBudgetMs` cannot cover this:
-// it is judged after the run returns, and a run that never returns is never
-// judged.
-//
-// Where the number comes from. The slowest FILE measured on this suite is
-// `test/foundation-cascade.test.ts` at 45,195 ms; a file's duration is the sum
-// of its tests, so that is a measured upper bound on the slowest single test.
-// 120 s sits ~2.6x above it, which is headroom for contention rather than a
-// second opinion about the file set. If the slowest file approaches this
-// number, the bound has stopped being an upper bound and must be re-derived
-// rather than raised.
-//
-// This comment previously described a per-FILE budget read by a prevention
-// test from the durations cache. That mechanism no longer exists —
-// `test/prevention/test-runtime-budget.test.ts` judges only
-// `suiteRuntimeBudgetMs` — so the constant named a population that had been
-// deleted, and was consumed by nothing at all: declared in the config,
-// resolved by `readTestExecutionConfig`, and read by no code path.
-// The value is a configurable (overridable via
-// testExecution.runtimeBudgetMs).
-export const DEFAULT_TEST_RUNTIME_BUDGET_MS = 120_000 as const;
+// THE ENGINE SUITE'S PER-TEST BOUNDS, for a root whose config does not
+// declare them (a foreign or fixture tree; this checkout's own values are
+// `testExecution.testHangBackstopMs` and `testExecution.testCpuClasses`,
+// enforced by scripts/tooling/engine-test-bounds.ts). The hang backstop ends
+// a test that never settles and never polices slowness; a test is judged by
+// its CPU work against its file's class (TEST-CPU-CLASSES). The per-test
+// WALL cap these replace (`runtimeBudgetMs`, 120 s) failed tests that pass
+// alone under full-suite contention (NO-LOAD-BLOCK row G-05).
+export const DEFAULT_TEST_HANG_BACKSTOP_MS = 600_000 as const;
+export const DEFAULT_TEST_CPU_CLASSES: Readonly<{ defaultCeilingMs: number; headroomFactor: number; classes: readonly Readonly<{ name: string; measuredCpuMs: number; files: readonly string[] }>[] }> =
+  Object.freeze({ defaultCeilingMs: 60_000, headroomFactor: 2, classes: Object.freeze([]) });
+
+/**
+ * THE ONE DERIVATION of a CPU class's ceiling: what its tests were measured
+ * to do, times the one declared headroom. A class never carries a ceiling of
+ * its own, so no ceiling is a number someone picked for one test. The
+ * judgement (scripts/tooling/test-cpu-class.ts) and the exposure page both
+ * ask this.
+ */
+export function classCeilingMs(classes: Readonly<{ headroomFactor: number }>, declared: Readonly<{ measuredCpuMs: number }>): number {
+  return Math.ceil(declared.measuredCpuMs * classes.headroomFactor);
+}
 
 // The ENGINE suite's watchdog (overridable via testExecution.engineSuiteWatchdog;
 // enforced in scripts/tooling/inventory-test-run.ts): a phase that reports no
 // test event for `stallTimeoutMs`, or a run still going at `hardCeilingMs`, is
-// aborted and its running files killed and reported failed. The per-test kill
-// timeout above cannot end a FILE whose cancelled test left a handle open
-// (measured: one file held a run for two hours). The stall bound sits above
-// that timeout, so a cancelled test always reports before a stall is
-// declared; the ceiling is ~6x the measured full-suite wall clock (~5 min).
-// A stopped run (a stall, the ceiling, an operator's stop) has `killGraceMs`
-// after its SIGTERM before it and every descendant are SIGKILLed.
+// aborted and its running files killed and reported failed. The per-test hang
+// backstop above cannot end a FILE whose cancelled test left a handle open
+// (measured: one file held a run for two hours). Both are HANG bounds, never
+// judgements of speed (NO-LOAD-BLOCK): the stall bound (no progress at all)
+// sits above the per-test backstop, so a hung test always reports before a
+// stall is declared, and the ceiling is the schema's largest, far above any
+// run that is still making progress (a loaded host's full suite took 1357 s
+// of wall on CI). A stopped run (a stall, the ceiling, an operator's stop)
+// has `killGraceMs` after its SIGTERM before it and every descendant are
+// SIGKILLed.
 export type SuiteWatchdog = Readonly<{ stallTimeoutMs: number; hardCeilingMs: number; killGraceMs: number }>;
-export const DEFAULT_ENGINE_SUITE_WATCHDOG: SuiteWatchdog = Object.freeze({ stallTimeoutMs: 300_000, hardCeilingMs: 1_800_000, killGraceMs: 3_000 });
+export const DEFAULT_ENGINE_SUITE_WATCHDOG: SuiteWatchdog = Object.freeze({ stallTimeoutMs: 900_000, hardCeilingMs: 14_400_000, killGraceMs: 3_000 });
 
 // Default concurrency for the serial phase. Files marked as sharing
 // process-level resources (evidence-worker spawns, S1 repository walks,
@@ -315,8 +314,7 @@ export const DEFAULT_SERIAL_PHASE_CONCURRENCY = 2 as const;
 // silent 120 s fallback was exactly that. A missing declaration reaches the
 // runner's gate as absent and is reported NOT JUDGED in plain words
 // (`judgeSuiteCpu` in `src/shared/budget-verdict.ts`), never quietly judged
-// against a constant. `DEFAULT_TEST_RUNTIME_BUDGET_MS` above survives
-// because it is a different concept: a per-test KILL TIMEOUT, not a budget.
+// against a constant.
 
 // Default serial-phase concurrency for the FULL test suite (RUN_SLOW=1). The
 // slow serial files (S1 scenarios, harness-live-root) use process isolation
