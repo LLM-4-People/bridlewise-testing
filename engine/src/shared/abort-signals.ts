@@ -62,8 +62,16 @@ export function deadline(parent: AbortSignal | undefined, timeoutMs: number, rea
 export type ProgressDeadline = Deadline & Readonly<{
   /** `bytes` moved (out or in): they count toward the current window's floor. */
   progress: (bytes: number) => void;
-  /** The far end answered (a response arrived): the current window moved. */
+  /** The far end answered (a response arrived): the current window moved, and a wait for the answer ends. */
   answered: () => void;
+  /**
+   * Everything is handed over, and only the far end's answer is left, which
+   * no byte count here can observe (the kernel's buffers draining, the far
+   * end's own processing). The floor stops, and the answer must come within
+   * `silenceMs` (`silent` is the abort reason): a declared silence bound of
+   * its own, never mistaken for the floor.
+   */
+  awaitingAnswer: (silenceMs: number, silent: () => unknown) => void;
 }>;
 
 /**
@@ -84,6 +92,7 @@ export function progressDeadline(
   let moved = 0;
   let replied = false;
   let timer: ReturnType<typeof setTimeout>;
+  let awaiting: ReturnType<typeof setTimeout> | undefined;
   // Fixed windows, one plain timer each (every clock, a test's mocked one too, honours them).
   const judge = guarded("abort.progress", () => {
     if (moved < bounds.minBytes && !replied) { controller.abort(stalled()); return; }
@@ -97,7 +106,20 @@ export function progressDeadline(
     signal,
     expired: () => controller.signal.aborted,
     progress: (bytes: number) => { moved += bytes; },
-    answered: () => { replied = true; },
-    clear: () => clearTimeout(timer),
+    answered: () => {
+      replied = true;
+      if (awaiting === undefined) return;
+      // The answer came: its silence bound ends, and the floor judges reading it.
+      clearTimeout(awaiting);
+      awaiting = undefined;
+      moved = 0;
+      timer = setTimeout(judge, bounds.windowMs);
+    },
+    awaitingAnswer: (silenceMs: number, silent: () => unknown) => {
+      if (signal.aborted || awaiting !== undefined) return;
+      clearTimeout(timer);
+      awaiting = setTimeout(guarded("abort.answer", () => controller.abort(silent())), silenceMs);
+    },
+    clear: () => { clearTimeout(timer); if (awaiting !== undefined) clearTimeout(awaiting); },
   });
 }

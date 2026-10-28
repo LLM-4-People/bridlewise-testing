@@ -259,3 +259,50 @@ test("a local failure (a full disk) and the caller's own cancellation are their 
   const reason = new Error("the release was withdrawn");
   await assert.rejects(client(fake).download({ path, sha256: hex(bytes), signal: controller.signal, sink: () => { controller.abort(reason); } }), (error: unknown) => error === reason);
 });
+
+test("once an upload's every byte is handed over, the floor stops and GitHub's answer has its own declared silence bound: storing the asset for three windows is not a stall, and past the bound it is forge_asset_unanswered (mocked clock)", async (t) => {
+  mockDoorClock(t);
+  const fake = fakeGithub();
+  const bounds = { progressWindowMs: 1_000, minBytesPerWindow: 64, answerSilenceMs: 5_000 };
+  const bytes = new Uint8Array(randomBytes(64 * 1024));
+  // GitHub holds its answer (the reviewer's shape: the body is fully received, the answer comes windows later).
+  let release: (() => void) | undefined;
+  fake.onUploadsHost((request) => new Promise((resolve) => {
+    release = () => resolve({ status: 201, body: { id: 9, name: "held.bin", size: request.bytes?.byteLength ?? 0, digest: `sha256:${hex(request.bytes ?? new Uint8Array())}` } });
+  }));
+  const held = client(fake, bounds).upload<{ size: number }>({ path: UPLOADS, query: { name: "held.bin" }, contentType: "application/octet-stream", body: body(bytes) });
+  await until(() => release !== undefined);
+  for (let window = 0; window < 3; window += 1) t.mock.timers.tick(1_000);
+  release!();
+  assert.equal((await within(held, "the held upload")).data.size, bytes.byteLength, "three silent windows while GitHub stores it: not a stall");
+  // Past the silence bound: refused by its own code, never the floor's.
+  release = undefined;
+  const silent = client(fake, bounds).upload({ path: UPLOADS, query: { name: "silent.bin" }, contentType: "application/octet-stream", body: body(bytes) });
+  const refused = assert.rejects(silent, (error: unknown) => isForgeError(error, "forge_asset_unanswered"));
+  await until(() => release !== undefined);
+  t.mock.timers.tick(4_999);
+  t.mock.timers.tick(1);
+  await within(refused, "the unanswered upload's refusal");
+  fake.onUploadsHost(undefined);
+});
+
+test("a download's answer counts in its window: headers that arrive before the first byte keep the first window from stalling (mocked clock)", async (t) => {
+  mockDoorClock(t);
+  const fake = fakeGithub();
+  const id = await uploaded(fake, new Uint8Array([0]));
+  const bytes = new Uint8Array(randomBytes(128));
+  let push: ((chunk: Uint8Array | null) => void) | undefined;
+  fake.onAssetHost(() => new Response(new ReadableStream<Uint8Array>({ start(controller) { push = (chunk) => chunk === null ? controller.close() : controller.enqueue(chunk); } }), { status: 200 }));
+  let got = 0;
+  const late = client(fake, { progressWindowMs: 1_000, minBytesPerWindow: 64 }).download({ path: `/repos/o/r/releases/assets/${String(id)}`, sha256: hex(bytes), sink: (chunk) => { got += chunk.byteLength; } });
+  await until(() => push !== undefined);
+  // The headers reach the client (already in the kernel's buffers when written; event-loop turns, never a clock).
+  for (let turn = 0; turn < 2_000; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  // The first window carries no byte, only the answer: it passes. The second carries the bytes.
+  t.mock.timers.tick(1_000);
+  t.mock.timers.tick(500);
+  push!(bytes);
+  await until(() => got === bytes.byteLength);
+  push!(null);
+  assert.deepEqual(await within(late, "the late download"), { bytes: 128, sha256: hex(bytes) });
+});

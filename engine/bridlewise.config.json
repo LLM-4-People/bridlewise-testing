@@ -1170,7 +1170,8 @@
       "assets": {
         "maxBytes": 1073741824,
         "progressWindowMs": 30000,
-        "minBytesPerWindow": 1024
+        "minBytesPerWindow": 1024,
+        "answerSilenceMs": 600000
       }
     },
     "tokenRenewBeforeMs": 300000,

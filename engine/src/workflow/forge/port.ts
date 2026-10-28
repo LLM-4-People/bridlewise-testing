@@ -99,7 +99,7 @@ export type ForgeEndpoint = Readonly<{
    * signed asset hosts), the largest asset, and the transfer's progress
    * floor (bytes per window; no total wall cap).
    */
-  assets: Readonly<{ origins: readonly string[]; maxBytes: number; progressWindowMs: number; minBytesPerWindow: number }>;
+  assets: Readonly<{ origins: readonly string[]; maxBytes: number; progressWindowMs: number; minBytesPerWindow: number; answerSilenceMs: number }>;
   /** May a request reach a loopback or private address? (false for GitHub; true only for a local test server). */
   allowPrivateAddress: boolean;
   /** Each request's lifetime. */

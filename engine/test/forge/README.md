@@ -30,6 +30,7 @@ projection store.
   - the bytes are held to the caller's SHA-256, and the sink never sees a byte past the bound;
   - `downloadToFile` publishes only verified bytes (no partial file, no temporary sibling, an existing file untouched);
   - there is no total wall cap: a slow download and a slow upload that keep moving past the progress floor finish, and a drip under the floor ends (the mocked clock);
+  - once an upload's every byte is handed over, GitHub's answer has its own declared silence bound (three silent windows while it stores the asset are not a stall; past the bound, `forge_asset_unanswered`), and a download's answer counts in its window;
   - a stream reaching its declared size and then yielding more is refused before it completes;
   - a local sink failure (a full disk) and the caller's own cancellation are their own failures, never GitHub's.
 - `proving/` — the proving-ground scenarios on real GitHub (P1.11, P3.8), run by `proving/run.ts`, never by the offline suites (see its README).

@@ -66,6 +66,13 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
       progressWindowMs: z.number().int().min(1_000).max(600_000),
       /** The fewest bytes a window must move. */
       minBytesPerWindow: z.number().int().min(1).max(1_073_741_824),
+      /**
+       * An upload's last phase: once every byte is handed to the socket, no
+       * byte count observes the kernel's buffers draining or GitHub storing
+       * the asset. GitHub must answer within this declared silence bound
+       * (`forge_asset_unanswered`), which the floor never judges.
+       */
+      answerSilenceMs: z.number().int().min(1_000).max(3_600_000),
     }),
   }),
   /** An installation token is minted again this long before it expires. */
@@ -224,6 +231,7 @@ export function forgeEndpoint(settings: ForgeSettings): ForgeEndpoint {
       maxBytes: settings.request.assets.maxBytes,
       progressWindowMs: settings.request.assets.progressWindowMs,
       minBytesPerWindow: settings.request.assets.minBytesPerWindow,
+      answerSilenceMs: settings.request.assets.answerSilenceMs,
     },
     allowPrivateAddress: false,
     timeoutMs: settings.request.timeoutMs,

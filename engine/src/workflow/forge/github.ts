@@ -372,8 +372,14 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     }
     const url = forgeRequestUrl(endpoint, path, request.query, baseUrl(endpoint.uploadsUrl, "uploadsUrl"));
     const lifetime = assetLifetime(request.signal, method, path);
-    // Every chunk that leaves is progress; so is the answer that follows the last one.
-    const chunks = (async function* () { for await (const chunk of body.chunks) { lifetime.progress(chunk.byteLength); yield chunk; } })();
+    // Every chunk handed to the socket is progress. Once all are handed over, what follows (the kernel's buffers
+    // draining, GitHub storing the asset) is not observable as bytes: the floor stops, and GitHub must answer within
+    // the declared silence bound.
+    const { answerSilenceMs } = endpoint.assets;
+    const chunks = (async function* () {
+      for await (const chunk of body.chunks) { lifetime.progress(chunk.byteLength); yield chunk; }
+      lifetime.awaitingAnswer(answerSilenceMs, () => new ForgeError("forge_asset_unanswered", `${method} ${path}: every byte was handed over and GitHub did not answer within ${String(answerSilenceMs)} ms.`, { method, path, answerSilenceMs }));
+    })();
     try {
       const prepared = prepareOutboundRequest({
         url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,

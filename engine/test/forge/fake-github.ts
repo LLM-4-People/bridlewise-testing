@@ -101,6 +101,8 @@ export type FakeGithub = Readonly<{
   assets: Map<number, FakeAsset>;
   /** Answer the asset host's requests with `handler` (a raw `Response` for a body that trickles or stalls); `undefined` restores the stored assets. */
   onAssetHost: (handler: ((request: FakeRequest) => FakeAnswer | Response) | undefined) => void;
+  /** Answer the uploads host's requests with `handler` (an answer that may be held: a promise the test settles); `undefined` restores the stored uploads. */
+  onUploadsHost: (handler: ((request: FakeRequest) => FakeAnswer | Promise<FakeAnswer>) | undefined) => void;
 }>;
 
 function json(status: number, body: unknown, headers: Readonly<Record<string, string>> = {}): FakeAnswer {
@@ -133,6 +135,7 @@ export function fakeGithub(): FakeGithub {
   /** The signed asset URLs handed out, each to one asset. */
   const signed = new Map<string, number>();
   let assetHost: ((request: FakeRequest) => FakeAnswer | Response) | undefined;
+  let uploadsHost: ((request: FakeRequest) => FakeAnswer | Promise<FakeAnswer>) | undefined;
   let nextId = 1000;
 
   /** The uploads host and the asset host (`null` when the request is the API's). */
@@ -313,7 +316,7 @@ export function fakeGithub(): FakeGithub {
     try { body = init.body === undefined ? undefined : JSON.parse(init.body); } catch { body = init.body; }
     const request: FakeRequest = Object.freeze({ method: init.method, host: parsed.host, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body, bytes: init.bytes });
     requests.push(request);
-    const answer = ((): FakeAnswer | Response => {
+    const answer = await (async (): Promise<FakeAnswer | Response> => {
       if (request.host === new URL(FAKE_ASSETS_ORIGIN).host) {
         if (assetHost === undefined) return assetHosts(request)!;
         return assetHost(request);
@@ -334,6 +337,7 @@ export function fakeGithub(): FakeGithub {
         const routed = route.handler(request, match);
         if (routed !== undefined) return routed;
       }
+      if (uploadsHost !== undefined && request.host === new URL(FAKE_UPLOADS_ORIGIN).host) return await uploadsHost(request);
       const hosted = assetHosts(request);
       if (hosted !== null && hosted !== undefined) return hosted;
       const built = builtIn(request);
@@ -351,7 +355,7 @@ export function fakeGithub(): FakeGithub {
   return Object.freeze({
     apiUrl,
     endpoint: (overrides: Partial<ForgeEndpoint> = {}) => Object.freeze({
-      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assets: { origins: [address(FAKE_ASSETS_ORIGIN)], maxBytes: 1_048_576, progressWindowMs: 30_000, minBytesPerWindow: 1_024 },
+      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assets: { origins: [address(FAKE_ASSETS_ORIGIN)], maxBytes: 1_048_576, progressWindowMs: 30_000, minBytesPerWindow: 1_024, answerSilenceMs: 600_000 },
       allowPrivateAddress: true, timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64,
       userAgent: "bridlewise-forge-test", ...overrides,
     }),
@@ -375,6 +379,7 @@ export function fakeGithub(): FakeGithub {
     installApp: (input) => newApp(input),
     assets,
     onAssetHost: (handler) => { assetHost = handler; },
+    onUploadsHost: (handler) => { uploadsHost = handler; },
     pendingConversion: (code, input) => {
       const app = newApp(input);
       conversions.set(code, app);
