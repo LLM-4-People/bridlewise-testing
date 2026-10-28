@@ -1,8 +1,9 @@
-import { mkdirSync, opendirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, opendirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { enableCompileCache, getCompileCacheDir } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
 import { bestEffort } from "../../src/shared/best-effort.ts";
+import { debugLog, reportAlwaysOn } from "../../src/shared/debug/debug-system.ts";
 import { userCacheFolder } from "../../src/filesystem/user-folders.ts";
 import { createOwnedTemporaryDirectory, removeOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
 
@@ -55,7 +56,7 @@ export const COMPILE_CACHE_DIRECTORY = join(
  * processes (it did not inherit `NODE_COMPILE_CACHE`) prunes it to `policy`
  * (`testExecution.compileCachePruning`, see BOUNDED-CACHE PRUNING below)
  * before anything is compiled, at most once per interval. No silent
- * disable: no policy, or a prune that fails, is said on stdout.
+ * disable: no policy, or a prune that fails, is reported (stderr, always on).
  */
 export function enableSharedCompileCache(policy: CompileCachePruningPolicy | undefined): void {
   if (enabled) return;
@@ -97,17 +98,20 @@ export function enableSharedCompileCache(policy: CompileCachePruningPolicy | und
   // Only the enabler bounds the cache, and only a cache that is actually on.
   if (inherited || getCompileCacheDir() === undefined) return;
   if (policy === undefined) {
-    process.stdout.write(
-      "[compile-cache] no pruning policy declared (testExecution.compileCachePruning in bridlewise.config.json): " +
-        "the shared V8 compile cache is NOT bounded. Declare { maxBytes, maxEntryAgeHours, inUseMinutes, intervalMinutes, timeBudgetMs }; nothing is guessed.\n",
-    );
+    reportAlwaysOn("compile-cache", "no pruning policy declared (testExecution.compileCachePruning in bridlewise.config.json): the shared V8 compile cache is NOT bounded. " +
+      "Declare { maxBytes, maxEntryAgeHours, inUseMinutes, intervalMinutes, maxDeletionsPerPrune }; nothing is guessed.");
     return;
   }
+  // THROUGH THE LOGGER, never stdout (a runner's stdout is a machine reading:
+  // vitest's JSON listing, the engine's receipt lines). A condition the
+  // bound cannot meet is reported always; the routine summary is debug.
   try {
-    const line = pruneCompileCacheAtEnablement(policy);
-    if (line !== null) process.stdout.write(`${line}\n`);
+    const summary = pruneCompileCacheAtEnablement(policy);
+    if (summary === null) return;
+    if (summary.loud) reportAlwaysOn("compile-cache", summary.line);
+    else debugLog("compile-cache", "info", summary.line);
   } catch (error) {
-    process.stdout.write(`[compile-cache] PRUNE FAILED, the cache is NOT bounded this time: ${error instanceof Error ? error.message : String(error)}\n`);
+    reportAlwaysOn("compile-cache", `PRUNE FAILED, the cache is NOT bounded this time: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -213,9 +217,14 @@ export function scanCompileCache(sinceMs: number): CompileCacheScan | null {
 // precedes the run's start-stamp and deletes only entries last used before
 // it.
 //
-// NO SILENT DISABLE: a missing policy, a prune that fails, a walk the time
-// budget cut short, and a cache that stays over its bound because the rest is
-// in use are each SAID, on stdout, in one line.
+// INCREMENTAL, NEVER TIMED: one prune deletes at most `maxDeletionsPerPrune`
+// entries, the least recently used first, and records in its stamp that work
+// is left; the next enabler then continues at once, whatever the interval.
+// No wall budget (NO-LOAD-BLOCK): a loaded host still makes progress.
+//
+// NO SILENT DISABLE: a missing policy, a prune that fails, and a cache that
+// stays over its bound because the rest is in use are each REPORTED through
+// the logger (always on, stderr), never stdout, which runners read as data.
 
 /** The declared bound (`testExecution.compileCachePruning`), never defaulted here. */
 export type CompileCachePruningPolicy = Readonly<{
@@ -225,10 +234,15 @@ export type CompileCachePruningPolicy = Readonly<{
   maxEntryAgeHours: number;
   /** An entry used within this many minutes is never pruned (in use). */
   inUseMinutes: number;
-  /** At most one prune per this many minutes, across every process enabling the cache. */
+  /** At most one prune per this many minutes, across every process enabling the cache — unless the last one left work. */
   intervalMinutes: number;
-  /** Wall-clock budget for one prune: on exhaustion it stops before deleting anything and says so. */
-  timeBudgetMs: number;
+  /**
+   * At most this many entries deleted by one prune: the prune is
+   * INCREMENTAL, bounded by a count and never by a wall clock (NO-LOAD-BLOCK:
+   * a loaded host must still make progress). A prune that hits it records
+   * that work is left, and the next enabler continues at once.
+   */
+  maxDeletionsPerPrune: number;
 }>;
 
 export type CompileCachePruneResult = Readonly<{
@@ -239,15 +253,11 @@ export type CompileCachePruneResult = Readonly<{
   survivorBytes: number;
   /** True when, after pruning everything allowed, the cache is still over `maxBytes`: the rest is in use. */
   overBoundInUse: boolean;
+  /** True when the deletion cap stopped this prune with prunable entries left: the next enabler continues. */
+  workLeft: boolean;
   /** Entries whose unlink failed (each a survivor), said in the summary line. */
   unlinkFailures: number;
-  /** True when the time budget stopped the walk before it finished: nothing was deleted. */
-  timeBudgetExhausted: boolean;
-  tookMs: number;
 }>;
-
-/** Clock checks are batched so the budget costs one `Date.now()` per block of filesystem operations. */
-const PRUNE_CLOCK_CHECK_EVERY = 512;
 
 type CacheEntry = { readonly path: string; readonly bytes: number; readonly lastUsedMs: number };
 
@@ -258,30 +268,25 @@ type CacheEntry = { readonly path: string; readonly bytes: number; readonly last
  * routine no test drives is the routine whose in-use-entry-eating mutant
  * survives every guard.
  *
- * One collection walk (path, size, last use), then deletion: first every
- * entry unused for `maxEntryAgeHours`, then — while the total is over
- * `maxBytes` — the least recently used, never one used within
- * `inUseMinutes`. An incomplete walk deletes nothing.
+ * One collection walk (path, size, last use), then deletion of the
+ * PRUNABLE set in least-recently-used order: every entry unused for
+ * `maxEntryAgeHours`, then — while the total is over `maxBytes` — the least
+ * recently used, never one used within `inUseMinutes`; at most
+ * `maxDeletionsPerPrune` of them, the oldest first, so a prune that stops
+ * early has removed the right ones.
  */
-export function pruneCompileCache(root: string, policy: CompileCachePruningPolicy, nowMs: number, deadlineMs: number): CompileCachePruneResult {
-  const started = Date.now();
+export function pruneCompileCache(root: string, policy: CompileCachePruningPolicy, nowMs: number): CompileCachePruneResult {
   const entries: CacheEntry[] = [];
-  let exhausted = false;
-  let sinceCheck = 0;
   let subdirectories: readonly string[] = [];
   try {
     subdirectories = readdirSync(root, { withFileTypes: true }).filter((one) => one.isDirectory()).map((one) => join(root, one.name));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  collect: for (const directory of subdirectories) {
+  for (const directory of subdirectories) {
     const handle = opendirSync(directory);
     try {
       for (;;) {
-        if (++sinceCheck >= PRUNE_CLOCK_CHECK_EVERY) {
-          sinceCheck = 0;
-          if (Date.now() >= deadlineMs) { exhausted = true; break collect; }
-        }
         const entry = handle.readSync();
         if (entry === null) break;
         if (!entry.isFile()) continue;
@@ -295,77 +300,76 @@ export function pruneCompileCache(root: string, policy: CompileCachePruningPolic
     }
   }
   const scannedBytes = entries.reduce((total, entry) => total + entry.bytes, 0);
+  // THE PRUNABLE SET, oldest first: aged out, or LRU while over the bound; never in use.
+  const ageCutoff = nowMs - policy.maxEntryAgeHours * 3_600_000;
+  const inUseCutoff = nowMs - policy.inUseMinutes * 60_000;
+  const byAge = entries.toSorted((a, b) => a.lastUsedMs - b.lastUsedMs);
+  const prunable: CacheEntry[] = [];
+  let remaining = scannedBytes;
+  for (const entry of byAge) {
+    if (entry.lastUsedMs >= inUseCutoff) break;
+    if (entry.lastUsedMs < ageCutoff || remaining > policy.maxBytes) {
+      prunable.push(entry);
+      remaining -= entry.bytes;
+    }
+  }
   let prunedEntries = 0;
   let prunedBytes = 0;
   let unlinkFailures = 0;
-  const remove = (entry: CacheEntry): void => {
+  for (const entry of prunable.slice(0, policy.maxDeletionsPerPrune)) {
     try {
       unlinkSync(entry.path);
       prunedEntries += 1;
       prunedBytes += entry.bytes;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return; // another prune took it
-      unlinkFailures += 1;
-    }
-  };
-  if (!exhausted) {
-    const ageCutoff = nowMs - policy.maxEntryAgeHours * 3_600_000;
-    const inUseCutoff = nowMs - policy.inUseMinutes * 60_000;
-    const kept: CacheEntry[] = [];
-    for (const entry of entries) {
-      if (entry.lastUsedMs < ageCutoff && entry.lastUsedMs < inUseCutoff) remove(entry);
-      else kept.push(entry);
-    }
-    kept.sort((a, b) => a.lastUsedMs - b.lastUsedMs);
-    let total = scannedBytes - prunedBytes;
-    for (const entry of kept) {
-      if (total <= policy.maxBytes || entry.lastUsedMs >= inUseCutoff) break;
-      remove(entry);
-      total -= entry.bytes;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") unlinkFailures += 1; // ENOENT: another prune took it
     }
   }
   const survivorBytes = scannedBytes - prunedBytes;
+  const workLeft = prunable.length > policy.maxDeletionsPerPrune;
   return {
     scannedEntries: entries.length,
     scannedBytes,
     prunedEntries,
     prunedBytes,
     survivorBytes,
-    overBoundInUse: !exhausted && survivorBytes > policy.maxBytes,
+    overBoundInUse: !workLeft && survivorBytes > policy.maxBytes,
+    workLeft,
     unlinkFailures,
-    timeBudgetExhausted: exhausted,
-    tookMs: Date.now() - started,
   };
 }
 
-/** The stamp in the cache root whose mtime is the last prune's instant. */
+/** The stamp in the cache root: its mtime is the last prune's instant; its text says whether work was left. */
 const PRUNE_STAMP = ".last-prune";
+const WORK_LEFT = "work-left";
 
-/** One line saying what the prune did, or why the bound is not met. */
-export function pruneSummaryLine(result: CompileCachePruneResult, policy: CompileCachePruningPolicy): string {
+/** What a prune did, in words, and whether that is a condition to report loudly. */
+export function pruneSummary(result: CompileCachePruneResult, policy: CompileCachePruningPolicy): Readonly<{ line: string; loud: boolean }> {
   const gib = (bytes: number): string => `${(bytes / 1_073_741_824).toFixed(2)} GiB`;
-  const base = `[compile-cache] prune: ${String(result.prunedEntries)} of ${String(result.scannedEntries)} entries ` +
-    `(${gib(result.prunedBytes)} of ${gib(result.scannedBytes)}) removed in ${String(result.tookMs)}ms; ${gib(result.survivorBytes)} kept ` +
+  const base = `prune: ${String(result.prunedEntries)} of ${String(result.scannedEntries)} entries ` +
+    `(${gib(result.prunedBytes)} of ${gib(result.scannedBytes)}) removed; ${gib(result.survivorBytes)} kept ` +
     `(bound: ${gib(policy.maxBytes)}, unused ${String(policy.maxEntryAgeHours)}h pruned, used within ${String(policy.inUseMinutes)}min kept)`;
-  if (result.timeBudgetExhausted) return `${base} — TIME BUDGET EXHAUSTED before the walk finished: NOTHING was deleted, the cache is NOT bounded this time`;
   const notes: string[] = [];
+  if (result.workLeft) notes.push(`the deletion cap (${String(policy.maxDeletionsPerPrune)}) left prunable entries: the next enabler continues`);
   if (result.overBoundInUse) notes.push("STILL OVER THE BOUND: the rest is in use");
   if (result.unlinkFailures > 0) notes.push(`${String(result.unlinkFailures)} entr(ies) could not be removed`);
-  return notes.length === 0 ? base : `${base} — ${notes.join("; ")}`;
+  return { line: notes.length === 0 ? base : `${base} — ${notes.join("; ")}`, loud: result.overBoundInUse || result.unlinkFailures > 0 };
 }
 
 /**
- * Prune the shared cache root at enablement (see the header above): when no
- * prune ran within `policy.intervalMinutes`, prune and stamp. Answers the
- * line to print, or null when the interval has not passed.
+ * Prune the shared cache root at enablement (see the header above): when the
+ * last prune left work, or none ran within `policy.intervalMinutes`, prune
+ * and stamp (with whether work is left). Answers the summary, or null when
+ * the interval has not passed and no work was left.
  */
-export function pruneCompileCacheAtEnablement(policy: CompileCachePruningPolicy, root: string = COMPILE_CACHE_DIRECTORY, nowMs: number = Date.now()): string | null {
+export function pruneCompileCacheAtEnablement(policy: CompileCachePruningPolicy, root: string = COMPILE_CACHE_DIRECTORY, nowMs: number = Date.now()): ReturnType<typeof pruneSummary> | null {
   const stamp = join(root, PRUNE_STAMP);
   const last = statSync(stamp, { throwIfNoEntry: false });
-  if (last !== undefined && nowMs - last.mtimeMs < policy.intervalMinutes * 60_000) return null;
-  const result = pruneCompileCache(root, policy, nowMs, Date.now() + policy.timeBudgetMs);
-  if (!result.timeBudgetExhausted) writeFileSync(stamp, `${new Date(nowMs).toISOString()}\n`);
-  return pruneSummaryLine(result, policy);
+  const workWasLeft = last !== undefined && readFileSync(stamp, "utf8").includes(WORK_LEFT);
+  if (last !== undefined && !workWasLeft && nowMs - last.mtimeMs < policy.intervalMinutes * 60_000) return null;
+  const result = pruneCompileCache(root, policy, nowMs);
+  writeFileSync(stamp, `${new Date(nowMs).toISOString()}${result.workLeft ? ` ${WORK_LEFT}` : ""}\n`);
+  return pruneSummary(result, policy);
 }
 
 export function scanCacheDirectory(dir: string, sinceMs: number): CompileCacheScan | null {

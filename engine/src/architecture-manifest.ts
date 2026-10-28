@@ -1023,8 +1023,8 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "compile-cache", path: "scripts/tooling/compile-cache.ts", realm: "builder", layer: "verification",
       owner: "verification-foundation",
-      publicApi: { exportCount: 11, namesSha256: "26f853624328e5235a1c0427027502bcac8528a189c8bb7e79851eb737f0f47b" },
-      dependencies: ["node:fs","node:module","node:path","src/filesystem/private-state.ts","src/filesystem/user-folders.ts","src/shared/best-effort.ts"],
+      publicApi: { exportCount: 11, namesSha256: "85d4f65b0b87a1fd54f434c28b5f82add99f4a46848e4bf79fca70e111b21abc" },
+      dependencies: ["node:fs","node:module","node:path","src/filesystem/private-state.ts","src/filesystem/user-folders.ts","src/shared/best-effort.ts","src/shared/debug/debug-system.ts"],
       executionBoundary: "verification", effects: ["environment-access", "filesystem-write"],
       ports: { requires: [], provides: ["shared-v8-compile-cache-enablement"] },
       responsibilities: ["shared-v8-compile-cache-enablement-and-child-process-propagation"],

@@ -820,7 +820,7 @@
       "maxEntryAgeHours": 72,
       "inUseMinutes": 60,
       "intervalMinutes": 60,
-      "timeBudgetMs": 30000
+      "maxDeletionsPerPrune": 50000
     },
     "integrationSuiteCpuBudget": {
       "metric": "calibrated-work/v1",

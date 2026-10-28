@@ -1425,8 +1425,9 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // (last use is the later of mtime and atime). Pruning an entry a process
     // still reads costs that process a recompile, never a wrong result (a
     // missing cache entry is a cache miss), so the in-use window protects the
-    // live runs' work, not correctness. A walk cut by
-    // `timeBudgetMs` deletes nothing and says so. OPTIONAL WITH NO DEFAULT on
+    // live runs' work, not correctness. INCREMENTAL, never timed
+    // (NO-LOAD-BLOCK): one prune deletes at most `maxDeletionsPerPrune`, and
+    // when that left work the next enabler continues at once. OPTIONAL WITH NO DEFAULT on
     // purpose: a missing policy means no pruning plus a printed note naming
     // this key — a bound nobody chose is not a bound.
     compileCachePruning: z.strictObject({
@@ -1434,7 +1435,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
       maxEntryAgeHours: z.number().positive().max(8_760),
       inUseMinutes: z.number().int().positive().max(525_600),
       intervalMinutes: z.number().int().positive().max(10_080),
-      timeBudgetMs: z.number().int().positive().max(600_000),
+      maxDeletionsPerPrune: z.number().int().positive().max(10_000_000),
     }).optional(),
     integrationSuiteCpuBudget: z.union([
       accumulatingCpuBudgetSchema,

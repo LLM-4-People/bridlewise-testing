@@ -116,11 +116,14 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     releaseInstrumentLock?.();
     return { operation, exitCode };
   };
+  // OUTSIDE the try: a refused config document is a refusal of the run, never
+  // a caught-and-reported runner failure (config-refusal-propagates.test.ts).
+  const compileCachePruning = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url))).compileCachePruning;
   try {
     // The enabler bounds the cache (testExecution.compileCachePruning), BEFORE
     // `beginMeasuredRun` takes the CPU baseline and the start-stamp, so the
     // prune's cost and its deletions stay outside the measured window.
-    enableSharedCompileCache(readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url))).compileCachePruning);
+    enableSharedCompileCache(compileCachePruning);
     process.stderr.write(`${temporaryRootPreflightLine("run-tests", temporaryRootHeadroom())}\n`);
     const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../../", import.meta.url)));
     if (keptOut !== undefined) {

@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -22,7 +22,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import {
   pruneCompileCache,
   pruneCompileCacheAtEnablement,
-  pruneSummaryLine,
+  pruneSummary,
   type CompileCachePruningPolicy,
 } from "../../scripts/tooling/compile-cache.ts";
 
@@ -35,7 +35,7 @@ const POLICY: CompileCachePruningPolicy = {
   maxEntryAgeHours: 72,
   inUseMinutes: 120,
   intervalMinutes: 60,
-  timeBudgetMs: 60_000,
+  maxDeletionsPerPrune: 1_000,
 };
 
 /** A cache root with one version subdirectory, as Node lays it out. */
@@ -53,7 +53,7 @@ function plant(directory: string, name: string, kib: number, mtimeMs: number, at
   utimesSync(path, atimeMs / 1000, mtimeMs / 1000);
 }
 
-const prune = (root: string, policy: CompileCachePruningPolicy = POLICY) => pruneCompileCache(root, policy, NOW, Date.now() + policy.timeBudgetMs);
+const prune = (root: string, policy: CompileCachePruningPolicy = POLICY) => pruneCompileCache(root, policy, NOW);
 
 test("compile-cache bound: a FILLED cache is pruned least-recently-used first to its byte bound — exact survivors", () => {
   const { root, version } = cacheRoot("cc-filled-");
@@ -78,7 +78,9 @@ test("compile-cache bound: entries IN USE survive the byte bound, and a cache th
   const result = prune(root, { ...POLICY, maxBytes: 4 * KIB });
   assert.deepEqual(readdirSync(version).sort(), ["used-an-hour-ago", "written-now"], "only the idle entry may go; entries used within inUseMinutes are never pruned");
   assert.equal(result.overBoundInUse, true, "still over the bound because the rest is in use");
-  assert.match(pruneSummaryLine(result, { ...POLICY, maxBytes: 4 * KIB }), /STILL OVER THE BOUND: the rest is in use/u);
+  const summary = pruneSummary(result, { ...POLICY, maxBytes: 4 * KIB });
+  assert.ok(summary.line.endsWith("— STILL OVER THE BOUND: the rest is in use"), summary.line);
+  assert.equal(summary.loud, true, "a bound the cache cannot meet is reported always, not as debug");
 });
 
 test("compile-cache bound: LAST USE is the later of written and READ — an old entry read recently is recent", () => {
@@ -99,21 +101,26 @@ test("compile-cache bound: an entry unused past the age bound goes even when the
   assert.equal(result.prunedEntries, 1);
 });
 
-test("compile-cache bound: a walk the time budget cut short deletes NOTHING and says so", () => {
-  const { root, version } = cacheRoot("cc-budget-");
-  for (let index = 0; index < 600; index += 1) plant(version, `stale-${String(index)}`, 1, NOW - 100 * HOUR);
-  const result = pruneCompileCache(root, POLICY, NOW, Date.now() - 1);
-  assert.equal(result.timeBudgetExhausted, true);
-  assert.equal(result.prunedEntries, 0);
-  assert.equal(readdirSync(version).length, 600);
-  assert.ok(pruneSummaryLine(result, POLICY).endsWith("— TIME BUDGET EXHAUSTED before the walk finished: NOTHING was deleted, the cache is NOT bounded this time"));
+test("compile-cache bound: INCREMENTAL, never timed — a prune deletes at most its cap, the least recently used first, records that work is left, and the next enabler continues at once", () => {
+  const { root, version } = cacheRoot("cc-incremental-");
+  for (let index = 0; index < 5; index += 1) plant(version, `stale-${String(index)}`, 1, NOW - (100 + index) * HOUR);
+  const policy = { ...POLICY, maxDeletionsPerPrune: 2 };
+  const first = pruneCompileCacheAtEnablement(policy, root, NOW);
+  assert.deepEqual(readdirSync(version).sort(), ["stale-0", "stale-1", "stale-2"], "the two least recently used went first");
+  assert.match(first?.line ?? "", /the deletion cap \(2\) left prunable entries: the next enabler continues$/u);
+  // Within the interval, yet the last prune left work: the next enabler continues.
+  pruneCompileCacheAtEnablement(policy, root, NOW + 1_000);
+  assert.deepEqual(readdirSync(version), ["stale-0"]);
+  pruneCompileCacheAtEnablement(policy, root, NOW + 2_000);
+  assert.deepEqual(readdirSync(version), [], "the backlog is gone across enablers, with no clock judging any of them");
+  assert.equal(pruneCompileCacheAtEnablement(policy, root, NOW + 3_000), null, "no work left and within the interval: no prune");
 });
 
 test("compile-cache bound: at enablement, at most one prune per interval (a stamp in the root); an unreadable root is a loud refusal, never a silent skip", () => {
   const { root, version } = cacheRoot("cc-interval-");
   plant(version, "abandoned", 1, NOW - 100 * HOUR);
   const first = pruneCompileCacheAtEnablement(POLICY, root, NOW);
-  assert.match(first ?? "", /^\[compile-cache\] prune: 1 of 1 entries/u);
+  assert.ok(first?.line.startsWith("prune: 1 of 1 entries"), first?.line);
   assert.ok(existsSync(join(root, ".last-prune")), "the prune stamps the root");
   plant(version, "abandoned-again", 1, NOW - 100 * HOUR);
   assert.equal(pruneCompileCacheAtEnablement(POLICY, root, Date.now()), null, "within the interval, no second prune");
@@ -123,17 +130,29 @@ test("compile-cache bound: at enablement, at most one prune per interval (a stam
   assert.throws(() => pruneCompileCacheAtEnablement(POLICY, notADirectory, NOW), /ENOTDIR/u);
 });
 
-test("compile-cache bound: the ENABLER prunes and says so, and an enabler with no policy says the cache is NOT bounded", () => {
+test("compile-cache bound: the ENABLER prunes, reports through the logger on STDERR (stdout stays the runner's data), says a missing policy, and says a prune that FAILED", () => {
   const owner = pathToFileURL(join(import.meta.dirname, "..", "..", "scripts", "tooling", "compile-cache.ts")).href;
-  const run = (policy: string): string => {
+  const run = (policy: string, plant?: (cacheHome: string) => void) => {
     const cacheHome = createTempDir("cc-enabler-");
+    plant?.(cacheHome);
     const environment: NodeJS.ProcessEnv = { ...process.env, XDG_CACHE_HOME: cacheHome };
     delete environment["NODE_COMPILE_CACHE"];
     delete environment["NODE_DISABLE_COMPILE_CACHE"];
     const child = spawnSync(process.execPath, ["--input-type=module", "-e", `const { enableSharedCompileCache } = await import(${JSON.stringify(owner)}); enableSharedCompileCache(${policy});`], { env: environment, encoding: "utf8" });
     assert.equal(child.status, 0, child.stderr);
-    return child.stdout;
+    return child;
   };
-  assert.match(run(JSON.stringify(POLICY)), /^\[compile-cache\] prune: /mu, "the enabler bounds the cache it enables");
-  assert.match(run("undefined"), /the shared V8 compile cache is NOT bounded/u, "no policy is said, never a silent skip");
+  const bounded = run(JSON.stringify(POLICY));
+  assert.equal(bounded.stdout, "", "nothing on stdout: a runner reads its stdout as data");
+  const unbounded = run("undefined");
+  assert.equal(unbounded.stdout, "");
+  assert.ok(unbounded.stderr.includes("the shared V8 compile cache is NOT bounded"), unbounded.stderr);
+  // A version folder this user cannot read: the prune's walk fails, and the enabler SAYS so.
+  const failed = run(JSON.stringify(POLICY), (cacheHome) => {
+    const unreadable = join(cacheHome, "bridlewise", "v8-compile-cache", "v0-unreadable");
+    mkdirSync(unreadable, { recursive: true });
+    chmodSync(unreadable, 0o000);
+  });
+  assert.equal(failed.stdout, "");
+  assert.ok(failed.stderr.includes("PRUNE FAILED, the cache is NOT bounded this time"), failed.stderr);
 });
