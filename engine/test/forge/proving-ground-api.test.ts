@@ -203,6 +203,8 @@ test("V-28's verdict: the written candidate GitHub did not keep is caught as pro
     // GitHub KEPT the type: the candidate is no silent drop, and V-28 says so.
     [receipt({ writes: [write("PG28-PROBE", ["title", "block", "type"])] }), /GitHub did not keep issue\/PG28-PROBE\.type/u],
     [receipt({ writes: [write("PG28-PROBE", ["block"])], unverified: [dropped], verified: false }), /the run wrote issue\/PG28-PROBE\.type/u],
+    // GitHub dropped a DIFFERENT field it was written, and kept the candidate: the drop caught is not the candidate's.
+    [receipt({ ...caught, unverified: [{ ...dropped, field: "labels", expected: ["lane:floor"], observed: [] }] }), /GitHub did not keep issue\/PG28-PROBE\.type/u],
     [receipt({ ...caught, unverified: [dropped, { ...dropped, key: "PG25-T1" }] }), /every unverified field is one the run wrote/u],
     // A refusal is not a caught drop: its failure is the refusal's own code.
     [receipt({ ...caught, unverified: [], refusals: [{ code: "forge_rate_limited", message: "x", retryable: true }] }), /its failure is projection_unverified/u],
