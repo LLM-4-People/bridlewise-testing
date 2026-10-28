@@ -20,6 +20,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { isProcessAlive } from "../../src/process/process-facts.ts";
+
 // THE CHECKOUT UNDER TEST, not this shim's own: the door preloads the shim
 // from the top repository into a private checkout of each revision, and a
 // test file runs with its engine root as cwd. The other "test file" must
@@ -30,14 +32,8 @@ const SUPPORT = pathToFileURL(join(ENGINE_ROOT, "test", "support", "repository-l
 const OWNED_ROOT = /\/(?:[a-z0-9-]*-)?owner-(\d+)-\d+-[0-9a-f]+(?:\/|$)/u;
 const swept = new Set<string>();
 
-function dead(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH";
-  }
-}
+/** Liveness through the one owner (src/process/process-facts.ts), never a probe of its own. */
+const dead = (pid: number): boolean => !isProcessAlive(pid);
 
 const existsSync = fs.existsSync;
 fs.existsSync = ((path: fs.PathLike) => {
