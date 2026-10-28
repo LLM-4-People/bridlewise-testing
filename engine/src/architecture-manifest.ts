@@ -4318,7 +4318,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-identity-grammars", path: "src/privacy/identity-grammars.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 8, namesSha256: "354a973f81cbdb06019330c436b5b57f8ab7bca43dae6d18ddce62118f3bf51f" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 7, namesSha256: "aa84972b4c0f372c75f815e8210327a35561f7a4482ba9ccd94d7eeeaae88c63" },
       dependencies: ["src/kernel/integrity.ts","src/privacy/detection-span.ts"],
     }),
     moduleContract({

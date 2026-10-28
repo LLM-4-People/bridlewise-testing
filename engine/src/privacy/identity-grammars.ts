@@ -176,7 +176,7 @@ export function isPossibleUsSsn(value: string): boolean {
  * internationalised domain is an address too. A fresh `g` pattern per call (a
  * shared one keeps its `lastIndex`).
  */
-export const EMAIL_ADDRESS_SOURCE = String.raw`[\p{L}\p{N}._%+-]{1,64}@[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?)*\.\p{L}{2,24}`;
+const EMAIL_ADDRESS_SOURCE = String.raw`[\p{L}\p{N}._%+-]{1,64}@[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?(?:\.[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?)*\.\p{L}{2,24}`;
 
 /** A new global matcher for {@link EMAIL_ADDRESS_SOURCE}. */
 export function emailAddressPattern(): RegExp {
