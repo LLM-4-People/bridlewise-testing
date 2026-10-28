@@ -42,11 +42,15 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
+import { doorNodeArgs, doorRun } from "../../scripts/tooling/test-guards.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
+import { createTempDir } from "../support/temp-dir.ts";
+import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
 import { createRepositoryLocalTemporaryDirectory, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
 const ROOT = process.cwd();
@@ -197,4 +201,74 @@ test("the subset door REFUSES a no-argument run (it would discover non-test .mjs
     run.stderr.includes("requires an explicit test file or pattern"),
     `the refusal must name the remedy, got: ${run.stderr.slice(-400)}`,
   );
+});
+
+test("the subset door runs its test files under the SUITE'S OWN bounds: a per-test wall timeout is refused and the CPU judgement reads every test, exactly as in the suite", () => {
+  // Before, a targeted run (`test:unit`, and `harness flake reproduce`, which
+  // runs here) ran plain `node --test`: no CPU judgement and no backstop, so
+  // a CPU-class failure could never be seen or reproduced (#615).
+  const dir = createTempDir("subset-door-bounds-");
+  const file = join(dir, "bounded.test.mjs");
+  writeFileSync(file, [
+    'import test from "node:test";',
+    'test("declares its own wall timeout", { timeout: 1234 }, () => {});',
+    'test("clean", () => {});',
+  ].join("\n"));
+  // The door is a runner of its own, never a test file of this run.
+  const { NODE_TEST_CONTEXT: _ownContext, ...env } = process.env;
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", "scripts/tooling/test-guards.ts", file], { cwd: ROOT, encoding: "utf8", env, timeout: DEFAULT_TEST_HANG_BACKSTOP_MS });
+  assert.equal(run.status, 1, `the refused timeout fails the run: ${run.stdout.slice(-600)}`);
+  assert.match(run.stdout, /bounded by a 1234 ms wall timeout: a per-test wall timeout is not allowed/u, "the suite's wall-bound refusal ran in the targeted file's process");
+  assert.match(run.stdout, /cpu-work \d+ ms; wall \d+ ms \(recorded, not judged\)/u, "the suite's CPU judgement read the test");
+});
+
+test("the subset door hands node EXACTLY the files it bounds: a file as given and a glob's matches, each flag a known boolean or --name=value; a folder, an unmatched pattern, a space-form flag value and a run naming no file are each refused typed", () => {
+  const dir = createTempDir("subset-door-files-");
+  mkdirSync(join(dir, "nested"));
+  for (const name of ["a.test.ts", "nested/b.test.mjs", "nested/helper.ts"]) writeFileSync(join(dir, name), "");
+  assert.deepEqual(doorRun([join(dir, "a.test.ts"), "--test-name-pattern=x", "--test-only"], dir), { flags: ["--test-name-pattern=x", "--test-only"], files: [join(dir, "a.test.ts")] });
+  assert.deepEqual(doorRun(["nested/*.mjs"], dir).files, [join(dir, "nested", "b.test.mjs")]);
+  const refused = (args: readonly string[]): string | undefined => {
+    try {
+      doorRun(args, dir);
+      return undefined;
+    } catch (error) {
+      return (error as { code?: string }).code;
+    }
+  };
+  assert.equal(refused([dir]), "test_guards_folder_argument");
+  assert.equal(refused(["nothing/*.test.ts"]), "test_guards_pattern_unmatched");
+  assert.equal(refused(["--import", "nested/helper.ts", "a.test.ts"]), "test_guards_flag_value");
+  assert.equal(refused(["--test-name-pattern=x"]), "test_guards_no_test_file");
+});
+
+test("THE SPACE-FORM HOLE (review of #626): `--import ./noop.mjs` from a folder holding test files is refused before node runs — node would read the value as the flag's and discover every test there unbounded", () => {
+  const dir = createTempDir("subset-door-space-form-");
+  writeFileSync(join(dir, "noop.mjs"), "");
+  writeFileSync(join(dir, "discovered.test.mjs"), 'import test from "node:test"; test("discovered", () => { console.log("RAN-UNBOUNDED"); });\n');
+  const { NODE_TEST_CONTEXT: _ownContext, ...env } = process.env;
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", join(ROOT, "scripts", "tooling", "test-guards.ts"), "--import", "./noop.mjs"], { cwd: dir, encoding: "utf8", env, timeout: DEFAULT_TEST_HANG_BACKSTOP_MS });
+  assert.equal(run.status, 1, `${run.stdout.slice(-400)}${run.stderr.slice(-400)}`);
+  assert.ok(run.stderr.includes("write a flag's value in the same argument"), run.stderr.slice(-400));
+  assert.ok(!run.stdout.includes("RAN-UNBOUNDED"), "a discovered test ran outside the bounds");
+});
+
+test("the door hands node EXACTLY its own argv — the bounds' preload, --test with the backstop, the door's flags, then the files it bounds — and main runs THAT, never the arguments it was given", () => {
+  const dir = createTempDir("subset-door-argv-");
+  writeFileSync(join(dir, "a.test.ts"), "");
+  const door = doorRun(["a.test.ts", "--test-name-pattern=x"], dir);
+  const bounds = { hangBackstopMs: 600_000, cpuClasses: null, repositoryRoot: dir, files: door.files };
+  assert.deepEqual(doorNodeArgs(bounds, door), [
+    "--experimental-strip-types",
+    engineTestBoundsImport(bounds),
+    "--test",
+    "--test-timeout=600000",
+    "--test-name-pattern=x",
+    join(dir, "a.test.ts"),
+  ]);
+  // The run main makes is that argv: a door that handed node its raw arguments again would not call it.
+  const source = readSourceView(join(ROOT, "scripts", "tooling", "test-guards.ts")).code();
+  const mainBody = source.slice(source.indexOf("export async function main"));
+  assert.ok(mainBody.includes("args: doorNodeArgs(bounds, door)"), "main hands node the door's own argv");
+  assert.ok(!mainBody.includes("process.argv.slice(2)]") && !mainBody.includes("...process.argv"), "main never spreads the arguments it was given into node's argv");
 });

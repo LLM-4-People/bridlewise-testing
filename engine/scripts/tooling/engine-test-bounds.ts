@@ -29,10 +29,11 @@
  * loudly instead of passing unwatched.
  */
 import timers from "node:timers";
-import { relative, sep } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import { isMainThread } from "node:worker_threads";
 
 import { isEntryPointAmong } from "../../src/runtime/entry-point.ts";
+import { DEFAULT_TEST_CPU_CLASSES, DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
 import { installTestCpuJudgement, type TestCpuClasses } from "./test-cpu-class.ts";
 
 /**
@@ -42,6 +43,25 @@ import { installTestCpuJudgement, type TestCpuClasses } from "./test-cpu-class.t
  * is one of them installs anything.
  */
 export type EngineTestBounds = Readonly<{ hangBackstopMs: number; cpuClasses: TestCpuClasses | null; repositoryRoot: string; files: readonly string[] }>;
+
+/**
+ * THE ONE CONSTRUCTION of a run's bounds from the config (every engine runner
+ * uses it: the suite's inventory run and the targeted door test-guards.ts),
+ * so no runner runs its test files under bounds of its own or none at all.
+ * `coverage` judges no CPU (it instruments every line). The files are the
+ * runner's: it adds them.
+ */
+export function engineTestBoundsFrom(
+  options: Readonly<{ testHangBackstopMs?: number; testCpuClasses?: TestCpuClasses }>,
+  engineRoot: string,
+  coverage = false,
+): Omit<EngineTestBounds, "files"> {
+  return Object.freeze({
+    hangBackstopMs: options.testHangBackstopMs ?? DEFAULT_TEST_HANG_BACKSTOP_MS,
+    cpuClasses: coverage ? null : options.testCpuClasses ?? DEFAULT_TEST_CPU_CLASSES,
+    repositoryRoot: resolve(engineRoot, ".."),
+  });
+}
 
 /** The refusal of a per-test wall bound, naming it. */
 function wallBoundRefusal(delay: unknown, backstopMs: number): string {
