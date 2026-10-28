@@ -1,163 +1,139 @@
-// THE COMPILE-CACHE PRUNER, DRIVEN OVER PLANTED MTIMES WITH EXACT SURVIVORS.
+// THE COMPILE-CACHE BOUND, DRIVEN OVER PLANTED SIZES AND LAST USES WITH EXACT SURVIVORS.
 //
-// The shared V8 compile cache is unbounded by the runtime and was measured at
-// 1,965,259 entries / 20 GB two days after a full clear (~11.5k never-reusable
-// temp-path entries per suite run). `scripts/compile-cache.ts` now owns a
-// bounded-cache policy: an entry survives iff its mtime is within the age
-// window AND among the newest `maxEntries`. A deletion routine no test drives
-// is the routine whose fresh-entry-eating mutant survives every guard — so
-// every branch here is driven against a fixture directory with planted
-// mtimes, and the SURVIVING SET is asserted by name, not by count.
-//
-// `pruneCompileCacheRoot` itself is a thin fan-out over the real cache root
-// (a module-load constant), so the injectable `pruneCacheDirectory` is the
-// driven surface — the same seam `scanCacheDirectory` already earns its
-// driven test through, for the same recorded reason.
+// The shared V8 compile cache keys an entry per compiled file per PATH, so
+// every worktree adds a full copy. Measured 2026-10-28: 20 GB / 307k files
+// (the host disk at 98%) under the old bound, which kept the newest 400,000
+// entries PER DIRECTORY and so never pruned a cache of large entries.
+// `scripts/tooling/compile-cache.ts` now bounds the cache's TOTAL BYTES,
+// least-recently-used first, plus an age since last use, and never prunes an
+// entry used within `inUseMinutes`. A deletion routine no test drives is the
+// routine whose in-use-entry-eating mutant survives every guard — so every
+// branch is driven against a fixture root with planted sizes, mtimes and
+// atimes, and the SURVIVING SET is asserted by name, not by count.
 
 import assert from "node:assert/strict";
-import test from "node:test";
-import { mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { createTempDir } from "../support/temp-dir.ts";
 import {
-  pruneCacheDirectory,
+  pruneCompileCache,
+  pruneCompileCacheAtEnablement,
+  pruneSummaryLine,
   type CompileCachePruningPolicy,
 } from "../../scripts/tooling/compile-cache.ts";
 
-const NOW = Date.UTC(2026, 6, 30, 12, 0, 0);
-const DAY = 86_400_000;
-
-/** Plant one cache-entry file with an exact mtime. */
-function plant(dir: string, name: string, mtimeMs: number): void {
-  const p = join(dir, name);
-  writeFileSync(p, "compiled-bytes");
-  utimesSync(p, mtimeMs / 1000, mtimeMs / 1000);
-}
+const NOW = Date.UTC(2026, 9, 28, 12, 0, 0);
+const HOUR = 3_600_000;
+const KIB = 1024;
 
 const POLICY: CompileCachePruningPolicy = {
-  maxEntryAgeDays: 7,
-  maxEntries: 4,
+  maxBytes: 10 * KIB,
+  maxEntryAgeHours: 72,
+  inUseMinutes: 120,
+  intervalMinutes: 60,
   timeBudgetMs: 60_000,
 };
 
-test("pruner: exact survivors — within the age window AND among the newest maxEntries", () => {
-  const dir = createTempDir("compile-cache-prune-");
-  // Three beyond the 7-day window, six within it. With a cap of 4, the
-  // survivors are exactly the four NEWEST of the six in-window entries.
-  plant(dir, "stale-a", NOW - 9 * DAY);
-  plant(dir, "stale-b", NOW - 8 * DAY);
-  plant(dir, "stale-c", NOW - 7 * DAY - 1);
-  plant(dir, "old-in-window", NOW - 6 * DAY);
-  plant(dir, "older-mid", NOW - 5 * DAY);
-  plant(dir, "mid", NOW - 3 * DAY);
-  plant(dir, "young", NOW - 1 * DAY);
-  plant(dir, "fresh", NOW - 1000);
-  plant(dir, "freshest", NOW);
-  const result = pruneCacheDirectory(dir, POLICY, NOW, Date.now() + POLICY.timeBudgetMs);
-  assert.deepEqual(
-    readdirSync(dir).sort(),
-    ["fresh", "freshest", "mid", "young"],
-    "the survivor SET must be exactly the newest maxEntries within the age window",
-  );
-  assert.equal(result.scannedEntries, 9);
-  assert.equal(result.prunedEntries, 5);
-  assert.equal(result.survivors, 4);
-  assert.equal(result.timeBudgetExhausted, false);
+/** A cache root with one version subdirectory, as Node lays it out. */
+function cacheRoot(prefix: string): Readonly<{ root: string; version: string }> {
+  const root = createTempDir(prefix);
+  const version = join(root, "v24.20.0-x64-plant-1000");
+  mkdirSync(version);
+  return { root, version };
+}
+
+/** Plant one entry of `kib` KiB, last written at `mtimeMs` and last read at `atimeMs`. */
+function plant(directory: string, name: string, kib: number, mtimeMs: number, atimeMs: number = mtimeMs): void {
+  const path = join(directory, name);
+  writeFileSync(path, Buffer.alloc(kib * KIB, 1));
+  utimesSync(path, atimeMs / 1000, mtimeMs / 1000);
+}
+
+const prune = (root: string, policy: CompileCachePruningPolicy = POLICY) => pruneCompileCache(root, policy, NOW, Date.now() + policy.timeBudgetMs);
+
+test("compile-cache bound: a FILLED cache is pruned least-recently-used first to its byte bound — exact survivors", () => {
+  const { root, version } = cacheRoot("cc-filled-");
+  // 16 KiB of entries, all older than the in-use window, all younger than the age bound; bound 10 KiB.
+  plant(version, "oldest", 4, NOW - 60 * HOUR);
+  plant(version, "older", 4, NOW - 50 * HOUR);
+  plant(version, "newer", 4, NOW - 40 * HOUR);
+  plant(version, "newest", 4, NOW - 30 * HOUR);
+  const result = prune(root);
+  assert.deepEqual(readdirSync(version).sort(), ["newer", "newest"], "the least recently used go first, until the cache fits");
+  assert.equal(result.scannedBytes, 16 * KIB);
+  assert.equal(result.prunedBytes, 8 * KIB);
+  assert.equal(result.survivorBytes, 8 * KIB);
+  assert.equal(result.overBoundInUse, false);
 });
 
-// ── WHAT "FRESH" DOES AND DOES NOT BUY, decided by mechanism ───────────────
-// This test used to certify "fresh entries are NEVER deleted — under any
-// policy that admits at least one entry", and its fixture never bound the
-// cap (two entries, maxEntries 2), so the claim was wider than the code:
-// with maxEntries 1 a 2-second-old entry prunes. That is the CAP WORKING,
-// not a defect — maxEntries is the operator's hard bound, and an age-based
-// exemption for "fresh" entries would unbound it exactly when a runaway run
-// floods the cache with fresh never-reusable writes, which is the measured
-// growth this policy exists to stop. The warmth instrument is protected by
-// ORDERING, not by an exemption: the prune runs before the run's
-// start-stamp (`beginMeasuredRun` in scripts/run-tests.ts, order pinned by
-// test), so it can only ever delete entries whose mtime predates the stamp
-// the warmth walk reads against. So the honest invariant is narrower, and
-// both directions are driven: freshness protects an entry only from the AGE
-// arm, never from the cap.
-test("pruner: freshness exempts an entry from the age arm, NOT from the cap", () => {
-  const capBinds = createTempDir("compile-cache-fresh-cap-");
-  plant(capBinds, "written-this-run", NOW - 50);
-  plant(capBinds, "written-just-before", NOW - 5_000);
-  const bound = pruneCacheDirectory(
-    capBinds,
-    { maxEntryAgeDays: 1, maxEntries: 1, timeBudgetMs: 60_000 },
-    NOW,
-    Date.now() + 60_000,
-  );
-  assert.equal(bound.prunedEntries, 1, "the cap must bind even against a seconds-old entry");
-  assert.deepEqual(readdirSync(capBinds).sort(), ["written-this-run"],
-    "when the cap binds, the OLDEST in-window entry is the one that goes");
-
-  const capAdmits = createTempDir("compile-cache-fresh-");
-  plant(capAdmits, "written-this-run", NOW - 50);
-  plant(capAdmits, "written-just-before", NOW - 5_000);
-  const unbound = pruneCacheDirectory(
-    capAdmits,
-    { maxEntryAgeDays: 1, maxEntries: 2, timeBudgetMs: 60_000 },
-    NOW,
-    Date.now() + 60_000,
-  );
-  assert.equal(unbound.prunedEntries, 0, "a policy whose cap admits every in-window entry deletes nothing fresh");
-  assert.deepEqual(readdirSync(capAdmits).sort(), ["written-just-before", "written-this-run"]);
+test("compile-cache bound: entries IN USE survive the byte bound, and a cache that stays over it says so", () => {
+  const { root, version } = cacheRoot("cc-in-use-");
+  plant(version, "idle", 4, NOW - 48 * HOUR);
+  plant(version, "used-an-hour-ago", 4, NOW - 1 * HOUR);
+  plant(version, "written-now", 4, NOW - 1_000);
+  const result = prune(root, { ...POLICY, maxBytes: 4 * KIB });
+  assert.deepEqual(readdirSync(version).sort(), ["used-an-hour-ago", "written-now"], "only the idle entry may go; entries used within inUseMinutes are never pruned");
+  assert.equal(result.overBoundInUse, true, "still over the bound because the rest is in use");
+  assert.match(pruneSummaryLine(result, { ...POLICY, maxBytes: 4 * KIB }), /STILL OVER THE BOUND: the rest is in use/u);
 });
 
-test("pruner: entries tied at the cap's cutoff mtime all survive (the stated bounded slack)", () => {
-  const dir = createTempDir("compile-cache-tie-");
-  const tieMtime = NOW - 2 * DAY;
-  plant(dir, "tie-a", tieMtime);
-  plant(dir, "tie-b", tieMtime);
-  plant(dir, "tie-c", tieMtime);
-  plant(dir, "newest", NOW);
-  const result = pruneCacheDirectory(
-    dir,
-    { maxEntryAgeDays: 7, maxEntries: 2, timeBudgetMs: 60_000 },
-    NOW,
-    Date.now() + 60_000,
-  );
-  // Cap is 2, but the cutoff lands ON the tie: nothing is STRICTLY older
-  // than the cutoff, so all four survive — kept can exceed the cap by one
-  // mtime tie, and only by that.
-  assert.equal(result.prunedEntries, 0);
-  assert.equal(readdirSync(dir).length, 4);
+test("compile-cache bound: LAST USE is the later of written and READ — an old entry read recently is recent", () => {
+  const { root, version } = cacheRoot("cc-atime-");
+  plant(version, "written-long-ago-read-recently", 4, NOW - 70 * HOUR, NOW - 2 * HOUR);
+  plant(version, "written-recently-never-read", 4, NOW - 40 * HOUR);
+  plant(version, "idle", 4, NOW - 50 * HOUR);
+  prune(root, { ...POLICY, maxBytes: 8 * KIB });
+  assert.deepEqual(readdirSync(version).sort(), ["written-long-ago-read-recently", "written-recently-never-read"]);
 });
 
-test("pruner: an exhausted time budget stops the walk and reports it — partial progress, never a stall", () => {
-  const dir = createTempDir("compile-cache-budget-");
-  for (let i = 0; i < 600; i++) plant(dir, `stale-${String(i)}`, NOW - 30 * DAY);
-  // The deadline is already in the past, so the first batched clock check
-  // stops the collection walk before any deletion pass runs.
-  const originalSort = Array.prototype.sort;
-  let sortCalls = 0;
-  Array.prototype.sort = function <T>(this: T[], compare?: (a: T, b: T) => number): T[] {
-    sortCalls += 1;
-    return Reflect.apply(originalSort, this, [compare]) as T[];
-  };
-  let result;
-  try {
-    result = pruneCacheDirectory(dir, POLICY, NOW, Date.now() - 1);
-  } finally { Array.prototype.sort = originalSort; }
-  assert.equal(result.timeBudgetExhausted, true);
-  assert.equal(result.prunedEntries, 0, "an exhausted collection walk must not guess at deletions");
-  assert.equal(readdirSync(dir).length, 600, "every entry survives an exhausted walk");
-  assert.ok(result.scannedEntries > POLICY.maxEntries, "the partial collection actually reaches the cap-selection branch");
-  assert.equal(sortCalls, 0, "an exhausted collection must not sort a cutoff that no deletion walk will consume");
-});
-
-test("pruner: non-file entries are untouched and an unreadable directory prunes nothing", () => {
-  const dir = createTempDir("compile-cache-subdir-");
-  mkdirSync(join(dir, "a-subdirectory"));
-  plant(dir, "stale", NOW - 30 * DAY);
-  const result = pruneCacheDirectory(dir, POLICY, NOW, Date.now() + 60_000);
+test("compile-cache bound: an entry unused past the age bound goes even when the cache is under its byte bound", () => {
+  const { root, version } = cacheRoot("cc-age-");
+  plant(version, "abandoned", 1, NOW - 100 * HOUR);
+  plant(version, "recent", 1, NOW - 10 * HOUR);
+  const result = prune(root);
+  assert.deepEqual(readdirSync(version), ["recent"]);
   assert.equal(result.prunedEntries, 1);
-  assert.deepEqual(readdirSync(dir), ["a-subdirectory"]);
-  const missing = pruneCacheDirectory(join(dir, "does-not-exist"), POLICY, NOW, Date.now() + 60_000);
-  assert.equal(missing.scannedEntries, 0);
-  assert.equal(missing.prunedEntries, 0);
+});
+
+test("compile-cache bound: a walk the time budget cut short deletes NOTHING and says so", () => {
+  const { root, version } = cacheRoot("cc-budget-");
+  for (let index = 0; index < 600; index += 1) plant(version, `stale-${String(index)}`, 1, NOW - 100 * HOUR);
+  const result = pruneCompileCache(root, POLICY, NOW, Date.now() - 1);
+  assert.equal(result.timeBudgetExhausted, true);
+  assert.equal(result.prunedEntries, 0);
+  assert.equal(readdirSync(version).length, 600);
+  assert.ok(pruneSummaryLine(result, POLICY).endsWith("— TIME BUDGET EXHAUSTED before the walk finished: NOTHING was deleted, the cache is NOT bounded this time"));
+});
+
+test("compile-cache bound: at enablement, at most one prune per interval (a stamp in the root); an unreadable root is a loud refusal, never a silent skip", () => {
+  const { root, version } = cacheRoot("cc-interval-");
+  plant(version, "abandoned", 1, NOW - 100 * HOUR);
+  const first = pruneCompileCacheAtEnablement(POLICY, root, NOW);
+  assert.match(first ?? "", /^\[compile-cache\] prune: 1 of 1 entries/u);
+  assert.ok(existsSync(join(root, ".last-prune")), "the prune stamps the root");
+  plant(version, "abandoned-again", 1, NOW - 100 * HOUR);
+  assert.equal(pruneCompileCacheAtEnablement(POLICY, root, Date.now()), null, "within the interval, no second prune");
+  assert.deepEqual(readdirSync(version), ["abandoned-again"]);
+  const notADirectory = join(createTempDir("cc-file-root-"), "a-file");
+  writeFileSync(notADirectory, "x");
+  assert.throws(() => pruneCompileCacheAtEnablement(POLICY, notADirectory, NOW), /ENOTDIR/u);
+});
+
+test("compile-cache bound: the ENABLER prunes and says so, and an enabler with no policy says the cache is NOT bounded", () => {
+  const owner = pathToFileURL(join(import.meta.dirname, "..", "..", "scripts", "tooling", "compile-cache.ts")).href;
+  const run = (policy: string): string => {
+    const cacheHome = createTempDir("cc-enabler-");
+    const environment: NodeJS.ProcessEnv = { ...process.env, XDG_CACHE_HOME: cacheHome };
+    delete environment["NODE_COMPILE_CACHE"];
+    delete environment["NODE_DISABLE_COMPILE_CACHE"];
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `const { enableSharedCompileCache } = await import(${JSON.stringify(owner)}); enableSharedCompileCache(${policy});`], { env: environment, encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    return child.stdout;
+  };
+  assert.match(run(JSON.stringify(POLICY)), /^\[compile-cache\] prune: /mu, "the enabler bounds the cache it enables");
+  assert.match(run("undefined"), /the shared V8 compile cache is NOT bounded/u, "no policy is said, never a silent skip");
 });

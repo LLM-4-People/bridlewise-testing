@@ -159,7 +159,8 @@ function parseMode(argv: readonly string[]): WorkerMode {
 }
 
 if (isEntryPoint(import.meta.url)) {
-  enableSharedCompileCache();
+  // The runner enabled (and bounded) the cache for this tree; this worker inherits it.
+  enableSharedCompileCache(undefined);
   // Dev-mode safe-read env vars: propagate the hardlink/symlink bypass
   // automatically so the worker's child test processes (which inherit
   // `process.env`) never reject the dev workspace tree. See
