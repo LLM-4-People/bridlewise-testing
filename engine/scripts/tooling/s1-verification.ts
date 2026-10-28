@@ -1806,7 +1806,6 @@ function verifyTrustedBootstrapSurface(root: string, paths: readonly string[], v
     source,
     violations,
     true,
-    new Set(["fchmodSync"]),
   );
   const analysis = analyzeStaticSource(source, TRUSTED_BOOTSTRAP_PATH);
   // The bootstrap's import of the root policy is RELATIVE to the script's own
@@ -1825,6 +1824,10 @@ function verifyTrustedBootstrapSurface(root: string, paths: readonly string[], v
     // which is the point — the import landed without this line and the
     // resulting diagnostic sat unread inside a slow-gated test file.
     "../../src/filesystem/link-containment.ts",
+    // Its one mode change goes through the one owner of "this file holds
+    // exactly this mode" (settled only when it differs: a same-mode chmod
+    // moves the ctime a concurrent configuration bootstrap compares, #293).
+    "../../src/filesystem/file-mode.ts",
     "../../src/kernel/integrity.ts",
     "../../src/filesystem/linux-path.ts",
     rootPolicySpecifier,
@@ -1850,11 +1853,9 @@ function verifyTrustedBootstrapSurface(root: string, paths: readonly string[], v
   }
   const tokens = tokenize(source, TRUSTED_BOOTSTRAP_PATH);
   const identifiers = tokens.filter((token) => token.kind === "identifier").map((token) => token.value);
-  const forbiddenEffects = [...new Set(identifiers.filter((identifier) =>
-    isForbiddenEffectIdentifier(identifier) && identifier !== "fchmodSync"
-  ))];
+  const forbiddenEffects = [...new Set(identifiers.filter((identifier) => isForbiddenEffectIdentifier(identifier)))];
   const descriptorModeChanges = tokens.filter((token, index) =>
-    token.value === "fchmodSync" && tokens[index + 1]?.value === "("
+    token.value === "settleDescriptorMode" && tokens[index + 1]?.value === "("
   ).length;
   if (forbiddenEffects.length > 0 || descriptorModeChanges !== 1) {
     violations.push("trusted-bootstrap-effect-surface");

@@ -56,7 +56,7 @@ import type { PoolOptions, WorkerRequest, WorkerResponse } from "vitest/node";
 import { contextPool } from "../helpers/vm-context-pool.ts";
 import { runBoundedTestProcess } from "../../engine/src/process/supervised-run.ts";
 import { isProcessAlive } from "../../engine/src/process/process-facts.ts";
-import { testProcessSupervisorBinary } from "../../engine/guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../engine/guardian/build.ts";
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { getCompileCacheDir } from "node:module";
@@ -132,7 +132,7 @@ describe("isolation contract — the env-restore setup file (the env isolation g
     expect(resetServerConfig().port, "the live config uses the isolated worker port").toBe(0);
     const program = `import {serverConfig} from ${JSON.stringify(pathToFileURL(resolve(CONFIG_REL)).href)};
 console.log(JSON.stringify({inherited:process.env.HARNESS_WEB_PORT,resolved:serverConfig.port}));`;
-    const child = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, ["--input-type=module", "--eval", program], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
+    const child = runBoundedTestProcess(ensureTestProcessSupervisor(), process.execPath, ["--input-type=module", "--eval", program], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(child.error, "the real child must resolve supported configuration without HTTP").toBeUndefined();
     expect(child.status, child.stderr).toBe(0);
     expect(JSON.parse(child.stdout)).toEqual({ inherited: "0", resolved: 0 });
@@ -529,7 +529,7 @@ describe("isolation contract — bounded context adapter work", () => {
     writeFileSync(script, `import {contextPool} from ${JSON.stringify(pathToFileURL(resolve("tests/helpers/vm-context-pool.ts")).href)};
 let error;try{contextPool.createPoolWorker({project:{vitest:{config:{watch:false,maxWorkers:1,vmMemoryLimit:'1'.repeat(1_000_000)+'-'}}}});}catch(caught){error=caught;}
 console.log(JSON.stringify({name:error?.name,code:error?.code}));`);
-    const child = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [script], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
+    const child = runBoundedTestProcess(ensureTestProcessSupervisor(), process.execPath, [script], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(child.error, "repeated prefix retries must not consume the execution bound").toBeUndefined();
     expect(child.status, child.stderr).toBe(0);
     expect(JSON.parse(child.stdout)).toEqual({ name: "InputError", code: "context_worker_memory_invalid" });
@@ -538,12 +538,12 @@ console.log(JSON.stringify({name:error?.name,code:error?.code}));`);
 
   test("native descriptor exhaustion after launch fails only after its owned descendants are reaped", () => {
     const directory = createTempDir("native-supervisor-descriptor-bound-");
-    const native = realpathSync("engine/guardian/build/test-process-supervisor");
+    const native = realpathSync(ensureTestProcessSupervisor());
     // The outer owner is a safety boundary and independent witness: it must
     // adopt nothing when the failing inner primitive cleans up correctly.
     // Positional shell arguments preserve arbitrary paths without interpolation.
     const descendantPath = join(directory, "descendant-pid");
-    const child = runBoundedTestProcess(testProcessSupervisorBinary(), "sh", ["-c",
+    const child = runBoundedTestProcess(ensureTestProcessSupervisor(), "sh", ["-c",
       'exec 3>"$1"; exec "$2" 1000 100 sh -c \'sleep 60 & echo $! > "$1"; prlimit --pid "$PPID" --nofile=4:4\' resource-child "$3"',
       "supervisor-resource-control", join(directory, "failed-receipt.json"), native, descendantPath], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
     expect(child.error).toBeUndefined();
@@ -583,13 +583,13 @@ appendFileSync(${JSON.stringify(events)},JSON.stringify({kind:'supervisor',pid:p
 spawn(process.execPath,[${JSON.stringify(spinner)}],{stdio:'inherit',detached:true});
 process.on('SIGTERM',()=>appendFileSync(${JSON.stringify(events)},JSON.stringify({kind:'term-handled',pid:process.pid})+'\\n'));
 setInterval(()=>{},1000);`);
-    const child = runBoundedTestProcess(testProcessSupervisorBinary(), process.execPath, [launcher], { timeoutMs: 1000, killGraceMs: 100 });
+    const child = runBoundedTestProcess(ensureTestProcessSupervisor(), process.execPath, [launcher], { timeoutMs: 1000, killGraceMs: 100 });
     const all = readFileSync(events, "utf8").trim().split("\n").map(line => JSON.parse(line) as { kind: string; pid: number; exe?: string; stat?: string; magic?: number[] });
     const owners = all.filter(event => event.kind === "supervisor");
     expect(owners, "the real command must observe exactly one supervising executable").toHaveLength(1);
     const owner = owners[0]!;
     expect(owner.exe, "actual supervision cannot execute an embedded interpreter behind a TS wrapper")
-      .toBe(realpathSync("engine/guardian/build/test-process-supervisor"));
+      .toBe(realpathSync(ensureTestProcessSupervisor()));
     expect(owner.magic, "the executed lifetime primitive must be a native ELF").toEqual([127, 69, 76, 70]);
     expect(Number(owner.stat!.slice(owner.stat!.lastIndexOf(")") + 1).trim().split(/\s+/)[1]),
       "no intervening interpreter or wrapper may supervise the native owner").toBe(process.pid);

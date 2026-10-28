@@ -375,7 +375,7 @@ test("shared repository-root qualification rejects mounted and symlinked ancesto
   });
 });
 
-test("repository-local fixture cleanup isolates retained concurrent and crashed owners x3", { timeout: 180_000 }, async (t) => {
+test("repository-local fixture cleanup isolates retained concurrent and crashed owners x3", async (t) => {
   const worker = fileURLToPath(new URL("../support/repository-local-temporary-worker.ts", import.meta.url));
   for (let repetition = 0; repetition < 3; repetition += 1) {
     const retainedResult = await runTemporaryOwnerWorker(worker, "retain");

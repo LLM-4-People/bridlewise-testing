@@ -37,6 +37,11 @@ export function releaseAssetNames(version: string, platform: string): Readonly<R
   });
 }
 
+/** Where a published release's asset is downloaded: `<repository>/releases/download/<tag>/<name>`, the forge's own address of it (the repository's web address comes from the job, `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY`; no host is spelled here). */
+export function releaseAssetUrl(repositoryUrl: string, tag: string, name: string): string {
+  return `${repositoryUrl}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`;
+}
+
 export type AssembledAsset = Readonly<{ name: string; sha256: string; bytes: number }>;
 
 /** Assembles the release folder `out` (absent or empty) for `plan` from `inputs`; answers each asset with its digest, in name order. */
