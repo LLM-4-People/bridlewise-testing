@@ -561,10 +561,10 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
 });
 
 /** A stateful Pages API for `repository` on the fake: GitHub's answers, its domain verification and its certificate. */
-function pagesApi(fake: FakeGithub, repository: string, world: { domainState: string; certificate: string }) {
+function pagesApi(fake: FakeGithub, repository: string, world: { domainState: string; certificate: string | null; restore?: "ignored" | "fails" }) {
   const path = `/repos/${ORG}/${repository}/pages`;
   let site: Record<string, unknown> | undefined;
-  const answer = () => site === undefined ? { status: 404, body: { message: "Not Found" } } : { status: 200, body: { ...site, ...(typeof site.cname === "string" ? { protected_domain_state: world.domainState, https_certificate: { state: world.certificate } } : { protected_domain_state: null }) } };
+  const answer = () => site === undefined ? { status: 404, body: { message: "Not Found" } } : { status: 200, body: { ...site, ...(typeof site.cname === "string" ? { protected_domain_state: world.domainState, https_certificate: world.certificate === null ? null : { state: world.certificate } } : { protected_domain_state: null }) } };
   fake.route("GET", new RegExp(`^${path.replaceAll(".", "\\.")}$`, "u"), answer);
   fake.route("POST", new RegExp(`^${path.replaceAll(".", "\\.")}$`, "u"), (request) => {
     const body = request.body as Record<string, unknown>;
@@ -574,6 +574,10 @@ function pagesApi(fake: FakeGithub, repository: string, world: { domainState: st
   fake.route("PUT", new RegExp(`^${path.replaceAll(".", "\\.")}$`, "u"), (request) => {
     const body = request.body as Record<string, unknown>;
     if (site === undefined) return { status: 404, body: { message: "Not Found" } };
+    // A restore (the domain put back to what it was before) that GitHub ignores, or refuses.
+    const restoring = Object.keys(body).length === 1 && "cname" in body && body.cname !== site.cname;
+    if (restoring && typeof site.cname === "string" && world.restore === "ignored") return { status: 204 };
+    if (restoring && typeof site.cname === "string" && world.restore === "fails") return { status: 500, body: { message: "Server Error" } };
     if ("cname" in body && body.cname !== site.cname) site = { ...site, cname: body.cname, https_enforced: body.cname === null ? site.https_enforced : false };
     if ("https_enforced" in body) {
       if (typeof site.cname === "string" && world.certificate !== "approved") return { status: 404, body: { message: "The certificate does not exist yet" } };
@@ -621,18 +625,65 @@ test("a Pages site (W2): created built its declared way; a custom domain set, it
 test("a custom domain GitHub does not hold as verified is refused, typed, and the previous domain restored; the organisation site's domain is strictly none", async () => {
   const fake = fakeGithub();
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
-  const world = { domainState: "unverified", certificate: "new" };
+  const world: { domainState: string; certificate: string | null } = { domainState: "unverified", certificate: "new" };
   const trunk = pagesApi(fake, REPO, world);
   trunk.set({ build_type: "workflow", cname: null, https_enforced: true });
   const declared = [object("pages", REPO, { build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: true })];
   await assert.rejects(forgeApply(contextOf(fake), declared, []), (error: unknown) => isForgeError(error, "forge_pages_domain_unverified") && /bridlewise\.llm4people\.dev/u.test(error.message));
   assert.equal(trunk.get()?.cname, null, "the previous domain (none) is restored");
-  // The organisation site: a domain set on it is drift whose removal needs an acknowledgement, never a quiet change.
-  const orgSite = pagesApi(fake, "LLM-4-People.github.io", world);
+  // The organisation site: a VERIFIED domain set on it is drift whose removal is a named loosening, never a quiet change.
+  const orgSite = pagesApi(fake, "LLM-4-People.github.io", { domainState: "verified", certificate: "approved" });
   orgSite.set({ build_type: "legacy", source: { branch: "main", path: "/" }, cname: "someone.example", https_enforced: true });
   const site = entry(await forgePlan(contextOf(fake), [object("pages", "LLM-4-People.github.io", { build_type: "legacy", source: { branch: "main", path: "/" }, cname: null, https_enforced: true }, { kind: "repo", repository: "LLM-4-People.github.io" })], []), "pages", "LLM-4-People.github.io");
   assert.deepEqual(site.differences, ["/cname"]);
   assert.ok((site.loosening ?? []).length > 0, "removing a domain is a loosening the plan names");
+});
+
+test("a custom domain a site HOLDS unverified is a typed refusal in plan and audit, even when it is the declared one, never unchanged", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  const trunk = pagesApi(fake, REPO, { domainState: "unverified", certificate: "approved" });
+  trunk.set({ build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: true });
+  const declared = [object("pages", REPO, { build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: true })];
+  const plan = await forgePlan(contextOf(fake), declared, []);
+  assert.equal(entry(plan, "pages", REPO).action, "refused");
+  assert.equal(entry(plan, "pages", REPO).code, "forge_pages_domain_unverified");
+  assert.ok(plan.drift.some((drifted) => drifted.kind === "pages"), "the audit fails on it");
+  assert.equal(plan.complete, false, "an apply refuses before any write");
+});
+
+test("a restore that fails or does not hold is a loud typed failure, never a quiet refusal that leaves the unverified domain", async () => {
+  for (const restore of ["ignored", "fails"] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    const trunk = pagesApi(fake, REPO, { domainState: "unverified", certificate: "new", restore });
+    trunk.set({ build_type: "workflow", cname: null, https_enforced: true });
+    const declared = [object("pages", REPO, { build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: true })];
+    await assert.rejects(forgeApply(contextOf(fake), declared, []), (error: unknown) => isForgeError(error, "forge_pages_domain_restore_failed") && error.forgeClass === "integrity", restore);
+    // What GitHub now holds is refused by every later plan and audit, too.
+    assert.equal(entry(await forgePlan(contextOf(fake), declared, []), "pages", REPO).code, "forge_pages_domain_unverified", restore);
+  }
+});
+
+test("only a certificate GitHub is still issuing leaves HTTPS pending; a failed, revoked or absent one is a typed refusal that fails the audit", async () => {
+  for (const [certificate, expected] of [
+    ["authorization_pending", "pending"], ["issued", "pending"], ["approved", "unchanged"],
+    ["errored", "refused"], ["bad_authz", "refused"], ["authorization_revoked", "refused"], ["destroy_pending", "refused"], ["dns_changed", "refused"], [null, "refused"],
+  ] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    const trunk = pagesApi(fake, REPO, { domainState: "verified", certificate });
+    trunk.set({ build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: certificate === "approved" });
+    const plan = await forgePlan(contextOf(fake), [object("pages", REPO, { build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: true })], []);
+    const planned = entry(plan, "pages", REPO);
+    assert.equal(planned.action, expected, String(certificate));
+    if (expected === "refused") {
+      assert.equal(planned.code, "forge_pages_certificate_failed", String(certificate));
+      assert.ok(plan.drift.length > 0, `${String(certificate)}: the audit fails`);
+    } else {
+      assert.equal(plan.drift.length, 0, String(certificate));
+    }
+  }
 });
 
 test("an App installed on a repository: added to its installation when missing; an App the organisation does not have is refused, typed", async () => {

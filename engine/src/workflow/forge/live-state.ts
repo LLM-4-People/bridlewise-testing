@@ -30,6 +30,8 @@ export type KindAdapter = Readonly<{
    * The declared fields GitHub cannot take YET, each with why (a certificate
    * still being issued). The plan leaves them out of what it writes and
    * reports them `pending`: a convergence still under way, never a failure.
+   * A field that can no longer converge (a failed certificate) is a typed
+   * refusal the hook throws: drift, never pending forever.
    */
   pending?: (desired: unknown, live: unknown) => Readonly<Record<string, string>>;
 }>;
@@ -471,6 +473,9 @@ type PagesDesired = Readonly<{ build_type: string; source?: Readonly<{ branch: s
  * - HTTPS is enforced only once the certificate is approved. Until then the
  *   field is `pending` (a convergence under way, never a failure).
  */
+/** The certificate states GitHub reports while it is still ISSUING one (GitHub's `https_certificate.state`); every other state is a failure. */
+const CERTIFICATE_ISSUING: ReadonlySet<string> = new Set(["new", "authorization_created", "authorization_pending", "authorized", "issued", "uploaded"]);
+
 function pagesSite(): KindAdapter {
   const path = (context: LiveContext, object: ForgeObject): string => `${repoPath(context, repositoryOf(object))}/pages`;
   const shape = (found: PagesAnswer): Record<string, unknown> => ({
@@ -486,8 +491,12 @@ function pagesSite(): KindAdapter {
     await send(context, "PUT", path(context, object), site);
     const after = await getOrAbsent<PagesAnswer>(context, path(context, object));
     if (typeof site.cname === "string" && after?.protected_domain_state !== "verified") {
-      // Never leave a domain GitHub does not hold as verified: the previous one is restored, and the write refused.
-      await send(context, "PUT", path(context, object), { cname: before });
+      // Never leave a domain GitHub does not hold as verified: the previous one is restored (and read back), and the write refused.
+      const restored = await send(context, "PUT", path(context, object), { cname: before })
+        .then(async () => getOrAbsent<PagesAnswer>(context, path(context, object)))
+        .catch((error: unknown) => { throw new ForgeError("forge_pages_domain_restore_failed", `${repositoryOf(object)}: ${site.cname} is not verified, and restoring ${String(before)} failed: ${error instanceof Error ? error.message : String(error)}`, { repository: repositoryOf(object), domain: site.cname ?? "", previous: String(before) }); });
+      const now = typeof restored?.cname === "string" ? restored.cname : null;
+      if (now !== before) throw new ForgeError("forge_pages_domain_restore_failed", `${repositoryOf(object)}: ${site.cname} is not verified, and after restoring ${String(before)} GitHub holds ${String(now)}.`, { repository: repositoryOf(object), domain: site.cname, previous: String(before), held: String(now) });
       throw new ForgeError("forge_pages_domain_unverified", `${repositoryOf(object)}: GitHub does not hold ${site.cname} as verified (protected_domain_state ${String(after?.protected_domain_state ?? null)}); the previous domain was restored.`, { repository: repositoryOf(object), domain: site.cname });
     }
     // HTTPS on a custom domain waits for its certificate (a domain just set has none yet): the next plan reports it pending.
@@ -497,7 +506,12 @@ function pagesSite(): KindAdapter {
   return {
     read: async (context, object) => {
       const found = await getOrAbsent<PagesAnswer>(context, path(context, object));
-      return found === undefined ? undefined : { live: shape(found) };
+      if (found === undefined) return undefined;
+      // A custom domain the site HOLDS that GitHub does not hold as verified is refused wherever it came from: never unchanged.
+      if (typeof found.cname === "string" && found.protected_domain_state !== "verified") {
+        throw new ForgeError("forge_pages_domain_unverified", `${repositoryOf(object)} holds ${found.cname}, which GitHub does not hold as verified (protected_domain_state ${String(found.protected_domain_state ?? null)}).`, { repository: repositoryOf(object), domain: found.cname });
+      }
+      return { live: shape(found) };
     },
     create: async (context, object, body) => {
       const desired = body as PagesDesired;
@@ -511,11 +525,15 @@ function pagesSite(): KindAdapter {
     update: async (context, object, body, found) => {
       await write(context, object, body as Partial<PagesDesired>, (found.live as { cname: string | null }).cname);
     },
+    // Only a certificate GitHub is still issuing leaves HTTPS pending; a failed one (or none at all) is refused, never pending forever.
     pending: (desired, live) => {
       const want = desired as PagesDesired;
-      const have = live as Readonly<{ https_enforced?: unknown; certificate?: unknown }>;
-      if (want.https_enforced !== true || have.https_enforced === true || want.cname === null || have.certificate === "approved") return {};
-      return { https_enforced: `the certificate for ${want.cname} is ${typeof have.certificate === "string" ? have.certificate : "not issued yet"}` };
+      const have = live as Readonly<{ cname?: unknown; https_enforced?: unknown; certificate?: unknown }>;
+      if (want.cname === null || have.cname !== want.cname || have.certificate === "approved") return {};
+      if (typeof have.certificate !== "string" || !CERTIFICATE_ISSUING.has(have.certificate)) {
+        throw new ForgeError("forge_pages_certificate_failed", `The certificate for ${want.cname} is ${typeof have.certificate === "string" ? have.certificate : "absent"}: GitHub is not issuing one.`, { domain: want.cname, certificate: typeof have.certificate === "string" ? have.certificate : "absent" });
+      }
+      return want.https_enforced === true && have.https_enforced !== true ? { https_enforced: `the certificate for ${want.cname} is ${have.certificate}` } : {};
     },
   };
 }
