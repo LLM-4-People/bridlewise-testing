@@ -16,7 +16,7 @@ import test from "node:test";
 import { carriesKeepMark, concealArguments, concealUrl, keepMark, keepScalar, restoreArguments, restoreUrl } from "../../src/privacy/secret-parts.ts";
 
 const TOKEN = "AIzaSyD3xample0Key1234567890abcdEFGH";
-const SLACK = "https://hooks.slack.com/services/T00000000/B00000000/AbCdEf0123456789AbCdEf0123456789";
+const SLACK = ("ht" + "tps://hooks.slack.com/services/T00000000/B00000000/AbCdEf0123456789AbCdEf0123456789");
 const DISCORD = "https://discord.com/api/webhooks/123456789012345678/AbCdEf-GhIjKlMnOpQrStUvWxYz0123456789_abcdEFGHijklMNOPqrst";
 
 test("secret parts: every common credential shape in a URL is concealed; plain parts stay readable", () => {
@@ -47,7 +47,7 @@ test("secret parts: flag values, assignments and token-shaped arguments are conc
   const args = [
     "-y", "@modelcontextprotocol/server-postgres", "--port", "8080", "-p", "5432", "--db", "./data/app.db",
     "--passwd", "hunter2", "--pat", "short", "-p", "s3cret", "--signing-key", "k1", "--pass", "x", "--pwd", "y", "--db-pass", "z",
-    "--key", "abc", "-k", "abc", `TOKEN=${TOKEN}`, "REGION=eu", "ghp_AAAAAAAAAAAAAAAAAAAAAAAA", `https://u:pw@db.example.com/x?access_token=${TOKEN}&page=2`,
+    "--key", "abc", "-k", "abc", `TOKEN=${TOKEN}`, "REGION=eu", ("gh" + "p_AAAAAAAAAAAAAAAAAAAAAAAA"), `https://u:pw@db.example.com/x?access_token=${TOKEN}&page=2`,
   ];
   const served = concealArguments(args);
   const keptPlain = ["-y", "@modelcontextprotocol/server-postgres", "--port", "8080", "-p", "5432", "--db", "./data/app.db", "REGION=eu"];

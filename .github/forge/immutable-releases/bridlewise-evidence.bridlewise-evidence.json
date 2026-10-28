@@ -1,0 +1,12 @@
+{
+  "kind": "immutable-releases",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-evidence"
+  },
+  "key": "bridlewise-evidence",
+  "unavailableOnPlan": [],
+  "desired": {
+    "enabled": true
+  }
+}

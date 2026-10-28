@@ -36,7 +36,7 @@ import { createWorkspaceRecordStore, refuseOwnedByOlder, workspaceRecordStores, 
 import { remoteTrackingRef } from "../git/git-port.ts";
 import { fetchForgeBranches, publishBranch, remoteUrlOf, resolveForgeTarget, type ForgePullRequest, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
-import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS } from "./workflow-config.ts";
+import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS, WORKSPACE_NONCE_CHARACTERS, WORKSPACE_REFUSAL_PATHS_NAMED, WORKSPACE_SHORT_ID_CHARACTERS } from "./workflow-config.ts";
 import {
   assertLeasableWriteSet,
   assertWorkspaceAgentName,
@@ -595,10 +595,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return latestRunOfTree(paths.flatMap((path) => readRunHistory(path)), tree, before);
   }
 
-  /** The runs of `tree` recorded before `before` INSIDE the host's one instrument lock: the only rows a budget is judged against. */
-  function slottedRunsOfTree(paths: readonly string[], tree: string, before: number): readonly JudgedRunRecord[] {
+  /** The runs of `tree` recorded before `before`, whatever ran beside them: the rows a budget is judged against (NO-LOAD-BLOCK, audit A-05). */
+  function measuredRunsOfTree(paths: readonly string[], tree: string, before: number): readonly JudgedRunRecord[] {
     return runsOfTree(paths.flatMap((path) => readRunHistory(path)), tree)
-      .filter((row) => row.heavySlot === "held" && Date.parse(row.timestamp ?? "") < before);
+      .filter((row) => Date.parse(row.timestamp ?? "") < before);
   }
 
   /**
@@ -706,14 +706,13 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     // THE BUDGETS, IN THE SAME JUDGEMENT (UR-24, the coordinator's budget
     // amendment): a breach passes only when it persists from the target NOT
     // WORSE — this change's value no higher than the LOWEST value the target's
-    // tree recorded inside the host's one instrument lock — and an open task
-    // row declares the budget. Only SLOTTED rows of the target count (an
-    // unslotted one may have shared the cores); a target with none is
-    // measured in the lock first ({@link ensureTargetBaselines}). A breach
-    // with no slotted target value, a worse one, an unslotted measurement or
-    // an unowned breach fails. No allowance, no re-run.
+    // tree recorded — and an open task row declares the budget. Every
+    // recorded run of the target counts, whatever ran beside it: the values
+    // are CPU work (NO-LOAD-BLOCK, audit A-05); a target with none is
+    // measured first ({@link ensureTargetBaselines}). A breach with no target
+    // value, a worse one or an unowned breach fails. No allowance, no re-run.
     const targetTree = treeOf(judge.targetTip);
-    const baseRows = targetTree === null ? [] : slottedRunsOfTree(baselineLedgers(judge.record, cwd, ledger), targetTree, before);
+    const baseRows = targetTree === null ? [] : measuredRunsOfTree(baselineLedgers(judge.record, cwd, ledger), targetTree, before);
     const budgetVerdicts = breaches.map((breach) => {
       const spec = budgets[breach.gate]!;
       const field = (row: unknown): number | undefined => budgetFieldOf(row, spec.field);
@@ -721,10 +720,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       const baseValues = baseRows.map(field).filter((v): v is number => v !== undefined);
       const lowest = baseValues.length === 0 ? undefined : Math.min(...baseValues);
       const owners = ownersOf(rows, spec.budget);
-      const base = lowest === undefined ? "the target recorded no slotted value"
-        : `the target's lowest of ${String(baseValues.length)} slotted value(s) is ${lowest.toFixed(1)}`;
-      const reason = current.heavySlot !== "held" ? "this measurement did not hold the instrument lock: refused, not judged"
-        : value === undefined || lowest === undefined ? `unmeasured: ${value === undefined ? "this run" : "the target"} recorded no slotted ${spec.field}`
+      const base = lowest === undefined ? "the target recorded no value"
+        : `the target's lowest of ${String(baseValues.length)} value(s) is ${lowest.toFixed(1)}`;
+      const reason = value === undefined || lowest === undefined ? `unmeasured: ${value === undefined ? "this run" : "the target"} recorded no ${spec.field}`
           : value > lowest ? `WORSE than the target: ${value.toFixed(1)} > ${lowest.toFixed(1)}`
             : owners.length === 0 ? `persists from the target not worse, but no open task row of ${trackerPath} declares ${spec.budget}`
               : undefined;
@@ -741,10 +739,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   /** A phase in `cwd`, fail-fast, through the commands port; ledger gates are judged by `judge`. */
   async function runPhase(cwd: string, phase: CheckoutPhase, judge: LedgerJudge): Promise<readonly WorkspaceGateResult[]> {
     const steps = await runCheckoutPhase(config, phase, (name, command) => {
-      // A read-only workspace (a verifier's) runs no heavy setup instrument: it runs single files, its first run warms
-      // the module cache, and its create never waits for the instrument lock a validate holds.
+      // A read-only workspace (a verifier's) runs no heavy setup instrument: it runs single files, and its first run warms
+      // the module cache.
       if (command.holdsInstrumentLock === true && judge.record.lease.kind === "read-only") {
-        return Promise.resolve(builtinGate(name, "skip", "a read-only workspace does not run a heavy setup instrument: its first run warms the cache, and its create never waits for the instrument lock"));
+        return Promise.resolve(builtinGate(name, "skip", "a read-only workspace does not run a heavy setup instrument: its first run warms the cache"));
       }
       progress(`${phase}: ${name}`);
       return judgedByLedger(cwd, name, command, judge);
@@ -797,13 +795,11 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       const ledger = config.commands[name]?.ledger;
       return ledger === undefined ? [] : [ledger];
     }))];
-    // A ledger whose budgets are judged needs a SLOTTED run of the target too:
-    // an unslotted baseline judges the failures, never a budget.
+    // A ledger whose budgets are judged needs a target run carrying the value
+    // of every budget an open task row OWNS (only an owned breach can pass,
+    // and only against the target's value; a perf budget's comes from the
+    // profile step its suite requires). A target without one is measured here.
     const targetTree = treeOf(targetTip);
-    // A slotted target run must carry the value of every budget an open task
-    // row OWNS (only an owned breach can pass, and only against the target's
-    // slotted value; a perf budget's comes from the profile step its suite
-    // requires). A target without one is measured here, in the lock.
     const trackerText = (() => {
       try {
         return readFileSync(join(cwd, ROOT_POLICY.workflow.failureOwners.tracker), "utf8");
@@ -818,7 +814,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const missing = wanted.filter((ledger) => !measuredBaselines.has(baselineKey(targetTip, ledger)) &&
       (targetBaseline(baselineLedgers(record, cwd, ledger), targetTip, Number.POSITIVE_INFINITY) === undefined ||
         (budgetFields(ledger).length > 0 && targetTree !== null &&
-          !slottedRunsOfTree(baselineLedgers(record, cwd, ledger), targetTree, Number.POSITIVE_INFINITY)
+          !measuredRunsOfTree(baselineLedgers(record, cwd, ledger), targetTree, Number.POSITIVE_INFINITY)
             .some((row) => budgetFields(ledger).every((path) => budgetFieldOf(row, path) !== undefined)))));
     if (missing.length === 0) return;
     progress(`baseline: measuring ${missing.join(", ")} at the target's tip ${targetTip}`);
@@ -1088,7 +1084,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   async function create(request: WorkspaceCreateRequest): Promise<WorkspaceRecord> {
     assertWorkspaceAgentName(request.agentName);
     const readOnly = request.mode === "read-only";
-    const nonce = generateId("nonce").replaceAll("-", "").slice(-12);
+    const nonce = generateId("nonce").replaceAll("-", "").slice(-WORKSPACE_NONCE_CHARACTERS);
     const workspaceId = `${request.agentName}-${nonce}`;
     const worktreePath = join(workspaceRoot, workspaceId);
     assertWorkspaceRootPlacement();
@@ -2049,7 +2045,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const { forge, target, state } = forgeOf(record);
     const dirty = git.status(worktreePath, timeouts.inspectMs);
     if (dirty.length > 0) {
-      throw new InputError(`workspace ${workspaceId} has uncommitted changes (${statusPaths(dirty).slice(0, 8).join(", ")}): a round publishes commits`, "workspace_publish_dirty");
+      throw new InputError(`workspace ${workspaceId} has uncommitted changes (${statusPaths(dirty).slice(0, WORKSPACE_REFUSAL_PATHS_NAMED).join(", ")}): a round publishes commits`, "workspace_publish_dirty");
     }
     fetchForgeBranches(git, worktreePath, target.remote, [target.trunk], timeouts.fetchMs);
     const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
@@ -2092,7 +2088,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const parent = store.load(stackParentOf(record)!)!;
     const number = (parent.forge as WorkspaceForgeState).pullRequest?.number;
     return [
-      `**Stacked on** ${number === undefined ? `\`${parent.workspaceId}\`` : `#${String(number)}`} (workspace \`${parent.workspaceId}\`): until it lands, this pull request also carries its commits. This one's own change begins after \`${stacked.slice(0, 12)}\`, and it lands only after its parent.`,
+      `**Stacked on** ${number === undefined ? `\`${parent.workspaceId}\`` : `#${String(number)}`} (workspace \`${parent.workspaceId}\`): until it lands, this pull request also carries its commits. This one's own change begins after \`${stacked.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\`, and it lands only after its parent.`,
       "",
     ];
   }
@@ -2117,7 +2113,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         ...validated.gates.map((gate) => `| \`${gate.gate}\` | ${gate.status} |`)];
     const body = [
       `<!-- bridlewise:workspace ${record.workspaceId} — generated by \`ws publish\` on every round; edits are overwritten -->`,
-      `**Workspace** \`${record.workspaceId}\` · **agent** \`${record.agentName}\` · **base** \`${record.lease.baseSha.slice(0, 12)}\` on \`${target.trunk}\` · **head** \`${head.slice(0, 12)}\` (tree \`${tree.slice(0, 12)}\`)`,
+      `**Workspace** \`${record.workspaceId}\` · **agent** \`${record.agentName}\` · **base** \`${record.lease.baseSha.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\` on \`${target.trunk}\` · **head** \`${head.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\` (tree \`${tree.slice(0, WORKSPACE_SHORT_ID_CHARACTERS)}\`)`,
       "",
       ...stackNotice(record, stacked),
       "### Write set",
