@@ -449,10 +449,13 @@ export async function runCpuBounded(
     }
   }
   const accountant = owned === undefined ? undefined : groupCpuAccountant(owned.pid);
+  // A stopped run answers only once the terminator has seen its group gone: its pipes can close (a member
+  // that closes them on SIGTERM, or simply the exit's file close) before the process itself is gone.
+  let stopped: Promise<unknown> | undefined;
   const stop = (ending: BoundedEnding): void => {
     if (stopping !== undefined || owned === undefined) return;
     stopping = ending;
-    void terminate({ group: owned }, { graceMs: bounds.killGraceMs }).then(guarded("process.cpu-bounded.stopped", () => {
+    stopped = terminate({ group: owned }, { graceMs: bounds.killGraceMs }).then(guarded("process.cpu-bounded.stopped", () => {
       // The group is gone; a pipe still open now is held outside it (NB-1): let it go after the grace.
       setTimeout(guarded("process.cpu-bounded.release", () => {
         if (closed) return;
@@ -489,6 +492,7 @@ export async function runCpuBounded(
   }), bounds.pollMs);
   try {
     const end = await ended;
+    if (stopped !== undefined) await stopped;
     return Object.freeze({
       ending: end.error !== undefined ? "unstarted" : stopping ?? (exitStatus?.signal === "SIGXCPU" ? "cpu-rlimit" : "exited"),
       status: exitStatus?.status ?? null,
