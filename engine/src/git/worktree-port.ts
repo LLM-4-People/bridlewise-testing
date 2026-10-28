@@ -152,6 +152,15 @@ export type WorktreeAddDetachedRequest = Readonly<{
   timeoutMs: number;
 }>;
 
+/** An agent checkout's identity: written to the worktree's OWN config (`config.worktree`), with its marker key set true. */
+export type AgentCheckoutIdentityRequest = Readonly<{
+  repoRoot: string;
+  worktreePath: string;
+  identity: GitIdentity;
+  markerKey: string;
+  timeoutMs: number;
+}>;
+
 export type MergeNoCommitRequest = Readonly<{
   cwd: string;
   branch: string;
@@ -212,6 +221,13 @@ export type WorktreeGitPort = Readonly<{
   readonly schemaVersion: typeof WORKTREE_PORT_SCHEMA_VERSION;
   worktreeAdd(request: WorktreeAddRequest): void;
   worktreeAddDetached(request: WorktreeAddDetachedRequest): void;
+  /**
+   * Sets an agent worktree's commit identity and agent-checkout marker in the
+   * worktree's own config (`extensions.worktreeConfig`, then
+   * `config --worktree`): never the repository's shared config, so the
+   * canonical checkout and every other worktree keep their own identity.
+   */
+  agentCheckoutIdentity(request: AgentCheckoutIdentityRequest): void;
   worktreeRemove(request: WorktreeRemoveRequest): void;
   worktreeList(repoRoot: string, timeoutMs: number): readonly WorktreeInfo[];
   worktreeLock(request: WorktreeLockRequest): void;
@@ -783,6 +799,15 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
         timeoutMs: request.timeoutMs,
         allowedExitCodes: [0],
       });
+    },
+
+    agentCheckoutIdentity(request: AgentCheckoutIdentityRequest): void {
+      assertAbsolutePath(request.repoRoot, "repoRoot");
+      assertAbsolutePath(request.worktreePath, "worktreePath");
+      run("config extensions.worktreeConfig", { args: ["-C", request.repoRoot, "config", "extensions.worktreeConfig", "true"], cwd: request.repoRoot, timeoutMs: request.timeoutMs, allowedExitCodes: [0] });
+      for (const [key, value] of [["user.name", request.identity.name], ["user.email", request.identity.email], [request.markerKey, "true"]] as const) {
+        run(`config --worktree ${key}`, { args: ["-C", request.worktreePath, "config", "--worktree", key, value], cwd: request.worktreePath, timeoutMs: request.timeoutMs, allowedExitCodes: [0] });
+      }
     },
 
     commonDir(cwd: string, timeoutMs: number): string {

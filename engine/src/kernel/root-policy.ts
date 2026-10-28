@@ -2640,6 +2640,10 @@ const ROOT_POLICY_VALUE = {
     commitIdentity: {
       agent: { name: "bridlewise.llm4people.dev", email: "hello@bridlewise.llm4people.dev" },
       agentAccounts: ["amberflag48"],
+      // The git config key the harness sets in every checkout it makes for an agent (a workspace's own
+      // worktree config, a candidate's local config), beside the agent identity: the commit-msg hook
+      // refuses a commit there whose identities are not all the agent's (scripts/verification/sign-off.ts).
+      agentCheckoutKey: "bridlewise.agentCheckout",
     },
     /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs

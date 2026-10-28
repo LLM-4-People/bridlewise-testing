@@ -1,53 +1,63 @@
 /**
- * EVERY COMMIT CARRIES ITS COMMITTER'S SIGN-OFF (the DCO, `git commit -s`).
+ * EVERY COMMIT CARRIES ITS COMMITTER'S SIGN-OFF (the DCO, `git commit -s`),
+ * AND AN AGENT COMMIT CARRIES NOBODY'S PERSONAL IDENTITY.
  *
- * The rule is binding and was enforced by nothing: seven merge commits on the
- * design and marketing branches carried no `Signed-off-by`, and neither the
- * commit-msg hook (which `git merge` runs too) nor CI refused them. It is
- * judged at the two lowest doors:
+ * The DCO rule is binding and was enforced by nothing: seven merge commits on
+ * the design and marketing branches carried no `Signed-off-by`, and neither
+ * the commit-msg hook (which `git merge` runs too) nor CI refused them. It is
+ * judged at two doors, with this one judge ({@link commitRecordProblems}):
  *
- *   - the `commit-msg` hook (the commit guard's message duty): the message
- *     must carry a `Signed-off-by` trailer naming the committer git will
- *     record (`git var GIT_COMMITTER_IDENT`), merge commits included
+ *   - the `commit-msg` hook (the commit guard's message duty), over the
+ *     message and the author and committer git will record
+ *     (`git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT`), merges included
  *     (`git merge --signoff`, or `git commit -s` after a conflicted merge);
- *   - CI, over a pull request's, a merge group's or a push's commits
- *     (`node scripts/verification/sign-off.ts --range <base>..<head>`): every
- *     commit's trailers must name its own committer.
+ *   - the required `commit-records` workflow, over a pull request's or a merge
+ *     group's commits (`node scripts/verification/sign-off.ts --range
+ *     <base>..<head>`).
  *
- * The one exception is a MECHANICAL merge: a merge commit GitHub itself made
- * (committer `GitHub <noreply@github.com>`; the merge queue's and a merged
- * pull request's), which carries no author's work of its own.
+ * THE IDENTITY TRAILERS. Every trailer whose key ends in `-by` (any case:
+ * `Signed-off-by`, `signed-off-by`, `Co-authored-by`, `Reviewed-by`, …) or
+ * whose value carries an `@` names a person, and GitHub shows it publicly.
+ * Each must be exactly `Name <address>`: a bare address, a missing name, or
+ * text after the `>` is refused by name, never dropped (a dropped trailer is
+ * a published address nobody judged). A sign-off is an identity trailer whose
+ * key is `signed-off-by` in any case; one of them must be the committer's.
  *
- * A sign-off matches when its name is the committer's name and its address is
- * the committer's address (an address compared without regard to case).
- * Trailers are git's own parse (`commit-trailers.ts`), so a `Signed-off-by:`
- * line inside the body is not a sign-off.
+ * AN AGENT COMMIT IS THE PROJECT'S IDENTITY THROUGHOUT: its author, its
+ * committer and EVERY identity trailer are the declared agent identity
+ * (`ROOT_POLICY.workflow.commitIdentity.agent`, the one source). A commit is an
+ * agent's when any identity on it is the agent identity or uses its address's
+ * domain, when it is made in a checkout the harness made for an agent (the
+ * `agentCheckoutKey` git config the workspace and candidate writers set beside
+ * the agent identity, read by the hook), or when the pull request bringing it
+ * was opened by a declared agent account (`agentAccounts`; the workflow passes
+ * the pull request's author). A human outside contributor's commit carries
+ * none of those marks and keeps the ordinary DCO.
  *
- * AN AGENT COMMIT IS THE PROJECT'S IDENTITY THROUGHOUT. Its author, its
- * committer and EVERY sign-off are the declared agent identity
- * (`ROOT_POLICY.workflow.commitIdentity.agent`, the one source), never a
- * person's own name or address. A commit is an agent's when any identity on it
- * is the agent identity or uses its address's domain (the commit-msg hook
- * reads that), or when the pull request bringing it was opened by a declared
- * agent account (`agentAccounts`; the server-side check passes the pull
- * request's author). A human outside contributor's commit carries none of
- * those marks and keeps the ordinary DCO: their own sign-off as committer.
+ * NO NAME IS AN EXEMPTION. A committer name and address are anyone's to set,
+ * so no commit passes because of who it says committed it. The one commit a
+ * contributor cannot make is the merge queue's own: in a merge group
+ * (`--merge-group`), the first-parent chain from the group's head down to its
+ * base is the queue's merges on a ref only GitHub writes
+ * (`gh-readonly-queue/…`), so each of those must BE a merge and is not judged,
+ * while every commit they bring in is.
  */
+import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
-import { gitText as git, messageTrailerValues, trailerValuesOf } from "./commit-trailers.ts";
+import { gitText as git, messageTrailers, trailersOf } from "./commit-trailers.ts";
 
-/** The trailer key of a sign-off. */
+/** The trailer key of a sign-off (compared without regard to case). */
 export const SIGN_OFF_TRAILER = "Signed-off-by";
 
-/** The identity GitHub commits its own merges under (the one mechanical committer). */
-const GITHUB_MERGE_COMMITTER = Object.freeze({ name: "GitHub", email: "noreply@github.com" });
-
 export type Identity = Readonly<{ name: string; email: string }>;
+type Trailer = Readonly<{ key: string; value: string }>;
 
 /** The project's identity for agent commits, and the accounts that open agent pull requests (the one declared source). */
 export const AGENT_IDENTITY: Identity = ROOT_POLICY.workflow.commitIdentity.agent;
 const AGENT_ACCOUNTS: readonly string[] = ROOT_POLICY.workflow.commitIdentity.agentAccounts;
+/** The git config key a harness-made agent checkout carries (the one declared source). */
+export const AGENT_CHECKOUT_KEY: string = ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey;
 
 const domainOf = (email: string): string => email.slice(email.lastIndexOf("@") + 1).toLowerCase();
 
@@ -56,104 +66,134 @@ export function isAgentAccount(login: string): boolean {
   return AGENT_ACCOUNTS.includes(login);
 }
 
-/**
- * The refusals of a commit by its identities: an agent commit (any identity
- * is the agent's or in its domain, or `agentPullRequest`) whose author,
- * committer or any sign-off is not exactly the agent identity, each named. A
- * human's commit (no such mark) answers none: it keeps the ordinary DCO.
- */
-export function agentIdentityProblems(
-  commit: Readonly<{ author: Identity; committer: Identity; signOffs: readonly Identity[] }>,
-  agentPullRequest = false,
-): readonly string[] {
-  const identities = [["author", commit.author], ["committer", commit.committer], ...commit.signOffs.map((signOff) => ["Signed-off-by", signOff] as const)] as const;
-  const agent = agentPullRequest || identities.some(([, identity]) => sameIdentity(identity, AGENT_IDENTITY) || domainOf(identity.email) === domainOf(AGENT_IDENTITY.email));
-  if (!agent) return [];
-  return identities.flatMap(([role, identity]) => sameIdentity(identity, AGENT_IDENTITY) ? [] :
-    [`its ${role} is ${identity.name} <${identity.email}>, not the project's agent identity ${AGENT_IDENTITY.name} <${AGENT_IDENTITY.email}>`]);
+/** `Name <address>` and nothing else, as a sign-off or an ident spells it; `null` when the text is not exactly one. */
+function parseIdentity(text: string): Identity | null {
+  const match = /^([^<>@]*[^<>@\s])\s*<([^<>\s@]+@[^<>\s@]+)>$/u.exec(text.trim());
+  return match === null ? null : { name: match[1]!.trim(), email: match[2]! };
 }
 
-/** `Name <address>`, as a sign-off or an ident spells it; `null` when the text is not one. */
-function parseIdentity(text: string): Identity | null {
-  const match = /^(.+?)\s*<([^<>\s]+)>/u.exec(text.trim());
-  return match === null ? null : { name: match[1]!.trim(), email: match[2]! };
+/** An ident as `git var` prints it: `Name <address> <time> <zone>`. */
+function parseIdent(text: string): Identity | null {
+  return parseIdentity(text.trim().replace(/\s+\d+\s+[+-]\d{4}$/u, ""));
 }
 
 function sameIdentity(left: Identity, right: Identity): boolean {
   return left.name === right.name && left.email.toLowerCase() === right.email.toLowerCase();
 }
 
-/** The identities of `Signed-off-by` trailer values. */
-function signOffsOf(values: readonly string[]): readonly Identity[] {
-  return values.flatMap((value) => {
-    const identity = parseIdentity(value);
-    return identity === null ? [] : [identity];
-  });
+const spelled = (identity: Identity): string => `${identity.name} <${identity.email}>`;
+
+/** Does `trailer` name a person (a `-by` key in any case, or an address in its value)? */
+function isIdentityTrailer(trailer: Trailer): boolean {
+  return /-by$/iu.test(trailer.key) || trailer.value.includes("@");
 }
 
-/** The author git will record for a commit made at `root` now. */
-export function authorIdentity(root: string): Identity {
-  const identity = parseIdentity(git(root, ["var", "GIT_AUTHOR_IDENT"]));
-  if (identity === null) throw new Error("git names no author identity here (git var GIT_AUTHOR_IDENT)");
+/** The commit a judgement reads: its two idents and every trailer of its message. */
+export type JudgedCommit = Readonly<{ author: Identity; committer: Identity; trailers: readonly Trailer[] }>;
+
+/**
+ * THE judge: the refusals of one commit, each named. `agentMarked` says the
+ * context made it an agent's whatever its identities say (a declared agent
+ * account's pull request; a harness-made agent checkout).
+ */
+export function commitRecordProblems(commit: JudgedCommit, agentMarked = false): readonly string[] {
+  const named = commit.trailers.filter(isIdentityTrailer).map((trailer) => ({ trailer, identity: parseIdentity(trailer.value) }));
+  const unreadable = named.filter((entry) => entry.identity === null)
+    .map(({ trailer }) => `its "${trailer.key}: ${trailer.value}" trailer is not exactly one "Name <address>"`);
+  const people = named.flatMap((entry) => entry.identity === null ? [] : [{ role: `${entry.trailer.key} trailer`, identity: entry.identity }]);
+  const signOffs = named.flatMap((entry) => entry.identity !== null && entry.trailer.key.toLowerCase() === SIGN_OFF_TRAILER.toLowerCase() ? [entry.identity] : []);
+  const dco = signOffs.some((signOff) => sameIdentity(signOff, commit.committer)) ? [] :
+    [`it has no "${SIGN_OFF_TRAILER}: ${spelled(commit.committer)}" trailer (${signOffs.length === 0 ? "it carries none" : `it carries ${signOffs.map(spelled).join(", ")}`}); commit with -s (a merge: git merge --signoff, or git commit -s after resolving)`];
+  const identities = [{ role: "author", identity: commit.author }, { role: "committer", identity: commit.committer }, ...people];
+  const agent = agentMarked || identities.some(({ identity }) => sameIdentity(identity, AGENT_IDENTITY) || domainOf(identity.email) === domainOf(AGENT_IDENTITY.email));
+  const agentProblems = !agent ? [] : identities.filter(({ identity }) => !sameIdentity(identity, AGENT_IDENTITY))
+    .map(({ role, identity }) => `it is an agent commit and its ${role} is ${spelled(identity)}, not the project's agent identity ${spelled(AGENT_IDENTITY)}`);
+  return [...unreadable, ...dco, ...agentProblems];
+}
+
+/** Is `root` a checkout the harness made for an agent (its {@link AGENT_CHECKOUT_KEY} is true, read as the hook's git reads it)? */
+export function isAgentCheckout(root: string): boolean {
+  const answer = git(root, ["config", "--type=bool", "--default=false", "--get", AGENT_CHECKOUT_KEY]).trim();
+  return answer === "true";
+}
+
+/** The ident git will record for a commit made at `root` now (`GIT_AUTHOR_IDENT` or `GIT_COMMITTER_IDENT`). */
+function pendingIdent(root: string, variable: "GIT_AUTHOR_IDENT" | "GIT_COMMITTER_IDENT"): Identity {
+  const identity = parseIdent(git(root, ["var", variable]));
+  if (identity === null) throw new InputError(`git names no usable identity here (git var ${variable}): set user.name and user.email`, "commit_identity_unreadable");
   return identity;
+}
+
+function pendingIdents(root: string): Readonly<{ author: Identity; committer: Identity }> {
+  return { author: pendingIdent(root, "GIT_AUTHOR_IDENT"), committer: pendingIdent(root, "GIT_COMMITTER_IDENT") };
 }
 
 /** The committer git will record for a commit made at `root` now. */
 export function committerIdentity(root: string): Identity {
-  const identity = parseIdentity(git(root, ["var", "GIT_COMMITTER_IDENT"]));
-  if (identity === null) throw new Error("git names no committer identity here (git var GIT_COMMITTER_IDENT)");
-  return identity;
+  return pendingIdent(root, "GIT_COMMITTER_IDENT");
 }
 
 /**
- * The refusal of a commit message that carries no sign-off by `committer`
- * (the `commit-msg` question), or `null` when one of its trailers is that
- * committer's.
+ * The refusal of a commit message about to be recorded at `root` (the
+ * `commit-msg` question), or `null` when the commit's records are right.
  */
 export function messageSignOffProblem(
   root: string,
   message: string,
-  committer: Identity = committerIdentity(root),
-  author: Identity = authorIdentity(root),
+  idents: Readonly<{ author: Identity; committer: Identity }> = pendingIdents(root),
+  agentCheckout: boolean = isAgentCheckout(root),
 ): string | null {
-  const signOffs = signOffsOf(messageTrailerValues(root, message, SIGN_OFF_TRAILER));
-  if (signOffs.some((signOff) => sameIdentity(signOff, committer))) {
-    const identity = agentIdentityProblems({ author, committer, signOffs });
-    return identity.length === 0 ? null : `an agent commit is the project's identity throughout, and ${identity.join("; ")}: set user.name and user.email to it`;
-  }
-  const found = signOffs.length === 0 ? "it carries none" : `it carries ${signOffs.map((signOff) => `${signOff.name} <${signOff.email}>`).join(", ")}`;
-  return `the message has no "${SIGN_OFF_TRAILER}: ${committer.name} <${committer.email}>" trailer (${found}); commit with -s (a merge: git merge --signoff, or git commit -s after resolving)`;
+  const problems = commitRecordProblems({ ...idents, trailers: messageTrailers(root, message) }, agentCheckout);
+  if (problems.length === 0) return null;
+  const repair = agentCheckout ? ` (this checkout is an agent's: its ${AGENT_CHECKOUT_KEY} is set, so user.name and user.email are ${spelled(AGENT_IDENTITY)})` : "";
+  return `${problems.join("; ")}${repair}`;
 }
 
-/**
- * Every commit of `range` (`<base>..<head>`, as `git log` reads it) whose
- * trailers carry no sign-off by its own committer, each named; a merge GitHub
- * made itself is mechanical and passes.
- */
-export function unsignedCommits(root: string, range: string, agentPullRequest = false): readonly string[] {
-  const records = git(root, ["log", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%(trailers:only,unfold)%x1e", range, "--"]);
-  return records.split("\x1e").map((record) => record.replace(/^\n/u, "")).filter((record) => record.length > 0).flatMap((record) => {
-    const [sha = "", parents = "", authorName = "", authorEmail = "", name = "", email = "", trailers = ""] = record.split("\x1f");
-    const committer = { name, email };
-    if (parents.trim().split(" ").length > 1 && sameIdentity(committer, GITHUB_MERGE_COMMITTER)) return [];
-    const signOffs = signOffsOf(trailerValuesOf(trailers, SIGN_OFF_TRAILER));
-    if (!signOffs.some((signOff) => sameIdentity(signOff, committer))) return [`${sha.slice(0, 12)} has no "${SIGN_OFF_TRAILER}: ${name} <${email}>" trailer`];
-    return agentIdentityProblems({ author: { name: authorName, email: authorEmail }, committer, signOffs }, agentPullRequest).map((problem) => `${sha.slice(0, 12)} is an agent commit and ${problem}`);
-  });
+/** How a range is read: a pull request's (every commit judged) or a merge group's (the queue's own first-parent merges are not). */
+export type RangeContext = Readonly<{ agentPullRequest?: boolean; mergeGroup?: boolean }>;
+
+/** Every commit of `range` (`<base>..<head>`) whose records are wrong, each named with its refusals. */
+export function unsignedCommits(root: string, range: string, context: RangeContext = {}): readonly string[] {
+  const [base, head] = range.split("..");
+  if (base === undefined || head === undefined || base.length === 0 || head.length === 0) throw new InputError(`a range is <base>..<head>, not ${range}`, "sign_off_range_invalid");
+  const queue = new Set<string>();
+  const problems: string[] = [];
+  if (context.mergeGroup === true) {
+    for (const line of git(root, ["rev-list", "--first-parent", "--parents", range, "--"]).split("\n").filter((entry) => entry.length > 0)) {
+      const [sha = "", ...parents] = line.split(" ");
+      if (parents.length !== 2) problems.push(`${sha.slice(0, 12)} is on the merge group's first-parent chain but is not a merge: the queue makes only merges, so this commit is not the queue's`);
+      else queue.add(sha);
+    }
+  }
+  const records = git(root, ["log", "--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%(trailers:only,unfold)%x1e", range, "--"]);
+  for (const record of records.split("\x1e").map((entry) => entry.replace(/^\n/u, "")).filter((entry) => entry.length > 0)) {
+    const [sha = "", authorName = "", authorEmail = "", name = "", email = "", trailers = ""] = record.split("\x1f");
+    if (queue.has(sha)) continue;
+    const judged = commitRecordProblems({ author: { name: authorName, email: authorEmail }, committer: { name, email }, trailers: trailersOf(trailers) }, context.agentPullRequest === true);
+    problems.push(...judged.map((problem) => `${sha.slice(0, 12)}: ${problem}`));
+  }
+  return problems;
 }
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  const [flag, range, authorFlag, login] = process.argv.slice(2);
-  if (flag !== "--range" || range === undefined || !range.includes("..") || (authorFlag !== undefined && (authorFlag !== "--pull-request-author" || login === undefined))) {
-    throw new Error("Usage: sign-off --range <base>..<head> [--pull-request-author <login>]");
+  const argv = process.argv.slice(2);
+  const valueOf = (flag: string): string | undefined => {
+    const at = argv.indexOf(flag);
+    return at < 0 ? undefined : argv[at + 1];
+  };
+  const range = valueOf("--range");
+  const login = valueOf("--pull-request-author");
+  const mergeGroup = argv.includes("--merge-group");
+  if (range === undefined || (argv.includes("--pull-request-author") && login === undefined) || (mergeGroup && login !== undefined)) {
+    throw new HarnessError("Usage: sign-off --range <base>..<head> [--pull-request-author <login> | --merge-group]", "sign_off_usage");
   }
   // A pull request a declared agent account opened brings agent commits only, whatever their marks say.
-  const unsigned = unsignedCommits(process.cwd(), range, login !== undefined && isAgentAccount(login));
+  const unsigned = unsignedCommits(process.cwd(), range, { agentPullRequest: login !== undefined && isAgentAccount(login), mergeGroup });
   if (unsigned.length === 0) {
-    process.stdout.write(`sign-off: every commit of ${range} carries its committer's sign-off, and every agent commit is the project identity\n`);
+    process.stdout.write(`sign-off: every commit of ${range} carries its committer's sign-off, every identity trailer is readable, and every agent commit is the project identity\n`);
   } else {
-    process.stderr.write(`sign-off: ${String(unsigned.length)} commit(s) of ${range} break the DCO (no sign-off by their committer: git commit -s) or the agent identity (an agent commit is the project identity throughout):\n${unsigned.map((line) => `  - ${line}`).join("\n")}\n`);
+    process.stderr.write(`sign-off: ${String(unsigned.length)} refusal(s) over ${range}:\n${unsigned.map((line) => `  - ${line}`).join("\n")}\n`);
     process.exitCode = 1;
   }
 }
