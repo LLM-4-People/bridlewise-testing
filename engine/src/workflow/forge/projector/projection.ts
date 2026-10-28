@@ -26,18 +26,20 @@ export function projectionInput(repository: GitRepository, source: string, ledge
   const commit = resolveRevision(repository, source);
   if (commit === null) throw new HarnessError(`projection_source_missing: ${source} names no commit of ${repository.root}`, "projection_source_missing");
   const prefix = `${TRACKER_BOARD.items}/`;
-  const items = trackerItems(treeEntries(commitTreeReader(repository, commit), TRACKER_BOARD.items));
+  const tree = commitTreeReader(repository, commit);
+  const items = trackerItems(treeEntries(tree, TRACKER_BOARD.items));
   return deepFreeze({
     schema: PROJECTION_INPUT_SCHEMA,
     source: commit,
     ledger,
     repositoryUrl,
-    // A Milestone is projected as a milestone, not an issue (its state is computed from its members).
-    items: items.flatMap((item) => (item.state === null || item.lane === null ? [] : [{
-      id: item.id, type: item.type, title: item.title, state: item.state, resolution: item.resolution, lane: item.lane,
-      parent: item.parent, blockedBy: item.blockedBy, body: item.body, path: `${prefix}${item.id}.md`,
-    }])),
+    items: items.map((item) => ({
+      id: item.id, type: item.type, title: item.title, state: item.state, resolution: item.resolution, lane: item.lane, milestone: item.milestone,
+      parent: item.parent, blockedBy: item.blockedBy, decisions: item.decisions, tests: item.tests, evidence: item.evidence, body: item.body, path: `${prefix}${item.id}.md`,
+    })),
     lanes: Object.entries(TRACKER_LANES).map(([lane, { color, description }]) => ({ lane, color, description })),
+    decisions: decisionRecords(treeEntries(tree, DECISION_INDEX.path.slice(0, DECISION_INDEX.path.lastIndexOf("/")))).map(({ id, status, implementation }) => ({ id, status, implementation })),
+    recordedEvidence: recordedEvidenceAt(tree),
   });
 }
 

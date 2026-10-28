@@ -29,10 +29,10 @@ export type LiveObject = Readonly<{
   owned: boolean;
 }>;
 
-/** One write: create an object with its `create` fields, or set some fields of an existing one. */
+/** One write: create an object with its `create` fields, set some fields of an existing one, or post a notice on it (an issue comment: `fields.text`). */
 export type ProjectionWrite = Readonly<{
   phase: WritePhase;
-  kind: "create" | "update";
+  kind: "create" | "update" | "notice";
   class: ProjectionClass;
   key: string;
   fields: Fields;

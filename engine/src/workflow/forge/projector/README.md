@@ -18,11 +18,30 @@ process under the harness's one confinement owner, the guardian
 
 A write, a read of the harness or of `/proc`, or a connect is refused by the kernel (`projection_impure`). The clock is the one impurity no Linux boundary can refuse: `CLOCK_REALTIME` is a vDSO read, and a time namespace offsets only the monotonic and boot clocks. So every projection is computed twice, and two different answers are `projection_nondeterministic`.
 
-What is projected today: one label per tracker lane, and one issue per tracker
-item (title, type, lane label, sub-issue parent, `blocked_by` links, open or
-closed with its reason, and a generated block whose marker carries the item's
-id and digest, with permalinks at S). Every other field of a GitHub object is
-GitHub-owned and never written.
+What is projected today:
+- one label per tracker lane;
+- one milestone per Milestone item: `<id> · <title>`, with its computed state and the reason in the description, closed once shipped;
+- one issue per tracker item, Milestones included. Each carries:
+  - title, type and lane label;
+  - its milestone;
+  - its sub-issue parent: the item's parent, else its Milestone's issue, so the hierarchy reads milestone → workstream → task;
+  - `blocked_by` links;
+  - open or closed with its reason (a Milestone's state is computed from its members);
+  - a generated block. The marker carrying the item's id and digest comes first, every relative link becomes a permalink at S, and a footer gives the computed roadmap state with its evidence.
+
+Every other field of a GitHub object is GitHub-owned and never written.
+
+**Foreign edits (V-27), judged per field.** A field no record holds (`PROJECTOR_OWNED_FIELDS`: an issue's generated block and pin, a milestone's computed description and state, a lane label's colour and description) is never a record change: an edit of it on GitHub is re-projected in every mode and never proposed. Each receipt records, for every object, the digest of each git-owned field as projected and observed.
+- A field is foreign-edited when its live value differs both from D and from the value the previous receipt recorded for that field.
+- A field with no recorded value is simply written. That covers a field newly owned by git and a first run.
+- A projected object the previous receipt recorded that is gone from GitHub was deleted there, and that deletion is itself a foreign change.
+
+The audit event `forge.projection.drift` reports each one, and the mode `forge.projection.foreignEdit` handles it:
+- `approval` (the default): the edited field (or the deleted object) is not written. A proposal holds only the edited fields' live values, or the deletion.
+- `auto`: the value is restored (the object recreated), and an issue gets a notice.
+- `manual`: the change is reported only.
+
+One held field never blocks another field or object. A held field keeps its baseline, so it stays foreign until one side meets the other, and the receipt is unverified (`projection_drift`) while anything is held.
 
 ## What each file does
 
@@ -32,7 +51,7 @@ GitHub-owned and never written.
 - `projection.ts` — D from two trees: `deterministicCall` (two confined runs that must agree), `roadmapFeedInput` and `computeRoadmapFeed` (the feed's input — the items and decisions at S, S's date, a snapshot of every item's status facts at each first-parent landing that changed an item or a decision, read as written then — and its confined computation),  `projectionInput` (the tracker items read from the source COMMIT through the tracker's one parser, `../../failure-owners.ts`, and the lanes' labels) and `computeProjection` (the confined calls, each marker's digest filled in, D's canonical digest).
 - `roadmap-feed.ts` — THE ROADMAP DATA FEED (pure, run confined like the projection, `ROADMAP_FEED_PROGRAM`): `roadmap.json`, `bridlewise-roadmap-feed/v1` (see below).
 - `store.ts` — THE STORE PORT the algorithm reads and writes GitHub through, in the projection's own terms (class, key, git-owned fields); the GitHub store is written on the forge port's client.
-- `apply.ts` — THE ONE APPLY ALGORITHM: `planProjection` (the writes that make the live state equal D, in phase, class and key order, and the orphans), `applyProjection` (write within the run's allowance, paced; re-read; verify; the receipt `bridlewise-projection-receipt/v1`), `verifyProjection` and `projectionFailure` (`projection_unverified` before any refusal; a budget refusal is retryable and the next run resumes).
+- `apply.ts` — THE ONE APPLY ALGORITHM: foreign edits detected against the previous receipt and handled by mode (`ForeignEditMode`), `planProjection` (the writes that make the live state equal D, in phase, class and key order, and the orphans), `applyProjection` (write within the run's allowance, paced; re-read; verify; the receipt `bridlewise-projection-receipt/v1`), `verifyProjection` and `projectionFailure` (`projection_unverified` before any refusal; a budget refusal is retryable and the next run resumes).
 
 ## The roadmap feed (`bridlewise-roadmap-feed/v1`)
 
@@ -51,7 +70,10 @@ Every state is computed (`src/workflow/tracker-status.ts`); nothing in the feed 
 ## Tests
 
 `engine/test/forge/projector.test.ts` proves V-25 (a second run makes zero
-writes), V-26 (by the kernel: a dynamic-import write, a harness or /proc read,
+writes; a changed record is never taken for a foreign edit), V-27 (a foreign
+edit in each class — label, milestone, issue — handled per mode, judged per
+field: a newly owned field written, one held field blocking nothing else, a
+deletion proposed, recreated or reported), V-26 (by the kernel: a dynamic-import write, a harness or /proc read,
 a connect and a fetch to a live server are refused, the server sees no
 connection; the clock and randomness are refused by computing twice; the
 link refuses undeclared modules; a CPU spin meets its ceiling; a NODE_OPTIONS
