@@ -201,8 +201,9 @@ const KIND_FIELDS: Readonly<Record<ForgeObjectKind, "neutral" | "ruleset" | Read
     secret_scanning_delegated_alert_dismissal: FEATURE, private_vulnerability_reporting: FEATURE,
   },
   "repository-settings": {
-    // Merge-method and feature switches decide how work flows, not what is protected.
-    allow_merge_commit: NEUTRAL, allow_rebase_merge: NEUTRAL, allow_squash_merge: NEUTRAL, merge_commit_title: NEUTRAL,
+    // The feature switches decide how work flows, not what is protected.
+    // Merge commits only (#486): allowing squash or rebase breaks verify's first-parent rule, so it loosens.
+    allow_merge_commit: NEUTRAL, allow_rebase_merge: FALSE_IS_STRICT, allow_squash_merge: FALSE_IS_STRICT, merge_commit_title: NEUTRAL,
     merge_commit_message: NEUTRAL, squash_merge_commit_title: NEUTRAL, squash_merge_commit_message: NEUTRAL, allow_auto_merge: NEUTRAL,
     delete_branch_on_merge: NEUTRAL, allow_update_branch: NEUTRAL, has_wiki: NEUTRAL, has_discussions: NEUTRAL, has_projects: NEUTRAL,
     has_issues: NEUTRAL, description: NEUTRAL, homepage: NEUTRAL,

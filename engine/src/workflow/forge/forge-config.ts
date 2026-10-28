@@ -159,6 +159,7 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     schedule: z.strictObject({ interval: z.enum(["daily", "weekly", "monthly"]), day: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]), time: z.string().regex(/^[0-2][0-9]:[0-5][0-9]$/u), timezone: z.string().min(1) }),
     openPullRequestsLimit: z.number().int().min(0).max(20),
     cooldownDays: z.number().int().min(0).max(90),
+    /** The major-version cooldown, written only for ecosystems Dependabot gives SemVer cooldowns (npm, Cargo; not GitHub Actions). */
     majorCooldownDays: z.number().int().min(0).max(90),
     packages: z.array(z.strictObject({ ecosystem: z.enum(["npm", "github-actions", "cargo"]), directory: z.string().regex(/^\/(?:[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)?$/u), group: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/u) })).min(1),
     /** Lockfiles under these prefixes are frozen records (benchmarks), never updated. */
