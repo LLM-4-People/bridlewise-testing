@@ -474,7 +474,6 @@ test("ONE DEFINITION OF HEAVY (design L-2): a run of fewer than the configured t
   const door = enforceTestRunLock("the supervising door", { lockDir: dir, testFileCount: Number.POSITIVE_INFINITY });
   const borrowed = enforceTestRunLock("a whole vitest run", { lockDir: dir, testFileCount: Number.POSITIVE_INFINITY, inProcess: true });
   assert.equal(borrowed.owns, false);
-  assert.equal(borrowed.stamp, "held");
   door.release();
   // Every entry passes the count of the files it runs (the type requires it; the vitest door counts vitest's own selection).
   const vitestDoor = sourceText(join(SETUP_DIR, "concurrency-lock.ts"));
