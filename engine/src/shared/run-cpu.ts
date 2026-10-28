@@ -175,6 +175,26 @@ export function readRunCpu(
  */
 export const SUITE_WORK_METRIC = "calibrated-work/v1" as const;
 
+/**
+ * THIS THREAD's CPU work so far, in ms (microsecond precision), or null when
+ * the runtime gives no per-thread reading.
+ *
+ * For timing ONE PIECE OF CODE (a microbenchmark's budget): a busy host
+ * makes the code WAIT for a core, which is wall time, never this number. It
+ * is also immune to work other threads in the process do (the GC's helpers,
+ * a worker), which `process.cpuUsage()` would add. The process-and-children
+ * reading above (`readRunCpu`) is the one for a whole run; its clock-tick
+ * resolution (usually 10 ms) cannot time a 16 ms frame budget.
+ *
+ * Null is a real answer: a budget with no measurement behind it must refuse
+ * to judge, never judge a zero.
+ */
+export function readThreadCpuMs(): number | null {
+  if (typeof process.threadCpuUsage !== "function") return null;
+  const { user, system } = process.threadCpuUsage();
+  return (user + system) / 1000;
+}
+
 /** The calibration workload's identity — recorded with every reading. */
 const CALIBRATION_WORKLOAD = "int-mem-l2/v1" as const;
 

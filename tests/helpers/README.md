@@ -11,6 +11,7 @@ The `tests/helpers/` folder of the development surface.
 - `control-floor.ts` — shared pointer target CSS analysis without test registration; scans unconditional token recipes and local styles.
 
 - `budget-config.ts` — wHAT THE OPERATOR DECLARED, AND HOW BIG A FULL RUN IS — read once, here.
+- `cpu-work.ts` — the CPU work one piece of code did on the calling thread (`cpuWorkMs`), for a test's performance budget; never wall time, which judges the host.
 - `budget-history.ts` — tHE RUN-HISTORY LEDGER'S WEB BINDING — the web path, bound onto the shared owner.
 - `budget-paths.ts` — shared budget-summary path — the single owner of the `.bridlewise/web-test-results/latest-summary.json` path.
 
