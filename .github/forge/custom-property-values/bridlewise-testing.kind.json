@@ -1,0 +1,12 @@
+{
+  "kind": "custom-property-values",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "kind",
+  "unavailableOnPlan": [],
+  "desired": {
+    "kind": "trunk"
+  }
+}

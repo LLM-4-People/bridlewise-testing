@@ -1,57 +1,61 @@
 /**
- * THE ONE INSTRUMENT LOCK OF THE HOST (L-2026-10-04-serialized-heavy-slot-is-exclusive;
- * UR-16, UR-18, UR-23). Every heavy instrument — a whole suite, a coverage
- * run, a browser profile or e2e run, `ws validate`/`ws merge`, an ad-hoc load
- * run (`harness slot run -- <command>`) — holds ONE lock of this host, so no
- * two instruments ever share the cores, in one checkout or across checkouts.
- * A second heavy run WAITS, saying who holds the lock; it never fails for the
- * wait and never runs beside the holder. One behaviour everywhere.
+ * HEAVY-RUN ADMISSION OF THE HOST (NO-LOAD-BLOCK; audit rows A-01, A-02,
+ * A-03, A-23; it replaces the one global instrument lock). Every heavy
+ * instrument — a whole suite, a coverage run, a browser profile or e2e run,
+ * `ws validate`/`ws merge`, an ad-hoc load run (`harness slot run -- …`) — is
+ * ADMITTED AT ONCE: nothing waits for another run, whatever the load. A run
+ * is judged by its CPU work, so it needs no exclusive machine to be measured.
  *
- * IT IS THE ONE LOCK PRIMITIVE (`src/filesystem/file-lock.ts`): its record
- * (written by that owner's one serializer: pid AND start time, a nonce, a
- * bounded holder label), its liveness, its break of a dead holder, its
- * release. Two things are this lock's own:
+ * ADMISSION writes the run's own record in the host's RUN REGISTRY (a folder
+ * beside `testExecution.instrumentLock.cacheRelativeLockPath`, under the cache
+ * folder of the home the password database names; never in a checkout or the
+ * keep-out floor), on the one lock primitive (`src/filesystem/file-lock.ts`):
+ * pid AND start time, a nonce, a bounded holder label, and the processes the
+ * run ADOPTED. The registry is shown and never waited on: it says which heavy
+ * runs are live, since when, under which caps.
  *
- * - WHERE: one file per HOST user, its place from config
- *   (`testExecution.instrumentLock.cacheRelativeLockPath`) under the cache
- *   folder of the home the password database names (`hostUserCacheFolder`):
- *   never `$HOME` or `$XDG_CACHE_HOME`, so a run under a substitute HOME still
- *   waits for the others; refused inside a checkout or the keep-out floor;
- *   and WHAT IS HEAVY (`testExecution.instrumentLock.minimumTestFiles`):
- *   a run of that many test files or more; a targeted run of fewer is light
- *   and takes nothing.
- * - NESTING, read from the record's STRUCTURED fields (never a label): a run
- *   whose live holder — the holder process or one it adopted — is this
- *   process or one of its ancestors is inside the hold (a validate's suites,
- *   a slot run's command, vitest inside the web runner) and BORROWS it.
+ * EVERY ADMITTED RUN IS CAPPED, not serialized, and there is no path around
+ * the cap: admission moves the ADMITTING PROCESS ITSELF into a cgroup v2
+ * scope of the run's own (`bridlewise-run-<record nonce>.scope`, made by the
+ * systemd user manager's `StartTransientUnit` with this process's pid:
+ * `MemoryMax` and `CPUWeight` from `testExecution.instrumentLock.perRun`)
+ * and under the CPU-time limit of every harness subprocess
+ * (`src/process/subprocess-bounds.ts` `limitOwnCpu`). Everything the run
+ * starts from then on — a supervised command, a worker, a child spawned
+ * directly — is born inside the scope and under the limit; nothing it starts
+ * is uncapped. A host that cannot make the scope or set the limit REFUSES
+ * the run, typed (`per_run_caps_unavailable`): there is no uncapped mode.
  *
- * A HOLD OUTLIVES A KILLED HOLDER: every command a holder runs under the
- * native supervisor (`supervised-run.ts`) is ADOPTED into the record, so a
- * holder killed outright leaves the lock held until that supervisor — which
- * ends only after its whole process tree is gone — has ended too.
+ * NESTING, read from the records' structured fields AND the kernel's: a
+ * process BORROWS a live run (a validate's suites, a slot run's command,
+ * vitest inside the web runner) only when the run's holder, or a process it
+ * adopted, is this process or an ancestor, AND this process is inside the
+ * run's own scope (`/proc/self/cgroup`). A borrower writes no record and
+ * makes no scope (a nested scope would leave the outer cap); a process that
+ * is not inside the scope borrows nothing, whatever its lineage.
  *
  * THE STAMP every measurement carries ({@link instrumentLockStamp}): "held"
- * when this process runs inside a live hold AND carries that hold's own
- * acquisition token (the owner exports its record's nonce to everything it
- * starts, `HARNESS_INSTRUMENT_LOCK_TOKEN`), else "unslotted". A record
- * written by hand that names the caller's pid stamps nothing without the
- * token. The limit, stated: a process of the same user can write both the
- * record and its own environment; the lock file is private to that user
- * (folder 0700, file 0600), and the stamp is integrity, not a boundary.
+ * when this process runs inside an admitted run AND carries that run's own
+ * token (`HARNESS_INSTRUMENT_LOCK_TOKEN`, the record's nonce), else
+ * "unslotted". Retiring the stamp is the measurement half (audit A-04, A-07).
  */
 import { dirname, isAbsolute, join } from "node:path";
 
-import { HarnessError, InstrumentLockWaitInterrupted } from "../kernel/errors.ts";
+import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+
+import { HarnessError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { identityOverlapIndex, resolveLocation } from "../filesystem/path-identity.ts";
 import { liveFileLockHolder, ownsFileLockHold, printableHolderLabel, tryAcquireFileLock, type FileLockContent } from "../filesystem/file-lock.ts";
+import { randomUuid } from "../kernel/integrity.ts";
+import { limitOwnCpu, type SubprocessBounds } from "./subprocess-bounds.ts";
 import { floorKeepOutVerdict } from "../filesystem/self-protection/keep-out.ts";
 import type { WholeInstrumentKind } from "../kernel/config-contracts.ts";
 import { hostUserCacheFolder } from "../filesystem/user-folders.ts";
 import { repositoryToplevel } from "../git/repository-ownership.ts";
 import { ownedInstrumentHold, setOwnedInstrumentHold } from "./instrument-lock-adoption.ts";
-import { ancestorsOf, isOwnProcessIdentityLive } from "./process-facts.ts";
-import { guarded } from "./fault-policy.ts";
+import { ancestorsOf, isOwnProcessIdentityLive, ownCgroupPath } from "./process-facts.ts";
 
 export type InstrumentLockConfig = Readonly<{
   /** The lock file, relative to the host user's cache folder (`hostUserCacheFolder`). */
@@ -60,9 +64,12 @@ export type InstrumentLockConfig = Readonly<{
   minimumTestFiles: number;
   /** The whole instruments that are heavy by kind, whatever files they name. */
   wholeInstruments: readonly WholeInstrumentKind[];
-  /** How often a waiting run looks at the lock again. */
-  pollIntervalMs: number;
+  /** Each admitted run's caps: its scope's memory ceiling (a share of the host's memory) and its CPU weight. */
+  perRun: PerRunCaps;
 }>;
+
+/** One admitted run's cgroup caps: its scope's `MemoryMax` (a share of the host's memory) and `CPUWeight`. */
+export type PerRunCaps = Readonly<{ memoryMaxPercent: number; cpuWeight: number }>;
 
 /** Whether a measurement ran inside a live hold of the one instrument lock. */
 export type InstrumentLockStamp = "held" | "unslotted";
@@ -119,6 +126,36 @@ export function wholeInstrumentTestFileCount(config: InstrumentLockConfig, instr
   return Number.POSITIVE_INFINITY;
 }
 
+/** The run registry: the folder beside the configured path, one record per admitted run. */
+function registryOf(lockPath: string): string {
+  return `${lockPath}.runs`;
+}
+
+/** The registry's live records (a dead one is cleared as it is met: taken from its dead holder and released). */
+function liveRuns(lockPath: string): readonly Readonly<{ path: string; holder: FileLockContent }>[] {
+  const registry = registryOf(lockPath);
+  let names: readonly string[];
+  try {
+    names = readdirSync(registry).filter((name) => name.endsWith(".lock"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const live: { path: string; holder: FileLockContent }[] = [];
+  for (const name of names) {
+    const path = join(registry, name);
+    const holder = liveFileLockHolder(path);
+    if (holder !== null) {
+      live.push({ path, holder });
+      continue;
+    }
+    // A dead run's record: the primitive breaks it for a new taker; release it at once.
+    const cleared = tryAcquireFileLock(path, { holder: "registry sweep" });
+    if (cleared.state === "taken") cleared.handle.release();
+  }
+  return live;
+}
+
 /**
  * `holder`'s LIVE processes (the holder and what it adopted) include this
  * process or one of its ancestors — each judged by its full identity (pid AND
@@ -131,140 +168,153 @@ function holdsThisProcess(holder: FileLockContent): boolean {
   return [{ pid: holder.pid, startTime: holder.startTime }, ...holder.adopted].some((entry) => lineage.has(entry.pid) && isOwnProcessIdentityLive(entry));
 }
 
-/**
- * "held" when this process runs inside a live hold of the lock at `lockPath`
- * (see the header): its OWN hold, by the acquisition this process made
- * (`ownsFileLockHold` — one process may hold several locks, and test files
- * sharing a process take their own); or an ancestor's, by the acquisition
- * token the owner exported to what it starts.
- */
-export function instrumentLockStamp(lockPath: string): InstrumentLockStamp {
-  const holder = liveFileLockHolder(lockPath);
-  if (holder === null || !holdsThisProcess(holder)) return "unslotted";
-  if (holder.pid === process.pid) return ownsFileLockHold(lockPath, holder.nonce) ? "held" : "unslotted";
-  return process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] === holder.nonce ? "held" : "unslotted";
+/** The cgroup scope unit of the run whose record carries `nonce`. */
+function runScopeUnit(nonce: string): string {
+  return `bridlewise-run-${nonce}.scope`;
+}
+
+/** Whether THIS process is inside the scope of the run whose record carries `nonce` (`/proc/self/cgroup`, cgroup v2). */
+function insideRunScope(nonce: string): boolean {
+  return ownCgroupPath()?.endsWith(`/${runScopeUnit(nonce)}`) === true;
+}
+
+/** The live run this process runs inside (its own, or an ancestor's) AND inside whose capped scope it is, if any. */
+function enclosingRun(lockPath: string): Readonly<{ path: string; holder: FileLockContent }> | undefined {
+  return liveRuns(lockPath).find((run) => holdsThisProcess(run.holder) && insideRunScope(run.holder.nonce));
 }
 
 /**
- * The hold this process runs inside, BORROWED (it owns nothing and frees
- * nothing), or `undefined` when no live hold covers it — never a wait, never
- * a take.
+ * "held" when this process runs inside an admitted run (see the header): its
+ * OWN run, by the admission this process made (`ownsFileLockHold`); or an
+ * ancestor's, by the run's token the owner exported to what it starts.
+ */
+export function instrumentLockStamp(lockPath: string): InstrumentLockStamp {
+  const run = enclosingRun(lockPath);
+  if (run === undefined) return "unslotted";
+  if (run.holder.pid === process.pid) return ownsFileLockHold(run.path, run.holder.nonce) ? "held" : "unslotted";
+  return process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] === run.holder.nonce ? "held" : "unslotted";
+}
+
+/**
+ * The run this process runs inside, BORROWED (it owns nothing and frees
+ * nothing), or `undefined` when no admitted run covers it — never a take.
  */
 export function borrowInstrumentLock(lockPath: string, runner: string): InstrumentHold | undefined {
-  const holder = liveFileLockHolder(lockPath);
-  if (holder === null || !holdsThisProcess(holder)) return undefined;
+  if (enclosingRun(lockPath) === undefined) return undefined;
   return deepFreeze({ owns: false, runner: printableHolderLabel(runner), path: lockPath, stamp: instrumentLockStamp(lockPath), release: () => undefined });
 }
 
-/** What a waiting run says about who it waits for. */
-function holderLine(holder: FileLockContent): string {
-  // The label was escaped and bounded when the record was read (file-lock.ts `printableHolderLabel`).
-  return `held by ${holder.holder ?? "an unnamed instrument"} (pid ${String(holder.pid)}, since ${holder.acquiredAt}${holder.adopted.length === 0 ? "" : `, with ${String(holder.adopted.length)} adopted process(es)`})`;
+/** The live admitted runs of the host, for a person: who, since when, how many adopted processes. Never waited on. */
+export function admittedRuns(lockPath: string): readonly string[] {
+  return liveRuns(lockPath).map(({ holder }) => `${holder.holder ?? "an unnamed instrument"} (pid ${String(holder.pid)}, since ${holder.acquiredAt}${holder.adopted.length === 0 ? "" : `, with ${String(holder.adopted.length)} adopted process(es)`})`);
 }
 
+/** The refusal of a run whose caps this host cannot put in force. */
+function capsUnavailable(caps: PerRunCaps, why: string): HarnessError {
+  return new HarnessError(
+    `a heavy run is admitted only under its per-run caps (its own cgroup v2 scope: MemoryMax ${String(caps.memoryMaxPercent)}%, CPUWeight ${String(caps.cpuWeight)}; ` +
+      `and the CPU-time limit), and this host could not put them in force (${why}). Nothing runs uncapped: give the host a running systemd user manager ` +
+      "(`loginctl enable-linger`), `busctl` and `prlimit`.",
+    "per_run_caps_unavailable",
+  );
+}
 
-/** The signals a waiting door honours: each ends the wait, typed, and the lock is never taken after one. */
-const WAIT_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
-
-export { interruptedWaitExitCode } from "../kernel/errors.ts";
+/** A short pause while the scope's start job runs (an event this process waits on, never a load threshold). */
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
 
 /**
- * TAKE THE ONE LOCK for `runner` (a bounded label: who runs, never a command
- * line), WAITING while another heavy run holds it — each change of holder is
- * said through `onWait` — or BORROW it when this process runs inside the
- * hold. Never refuses for a holder; an I/O failure throws.
- *
- * THE WAIT IS ASYNCHRONOUS AND HONOURS SIGNALS (design L-1): its handlers for
- * SIGTERM, SIGINT and SIGHUP are installed BEFORE the first look, the event
- * loop runs between looks, and a signal ends the wait with
- * {@link InstrumentLockWaitInterrupted} — also when it arrived while the lock
- * was being taken (the hold is given back first): a door told to stop never
- * goes on to take the lock.
+ * Moves THIS process into the run's own scope under `caps` (the systemd user
+ * manager's `StartTransientUnit`, this process's pid: what `systemd-run
+ * --scope` does for a new command), waits for the move by the start job's own
+ * state, and puts this process under the CPU-time limit. Every process it
+ * starts afterwards is born inside both. Throws `per_run_caps_unavailable`.
  */
-export async function waitForInstrumentLock(lockPath: string, runner: string, options: Readonly<{ onWait: (line: string) => void; pollIntervalMs: number }>): Promise<InstrumentHold> {
-  if (runner.trim().length === 0) throw new HarnessError("the instrument lock needs a runner name: the wait names the holder to everyone else", "instrument_lock_runner_unnamed");
+function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): void {
+  const unit = runScopeUnit(nonce);
+  const memoryScale = Math.min(0xffffffff, Math.round((caps.memoryMaxPercent / 100) * 0xffffffff));
+  const started = spawnSync("busctl", ["--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
+    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "4", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
+    "CPUWeight", "t", String(caps.cpuWeight), "CollectMode", "s", "inactive-or-failed", "0"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (started.error !== undefined || started.status !== 0) {
+    throw capsUnavailable(caps, `busctl StartTransientUnit ${started.error !== undefined ? started.error.message : `exited ${String(started.status)}: ${started.stderr.trim()}`}`);
+  }
+  const job = /^o "([^"]+)"/mu.exec(started.stdout)?.[1];
+  if (job === undefined) throw capsUnavailable(caps, `the scope's start answered no job: ${started.stdout.trim()}`);
+  const since = Date.now();
+  while (!insideRunScope(nonce)) {
+    const pending = spawnSync("busctl", ["--user", "get-property", "org.freedesktop.systemd1", job, "org.freedesktop.systemd1.Job", "State"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    if (pending.status !== 0 && !insideRunScope(nonce)) throw capsUnavailable(caps, `the start job of ${unit} ended without moving this process into it`);
+    if (Date.now() - since > cpu.hangBackstopMs) throw capsUnavailable(caps, `HUNG: the start job of ${unit} was still pending at the ${String(cpu.hangBackstopMs / 1000)} s hang backstop (wall)`);
+    Atomics.wait(PAUSE, 0, 0, 5);
+  }
+  const limited = limitOwnCpu(cpu);
+  if (limited !== null) throw capsUnavailable(caps, limited);
+}
+
+/**
+ * ADMIT a heavy run for `runner` (a bounded label: who runs, never a command
+ * line) AT ONCE — or BORROW the run this process is inside. Never waits for
+ * another run. This process enters the run's caps before anything else runs
+ * under it: a host that cannot cap it is refused, and records nothing. Its
+ * record is released by `release` (idempotent); the process stays in the
+ * scope, which the user manager collects once its last process ends.
+ */
+export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRunCaps, cpu: SubprocessBounds): InstrumentHold {
+  if (runner.trim().length === 0) throw new HarnessError("a heavy run needs a runner name: the run registry names every admitted run", "instrument_lock_runner_unnamed");
   const label = printableHolderLabel(runner);
-  let received: NodeJS.Signals | undefined;
-  let wake: (() => void) | undefined;
-  // Guarded at the definition (the one callback owner): it is removed by reference below.
-  const onSignal = guarded("instrument-lock.wait-signal", (signal: NodeJS.Signals): void => {
-    received ??= signal;
-    wake?.();
-  });
-  for (const signal of WAIT_SIGNALS) process.on(signal, onSignal);
-  // A signal delivered while a synchronous look ran is handled when the loop next turns: let it.
-  const settled = (): Promise<void> => new Promise((resolveTurn) => setImmediate(resolveTurn));
+  const borrowed = borrowInstrumentLock(lockPath, label);
+  if (borrowed !== undefined) return borrowed;
+  const record = join(registryOf(lockPath), `${randomUuid()}.lock`);
+  const answer = tryAcquireFileLock(record, { holder: label });
+  if (answer.state !== "taken") {
+    throw new HarnessError(`the run registry could not record ${label} at ${record} (${answer.state}): a fresh record name is never held`, "instrument_run_unrecorded");
+  }
+  // THIS process, and so everything it starts from now on, goes under the
+  // run's caps; a host that cannot is refused, and the record goes with it.
   try {
-    return await waitLoop();
-  } finally {
-    for (const signal of WAIT_SIGNALS) process.removeListener(signal, onSignal);
+    enterRunScope(answer.handle.nonce, caps, cpu);
+  } catch (error) {
+    answer.handle.release();
+    throw error;
   }
-
-  async function waitLoop(): Promise<InstrumentHold> {
-  let saidFor: string | undefined;
-  for (;;) {
-    await settled();
-    if (received !== undefined) throw new InstrumentLockWaitInterrupted(label, received);
-    const answer = tryAcquireFileLock(lockPath, { holder: label });
-    if (answer.state === "taken") {
-      await settled();
-      if (received !== undefined) {
-        answer.handle.release();
-        throw new InstrumentLockWaitInterrupted(label, received);
+  setOwnedInstrumentHold(answer.handle);
+  // The run's token, for the stamp of everything this process starts
+  // (its own stamp reads its admission); a token it inherited comes back on release.
+  const inherited = process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
+  process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = answer.handle.nonce;
+  return deepFreeze({
+    owns: true, runner: label, path: lockPath, stamp: "held",
+    release: () => {
+      if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined);
+      if (process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] === answer.handle.nonce) {
+        if (inherited === undefined) delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
+        else process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = inherited;
       }
-      setOwnedInstrumentHold(answer.handle);
-      // The acquisition token, for the stamp of everything this process starts
-      // (its own stamp reads its acquisition); a token it inherited comes back on release.
-      const inherited = process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-      process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = answer.handle.nonce;
-      return deepFreeze({
-        owns: true, runner: label, path: lockPath, stamp: "held",
-        release: () => {
-          if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined);
-          if (process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] === answer.handle.nonce) {
-            if (inherited === undefined) delete process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE];
-            else process.env[INSTRUMENT_LOCK_TOKEN_VARIABLE] = inherited;
-          }
-          answer.handle.release();
-        },
-      });
-    }
-    if (answer.state === "held" && holdsThisProcess(answer.holder)) {
-      return deepFreeze({ owns: false, runner: label, path: lockPath, stamp: instrumentLockStamp(lockPath), release: () => undefined });
-    }
-    const line = answer.state === "held" ? holderLine(answer.holder) : answer.state === "unreadable" ? "held by a lock file no instrument wrote (honoured until the file lock's bound, then broken)" : "contended by other waiters";
-    if (line !== saidFor) {
-      saidFor = line;
-      options.onWait(`[instrument-lock] ${label} waits for the one instrument lock (${lockPath}): ${line}`);
-    }
-    await new Promise<void>((resolveLook) => {
-      const timer = setTimeout(resolveLook, options.pollIntervalMs);
-      wake = () => { clearTimeout(timer); resolveLook(); };
-    });
-    wake = undefined;
-  }
-  }
+      answer.handle.release();
+    },
+  });
 }
 
 /**
- * The hold for a run of `testFileCount` test files: the one lock when the run
- * is heavy ({@link waitForInstrumentLock}), else a LIGHT hold that owns
- * nothing (its stamp still says whether it runs inside a hold). A heavy run
- * with no declared lock is refused (`instrument_lock_undeclared`).
+ * The hold for a run of `testFileCount` test files: an ADMITTED run when the
+ * run is heavy ({@link admitInstrumentRun}), else a LIGHT hold that owns
+ * nothing (its stamp still says whether it runs inside an admitted run). A
+ * heavy run with no declared registry is refused (`instrument_lock_undeclared`).
  */
-export async function holdInstrumentLock(options: Readonly<{
+export function holdInstrumentLock(options: Readonly<{
   config: InstrumentLockConfig | undefined;
   harnessRoot: string;
   runner: string;
   testFileCount: number;
-  onWait: (line: string) => void;
-}>): Promise<InstrumentHold> {
+  /** The CPU-time limit every process of the run gets (the harness's `SUBPROCESS_BOUNDS`). */
+  cpu: SubprocessBounds;
+}>): InstrumentHold {
   if (options.config === undefined) {
-    throw new HarnessError("testExecution.instrumentLock is not declared in bridlewise.config.json: every heavy run holds the host's one instrument lock, and its place and what is heavy are declared there", "instrument_lock_undeclared");
+    throw new HarnessError("testExecution.instrumentLock is not declared in bridlewise.config.json: every heavy run is admitted under per-run caps, and the registry's place, what is heavy and the caps are declared there", "instrument_lock_undeclared");
   }
   const lockPath = instrumentLockPath(options.config, options.harnessRoot);
   if (!isHeavyRun(options.config, options.testFileCount)) {
     return deepFreeze({ owns: false, runner: options.runner, path: lockPath, stamp: instrumentLockStamp(lockPath), release: () => undefined });
   }
-  return waitForInstrumentLock(lockPath, options.runner, { onWait: options.onWait, pollIntervalMs: options.config.pollIntervalMs });
+  return admitInstrumentRun(lockPath, options.runner, options.config.perRun, options.cpu);
 }

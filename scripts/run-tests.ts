@@ -70,7 +70,7 @@ import { ROOT_POLICY } from "../engine/src/kernel/root-policy.ts";
 import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { supervisedCommandOutcome, finalizeQualifiedRun, qualificationInvocation, qualificationTerminal, runForInvocation, QUALIFICATION_INVOCATION_ENV, WEB_RUN_HISTORY_PATH } from "../engine/src/shared/run-history.ts";
 import { readMeasuredTree } from "../engine/src/shared/tree-identity.ts";
-import { asLockDoor, enforceTestRunLock, testFileCountOfArgs } from "../engine/scripts/tooling/test-run-lock.ts";
+import { enforceTestRunLock, testFileCountOfArgs } from "../engine/scripts/tooling/test-run-lock.ts";
 import { resolve } from "node:path";
 
 const projectDir = process.cwd();
@@ -271,12 +271,14 @@ async function main(): Promise<void> {
       `[run-tests] ${String(strays.length)} orphaned vitest process(es) of this project are still running (not stopped: this run did not start them): ${strays.join(", ")}\n`,
     );
   }
-  // THE HOST'S ONE INSTRUMENT LOCK (engine/src/process/instrument-lock.ts):
-  // the whole web suite (or any run of the configured number of files) waits
-  // for it, saying who holds it; a targeted run of fewer files takes nothing.
-  // vitest's own global setup then runs inside this hold, and the supervisor
-  // that runs vitest is adopted into it.
-  const instrumentLock = await enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
+  // HEAVY-RUN ADMISSION (engine/src/process/instrument-lock.ts): the whole web
+  // suite (or any run of the configured number of files) is admitted at once,
+  // and this process enters the run's caps (its cgroup scope and CPU-time
+  // limit), so vitest and every worker are born under them; nothing waits for
+  // another run. A targeted run of fewer files records nothing. vitest's own
+  // global setup borrows this run, and the supervisor that runs vitest is
+  // adopted into its record.
+  const instrumentLock = enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   const invocationId = qualificationInvocation(process.env);
   const tree = readMeasuredTree(projectDir);
   const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
@@ -308,5 +310,5 @@ async function main(): Promise<void> {
 // stray finder without launching a suite.
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  await asLockDoor(main);
+  await main();
 }
