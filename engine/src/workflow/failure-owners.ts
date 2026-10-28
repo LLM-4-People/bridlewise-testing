@@ -232,7 +232,7 @@ export function readEntries(root: string, directory: string): readonly { readonl
 
 // ── The structured tracker items ────────────────────────────────────────────
 
-const TRACKER_ITEM_SCHEMA = schemaId("tracker-item", 1);
+export const TRACKER_ITEM_SCHEMA = schemaId("tracker-item", 1);
 /** An item id: upper-case words and numbers joined by hyphens; the file is `<id>.md`. */
 const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
 /**
