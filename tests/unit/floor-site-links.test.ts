@@ -402,12 +402,15 @@ describe("E. the finish step: released snapshots merge whole, then the whole sit
       "late/index.html": `<html><head><meta charset="utf-8"><title>t</title>${meta(origin)}${meta(scoped)}</head><body></body></html>`,
       "elsewhere/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(sitePolicies("/other")[1])}</head><body></body></html>`,
       "third/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(scoped)}</head><body><noscript>${meta("default-src *")}</noscript></body></html>`,
+      // The policies right after a script: the script loads before any policy applies.
+      "script-first/index.html": `<html><head><script src="/bridlewise/assets/js/early.js"></script>${meta(origin)}${meta(scoped)}</head><body></body></html>`,
+      "no-charset/index.html": `<html><head>${meta(origin)}${meta(scoped)}<meta charset="utf-8"></head><body></body></html>`,
       "good/index.html": policied('<p class="lede">fine</p>'),
       "feed.xml": "<feed/>",
     });
     const refusal = (() => { try { finishSite({ site: siteRoot, baseurl: "/bridlewise" }); return ""; } catch (error) { return (error as Error).message; } })();
     const refused = refusal.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("policy: ")).map((line) => line.slice("policy: ".length).split(" ")[0]);
-    expect(refused).toEqual(["bare/index.html", "elsewhere/index.html", "late/index.html", "loud/PAGE.HTML", "old/page.htm", "one/index.html", "third/index.html"]);
+    expect(refused).toEqual(["bare/index.html", "elsewhere/index.html", "late/index.html", "loud/PAGE.HTML", "no-charset/index.html", "old/page.htm", "one/index.html", "script-first/index.html", "third/index.html"]);
   });
 
   test("versions sort newest first, a release before its pre-releases", () => {
