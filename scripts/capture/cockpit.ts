@@ -34,12 +34,14 @@
  *
  * Output: `.bridlewise/capture/<commit>/` (ignored; raw images never enter git).
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 
+import { settleFileMode } from "../../engine/src/filesystem/file-mode.ts";
+import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
 import { allProcessIds, ancestorsOf, commandLineOf } from "../../engine/src/process/process-facts.ts";
 import { boundedEnding, spawnBoundedSync } from "../../engine/src/process/subprocess-bounds.ts";
 import { SUBPROCESS_BOUNDS } from "../../engine/src/workflow/workflow-config.ts";
@@ -205,7 +207,8 @@ function prepareApp(scratch: string, commit: string): string {
   const guardian = join(REPO_ROOT, "engine", "guardian", "build");
   if (!existsSync(join(guardian, "harness-landlock-guardian"))) throw new CaptureRefusal("guardian_missing", `${guardian}/harness-landlock-guardian is absent; build it with: make -C engine/guardian all`);
   run("cp", ["-a", guardian, join(app, "engine", "guardian", "build")]);
-  chmodSync(join(app, "engine", "bridlewise.config.json"), 0o600);
+  // The configuration document's required mode, through the one mode owner (changed only when it differs, #293).
+  settleFileMode(join(app, "engine", ROOT_POLICY.configuration.basename), Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
   return app;
 }
 

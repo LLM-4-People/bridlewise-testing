@@ -46,7 +46,7 @@ import type { SuiteWatchdog } from "../../engine/src/workflow/workflow-config.ts
 import { readWebSuiteWatchdog } from "../helpers/budget-config.ts";
 import { strayVitest, superviseRun } from "../../scripts/run-tests.ts";
 import { superviseCommand } from "../../engine/src/process/supervised-run.ts";
-import { testProcessSupervisorBinary } from "../../engine/guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../engine/guardian/build.ts";
 import { qualificationInvocation, supervisedCommandOutcome, QUALIFICATION_INVOCATION_ENV } from "../../engine/src/shared/run-history.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, parentOf } from "../../engine/src/process/process-facts.ts";
 import { readSourceView, sourceViewOf, type SourceView } from "../../engine/scripts/verification/source-view.ts";
@@ -171,7 +171,7 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
       const environment: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, [QUALIFICATION_INVOCATION_ENV]: token };
       delete environment.HARNESS_MUTATION_RUN;
       const run = await superviseCommand({
-        supervisor: testProcessSupervisorBinary(), command: process.execPath,
+        supervisor: ensureTestProcessSupervisor(), command: process.execPath,
         args: [join(process.cwd(), "scripts", "run-tests.ts"), "focused-fixture.test.ts"],
         ...WATCHDOG, env: environment,
         onStdout: (chunk) => { output.push(chunk.toString()); },
