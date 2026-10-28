@@ -34,7 +34,7 @@ import type { PromotionRequest } from "../../../src/workflow/promotion/promote-a
 import { promotionFolder } from "../../../src/workflow/promotion/promotion-run.ts";
 import { checkoutCommandEnvironment, runCheckoutCommand } from "../../../src/workflow/checkout-setup.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
-import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { PROFILE_NAME, SOURCE, promotionFixture, type FixtureOptions, type PromotionFixture } from "./promotion-fixture.ts";
 
 const VARIABLE = ROOT_POLICY.workflow.promotion.promoterHomeEnvironmentVariable;
@@ -52,7 +52,7 @@ function entry(copy: string): string {
   ].join("\n");
 }
 
-const RUNNER = () => ({ supervisor: testProcessSupervisorBinary(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } });
+const RUNNER = () => ({ supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } });
 
 /** A fixture whose `tool` folder is the engine, with a setup command the engine's inputs declare (failing while its marker exists) and one they do not; `options` as the fixture's (a remote, the trigger). */
 function hostedFixture(prefix: string, overrides: Readonly<Record<string, unknown>> = {}, options: FixtureOptions = {}): Readonly<{ fixture: PromotionFixture; engine: PromoterEngine; document: PromotionDocument; setupRuns: () => readonly string[] }> {

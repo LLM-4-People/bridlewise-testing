@@ -24,7 +24,7 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { reportLauncherStop } from "../../scripts/tooling/launcher-watch.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { runRecordedCommand } from "../../scripts/tooling/recorded-command.ts";
 import { configureDebugSystem, createCollectingSink, getAuditEvents, resetDebugSystem } from "../../src/shared/debug/debug-system.ts";
 import { DEBUG_CONFIG_DEFAULTS } from "../../src/shared/debug/debug-config.ts";
@@ -70,7 +70,7 @@ test("watchLauncher fires once the launcher exits, with the launcher's pid, and 
 });
 
 /** The engine worker's launch runs only supervised (`recorded-command.ts`): the same bounds here. */
-const SUPERVISION = { supervisor: testProcessSupervisorBinary(), hardCeilingMs: 60_000, killGraceMs: 5_000 } as const;
+const SUPERVISION = { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: 60_000, killGraceMs: 5_000 } as const;
 
 test("a recorded command is stopped with SIGTERM when its stop signal aborts — also when it aborted before the start — and the observation completes", async () => {
   const dir = createTempDir("recorded-command-stop-");
