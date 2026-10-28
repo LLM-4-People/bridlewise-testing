@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
 import test, { after } from "node:test";
 
 import {
@@ -317,6 +319,71 @@ test("executeInventoryTestRun: the per-test bounds live in the test file's own p
   assert.equal(out.passed, true, JSON.stringify({ reasons: out.reasons, failures: out.failureDetails }));
   assert.equal(out.counts.discovered, 2);
   assert.ok(!out.reasons.some((reason) => /unknown|lifecycle/u.test(reason)), JSON.stringify(out.reasons));
+});
+
+test("engine test bounds: NESTED and CONCURRENT t.test subtests are each measured in their OWN window — the CPU judgement keys its reading by the test context, so a subtest never clears its parent's", () => {
+  // Driven through node:test's own run() with the runner's exact preload:
+  // the engine inventory refuses `t.test` (not statically modeled), but the
+  // bounds are node:test's, and a node:test feature must not break them.
+  const root = makeRoot("engine-bounds-subtests");
+  const file = join(root, "subtests.test.mjs");
+  writeFileSync(file, [
+    'import test from "node:test";',
+    'const pause = (turns) => new Promise((resolve) => { const step = (left) => left === 0 ? resolve() : setImmediate(() => step(left - 1)); step(turns); });',
+    'test("a parent with nested subtests", async (t) => {',
+    '  await t.test("child", async (c) => { await c.test("grandchild", () => {}); });',
+    '  await t.test("second child", () => {});',
+    '});',
+    'test("a parent with concurrent subtests", { concurrency: true }, async (t) => {',
+    '  await Promise.all([t.test("one", () => pause(6)), t.test("two", () => pause(3)), t.test("three", () => {})]);',
+    '});',
+  ].join("\n"));
+  const preload = engineTestBoundsImport({ hangBackstopMs: 600_000, cpuClasses: { defaultCeilingMs: 60_000, classes: [] }, repositoryRoot: root, files: [file] });
+  const driver = [
+    'import { run } from "node:test";',
+    'const [file, preload] = process.argv.slice(2);',
+    'const seen = { pass: [], fail: [] };',
+    'for await (const event of run({ files: [file], execArgv: [preload], timeout: 600000 })) {',
+    '  if (event.type === "test:pass") seen.pass.push(event.data.name);',
+    '  if (event.type === "test:fail") seen.fail.push(`${event.data.name}: ${String(event.data.details?.error?.cause ?? event.data.details?.error)}`);',
+    '}',
+    'process.stdout.write(JSON.stringify(seen));',
+  ].join("\n");
+  // The driver is a runner of its own, never a test file of this run.
+  const { NODE_TEST_CONTEXT: _ownContext, ...env } = process.env;
+  // A driver FILE, never `-e`: node:test starts each test file with the
+  // driver's own execArgv, and an `-e` there would run the driver again.
+  const driverFile = join(root, "driver.mjs");
+  writeFileSync(driverFile, driver);
+  const ran = spawnSync(process.execPath, [driverFile, file, preload], { encoding: "utf8", env });
+  assert.equal(ran.status, 0, ran.stderr);
+  const seen = JSON.parse(ran.stdout) as { pass: string[]; fail: string[] };
+  assert.deepEqual(seen.fail, [], "no test fails for its own measurement");
+  assert.deepEqual(seen.pass.toSorted(), ["a parent with concurrent subtests", "a parent with nested subtests", "child", "grandchild", "one", "second child", "three", "two"]);
+});
+
+test("installEngineTestBounds: a worker of the test file ITSELF installs nothing — its argv[1] is the dispatched file, so only the main-thread check keeps the bounds (and node:test with them) out of it", () => {
+  const root = makeRoot("engine-bounds-self-worker");
+  const bounds = resolve(process.cwd(), "scripts/tooling/engine-test-bounds.ts");
+  const file = join(root, "self-worker.mjs");
+  writeFileSync(file, [
+    'import { isMainThread, parentPort, Worker } from "node:worker_threads";',
+    'import timers from "node:timers";',
+    `const { installEngineTestBounds } = await import(${JSON.stringify(pathToFileURL(bounds).href)});`,
+    'if (isMainThread) {',
+    '  const worker = new Worker(new URL(import.meta.url));',
+    '  worker.once("message", (seen) => { process.stdout.write(JSON.stringify(seen)); void worker.terminate(); });',
+    '} else {',
+    '  const before = timers.setTimeout;',
+    `  await installEngineTestBounds({ hangBackstopMs: 600000, cpuClasses: null, repositoryRoot: ${JSON.stringify(root)}, files: [${JSON.stringify(file)}] });`,
+    '  parentPort.postMessage({ argv1: process.argv[1], installed: timers.setTimeout !== before });',
+    '}',
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, [file], { encoding: "utf8" });
+  assert.equal(ran.status, 0, ran.stderr);
+  const seen = JSON.parse(ran.stdout) as { argv1: string; installed: boolean };
+  assert.equal(seen.argv1, file, "the worker's argv[1] is the test file itself, so the file check alone admits it");
+  assert.equal(seen.installed, false, "the worker installed the bounds");
 });
 
 test("executeInventoryTestRun: a file that never EXITS after its cancelled test is killed at the stall bound, and the run FAILS", () => {

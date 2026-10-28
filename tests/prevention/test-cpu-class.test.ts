@@ -35,19 +35,20 @@ const REPOSITORY_ROOT = process.cwd();
 
 /** Runs one fake test through the judgement: its hooks, then `body`, then the verdict. */
 function judged(classes: TestCpuClasses, file: string, body: () => void): { error: unknown; reading: { cpuMs: number; wallMs: number } | null } {
+  const context = { file };
   let before: (() => void) | undefined;
-  let after: ((context: string) => void) | undefined;
+  let after: ((context: { file: string }) => void) | undefined;
   let reading: { cpuMs: number; wallMs: number } | null = null;
-  installTestCpuJudgement<string>(
-    { beforeEach: (hook) => { before = () => hook(file); }, afterEach: (hook) => { after = hook; } },
+  installTestCpuJudgement<{ file: string }>(
+    { beforeEach: (hook) => { before = () => hook(context); }, afterEach: (hook) => { after = hook; } },
     classes,
-    (context) => context,
+    (one) => one.file,
     (_context, measured) => { reading = measured; },
   );
   before!();
   body();
   try {
-    after!(file);
+    after!(context);
     return { error: null, reading };
   } catch (error) {
     return { error, reading };
@@ -98,6 +99,37 @@ describe("the judgement", () => {
     expect(error).toBeNull();
     expect(reading!.wallMs).toBeGreaterThanOrEqual(290);
     expect(reading!.cpuMs).toBeLessThan(50);
+  });
+
+  test("ONE WINDOW PER TEST CONTEXT: nested and interleaved (concurrent) tests each keep their own reading — none clears another's, and each measures the work done in its own window", () => {
+    let before: ((context: { name: string }) => void) | undefined;
+    let after: ((context: { name: string }) => void) | undefined;
+    const readings = new Map<string, number>();
+    installTestCpuJudgement<{ name: string }>(
+      { beforeEach: (hook) => { before = hook; }, afterEach: (hook) => { after = hook; } },
+      { defaultCeilingMs: 60_000, classes: [] },
+      () => "tests/unit/somewhere.test.ts",
+      (context, reading) => { readings.set(context.name, reading.cpuMs); },
+    );
+    const parent = { name: "parent" }, child = { name: "child" }, one = { name: "one" }, two = { name: "two" };
+    // Nested: a subtest's hooks run inside its parent's window.
+    before!(parent);
+    burn(40);
+    before!(child);
+    burn(40);
+    after!(child);
+    after!(parent);
+    // Concurrent: two windows interleave, and the first to open ends last.
+    before!(one);
+    before!(two);
+    burn(40);
+    after!(two);
+    after!(one);
+    expect([...readings.keys()].toSorted()).toEqual(["child", "one", "parent", "two"]);
+    expect(readings.get("parent")!).toBeGreaterThanOrEqual(readings.get("child")! + 30);
+    expect(readings.get("one")!).toBeGreaterThanOrEqual(30);
+    // A context whose window never opened is refused, never judged as zero.
+    expect(() => after!({ name: "never opened" })).toThrow(/no beforeEach reading for its test/u);
   });
 
   test("a file in no class is judged by the default; a declared file by its class", () => {
