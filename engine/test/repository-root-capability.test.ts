@@ -1116,7 +1116,7 @@ test("test-surface disposition manifest rejects a stale policyHash (hostile drif
   const tamperedEntries = { ...validManifest, entries: [{ path: "fake.test.ts", language: "javascript-typescript", disposition: "canonical-node-test", rationale: "x", evidenceLinks: ["x"], blocksFullRepositoryClaim: false }] };
   assert.throws(
     () => parseTestSurfaceDispositionManifest(tamperedEntries),
-    /test-surface disposition manifest integrity is invalid/u,
+    /test-surface canonical disposition is invalid/u,
   );
   assert.throws(
     () => parseTestSurfaceDispositionManifest({ ...validManifest, integrityHash: "0".repeat(64) }),

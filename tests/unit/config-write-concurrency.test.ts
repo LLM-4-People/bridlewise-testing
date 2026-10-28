@@ -336,15 +336,14 @@ describe("the config write lock across processes", () => {
       nonce: "planted-stale",
     })}\n`, { mode: 0o600 });
     expect(existsSync(lockPath)).toBe(true);
-    const started = Date.now();
     let ranInside = false;
     withConfigWriteLock(configPath, () => {
       ranInside = true;
     });
+    // BROKEN, not waited out, by its path: a wait for a live holder ends in
+    // ConfigWriteLockTimeout and never runs the body; no wall clock judges it
+    // (NO-LOAD-BLOCK).
     expect(ranInside).toBe(true);
-    // Far under the policy timeout: the stale break is immediate, where the
-    // wait for a live holder would have been the full timeout.
-    expect(Date.now() - started).toBeLessThan(5_000);
     expect(existsSync(lockPath), "a released lock leaves no file behind").toBe(false);
   });
 
@@ -362,13 +361,12 @@ describe("the config write lock across processes", () => {
       acquiredAt: new Date().toISOString(),
       nonce: "planted-recycled",
     })}\n`, { mode: 0o600 });
-    const started = Date.now();
     let ranInside = false;
     withConfigWriteLock(configPath, () => {
       ranInside = true;
     });
+    // Broken, by its path: a wait would end in ConfigWriteLockTimeout without running the body.
     expect(ranInside).toBe(true);
-    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   test("the lock is re-entrant within one process — the gate writes inside a held cycle without deadlocking", () => {

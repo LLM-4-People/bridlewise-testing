@@ -30,6 +30,7 @@ import { resetUiSchema } from "../../src/state/schema-store.ts";
 import { read as readSource } from "../helpers/source-scan.ts";
 import { plantHead, returnToLive } from "../../src/data/asof.ts";
 import { PAST_VIEW_ACT_REASON } from "../../src/data/asof.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -52,13 +53,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 describe("the desk's geometry comes from the token owner (§2.3)", () => {
   const tokens = readSource("src/cockpit/tokens.css");
@@ -120,9 +114,9 @@ describe("the desk in the shell — gestures only, one-reveal intact", () => {
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".desk") !== null);
+    await until(() => host.querySelector(".desk") !== null);
     // The reveal has landed when the shell says so.
-    await waitFor(() => host.querySelector('[data-revealed="true"]') !== null);
+    await until(() => host.querySelector('[data-revealed="true"]') !== null);
   });
 
   afterEach(() => {
@@ -162,7 +156,7 @@ describe("the desk in the shell — gestures only, one-reveal intact", () => {
     expect(document.activeElement).toBe(g);
     g.click();
     flushSync();
-    await waitFor(() => panelMounted());
+    await until(() => panelMounted());
     expect(rightMenu.get() === "setup").toBe(true);
     expect(grip().getAttribute("aria-expanded")).toBe("true");
     expect(grip().getAttribute("aria-label")).toBe("Conversation setup");
@@ -171,48 +165,48 @@ describe("the desk in the shell — gestures only, one-reveal intact", () => {
   test("the desk chord toggles the desk both ways", async () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: ".", ctrlKey: true, bubbles: true }));
     flushSync();
-    await waitFor(() => rightMenu.get() === "setup");
+    await until(() => rightMenu.get() === "setup");
     window.dispatchEvent(new KeyboardEvent("keydown", { key: ".", ctrlKey: true, bubbles: true }));
     flushSync();
-    await waitFor(() => rightMenu.get() !== "setup");
+    await until(() => rightMenu.get() !== "setup");
   });
 
   test.each(["Escape", "Back"])("%s returns from inspector detail to the same draft, focus and scroll", async (gesture) => {
     grip().click();
-    await waitFor(panelMounted);
+    await until(panelMounted);
     const origin = host.querySelector<HTMLButtonElement>('[data-testid="desk-source-probe"]')!;
     const input = host.querySelector<HTMLInputElement>('[aria-label="Retained editor draft"]')!;
     const body = host.querySelector<HTMLElement>('.right-menu .body')!;
     input.value = "Keep this unsaved thought";
     body.scrollTop = 64;
     origin.focus(); origin.click();
-    await waitFor(() => host.querySelector('.scope-title')?.textContent === "Context source");
+    await until(() => host.querySelector('.scope-title')?.textContent === "Context source");
     expect(host.querySelectorAll('[data-testid="desk-panel-probe"]')).toHaveLength(1);
     const hiddenOrigin = origin.closest<HTMLElement>('[hidden]');
     expect(hiddenOrigin).not.toBeNull();
     expect(hiddenOrigin!.inert).toBe(true);
     if (gesture === "Escape") window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     else host.querySelector<HTMLButtonElement>('[data-verb-id="scope.close"]')!.click();
-    await waitFor(() => host.querySelector('.scope-title') === null && document.activeElement === origin);
+    await until(() => host.querySelector('.scope-title') === null && document.activeElement === origin);
     expect(rightMenu.get()).toBe("setup");
     expect(input.value).toBe("Keep this unsaved thought");
     expect(body.scrollTop).toBe(64);
     host.querySelector<HTMLButtonElement>('[data-verb-id="right-menu.close"]')!.click();
-    await waitFor(() => rightMenu.get() === null);
+    await until(() => rightMenu.get() === null);
   });
 
   test("a `breaker` verb jump OPENS a closed desk…", async () => {
     expect(rightMenu.get() === "setup").toBe(false);
     jumpToBreakerRow("edit_file");
     flushSync();
-    await waitFor(() => rightMenu.get() === "setup");
-    await waitFor(panelMounted);
+    await until(() => rightMenu.get() === "setup");
+    await until(panelMounted);
   });
 
   test("…and never CLOSES an open one (a jump is not a toggle)", async () => {
     grip().click();
     flushSync();
-    await waitFor(() => rightMenu.get() === "setup");
+    await until(() => rightMenu.get() === "setup");
     jumpToBreakerRow("edit_file");
     jumpToBreakerRow("run_command");
     flushSync();
@@ -236,8 +230,8 @@ describe("the disabled send says why (UIE-049) — the title derives with the di
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".desk") !== null);
-    await waitFor(() => host.querySelector('[data-revealed="true"]') !== null);
+    await until(() => host.querySelector(".desk") !== null);
+    await until(() => host.querySelector('[data-revealed="true"]') !== null);
   });
 
   afterEach(() => {

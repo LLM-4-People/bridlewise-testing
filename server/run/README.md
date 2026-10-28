@@ -32,18 +32,6 @@ enforced against this folder.
 - `worker-ipc.ts` — the single owner of the `post` helper the worker entry
   points use to forward a shaped result to the parent thread.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/run/`.
-
-- `attempt-counter.ts` is consumed by `server/run/run-executor.ts`.
-- `rewind.ts` is consumed by `server/blocks/compose.ts`, `server/context/chat-history.ts`, `server/routes/chats.ts`.
-- `run-executor.ts` is consumed by `server/blocks/compose.ts`, `server/routes/run.ts`.
-- `run-feed.ts` is consumed by `server/agent/agents-bridge.ts`, `server/index.ts`, `server/routes/run-stream.ts`, `server/run/run-executor.ts`, `server/run/run-registry.ts`.
-- `run-registry.ts` is consumed by `server/routes/run-status.ts`, `server/routes/run-stream.ts`, `server/routes/run.ts`, `server/run/run-executor.ts`.
-- `worker-ipc.ts` is consumed by `server/awareness/awareness-worker.ts`, `server/db/key-scan-worker.ts`, `server/intelligence/content-search-worker.ts`, `server/intelligence/quick-view-worker.ts`, `server/intelligence/repository-map-worker.ts`, `server/observability/timeline-migration-worker.ts`.
-- `worker-pool.ts` is consumed by `server/awareness/awareness-bridge.ts`, `server/db/key-tool.ts`, `server/intelligence/content-search.ts`, `server/intelligence/intelligence-bridge.ts`, `server/observability/timeline-bridge.ts`.
-
-<!-- /consumers:generated -->

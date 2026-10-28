@@ -27,19 +27,6 @@ all owned once. The retrieval math and the storage backends are in the
   HNSW, inverted index, RRF.
 - `storage/` — the storage backends behind the single backend contract.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/shared/memory/`.
-
-- `ebbinghaus.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/shared-memory-store.ts`, `engine/src/shared/memory/token-cap.ts`.
-- `index.ts` is consumed by nothing yet.
-- `memory-config.ts` is consumed by `engine/src/shared/memory/ebbinghaus.ts`, `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-entry.ts`, `engine/src/shared/memory/memory-exposure.ts`, `engine/src/shared/memory/memory-tree.ts`, `engine/src/shared/memory/retrieval/embeddings.ts` and 4 more.
-- `memory-entry.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-tree.ts`, `engine/src/shared/memory/retrieval/retriever.ts`, `engine/src/shared/memory/shared-memory-store.ts`, `engine/src/shared/memory/storage/append-log-backend.ts`, `engine/src/shared/memory/storage/backend.ts` and 5 more.
-- `memory-exposure.ts` is consumed by `engine/src/shared/memory/index.ts`.
-- `memory-tree.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/shared-memory-store.ts`.
-- `shared-memory-store.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/memory-exposure.ts`.
-- `token-cap.ts` is consumed by `engine/src/shared/memory/index.ts`, `engine/src/shared/memory/shared-memory-store.ts`.
-
-<!-- /consumers:generated -->
