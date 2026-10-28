@@ -193,7 +193,7 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning_push_protection, "disabled");
   for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "not_set", `${key}: CodeQL runs in advanced setup`);
   // Attached to the governed repositories only, by visibility, and default for no new repository.
-  assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", "bridlewise-testing"], default_for_new_repos: "none" });
+  assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", TRUNK].sort(), default_for_new_repos: "none" });
   assert.deepEqual(attachment("bridlewise-baseline-private"), { repositories: ["bridlewise-coordination"], default_for_new_repos: "none" });
   // With the add-on, the private configuration carries secret scanning too.
   const withAddOn = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection: true } } });
