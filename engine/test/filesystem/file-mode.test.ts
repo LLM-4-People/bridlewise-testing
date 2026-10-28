@@ -13,6 +13,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
+import { CHECKOUT_WRITE_REFUSAL_CODE } from "../../src/filesystem/checkout-write-door.ts";
 import { settleDescriptorMode, settleFileMode } from "../../src/filesystem/file-mode.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -87,4 +88,25 @@ test("settling the LIVE configuration's mode from a test changes nothing about i
   assert.equal(Number(before.mode & 0o7777n), REQUIRED, "the live configuration is not at its required mode; run the checkout setup");
   assert.deepEqual(fchmodCalls(LIVE_CONFIG, REQUIRED), { changed: false, calls: 0 });
   assert.equal(statSync(LIVE_CONFIG, { bigint: true }).ctimeNs, before.ctimeNs);
+});
+
+test("the #293 shape: a mode change reaching the LIVE configuration through a linked engine folder is refused by the checkout write door", () => {
+  // A fixture home whose `engine` is a link to the live engine (promoter-home's N3/T-K5 before #506): settling the
+  // config "in the home" lands on the live document. The mode differs from the live one, so a change is needed and
+  // the door must refuse it, before any fchmod, and leave the live document exactly as it was.
+  const home = createTempDir("file-mode-home-");
+  symlinkSync(new URL("../..", import.meta.url).pathname, join(home, "engine"));
+  const throughLink = join(home, "engine", ROOT_POLICY.configuration.basename);
+  const before = statSync(LIVE_CONFIG, { bigint: true });
+  const other = REQUIRED === 0o600 ? 0o640 : 0o600;
+  try {
+    assert.throws(() => settleFileMode(throughLink, other), (error: unknown) =>
+      (error as { code?: string }).code === CHECKOUT_WRITE_REFUSAL_CODE, "the door did not refuse a mode change into the live checkout");
+  } finally {
+    // Only a regression gets here with the live document changed: put its mode back at once, then fail below.
+    if (Number(statSync(LIVE_CONFIG).mode & 0o7777) !== REQUIRED) chmodSync(LIVE_CONFIG, REQUIRED);
+  }
+  const after = statSync(LIVE_CONFIG, { bigint: true });
+  assert.equal(after.ctimeNs, before.ctimeNs, "the live configuration's ctime moved");
+  assert.equal(Number(after.mode & 0o7777n), REQUIRED);
 });
