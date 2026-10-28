@@ -1,12 +1,13 @@
 /**
  * A COMMIT'S TRAILERS, AS GIT PARSES THEM — the one reader the commit doors
- * share (the `Lesson:` trailer, the DCO's `Signed-off-by:`).
+ * share (the `Lesson:` and `Test-deleted:` trailers, the DCO's `Signed-off-by:`
+ * and every identity trailer).
  *
  * The values are git's own parse (`git interpret-trailers --parse` of a raw
  * message, `%(trailers:only,unfold)` of a recorded commit), never a regular
  * expression over the body: a `Key: value` line inside the body, or above a
  * `git commit -v` scissors line, is not a trailer. A decision trailer's key
- * (`Lesson:`) is matched exactly, because `git log --grep` is case-sensitive;
+ * (`Lesson:`, `Test-deleted:`) is matched exactly, because `git log --grep` is case-sensitive;
  * an identity trailer is judged by any spelling of its key ({@link trailersOf}).
  */
 import { execFileSync } from "node:child_process";

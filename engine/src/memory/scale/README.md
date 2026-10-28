@@ -13,13 +13,6 @@ across N shards by hash; each shard keeps an on-disk FTS5 inverted index
 - `scale-config.ts` — the centralized configuration owner for the scale
   store: every threshold is a declared configurable.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/memory/scale/`.
-
-- `memory-store-1b.ts` is consumed by `engine/scripts/exp452/run-exp452.mjs`.
-- `scale-config.ts` is consumed by `engine/scripts/exp452/run-exp452.mjs`, `engine/src/memory/scale/memory-store-1b.ts`.
-
-<!-- /consumers:generated -->
