@@ -8,6 +8,7 @@ import { InputError } from "../../src/kernel/errors.ts";
 import { canonicalJson, deepFreeze, sha256 } from "../../src/kernel/integrity.ts";
 import { assertNoDuplicateJsonObjectKeys } from "../../src/kernel/json-integrity.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+import { CORPUS_ENGINE_ROOT, CORPUS_FETCH_COMMAND } from "../verification/corpus-root.ts";
 
 export const REPOSITORY_PATH_UNICODE_GENERATOR_REVISION =
   "bridlewise-repository-path-unicode-generator/v1" as const;
@@ -71,7 +72,17 @@ const PATH_POLICY_FILE_BINDING_SCHEMA = z.strictObject({
   byteLength: z.number().int().positive().max(10_000_000),
   sha256: SHA256,
 });
-const GIT_SOURCE_ENTRY_SCHEMA = PATH_POLICY_FILE_BINDING_SCHEMA.extend({
+/**
+ * Git's GPL-2.0-only sources are FETCHED FOR TESTING, NEVER VENDORED: their
+ * bindings point into the pinned corpus (`npm run corpus:fetch` materialises
+ * them outside the tree from the commit below, verified against these pins),
+ * so the AGPL snapshot carries the pins and none of the bytes.
+ */
+const GIT_CORPUS_ROOT = `${CORPUS_ENGINE_ROOT}/git/`;
+const GIT_FILE_BINDING_SCHEMA = PATH_POLICY_FILE_BINDING_SCHEMA.extend({
+  path: z.string().regex(new RegExp(`^${GIT_CORPUS_ROOT.replaceAll(".", "\\.")}[A-Za-z0-9./-]+$`, "u")),
+});
+const GIT_SOURCE_ENTRY_SCHEMA = GIT_FILE_BINDING_SCHEMA.extend({
   id: z.string().min(1).max(128),
   role: z.string().min(1).max(128),
   upstreamPath: z.string().regex(/^[A-Za-z0-9./-]+$/u),
@@ -97,7 +108,7 @@ const PATH_POLICY_SOURCE_MANIFEST_SCHEMA = z.strictObject({
         tag: z.string().regex(/^v[0-9]+\.[0-9]+\.[0-9]+$/u),
         commit: z.string().regex(/^[0-9a-f]{40}$/u),
       }),
-      license: PATH_POLICY_FILE_BINDING_SCHEMA.extend({
+      license: GIT_FILE_BINDING_SCHEMA.extend({
         spdx: z.literal("GPL-2.0-only"),
         url: z.string().url(),
       }),
@@ -108,7 +119,7 @@ const PATH_POLICY_SOURCE_MANIFEST_SCHEMA = z.strictObject({
   const git = manifest.sourceSets.git;
   const sourcePaths = [git.license.path, ...git.sources.map((source) => source.path)];
   const sourceIds = git.sources.map((source) => source.id);
-  const root = `traceability/sources/path-policy/git-${git.upstream.version}/`;
+  const root = GIT_CORPUS_ROOT;
   const rawRoot = `https://raw.githubusercontent.com/git/git/${git.upstream.tag}/`;
   if (git.upstream.tag !== `v${git.upstream.version}` ||
     git.id !== `git-${git.upstream.version}-ntfs-path-aliases`) {
@@ -356,16 +367,41 @@ function verifyPathPolicySourceIdentities(
     manifest.sourceSets.git.license,
     ...manifest.sourceSets.git.sources,
   ];
-  for (const binding of bindings) {
-    const bytes = readFileSync(join(repositoryRoot, binding.path));
-    if (bytes.byteLength !== binding.byteLength || sha256(bytes) !== binding.sha256) {
+  for (const binding of bindings) decodeFatalUtf8(readPathPolicySource(repositoryRoot, binding));
+}
+
+/**
+ * THE ONE READER of a path-policy source (the generator and the tests both
+ * read through it): the bytes, verified against the binding's pin. A source
+ * in the corpus that is absent or off its pin is a typed refusal naming the
+ * fetch — never a raw ENOENT, never a skip.
+ */
+export function readPathPolicySource(
+  repositoryRoot: string,
+  binding: Readonly<{ path: string; byteLength: number; sha256: string }>,
+): Buffer {
+  const fetched = binding.path.startsWith(GIT_CORPUS_ROOT);
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(join(repositoryRoot, binding.path));
+  } catch (error) {
+    if (fetched && (error as NodeJS.ErrnoException).code === "ENOENT") {
       throw new InputError(
-        "Vendored path policy source identity is invalid",
-        "repository_path_source_identity_invalid",
+        `${binding.path} is fetched for testing, never vendored: run \`${CORPUS_FETCH_COMMAND}\``,
+        "repository_path_corpus_source_absent",
       );
     }
-    decodeFatalUtf8(bytes);
+    throw error;
   }
+  if (bytes.byteLength !== binding.byteLength || sha256(bytes) !== binding.sha256) {
+    throw new InputError(
+      fetched
+        ? `${binding.path} does not match its pin: run \`${CORPUS_FETCH_COMMAND}\` (and \`npm run corpus:verify\`)`
+        : "Vendored path policy source identity is invalid",
+      "repository_path_source_identity_invalid",
+    );
+  }
+  return bytes;
 }
 
 export function runRepositoryPathUnicodeGenerator(argv: readonly string[]): void {

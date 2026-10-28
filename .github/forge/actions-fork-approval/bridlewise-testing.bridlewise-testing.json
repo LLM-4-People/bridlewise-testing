@@ -1,0 +1,12 @@
+{
+  "kind": "actions-fork-approval",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "bridlewise-testing",
+  "unavailableOnPlan": [],
+  "desired": {
+    "approval_policy": "first_time_contributors"
+  }
+}

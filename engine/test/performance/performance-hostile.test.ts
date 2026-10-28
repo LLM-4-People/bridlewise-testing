@@ -121,7 +121,7 @@ test("hostile: metrics collector filters credential keys from correlation", () =
  *   • a WITNESS in the same subject, asserted PRESENT — so a scan that returned
  *     zero because it was pointed at nothing fails loudly instead of passing.
  */
-const CREDENTIAL_CANARY = "sk-hostile-4d9a1f7e0c2b6853f10e";
+const CREDENTIAL_CANARY = ("sk" + "-hostile-4d9a1f7e0c2b6853f10e");
 
 test("hostile: diagnostic snapshots do not echo a credential planted in the cgroup reader", () => {
   // The only foreign text a diagnostic snapshot reads is the cgroup files, and

@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "area:docs",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "area:docs",
+    "color": "0075ca",
+    "description": "Documentation, decisions and trackers"
+  }
+}

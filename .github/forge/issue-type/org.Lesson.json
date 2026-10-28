@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Lesson",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Lesson",
+    "color": "green",
+    "description": "A workflow lesson; closed when a commit names it in a Lesson: trailer",
+    "is_enabled": true
+  }
+}
