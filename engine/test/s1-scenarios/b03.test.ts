@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { chownSync } from "node:fs";
-import { join } from "node:path";
 import test from "node:test";
 import { SecurityError } from "../../src/kernel/errors.ts";
 import { createPreflightContext, isIssuedPreflightContext } from "../../src/kernel/preflight.ts";
-import { makeRuntimeCandidate, removeOwnedTemporaryDirectories, invoke, errorCode } from "../support/s1-scenario-shared.ts";
+import { removeOwnedTemporaryDirectories } from "../support/s1-scenario-shared.ts";
 
 const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
   "S1-B03-CONTROL": () => {
@@ -38,16 +36,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     } finally {
       Object.defineProperty(process, "getuid", { configurable: true, value: getuid });
     }
-  },
-  "S1-B03-HOSTILE-REAL": () => {
-    const root = makeRuntimeCandidate();
-    const foreignGroup = process.getgroups!().find((group) => group !== process.getgid!());
-    assert.notEqual(foreignGroup, undefined, "principal mismatch fixture requires a supplementary group");
-    chownSync(join(root, "bridlewise.config.json"), process.getuid!(), foreignGroup!);
-    const result = invoke(root);
-    assert.equal(errorCode(result), "principal_authentication_failed");
-    assert.equal(result.stdout, "");
-    assert.doesNotMatch(result.stderr, new RegExp(root));
   },
 };
 

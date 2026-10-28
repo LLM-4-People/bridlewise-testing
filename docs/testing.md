@@ -165,6 +165,7 @@ npm run test:guards      # architecture, prevention, workflow guards
 npm run test:unit
 npm run test:editor
 npm run test:live        # opt-in provider/network tests
+npm run test:live:s1     # the S1 scenarios that need a real supplementary group (CI runs them)
 npm run check            # typecheck + verification
 npm run coverage
 ```
@@ -245,7 +246,7 @@ The merge contract and the manifest contract are covered by the public smoke sui
 | `tests/helpers/`, `tests/fixtures/` | Shared setup and deterministic fixtures |
 | `tests/setup/` | Hermetic network and process setup |
 | `engine/test/` | Engine domains: editor, intelligence, memory, privacy, safety, timeline, workflow, MCP, quality, and more |
-| `engine/live/` | Opt-in provider and MCP smoke tests |
+| `engine/live/` | The live suite, unconfined by design: opt-in provider and MCP smoke tests, and the S1 scenarios that need a real supplementary group (`npm --prefix engine run test:live:s1`, run in CI's engine job) |
 | `bench/` | Concurrency, DB, ledger, payload, redaction, and write-path measurements |
 
 ## Adding a test

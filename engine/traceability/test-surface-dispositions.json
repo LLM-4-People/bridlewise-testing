@@ -27,6 +27,28 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "live/s1-b02-hostile-real.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "qualified-external-oracle",
+      "rationale": "Run by `npm run test:live:s1` only (CI's engine job, unconfined), never by the hermetic runner: its fixture needs a real supplementary group, which the confined hermetic run's user namespace cannot map (decision TEST-CONFINEMENT-SELF-BIND).",
+      "evidenceLinks": [
+        "package.json",
+        "src/kernel/root-policy.ts"
+      ],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "live/s1-b03-hostile-real.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "qualified-external-oracle",
+      "rationale": "Run by `npm run test:live:s1` only (CI's engine job, unconfined), never by the hermetic runner: its fixture needs a real supplementary group, which the confined hermetic run's user namespace cannot map (decision TEST-CONFINEMENT-SELF-BIND).",
+      "evidenceLinks": [
+        "package.json",
+        "src/kernel/root-policy.ts"
+      ],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/conversation-summary.test.ts",
       "language": "javascript-typescript",
       "disposition": "pending-external-qualification",

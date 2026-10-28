@@ -1031,8 +1031,10 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
         // and the remaining non-canonical set is the public tree's actual set.
         // This second copy is the mechanism working: `root-policy.ts` had
         // already moved to 8 while this file kept 16, and the suite said so.
-        count: 8,
-        sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
+        // 8 -> 10 (2026-10-28, decision TEST-CONFINEMENT-SELF-BIND): S1-B02/B03
+        // HOSTILE-REAL moved to the live suite (`live/s1-b0{2,3}-hostile-real.test.ts`).
+        count: 10,
+        sha256: "102f6f72c6791e29faccadb287d641ea2e13737b5a0c864e71ec0d2b16cec2d4",
       },
     },
     maximumDepth: 32,

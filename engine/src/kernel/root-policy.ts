@@ -2416,8 +2416,16 @@ const ROOT_POLICY_VALUE = {
           // floor. They were pruned deliberately with `harness sync --prune`;
           // the remaining non-canonical set is the public tree's actual set.
           // This pin is deliberately not auto-repaired.
-          count: 8,
-          sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
+          // RESTATED BY HAND FOR THE READ-ONLY TEST CHECKOUT (2026-10-28,
+          // decision TEST-CONFINEMENT-SELF-BIND), 8 -> 10: S1-B02-HOSTILE-REAL
+          // and S1-B03-HOSTILE-REAL moved, byte for byte, from the hermetic
+          // family files to `live/s1-b02-hostile-real.test.ts` and
+          // `live/s1-b03-hostile-real.test.ts` (`npm run test:live:s1`, run in
+          // CI's engine job): their fixture needs a real supplementary group,
+          // which the confined hermetic run's user namespace cannot map. The
+          // scenarios moved; none vanished.
+          count: 10,
+          sha256: "102f6f72c6791e29faccadb287d641ea2e13737b5a0c864e71ec0d2b16cec2d4",
         },
       },
       // END AUTHORED PINS
