@@ -4252,7 +4252,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 51, namesSha256: "18d5254c2fdcbb48f40b945a314370d522f1c8a2e5e27e2e9e9a3e33617ff28f" },
+      owner: "verification-workflow", publicApi: { exportCount: 52, namesSha256: "ef8e3cb39fb5292accabd8488a7dd192cfdcbd9e86d5464060cb5c1543887443" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5154,7 +5154,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-privacy-secret-parts", path: "src/privacy/secret-parts.ts", realm: "shared", layer: "domain",
-      owner: "privacy-and-redaction", publicApi: { exportCount: 11, namesSha256: "dbd833d6fcae56b2fd5ce3a868956ae5d3a60f327ad4e05c433f988a58664aea" },
+      owner: "privacy-and-redaction", publicApi: { exportCount: 14, namesSha256: "1b82fb6b735e161625f73758983b2e9bc5fdd20f2a276873bfee1d5d231e270a" },
       dependencies: ["src/kernel/ordered.ts","src/privacy/data-policy.ts","src/privacy/secret-signals.ts"],
     }),
     moduleContract({
@@ -5645,13 +5645,13 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-release-assets", path: "src/workflow/promotion/release-assets.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "9e71c5eb1b310574b13ffe2d02c8f51ecf7b1faad0199850b40cbea084094622" },
+      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "44ba830e28ce08541ffce97ff45f4e5b974c4feae177f43bc93bdedbe8d1c346" },
       dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/promotion/codes.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-release-cli", path: "src/workflow/promotion/release-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "ccb5b258c0fcb5a74767eddfa623192a1734ec300a25e115ad2f5bec4b04f614" },
-      dependencies: ["node:fs","src/filesystem/atomic-write.ts","src/kernel/integrity.ts","src/workflow/command-result.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/publish/product.ts","src/workflow/forge/repository-reads.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/context.ts","src/workflow/promotion/release-assets.ts","src/workflow/promotion/release-notes.ts","src/workflow/promotion/release-train.ts","src/workflow/workflow-config.ts"],
+      dependencies: ["node:fs","src/filesystem/atomic-write.ts","src/kernel/integrity.ts","src/workflow/command-result.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/publish/product.ts","src/workflow/forge/repository-reads.ts","src/workflow/promotion/codes.ts","src/workflow/promotion/context.ts","src/workflow/promotion/release-assets.ts","src/workflow/promotion/release-notes.ts","src/workflow/promotion/release-sbom.ts","src/workflow/promotion/release-train.ts","src/workflow/workflow-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-promotion-release-notes", path: "src/workflow/promotion/release-notes.ts", realm: "runtime", layer: "infrastructure",
@@ -5833,6 +5833,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       id: "src-workflow-forge-projector-github-store", path: "src/workflow/forge/projector/github-store.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "1a7f276cb1fbf3ced94254bdd27acbc492dcc29de9071b6c1f3e167e4dbe5274" },
       dependencies: ["src/kernel/errors.ts","src/kernel/ordered.ts","src/workflow/forge/app-registry.ts","src/workflow/forge/projector/model.ts","src/workflow/forge/repository-reads.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-promotion-release-sbom", path: "src/workflow/promotion/release-sbom.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "842789e3cda9efac145258e7f83e48e8ba9f36c447dd28111d1a25cfa7fa1887" },
+      dependencies: ["src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/ordered.ts","src/kernel/product-identity.ts","src/privacy/privacy-config.ts","src/privacy/secret-parts.ts","src/privacy/secret-signals.ts","src/workflow/promotion/codes.ts","src/workflow/workflow-config.ts"],
     }),
   ],
 });
