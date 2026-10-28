@@ -11,13 +11,14 @@
  * debug log of each request (category `forge`; method, path, status, the
  * rate-limit facts; never a header value or a body).
  */
-import { CONTENT_TYPE_JSON } from "../../kernel/contracts.ts";
+import { CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET_STREAM } from "../../kernel/contracts.ts";
 import { isAbortError } from "../../kernel/errors.ts";
 import { safePercentDecode } from "../../privacy/data-policy.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
-import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, prepareOutboundRequest, readBody } from "../../shared/outbound-http.ts";
+import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, outboundProgressDeadline, prepareOutboundRequest, readBody, readBodyBytes } from "../../shared/outbound-http.ts";
+import { atomicWriteStream } from "../../filesystem/atomic-write.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
 import { FORGE_REFUSAL_TEXT } from "./forge-config.ts";
 import {
@@ -25,6 +26,10 @@ import {
   GITHUB_JSON_MEDIA_TYPE,
   type ForgeClient,
   type ForgeCredential,
+  type ForgeDownloadAnswer,
+  type ForgeDownloadRequest,
+  type ForgeDownloadToFileRequest,
+  type ForgeUploadRequest,
   type ForgeEndpoint,
   type ForgeMethod,
   type ForgePageOptions,
@@ -50,15 +55,20 @@ const PLAN_REFUSAL = /upgrade to github|make this repository public|not availabl
 const SECONDARY_LIMIT = /secondary rate limit|abuse detection/iu;
 
 /** The API's origin and base path, checked once. */
-function apiBase(endpoint: ForgeEndpoint): URL {
+/** A base URL of the endpoint (`apiUrl`, `uploadsUrl`), checked. */
+function baseUrl(raw: string, field: "apiUrl" | "uploadsUrl"): URL {
   let url: URL;
-  try { url = new URL(endpoint.apiUrl); } catch {
-    throw new ForgeError("forge_endpoint_invalid", "The forge API URL is not an absolute URL.", { apiUrl: endpoint.apiUrl });
+  try { url = new URL(raw); } catch {
+    throw new ForgeError("forge_endpoint_invalid", `The forge ${field} is not an absolute URL.`, { [field]: raw });
   }
   if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {
-    throw new ForgeError("forge_endpoint_invalid", "The forge API URL must be an https URL with no credentials, query or fragment.", { apiUrl: endpoint.apiUrl });
+    throw new ForgeError("forge_endpoint_invalid", `The forge ${field} must be an https URL with no credentials, query or fragment.`, { [field]: raw });
   }
   return url;
+}
+
+function apiBase(endpoint: ForgeEndpoint): URL {
+  return baseUrl(endpoint.apiUrl, "apiUrl");
 }
 
 /** The refusal of a path that is not an API path under the base. */
@@ -74,8 +84,7 @@ function pathRefused(path: string, why: string): ForgeError {
  * double encoding (`%25`), and finally the URL the platform builds must keep
  * the path byte for byte under the base: nothing resolves outside it.
  */
-export function forgeRequestUrl(endpoint: ForgeEndpoint, path: string, query?: ForgeRequest["query"]): URL {
-  const base = apiBase(endpoint);
+export function forgeRequestUrl(endpoint: ForgeEndpoint, path: string, query?: ForgeRequest["query"], base: URL = apiBase(endpoint)): URL {
   if (!path.startsWith("/")) throw pathRefused(path, "it does not start with '/'");
   if (/[?#\\\s\u0000-\u001f\u007f]/u.test(path)) throw pathRefused(path, "a query, fragment, backslash, space or control character");
   if (/%(?:2f|5c|25)/iu.test(path)) throw pathRefused(path, "an encoded separator or a double encoding");
@@ -320,7 +329,177 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     return body.data as T;
   }
 
-  return Object.freeze({ principal: credential.principal, endpoint, rest, paginate, graphql });
+  /** A door refusal of a streamed body, in the forge's own family (the door logged and counted it). */
+  function assetFailure(error: unknown, method: ForgeMethod, path: string): never {
+    if (isOutboundHttpError(error) && (error.code === "outbound_body_integrity_failed" || error.code === "outbound_body_size_mismatch")) {
+      throw new ForgeError("forge_asset_integrity", `${method} ${path}: the asset's bytes do not match the size or SHA-256 they declare (${error.code}).`, { method, path, ...error.safeDetails });
+    }
+    if (isOutboundHttpError(error) && error.code === "outbound_body_too_large") {
+      throw new ForgeError("forge_asset_too_large", `${method} ${path}: the asset is larger than ${String(endpoint.assets.maxBytes)} bytes.`, { method, path, maxBytes: endpoint.assets.maxBytes });
+    }
+    return networkFailure(error, method, path);
+  }
+
+  /** The protocol headers every GitHub request carries, with the credential when there is one. */
+  function githubHeaders(accept: string, authorization: string | undefined, extra: Readonly<Record<string, string>> = {}): Readonly<Record<string, string>> {
+    return { Accept: accept, ...(authorization === undefined ? {} : { Authorization: authorization }), "X-GitHub-Api-Version": GITHUB_API_VERSION, "User-Agent": endpoint.userAgent, ...extra };
+  }
+
+  async function refusedAnswer(response: Response, signal: AbortSignal, method: ForgeMethod, path: string): Promise<never> {
+    const text = await readBody(response, signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY);
+    const refusal = classifyGithubAnswer(response.status, response.headers, text, method, path);
+    debugLog(FORGE_LOG_CATEGORY, "warn", refusal.forgeCode, () => ({ principal: credential.principal, method, path, status: response.status }));
+    throw refusal;
+  }
+
+  /**
+   * An asset transfer's lifetime: a PROGRESS FLOOR (every window of
+   * `assets.progressWindowMs` moves `assets.minBytesPerWindow` bytes, or
+   * brings GitHub's answer), and no total wall cap. A large asset on a
+   * loaded host is slow work that keeps moving, and is never cut.
+   */
+  function assetLifetime(signal: AbortSignal | undefined, method: ForgeMethod, path: string) {
+    const { progressWindowMs, minBytesPerWindow } = endpoint.assets;
+    return outboundProgressDeadline(signal, { windowMs: progressWindowMs, minBytes: minBytesPerWindow },
+      () => new ForgeError("forge_asset_stalled", `${method} ${path}: a ${String(progressWindowMs)} ms window moved fewer than ${String(minBytesPerWindow)} bytes of the asset.`, { method, path, progressWindowMs, minBytesPerWindow }));
+  }
+
+  /**
+   * The end of a transfer that failed: the CALLER's own cancellation answers
+   * its own reason; the progress floor answers `forge_asset_stalled`; a
+   * typed forge refusal is kept; anything else is classified by the door.
+   */
+  function transferFailure(error: unknown, request: Readonly<{ signal?: AbortSignal | undefined }>, lifetime: Readonly<{ expired: () => boolean; signal: AbortSignal }>, method: ForgeMethod, path: string): never {
+    if (request.signal?.aborted === true) throw request.signal.reason;
+    if (lifetime.expired()) throw lifetime.signal.reason;
+    if (error instanceof ForgeError) throw error;
+    return assetFailure(error, method, path);
+  }
+
+  async function upload<T>(request: ForgeUploadRequest): Promise<ForgeResponse<T>> {
+    const method: ForgeMethod = "POST";
+    const { path, body } = request;
+    if (body.size > endpoint.assets.maxBytes) {
+      throw new ForgeError("forge_asset_too_large", `${method} ${path}: the asset is ${String(body.size)} bytes, more than ${String(endpoint.assets.maxBytes)}.`, { method, path, size: body.size, maxBytes: endpoint.assets.maxBytes });
+    }
+    const url = forgeRequestUrl(endpoint, path, request.query, baseUrl(endpoint.uploadsUrl, "uploadsUrl"));
+    const lifetime = assetLifetime(request.signal, method, path);
+    // Every chunk handed to the socket is progress. Once all are handed over, what follows (the kernel's buffers
+    // draining, GitHub storing the asset) is not observable as bytes: the floor stops, and GitHub must answer within
+    // the declared silence bound.
+    const { answerSilenceMs } = endpoint.assets;
+    const chunks = (async function* () { for await (const chunk of body.chunks) { lifetime.progress(chunk.byteLength); yield chunk; } })();
+    // The silence bound starts only once the door reports every byte WRITTEN to the connection.
+    const handedOver = (): void => lifetime.awaitingAnswer(answerSilenceMs, () => new ForgeError("forge_asset_unanswered", `${method} ${path}: every byte was handed over and GitHub did not answer within ${String(answerSilenceMs)} ms.`, { method, path, answerSilenceMs }));
+    try {
+      const prepared = prepareOutboundRequest({
+        url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
+        protocolHeaders: githubHeaders(GITHUB_JSON_MEDIA_TYPE, await credential.authorization(lifetime.signal), { "Content-Type": request.contentType }),
+      });
+      let response: Response;
+      try {
+        response = await dispatchOutboundRequest(prepared, { chunks, size: body.size, sha256: body.sha256, handedOver }, lifetime.signal);
+      } catch (error) {
+        return transferFailure(error, request, lifetime, method, path);
+      }
+      lifetime.answered();
+      if (response.status < 200 || response.status >= 300) return await refusedAnswer(response, lifetime.signal, method, path);
+      const data = parseBody(await readBody(response, lifetime.signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY), method, path);
+      // GitHub records the asset's own digest: it must be the one sent, or the release holds bytes nobody checked.
+      const recorded = (data as { digest?: unknown } | undefined)?.digest;
+      if (recorded !== `sha256:${body.sha256}`) {
+        throw new ForgeError("forge_asset_integrity", `${method} ${path}: GitHub recorded the asset's digest as ${typeof recorded === "string" ? recorded : "nothing"}, not the SHA-256 sent.`, { method, path, declared: body.sha256, recorded: typeof recorded === "string" ? recorded : "" });
+      }
+      const links = linkPaths(endpoint, response.headers.get("link"));
+      debugLog(FORGE_LOG_CATEGORY, "debug", "forge_asset_uploaded", () => ({ principal: credential.principal, path, bytes: body.size }));
+      return Object.freeze({ status: response.status, data: data as T, etag: response.headers.get("etag") ?? undefined, notModified: false, next: links.next, links, rate: rateFactsOf(response.headers), requestId: response.headers.get("x-github-request-id") ?? undefined });
+    } finally {
+      lifetime.clear();
+    }
+  }
+
+  /** A redirect answer (3xx, not 304). */
+  const redirected = (response: Response): boolean => response.status >= 300 && response.status < 400 && response.status !== 304;
+
+  async function download(request: ForgeDownloadRequest): Promise<ForgeDownloadAnswer> {
+    const method: ForgeMethod = "GET";
+    const { path } = request;
+    const url = forgeRequestUrl(endpoint, path, request.query);
+    const lifetime = assetLifetime(request.signal, method, path);
+    try {
+      const asked = prepareOutboundRequest({
+        url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
+        protocolHeaders: githubHeaders(CONTENT_TYPE_OCTET_STREAM, await credential.authorization(lifetime.signal)),
+      });
+      let response: Response;
+      try {
+        response = await dispatchOutboundRequest(asked, undefined, lifetime.signal, "answer");
+        if (redirected(response)) {
+          // GitHub answers the bytes with a signed URL on its asset hosts: asked ONLY there, and WITHOUT the credential.
+          const location = response.headers.get("location");
+          await discardBody(response, FORGE_LOG_CATEGORY, endpoint.cleanupTimeoutMs);
+          const target = location !== null && URL.canParse(location, url) ? new URL(location, url) : undefined;
+          if (target === undefined || !endpoint.assets.origins.some((origin) => target.href.startsWith(`${origin}/`))) {
+            throw new ForgeError("forge_asset_redirect_refused", `${method} ${path}: GitHub redirected the asset to ${target?.origin ?? "an unreadable location"}, which is not one of forge.assetOrigins; nothing was asked there.`, { method, path, target: target?.origin ?? "" });
+          }
+          const signed = prepareOutboundRequest({
+            url: target.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
+            protocolHeaders: { Accept: CONTENT_TYPE_OCTET_STREAM, "User-Agent": endpoint.userAgent },
+          });
+          response = await dispatchOutboundRequest(signed, undefined, lifetime.signal, "answer");
+          if (redirected(response)) {
+            // One hop, to a declared asset origin: a chain is never followed (its next stop was never declared).
+            await discardBody(response, FORGE_LOG_CATEGORY, endpoint.cleanupTimeoutMs);
+            throw new ForgeError("forge_asset_redirect_refused", `${method} ${path}: the asset host redirected again; a chained redirect is never followed, and nothing was asked at its next location.`, { method, path, target: target.origin });
+          }
+        }
+      } catch (error) {
+        return transferFailure(error, request, lifetime, method, path);
+      }
+      lifetime.answered();
+      if (response.status < 200 || response.status >= 300) return await refusedAnswer(response, lifetime.signal, method, path);
+      try {
+        const read = await readBodyBytes(response, {
+          signal: lifetime.signal, maxBytes: endpoint.assets.maxBytes, cleanupTimeoutMs: endpoint.cleanupTimeoutMs, logCategory: FORGE_LOG_CATEGORY, sha256: request.sha256,
+          sink: async (chunk) => {
+            lifetime.progress(chunk.byteLength);
+            try {
+              await request.sink(chunk);
+            } catch (error) {
+              // The local side failed (a full disk, a removed folder): never GitHub's failure.
+              const code = (error as { code?: unknown } | undefined)?.code;
+              throw new ForgeError("forge_asset_sink_failed", `${method} ${path}: writing the downloaded bytes failed here (${error instanceof Error ? error.message : String(error)}).`, { method, path, ...(typeof code === "string" ? { cause: code } : {}) });
+            }
+          },
+        });
+        debugLog(FORGE_LOG_CATEGORY, "debug", "forge_asset_downloaded", () => ({ principal: credential.principal, path, bytes: read.bytes }));
+        return read;
+      } catch (error) {
+        return transferFailure(error, request, lifetime, method, path);
+      }
+    } finally {
+      lifetime.clear();
+    }
+  }
+
+  /**
+   * A release asset downloaded to `destination` through the ONE atomic writer
+   * (`atomicWriteStream`): the bytes stream into a private sibling temporary
+   * file and are published under `destination` only once the whole asset
+   * holds its size bound and the caller's SHA-256. A refused or failed
+   * download leaves no file: no partial file, and nothing at `destination`
+   * that was not verified.
+   */
+  async function downloadToFile(request: ForgeDownloadToFileRequest): Promise<ForgeDownloadAnswer> {
+    let answer: ForgeDownloadAnswer | undefined;
+    const written = await atomicWriteStream(request.destination, async (append) => {
+      answer = await download({ path: request.path, query: request.query, sha256: request.sha256, signal: request.signal, sink: append });
+    }, { durable: true });
+    if (!written.success) throw written.error;
+    return answer!;
+  }
+
+  return Object.freeze({ principal: credential.principal, endpoint, rest, paginate, graphql, upload, download, downloadToFile });
 }
 
 /** An API path with its query split off (a next-page path carries its own query). */

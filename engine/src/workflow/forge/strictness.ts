@@ -224,6 +224,7 @@ const KIND_FIELDS: Readonly<Record<ForgeObjectKind, "neutral" | "ruleset" | Read
     enforcement: levels("unenforced", "enforced"),
     advanced_security: FEATURE, dependency_graph: FEATURE, dependency_graph_autosubmit_action: FEATURE,
     dependabot_alerts: FEATURE, dependabot_security_updates: FEATURE, code_scanning_default_setup: FEATURE,
+    code_security: FEATURE, secret_protection: FEATURE, code_scanning_delegated_alert_dismissal: FEATURE, dependabot_delegated_alert_dismissal: FEATURE,
     secret_scanning: FEATURE, secret_scanning_push_protection: FEATURE, secret_scanning_non_provider_patterns: FEATURE,
     secret_scanning_validity_checks: FEATURE, secret_scanning_generic_secrets: FEATURE, secret_scanning_delegated_bypass: FEATURE,
     secret_scanning_delegated_alert_dismissal: FEATURE, private_vulnerability_reporting: FEATURE,

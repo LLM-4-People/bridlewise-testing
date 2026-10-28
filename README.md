@@ -2,10 +2,6 @@
 
 **The development floor for [Bridlewise](https://github.com/LLM-4-People/bridlewise): tests, prevention guards, benchmarks, design decisions, and verification machinery.**
 
-<p align="center">
-  <img src="docs/assets/dev-floor.png" alt="The Bridlewise development floor: tests, prevention guards, benchmarks, and 134 decision records. Developer preview; not a product." width="100%">
-</p>
-
 [![CI](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml)
 [![Docs and floor](https://img.shields.io/badge/docs-development%20floor-8fd3ff.svg)](https://llm-4-people.github.io/bridlewise-testing/floor/)
 [![Secret scan](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml/badge.svg?branch=main)](https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml)
@@ -40,7 +36,7 @@ This is the **development floor** from which the Bridlewise product is projected
 - unit, integration, prevention, cockpit, performance, and end-to-end tests;
 - engine domain tests for the editor, intelligence, memory, privacy, safety, timeline, workflow, MCP, and quality packs;
 - benchmarks for concurrency, storage, the ledger, payloads, redaction, and the write path;
-- 134 decision records and a curated set of design and architecture essays;
+- the decision records (the generated [index](docs/decisions/README.md) lists each one with its implementation state) and a curated set of design and architecture essays;
 - the test inventory, frozen records, verification tooling, and the guardian tests.
 
 The product repository — cockpit, loopback server, engine, guardian, shared contracts, and public docs — is [`LLM-4-People/bridlewise`](https://github.com/LLM-4-People/bridlewise).
@@ -203,7 +199,7 @@ Model invocation, repository mutation, process execution, and network egress are
 | [docs/cli.md](docs/cli.md) | CLI, dev lifecycle, ledger inspection, database keys, guardian |
 | [docs/extending.md](docs/extending.md) | Blocks, tools, providers, MCP, embedding, quality packs |
 | [docs/shipping.md](docs/shipping.md) | Build outputs, verification, release assets, rollback |
-| [docs/decisions/](docs/decisions/) | 134 decision records |
+| [docs/decisions/](docs/decisions/) | The decision records, one per rule, with a generated index |
 | [docs/floor/](docs/floor/) | Source pages for the generated development-floor site |
 | [docs/design/](docs/design/) | Selected cockpit, performance, and structure essays |
 | [https://llm-4-people.github.io/bridlewise/architecture/](https://llm-4-people.github.io/bridlewise/architecture/) | Architecture and migration design records |
