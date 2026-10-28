@@ -48,7 +48,7 @@
 import { readFileSync } from "node:fs";
 
 import { PALETTE_BURN_DOWN, scopeBase, SITE_FONT_PATH, SITE_THEME_SELECTORS, sitePolicies } from "../../shared/site-page.ts";
-import { readTokenOwner, resolveToken, themeColor, themeTokens, THEMES } from "../../shared/token-reader.ts";
+import { concreteColor, readTokenOwner, resolveToken, themeColor, themeTokens, THEMES } from "../../shared/token-reader.ts";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 import { TOKEN_THEMES, TOKENS_PATH, tokenValues, type TokenTheme } from "../token-owner.ts";
 import { vendoredFaces } from "../vendor-fonts.ts";
@@ -173,6 +173,9 @@ export const KIT: Readonly<Record<keyof Kit, (...args: never[]) => unknown>> = {
 function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string; themes: readonly { selector: string; colors: Readonly<Record<string, string>> }[] }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
   const findings: string[] = [];
   const { parts, selector, themes } = args.input;
+  // A site page whose sheet still carries its own palette (the burn-down list, #161) inks the mark from it.
+  const ownPalette = (args.input as { ownPalette?: readonly string[] }).ownPalette ?? [];
+  if ([...document.styleSheets].some((sheet) => ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
   const describe = kit.describe;
   const marks = kit.elements(document).filter((el) => el.matches(selector));
   if (marks.length === 0 && args.top && args.surface === "cockpit") findings.push("no brand mark is rendered on this view");
@@ -393,17 +396,28 @@ function ownerTokenInput(scope: Scope): TokenInput {
           colours.push(themeColor(owner, theme, name));
         } catch { /* not a colour token */ }
       }
+      // A media remap of a colour (a forced-colours or contrast remap) is the owner's value in that media.
+      for (const remap of owner.media) {
+        const values = new Map([...themeTokens(owner, theme), ...remap.values]);
+        for (const name of remap.values.keys()) {
+          try {
+            colours.push(concreteColor(resolveToken(values, name)));
+          } catch { /* not a colour token */ }
+        }
+      }
       return { selector: selectors[theme], colours: [...new Set(colours)] };
     })
     .sort((a, b) => Number(a.selector !== ":root") - Number(b.selector !== ":root"));
   const durations = new Set<string>();
   for (const theme of THEMES) {
-    const values = themeTokens(owner, theme);
-    for (const name of values.keys()) {
-      try {
-        const value = resolveToken(values, name);
-        if (/\d(?:ms|s)\b/u.test(value)) durations.add(value);
-      } catch { /* a token that does not resolve is the owner's own guard's */ }
+    // Each theme's values, and each media remap of them (a reduced-motion remap is the owner's own duration too).
+    for (const values of [themeTokens(owner, theme), ...owner.media.map((remap) => new Map([...themeTokens(owner, theme), ...remap.values]))]) {
+      for (const name of values.keys()) {
+        try {
+          const value = resolveToken(values, name);
+          if (/\d(?:ms|s)\b/u.test(value)) durations.add(value);
+        } catch { /* a token that does not resolve is the owner's own guard's */ }
+      }
     }
   }
   return { themes, durations: [...durations], ownPalette: [...PALETTE_BURN_DOWN.keys()] };
@@ -438,8 +452,29 @@ function judgeTokenColours(args: { input: TokenInput; surface: Surface; top: boo
   const near = (a: readonly number[], b: readonly number[]): boolean => (a[3]! === 0 && b[3]! === 0) || a.every((channel, index) => Math.abs(channel - b[index]!) <= 2);
   const shapes = new Set(["rect", "circle", "ellipse", "path", "polygon", "polyline", "text", "tspan"]);
   const off = new Map<string, string[]>();
+  // A property in flight (a CSS transition or animation) is judged where it
+  // lands: the judge finishes every finite animation and judges again
+  // (judgeFuture), and a value between two tokens is not a colour the page sets.
+  const moving = new WeakMap<Element, Set<string>>();
+  const inFlight = (element: Element): Set<string> => {
+    let properties = moving.get(element);
+    if (properties === undefined) {
+      properties = new Set<string>();
+      for (const animation of element.getAnimations()) {
+        const transition = animation as Animation & { transitionProperty?: string };
+        if (typeof transition.transitionProperty === "string") properties.add(transition.transitionProperty);
+        const effect = animation.effect as KeyframeEffect | null;
+        for (const frame of effect?.getKeyframes?.() ?? []) {
+          for (const key of Object.keys(frame)) properties.add(key.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`));
+        }
+      }
+      moving.set(element, properties);
+    }
+    return properties;
+  };
   const note = (what: string, value: string, element: Element): void => {
     if (value === "" || value === "none" || value.startsWith("url(")) return;
+    if (inFlight(element).has(what) || inFlight(element).has("all")) return;
     const painted = paint(value);
     if (allowed.some((colour) => near(colour, painted))) return;
     const key = `${what} ${value}`;
@@ -607,7 +642,7 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     id: "brand-mark",
     holds: "Every rendered brand mark, in any frame or open shadow root, draws exactly the declared parts, each in the token owner's value of its token for the theme it wears, opaque, unfiltered, visible, unclipped and unmasked, and has a size.",
     surfaces: ["cockpit", "site"],
-    input: (scope: Scope) => ({ parts: markParts(), selector: MARK_SELECTOR, themes: markThemes(scope.surface) }),
+    input: (scope: Scope) => ({ parts: markParts(), selector: MARK_SELECTOR, themes: markThemes(scope.surface), ownPalette: scope.surface === "site" ? [...PALETTE_BURN_DOWN.keys()] : [] }),
     judge: judgeMark as PageRule["judge"],
   },
   {
