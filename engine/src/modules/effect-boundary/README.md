@@ -10,12 +10,6 @@ The module's domain logic lives one level down:
 
 - `domain/` — the exact-write-lease schema and authority.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/modules/effect-boundary/`.
-
-- `index.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

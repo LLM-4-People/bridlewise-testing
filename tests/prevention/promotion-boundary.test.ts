@@ -83,9 +83,8 @@ describe("the source-side promotion guard", () => {
   });
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: the working tree raises no refusal a promotion would", (_name, loaded) => {
-    const started = Date.now();
+    // No wall-clock bound (NO-LOAD-BLOCK, #122): a busy host makes this slower, never wrong. Its cost is the suite's CPU budget.
     expect(refusals(tree, loaded)).toEqual([]);
-    expect(Date.now() - started, "the pure projection of the whole tree stays a guard, not a suite").toBeLessThan(60_000);
   });
 
   test.each(profiles.map((loaded) => [loaded.profile.name, loaded] as const))("%s: shipped documents name scripts the derived package carries", (_name, loaded) => {

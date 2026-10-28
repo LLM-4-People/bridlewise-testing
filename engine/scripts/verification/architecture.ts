@@ -1,16 +1,21 @@
-import { lstatSync } from "node:fs";
-import { join, posix } from "node:path";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { join, posix, relative, resolve } from "node:path";
 
 import { astChildren, astNode, astNodeArray, parseSourceModule, type AstNode } from "../../src/quality-packs/prevention/ast-helpers.ts";
 
 import {
   ARCHITECTURE_MANIFEST,
+  architectureManifestOf,
   type ArchitectureAuthorityFamily,
   type ArchitectureEffect,
   type ArchitectureManifest,
   type ArchitectureModule,
+  type ArchitecturePolicy,
   type ArchitectureRealm,
 } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_SOURCE_EXTENSIONS } from "../../src/shared/source-extensions.ts";
+import { getExtension } from "../../src/shared/path-utils.ts";
+import { shouldExcludeExperiment } from "../../src/shared/source-scan.ts";
 import { canonicalHash, deepFreeze, sha256 } from "../../src/kernel/integrity.ts";
 import {
   externalCommandSourceFinding,
@@ -1195,9 +1200,40 @@ function collectMutatedArchitectureNames(root: AstNode): ReadonlySet<string> {
   return names;
 }
 
+/**
+ * THE ARCHITECTURE'S CENSUS OF A TREE: every source module under the source
+ * roots of `root` (the architecture extensions; a dot-file and an
+ * experiment-excluded path are not modules), engine-relative, sorted. The
+ * module list is this census, never a committed one (#221).
+ */
+export function architectureSourcePaths(root: string): readonly string[] {
+  const extensions = new Set<string>(ARCHITECTURE_SOURCE_EXTENSIONS);
+  const paths: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = join(directory, entry.name);
+      const path = relative(root, absolute).split("\\").join("/");
+      // Experiment subtrees are pruned at the walk boundary unless HARNESS_INCLUDE_EXPERIMENTS opts back in.
+      if (shouldExcludeExperiment(path)) continue;
+      if (entry.isDirectory()) walk(absolute);
+      else if (entry.isFile() && !entry.name.startsWith(".") && extensions.has(getExtension(path))) paths.push(path);
+    }
+  };
+  for (const sourceRoot of ARCHITECTURE_MANIFEST.sourceRoots) {
+    const absolute = resolve(root, sourceRoot);
+    if (existsSync(absolute)) walk(absolute);
+  }
+  return deepFreeze(paths.toSorted());
+}
+
+/** The manifest of the tree at `root`: its census, classified by the committed decisions. */
+export function repositoryArchitectureManifest(root: string): ArchitectureManifest {
+  return architectureManifestOf(architectureSourcePaths(root));
+}
+
 export function verifyArchitectureSources(
   sources: readonly ArchitectureSource[],
-  manifest: ArchitectureManifest = ARCHITECTURE_MANIFEST,
+  manifest: ArchitectureManifest,
   externalCommandSources?: readonly ArchitectureSource[],
 ): ArchitectureVerification {
   const violations: string[] = [];
@@ -1246,13 +1282,6 @@ export function verifyArchitectureSources(
     }
     if (!sameOrderedValues(facts.exportedNames, lexical.exportedNames)) {
       violations.push(`architecture-independent-export-disagreement:${module.path}`);
-    }
-    if (!sameOrderedValues(facts.dependencies, [...module.dependencies].toSorted())) {
-      violations.push(`architecture-dependency-drift:${module.path}`);
-    }
-    if (facts.exportedNames.length !== module.publicApi.exportCount ||
-      canonicalHash(facts.exportedNames) !== module.publicApi.namesSha256) {
-      violations.push(`architecture-public-api-drift:${module.path}`);
     }
     const internalDependencies = facts.dependencies.filter((dependency) => moduleByPath.has(dependency));
     graph.set(module.path, internalDependencies);
@@ -1305,7 +1334,7 @@ function verifyInternalImportBoundaries(
  */
 export function readExternalCommandSources(
   root: string,
-  manifest: ArchitectureManifest,
+  manifest: ArchitecturePolicy,
   violations: string[],
 ): readonly ArchitectureSource[] {
   const entries: ArchitectureSource[] = [];
@@ -1334,7 +1363,7 @@ export function readExternalCommandSources(
  * pin — the published population itself.
  */
 export function verifyExternalCommands(
-  manifest: ArchitectureManifest,
+  manifest: ArchitecturePolicy,
   modules: ReadonlyMap<string, ArchitectureModule>,
   violations: string[],
   externalCommandSources?: readonly ArchitectureSource[],

@@ -618,7 +618,7 @@
     "failOnHigh": false,
     "failOnMedium": false,
     "failOnLow": false,
-    "enabledChecks": "duplicate-body-detector,duplicated-literals,dead-exports,schema-drift"
+    "enabledChecks": "duplicate-body-detector,duplicated-literals,dead-exports"
   },
   "safety": {
     "threshold": 0.5,
@@ -801,6 +801,13 @@
           ]
         },
         {
+          "name": "adding-modules-merges",
+          "measuredCpuMs": 117097,
+          "files": [
+            "engine/test/prevention/adding-modules-merges.test.ts"
+          ]
+        },
+        {
           "name": "architecture-baseline-clean",
           "measuredCpuMs": 60041,
           "files": [
@@ -868,7 +875,8 @@
         "engine/test/forge/flake-shim-token-ends-zero.ts",
         "tests/helpers/flake-shim-orchestration-run-id.ts",
         "engine/test/support/flake-shim-cpu-frequency-scaling.ts",
-        "engine/test/support/flake-shim-preempt-after-ready.ts"
+        "engine/test/support/flake-shim-preempt-after-ready.ts",
+        "engine/test/support/flake-shim-concurrent-owner-sweep.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -1226,6 +1234,7 @@
       "secretProtection": false
     },
     "maintainer": "amberflag48",
+    "teamMembers": {},
     "p0RequiredChecks": [
       {
         "context": "Typecheck, public tests, build",

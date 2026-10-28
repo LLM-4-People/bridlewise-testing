@@ -44,6 +44,7 @@ import {
 } from "../../src/state/chats.ts";
 import { clearMessages } from "../../src/state/chat-messages.ts";
 import { wholeConversationPage } from "../helpers/history-page.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -125,13 +126,6 @@ function stubApi(chats: readonly ChatSummary[]): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 describe("horizon place — live `project ▸ conversation`, §10 boot restore", () => {
   let host: HTMLElement;
@@ -164,7 +158,7 @@ describe("horizon place — live `project ▸ conversation`, §10 boot restore",
 
   async function mountAndReveal(): Promise<void> {
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true",
     );
   }

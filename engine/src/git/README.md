@@ -4,6 +4,7 @@ The git domain: the read-only git port and the contracts the custody layer build
 
 ## What each file does
 
+- `flake-cause-fixes.ts` — DECLARED CAUSE FIXES — the flaky-test memory's declarations, read from git, with the recorded reproductions that make them count (the verdict itself is pure: src/shared/run-history.ts `flakyVerdictWithin`; the FLAKE-REPRO decision).
 - `git-adapter.ts` — the git-adapter module.
 - `git-config.ts` — Git operational defaults — canonical owner for git-domain configurable.
 - `git-port.ts` — the git-port module; also the ONE spelling of a full git object name (`GIT_OBJECT_NAME_PATTERN`, anchored as `GIT_OBJECT_NAME`: SHA-1 or SHA-256 hex), which every object-id check in the engine imports.
@@ -18,25 +19,6 @@ The git domain: the read-only git port and the contracts the custody layer build
 - `repository-ownership.ts` — the small git reads the checkout-state records share: `gitAcceptsRefName` (the ONE ref-syntax check); `requiredRepositoryToplevel` (typed refusal outside a work tree), `gitPath` (git's own `--git-path` answer; `indexFilePath` is its `index` case), `headCommit` (`null` on an unborn branch), `headMoves` (the HEAD reflog's length: equal readings mean HEAD never moved in between, even when it came back) and `headVersions` (HEAD's mode and object for exactly the asked paths: `ls-tree` paths are patterns that DESCEND, so a folder asked with a file under it is asked on its own and only asked paths are kept); and `GitEnvironment` (`inherited`: a hook's `GIT_*` are the answer; `directory`: git asked about a directory alone — a question about another place than the hook's repository, e.g. the commit guard locating its engine in a linked worktree), `indexFilePath` (the ONE "which index file" answer), `gitNulRecords` (strict `-z` records), and the ONE reader of "which files does the repository own": tracked, present-tracked (an unstaged deletion is absent, `presentTrackedFiles`), owned (tracked plus untracked-not-ignored), tracked-but-ignored populations under the VERSIONED `.gitignore` rules only (never `.git/info/exclude` or global excludes) — with ONE declared exception in the reader, `machineIgnoredFiles` (what `git add -A` skipped on THIS machine, `--exclude-standard`: the move-loss population) — strict UTF-8, `undefined` outside a work tree; `repository-ownership-reader.test.ts` refuses any other `git ls-files` population query.
 - `working-copy.ts` — the ONE working-copy builder: copies what a checkout owns (optionally narrowed, plus named ignored paths such as pinned build outputs) into a private directory with its OWN git — objects borrowed read-only from the CANONICAL store (never another copy's), the source HEAD, remotes and upstreams, and either a mirror of the source index, every change staged with git's own ignore view (`stage-all`), or the index itself materialized (`staged`, the commit guard's view: any index file the caller names — the hook's `GIT_INDEX_FILE` — minus its intent-to-add entries, exactly what the commit records) — so git questions in the copy are answered by the copy; also `workingCopyDifferences` and `refreshWorkingCopy` (which never touches the paths the copy authors); `stageInCopy` (the one staging door in a copy: `add` against a private object directory, absorbed afterwards — the borrowed store is never freshened and the alternates never edited); and `snapshotWorkingTree` (the ONE snapshot of a dirty tree as a tree, a commit and an optional ref, without touching the real index or freshening the store; `advanceHead` moves HEAD by compare-and-swap from the snapshot's parent — `snapshot_head_moved` when a commit landed meanwhile — and only when the real index records the tree; a name is recorded only after every refusal passed, must be a ref git accepts, and never the checked-out ref).
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/git/`.
-
-- `checkout-state-record.ts` is consumed by `engine/src/git/declared-deletions.ts`, `engine/src/git/index-baseline.ts`.
-- `declared-deletions.ts` is consumed by `engine/scripts/post-commit.ts`, `engine/scripts/verification/staged-move-loss.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`.
-- `flake-cause-fixes.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/flaky-burn-down.ts`.
-- `git-adapter.ts` is consumed by `engine/src/git/worktree-port.ts`, `engine/src/runtime/git-tools.ts`.
-- `git-config.ts` is consumed by `engine/src/git/git-adapter.ts`, `engine/src/git/tree-reader.ts`, `engine/src/git/worktree-port.ts`, `engine/src/runtime/git-tools.ts`, `engine/src/shared/exposure/registrations/workspace-git.ts`.
-- `git-port.ts` is consumed by `engine/src/git/declared-deletions.ts`, `engine/src/git/git-adapter.ts`, `engine/src/git/index-baseline.ts`, `engine/src/git/index-entries.ts`, `engine/src/git/workspace-lifecycle.ts`, `engine/src/git/worktree-port.ts` and 9 more.
-- `ignored-copies.ts` is consumed by `engine/scripts/verification/staged-move-loss.ts`, `engine/src/git/declared-deletions.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `index-baseline.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/publication.ts`.
-- `index-entries.ts` is consumed by `engine/scripts/verification/candidate-manifest.ts`, `engine/src/git/index-baseline.ts`, `engine/src/git/working-copy.ts`.
-- `repository-ownership.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/verification/candidate-manifest.ts`, `engine/scripts/verification/lesson-trailers.ts` and 19 more.
-- `tree-reader.ts` is consumed by `engine/src/git/flake-cause-fixes.ts`, `engine/src/git/index-baseline.ts`, `engine/src/git/worktree-port.ts`, `engine/src/workflow/evidence-store.ts`, `engine/src/workflow/failure-owners.ts`, `engine/src/workflow/flake-cli.ts` and 23 more.
-- `working-copy.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/shared/tree-identity.ts`, `engine/src/workflow/checkout-setup.ts`, `engine/src/workflow/workspace-cli.ts`, `engine/src/workflow/workspace-manager.ts`.
-- `workspace-lifecycle.ts` is consumed by nothing yet.
-- `worktree-port.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/tooling/roadmap-feed.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/evidence-store.ts`, `engine/src/workflow/flake-cli.ts`, `engine/src/workflow/flaky-burn-down.ts` and 12 more.
-
-<!-- /consumers:generated -->

@@ -4,7 +4,7 @@ import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { ARCHITECTURE_MANIFEST } from "../../../src/architecture-manifest.ts";
+import { repositoryArchitectureManifest } from "../../../scripts/verification/architecture.ts";
 import { canonicalHash, canonicalJson, sha256 } from "../../../src/kernel/integrity.ts";
 import { assertNoDuplicateJsonObjectKeys } from "../../../src/kernel/json-integrity.ts";
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
@@ -1108,8 +1108,9 @@ function consumerInventory(modules, entrypoints) {
   return Object.freeze({ modules: Object.freeze(modulesOutput), edges: Object.freeze(edges) });
 }
 
-function entrypointPaths() {
-  const paths = Object.values(ARCHITECTURE_MANIFEST.compositionRoots).flat();
+function entrypointPaths(repositoryRoot) {
+  // The composition roots are derived from the tree's census and its decisions, never committed.
+  const paths = Object.values(repositoryArchitectureManifest(repositoryRoot).compositionRoots).flat();
   if (new Set(paths).size !== paths.length) fail("qualification_inventory_entrypoint_duplicate");
   return new Set(paths);
 }
@@ -1155,7 +1156,7 @@ export function compileQualificationAuthorityInventory(repositoryRoot = ROOT) {
     dispositionReason: _reason, ...record }) => Object.freeze(record)));
   const moduleEdges = Object.freeze([...modules.values()].flatMap((module) => module.edges)
     .toSorted((left, right) => byteCompare(left.from, right.from) || left.span.startByte - right.span.startByte));
-  const consumers = consumerInventory(modules, entrypointPaths());
+  const consumers = consumerInventory(modules, entrypointPaths(repositoryRoot));
   const leases = compileLeaseInventory(root, modules, violations);
   const unresolvedDynamicEdges = Object.freeze(moduleEdges.filter((edge) =>
     ["dynamic-import", "require", "require-resolve"].includes(edge.kind) &&

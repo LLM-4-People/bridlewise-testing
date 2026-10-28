@@ -68,7 +68,8 @@ export type FunctionManifest = Readonly<{
 export type FunctionManifestGeneratorOptions = Readonly<{
   config: PerformanceConfig;
   exclusions?: readonly FunctionManifestExclusion[];
-  architectureModules?: readonly ArchitectureModule[];
+  /** The modules in scope: the tree's manifest's (`repositoryArchitectureManifest`), never a committed list. */
+  architectureModules: readonly ArchitectureModule[];
   architectureManifestHash?: string;
   /**
    * Module source text keyed by module path. When provided, real functions
@@ -84,7 +85,7 @@ export function generateFunctionManifest(
   options: FunctionManifestGeneratorOptions,
 ): FunctionManifest {
   const config = options.config;
-  const modules = options.architectureModules ?? ARCHITECTURE_MANIFEST.modules;
+  const modules = options.architectureModules;
   const archHash = options.architectureManifestHash ??
     canonicalHash({ modules: modules.map((m) => m.id), schemaVersion: ARCHITECTURE_MANIFEST.schemaVersion });
   const exclusions = options.exclusions ?? [];

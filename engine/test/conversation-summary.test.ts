@@ -151,4 +151,4 @@ function assert(cond: boolean, msg: string): void {
 }
 
 console.log(`\nConversationSummary tests: ${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+if (failed > 0) process.exitCode = 1;

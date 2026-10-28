@@ -35,41 +35,6 @@ The HTTP route layer: every API endpoint the web UI calls — one file per resou
 - `tools.ts` — Tools route — returns the tool manifest (built-in + MCP).
 - `views.ts` — DB row → client view mappers. The single owner of the snake_case → camelCase mapping.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/routes/`.
-
-- `agents.ts` is consumed by `server/routes/registry.ts`.
-- `auth.ts` is consumed by `server/routes/registry.ts`.
-- `auto-checks.ts` is consumed by `server/routes/registry.ts`.
-- `awareness.ts` is consumed by `server/routes/registry.ts`.
-- `chats.ts` is consumed by `server/routes/registry.ts`.
-- `config.ts` is consumed by `server/routes/registry.ts`.
-- `editor.ts` is consumed by `server/routes/registry.ts`.
-- `extensions.ts` is consumed by `server/routes/registry.ts`.
-- `file-tree.ts` is consumed by `server/routes/registry.ts`.
-- `filesystem.ts` is consumed by `server/routes/registry.ts`.
-- `git-ops.ts` is consumed by `server/routes/registry.ts`.
-- `health.ts` is consumed by `server/routes/registry.ts`.
-- `intelligence.ts` is consumed by `server/routes/registry.ts`.
-- `live.ts` is consumed by `server/routes/registry.ts`.
-- `mcp.ts` is consumed by `server/routes/registry.ts`.
-- `memory.ts` is consumed by `server/routes/registry.ts`.
-- `metrics.ts` is consumed by `server/routes/registry.ts`.
-- `models.ts` is consumed by `server/routes/registry.ts`.
-- `projects.ts` is consumed by `server/routes/registry.ts`.
-- `quality.ts` is consumed by `server/routes/registry.ts`.
-- `registry.ts` is consumed by `server/index.ts`.
-- `run-status.ts` is consumed by `server/routes/registry.ts`.
-- `run-stream.ts` is consumed by `server/routes/registry.ts`.
-- `run.ts` is consumed by `server/routes/registry.ts`.
-- `safety.ts` is consumed by `server/routes/registry.ts`.
-- `schema.ts` is consumed by `server/routes/registry.ts`.
-- `settings.ts` is consumed by `server/routes/registry.ts`.
-- `timeline.ts` is consumed by `server/routes/registry.ts`.
-- `tools.ts` is consumed by `server/routes/registry.ts`.
-- `views.ts` is consumed by `server/blocks/checks.ts`, `server/routes/auto-checks.ts`, `server/routes/chats.ts`, `server/routes/projects.ts`.
-
-<!-- /consumers:generated -->

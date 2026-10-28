@@ -104,7 +104,7 @@ test("commit guard: the staged tree is certified — stale, unstaged, source-les
     // one more space inside a line changes the registry's bytes and nothing else.
     writeFileSync(registry, readFileSync(registry, "utf8").replace('"artifactRole": "', '"artifactRole":  "'));
     regenerate(copy.engineRoot);
-    stageInCopy(copy.root, [...generatedOutputPaths(copy.root)]);
+    stageInCopy(copy.root, [...generatedOutputPaths()]);
     const sourceless = runGuard(copy.root);
     assert.equal(sourceless.status, 1, `outputs staged without their source must be refused:\n${sourceless.stderr}`);
     assert.match(sourceless.stderr, /STAGED engine's generated facts/u);
