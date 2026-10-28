@@ -25,7 +25,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
 import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
 import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
@@ -155,7 +155,7 @@ test("EVERY SUPERVISOR AN ADMITTED RUN STARTS RUNS UNDER ITS CAPS: a cgroup scop
     `const { superviseCommand } = await import(${JSON.stringify(SUPERVISOR_OWNER)});`,
     `const lock = admitInstrumentRun(process.argv[2], "a capped run", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuBudgetMs: 72_000, minimumCpuRate: 0.05, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 1_000, killGraceMs: 2_000, outputBytes: 1_048_576 });`,
     "let out = '';",
-    `await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
+    `await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
     "lock.release();",
     "process.stdout.write(out);",
   ].join("\n"));
@@ -214,7 +214,7 @@ test("a door killed outright never drops its record under its command: the super
     `const { superviseCommand } = await import(${JSON.stringify(SUPERVISOR_OWNER)});`,
     `admitInstrumentRun(process.argv[1], "the door", ${JSON.stringify(CAPS)}, ${JSON.stringify(DEFAULT_SUBPROCESS_BOUNDS)});`,
     // The command ignores the stop, so it outlives the door by the whole kill grace.
-    `void superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: "sh", args: ["-c", ${JSON.stringify(`trap '' TERM; sleep ${marker}`)}], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: () => undefined, onStderr: () => undefined });`,
+    `void superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: "sh", args: ["-c", ${JSON.stringify(`trap '' TERM; sleep ${marker}`)}], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: () => undefined, onStderr: () => undefined });`,
     "setTimeout(() => console.log('RUNNING'), 500);",
     "setTimeout(() => undefined, 60_000);",
   ].join("\n");
