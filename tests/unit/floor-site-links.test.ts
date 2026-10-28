@@ -525,11 +525,14 @@ describe("F. the old-URL redirect site", () => {
   });
 
   test("a whole URL under the old site lands through the map, its query and fragment kept; anything else is not claimed", () => {
-    const options = { from: FROM, to: TO, landing: { "/roadmap/": "/floor/roadmap/", "/quickstart/": "/docs/quickstart/", "/a&b'<c>/": "/docs/odd/" } };
+    const options = { from: FROM, to: TO, landing: { "/roadmap/": "/floor/roadmap/", "/quickstart/": "/docs/quickstart/", "/a&b'%3Cc%3E/": "/docs/odd/" } };
     expect(redirectTarget(`${FROM}roadmap/`, options)).toBe(`${TO}floor/roadmap/`);
     expect(redirectTarget(`${FROM}quickstart`, options)).toBe(`${TO}docs/quickstart/`);
     expect(redirectTarget(`${FROM}quickstart/?q=1#h`, options)).toBe(`${TO}docs/quickstart/?q=1#h`);
     expect(redirectTarget(`${FROM}a&b'%3Cc%3E/`, options)).toBe(`${TO}docs/odd/`);
+    // The browser spells a path its own way (a raw `|`, lower-case escapes): the key is the map's `encodeURI` spelling.
+    expect(redirectTarget(`${FROM}a&b'%3cc%3e/`, options)).toBe(`${TO}docs/odd/`);
+    expect(redirectTarget(`${FROM}pipe|d/`, { ...options, landing: { [encodeURI("/pipe|d/")]: "/docs/pipe/" } })).toBe(`${TO}docs/pipe/`);
     expect(redirectTarget(`${FROM}assets/floor/floor.css`, options)).toBe(`${TO}assets/floor/floor.css`);
     expect(redirectTarget(FROM, options)).toBe(TO);
     expect(redirectTarget("https://llm-4-people.github.io/bridlewise-testing", options)).toBe(TO);
@@ -595,7 +598,7 @@ describe("F. the old-URL redirect site", () => {
     expect(stub).not.toContain("<c>");
     // The `.md` spelling is no pretty path: the 404 script answers it, from a map that holds no raw `<`.
     const fallback = readFileSync(join(out, "404.html"), "utf8");
-    expect(fallback).toContain(String.raw`"/a&b'\u003cc>.md":"/a&b'\u003cc>/"`);
+    expect(fallback).toContain(`"/a&b'%3Cc%3E.md":"/a&b'%3Cc%3E/"`);
     expect(fallback).not.toContain("<c>");
   });
 

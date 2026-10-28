@@ -336,7 +336,8 @@ export function urlUnder(url, base) {
 
 /**
  * The redirect for a whole URL under the old site `from`: where the landing
- * map (`landing`, plain `{ old path: new path }`) sends its path under `to`,
+ * map (`landing`, plain `{ old path: new path }`, both URL-encoded by
+ * `encodeURI`) sends its path under `to`,
  * or the same path, with the query and fragment kept. A URL outside `from`
  * (another host, a sibling path) answers `null`: the redirect site claims
  * nothing else. Self-contained: the organisation's `404.html` runs its very
@@ -348,20 +349,29 @@ export function redirectTarget(href, { from, to, landing }) {
   const basePath = base.pathname.replace(/\/+$/u, "");
   if (url.origin !== base.origin || (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`))) return null;
   const rest = url.pathname.slice(basePath.length) || "/";
+  // The map's spelling: the path decoded, then encoded as `encodeURI` does
+  // (a browser escapes a few characters it does not).
   let key = rest;
   try {
-    key = decodeURI(rest);
+    key = encodeURI(decodeURI(rest));
   } catch {
     // A malformed escape is a path no page has: it lands as written.
   }
   const own = (name) => Object.prototype.hasOwnProperty.call(landing, name);
-  const landed = own(key) ? encodeURI(landing[key]) : own(`${key}/`) ? encodeURI(landing[`${key}/`]) : rest;
+  const landed = own(key) ? landing[key] : own(`${key}/`) ? landing[`${key}/`] : rest;
   return `${to.replace(/\/+$/u, "")}${landed}${url.search}${url.hash}`;
 }
 
-/** `value` as JSON that is safe inside a `<script>` element (no `</script>`, no `<!--`). */
+/**
+ * `value` as JSON for a `<script>` element. Nothing is escaped here (the one
+ * markup owner is `shared/markup.ts`): every string the redirect site embeds
+ * is a URL the URL parser or `encodeURI` spelled, which holds no `<` or `>`,
+ * so no `</script>` or `<!--` can occur. One that did would refuse the build.
+ */
 function scriptJson(value) {
-  return JSON.stringify(value).replace(/</gu, "\\u003c");
+  const json = JSON.stringify(value);
+  if (/[<>]/u.test(json)) fail(`the redirect site would embed markup in a script: ${json}`);
+  return json;
 }
 
 /**
@@ -386,9 +396,11 @@ export function buildRedirectSite({ root, out, from = LEGACY_SITE_URL, to = SITE
     fail(`the site still answers at ${to}, which is ${from} or under it: there is nothing to redirect until the repository is renamed (a redirect would loop)`);
   }
   const plan = sitePlan({ root: resolve(root) });
-  const landing = Object.fromEntries(landingMap(plan));
-  const oldBase = new URL(from).pathname.split("/").filter(Boolean);
-  const site = to.replace(/\/+$/u, "");
+  const landing = Object.fromEntries([...landingMap(plan)].map(([oldPath, newPath]) => [encodeURI(oldPath), encodeURI(newPath)]));
+  const oldSite = new URL(from).href;
+  const newSite = new URL(to).href;
+  const oldBase = new URL(oldSite).pathname.split("/").filter(Boolean);
+  const site = newSite.replace(/\/+$/u, "");
   const outRoot = resolve(out);
   rmSync(outRoot, { recursive: true, force: true });
   const head = (title) => `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${escapeHtml(title)}</title>\n`;
@@ -406,7 +418,7 @@ export function buildRedirectSite({ root, out, from = LEGACY_SITE_URL, to = SITE
   }
   const fallback = join(outRoot, "404.html");
   writeFileSync(fallback, `${head("Bridlewise moved")}<meta name="robots" content="noindex">\n`
-    + `<script>\n${redirectTarget.toString()}\nvar target = redirectTarget(location.href, ${scriptJson({ from, to, landing })});\nif (target !== null) location.replace(target);\n</script>\n`
+    + `<script>\n${redirectTarget.toString()}\nvar target = redirectTarget(location.href, ${scriptJson({ from: oldSite, to: newSite, landing })});\nif (target !== null) location.replace(target);\n</script>\n`
     + `</head>\n<body>\n<p>Bridlewise moved to <a href="${escapeHtml(to)}">${escapeHtml(to)}</a>.</p>\n</body>\n</html>\n`);
   files.push(fallback);
   const nojekyll = join(outRoot, ".nojekyll");
