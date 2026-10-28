@@ -276,12 +276,17 @@ test("a required check is added only once it has reported on main: an unreported
   const refused = entry(await forgePlan(context, withRecords, []), "org-ruleset", "baseline");
   assert.equal(refused.action, "refused");
   assert.equal(refused.code, "forge_required_check_unreported");
-  assert.match(refused.message ?? "", /"Commit records"/u);
-  assert.doesNotMatch(refused.message ?? "", /"CI"/u, "a context that reported is not named");
+  assert.match(refused.message ?? "", /"Commit records \(integration 15368\)"/u);
+  assert.doesNotMatch(refused.message ?? "", /"CI/u, "a context that reported is not named");
   const written = fake.requests.filter((request) => request.method !== "GET").length;
   await assert.rejects(forgeApply(context, withRecords, []), (error: unknown) => isForgeError(error, "forge_plan_incomplete"));
   assert.equal(fake.requests.filter((request) => request.method !== "GET").length, written, "nothing was written");
-  // Once it has reported on main, the same declaration plans.
+  // Matched by name AND the declared App: a same-named check run from another App, or a commit status of that name, is not it.
+  fake.reportChecks(ORG, REPO, ["CI", "Commit records"], { appId: 999 });
+  assert.match(entry(await forgePlan(context, withRecords, []), "org-ruleset", "baseline").message ?? "", /"Commit records \(integration 15368\)"/u, "another App's check");
+  fake.reportChecks(ORG, REPO, ["CI"], { statuses: ["Commit records"] });
+  assert.equal(entry(await forgePlan(context, withRecords, []), "org-ruleset", "baseline").code, "forge_required_check_unreported", "a status cannot stand for an integration's check");
+  // Once it has reported on main from GitHub Actions, the same declaration plans.
   fake.reportChecks(ORG, REPO, ["CI", "Commit records"]);
   assert.equal(entry(await forgePlan(context, withRecords, []), "org-ruleset", "baseline").action, "create");
 });

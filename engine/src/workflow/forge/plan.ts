@@ -178,15 +178,22 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
   return { planned, extra, retiredFound };
 }
 
-/** The required status-check contexts a ruleset body holds (none for another kind). */
-function requiredContexts(body: unknown): readonly string[] {
+/** A required status check: its context and, when declared, the App (integration) that must report it. */
+type RequiredCheck = Readonly<{ context: string; integrationId: number | undefined }>;
+
+/** The required status checks a ruleset body holds (none for another kind). */
+function requiredChecks(body: unknown): readonly RequiredCheck[] {
   const rules = (body as { rules?: unknown } | undefined)?.rules;
   if (!Array.isArray(rules)) return [];
   return rules.flatMap((rule: { type?: unknown; parameters?: { required_status_checks?: unknown } }) => {
     if (rule.type !== "required_status_checks" || !Array.isArray(rule.parameters?.required_status_checks)) return [];
-    return (rule.parameters.required_status_checks as { context?: unknown }[]).flatMap((check) => typeof check.context === "string" ? [check.context] : []);
+    return (rule.parameters.required_status_checks as { context?: unknown; integration_id?: unknown }[]).flatMap((check) => typeof check.context === "string"
+      ? [{ context: check.context, integrationId: typeof check.integration_id === "number" ? check.integration_id : undefined }]
+      : []);
   });
 }
+
+const checkKey = (check: RequiredCheck): string => `${check.context}\u0000${String(check.integrationId ?? "")}`;
 
 /** The repository a ruleset's checks report on: its own, or for the org baseline the trunk (the repository whose declared `kind` is `trunk`). */
 function reportingRepository(objects: readonly ForgeObject[], object: ForgeObject): string | undefined {
@@ -199,13 +206,15 @@ function reportingRepository(objects: readonly ForgeObject[], object: ForgeObjec
  * THE SEQUENCING BARRIER OF A REQUIRED CHECK: the contexts `object` would
  * newly require (declared, not live) that have never reported on its
  * repository's default branch, judged by that branch's latest commit's
- * check runs and commit statuses, read from GitHub now. A context that is
- * already required live, or one that has reported, passes.
+ * check runs and commit statuses, read from GitHub now. A check declared
+ * with an integration is matched by name AND App id (a check run from that
+ * App); one without by name. A check already required live, or one that
+ * has reported, passes.
  */
 async function unreportedRequiredChecks(context: LiveContext, objects: readonly ForgeObject[], object: ForgeObject, body: unknown, found: LiveObject | undefined): Promise<readonly string[]> {
   if (object.kind !== "ruleset" && object.kind !== "org-ruleset") return [];
-  const live = new Set(requiredContexts(found?.live));
-  const added = requiredContexts(body).filter((check) => !live.has(check));
+  const live = new Set(requiredChecks(found?.live).map(checkKey));
+  const added = requiredChecks(body).filter((check) => !live.has(checkKey(check)));
   if (added.length === 0) return [];
   const repository = reportingRepository(objects, object);
   if (repository === undefined) throw new ForgeError("forge_declaration_invalid", `${object.kind} ${object.key} requires checks, and no repository is declared the trunk to judge where they report.`, { key: object.key });
@@ -213,10 +222,16 @@ async function unreportedRequiredChecks(context: LiveContext, objects: readonly 
   const branch = (await context.client.rest<{ default_branch?: unknown }>({ method: "GET", path })).data?.default_branch;
   if (typeof branch !== "string" || branch === "") throw new ForgeError("github_response_invalid", `GET ${path}: the repository answers no default branch.`, { path });
   const head = `${path}/commits/${branch}`;
-  const runs = await context.client.paginate<{ name?: unknown }>({ path: `${head}/check-runs`, query: { filter: "latest" } }, { maxPages: context.maxPages, perPage: 100, items: (data) => (data as { check_runs?: readonly { name?: unknown }[] }).check_runs ?? [] });
+  type CheckRun = Readonly<{ name?: unknown; app?: Readonly<{ id?: unknown }> | null }>;
+  const runs = await context.client.paginate<CheckRun>({ path: `${head}/check-runs`, query: { filter: "latest" } }, { maxPages: context.maxPages, perPage: 100, items: (data) => (data as { check_runs?: readonly CheckRun[] }).check_runs ?? [] });
   const statuses = await context.client.paginate<{ context?: unknown }>({ path: `${head}/statuses` }, { maxPages: context.maxPages, perPage: 100 });
-  const reported = new Set([...runs.map((run) => run.name), ...statuses.map((status) => status.context)]);
-  return added.filter((check) => !reported.has(check));
+  // A check declared with an integration is met only by a check run of that name FROM that App (a same-named check or a
+  // commit status from anyone else does not count: a status carries no App id to match). One declared without an
+  // integration is met by any check run or status of that name.
+  const reported = (check: RequiredCheck): boolean => check.integrationId === undefined
+    ? runs.some((run) => run.name === check.context) || statuses.some((status) => status.context === check.context)
+    : runs.some((run) => run.name === check.context && run.app?.id === check.integrationId);
+  return added.filter((check) => !reported(check)).map((check) => check.integrationId === undefined ? check.context : `${check.context} (integration ${String(check.integrationId)})`);
 }
 
 /** The id a loosening is acknowledged by: `<kind>:<scope>:<key>`. */

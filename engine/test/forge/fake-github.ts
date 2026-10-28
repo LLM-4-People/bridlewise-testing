@@ -89,10 +89,12 @@ export type FakeGithub = Readonly<{
   pendingConversion: (code: string, input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
   /**
    * The status-check contexts that reported on `repository`'s default branch
-   * (`main`): its latest commit's check runs answer them. A repository with
-   * none answers an empty list, as GitHub does for a commit nothing ran on.
+   * (`main`): its latest commit's check runs answer them, each from the App
+   * `appId` (GitHub Actions, 15368, unless named), and `statuses` as commit
+   * statuses. A repository with none answers empty lists, as GitHub does
+   * for a commit nothing ran on.
    */
-  reportChecks: (owner: string, repository: string, contexts: readonly string[]) => void;
+  reportChecks: (owner: string, repository: string, contexts: readonly string[], options?: Readonly<{ appId?: number; statuses?: readonly string[] }>) => void;
   /** The principal a request's token belongs to (undefined when unknown). */
   principalOf: (request: FakeRequest) => string | undefined;
 }>;
@@ -124,7 +126,7 @@ export function fakeGithub(): FakeGithub {
   const tokenPolicy = { lifetimeMs: 3600_000 };
   const rate = { limit: 5000, remaining: 5000, resetEpochSeconds: Math.floor(Date.now() / 1000) + 3600 };
   /** The contexts that reported on each repository's default branch, by `owner/name`. */
-  const reportedChecks = new Map<string, readonly string[]>();
+  const reportedChecks = new Map<string, Readonly<{ runs: readonly string[]; appId: number; statuses: readonly string[] }>>();
   let nextId = 1000;
 
   function newApp(input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>): FakeApp & { publicKey: KeyObject } {
@@ -228,10 +230,10 @@ export function fakeGithub(): FakeGithub {
   function builtIn(request: FakeRequest): FakeAnswer | undefined {
     const head = /^\/repos\/([^/]+)\/([^/]+)\/commits\/main\/(check-runs|statuses)$/u.exec(request.path);
     if (request.method === "GET" && head !== null) {
-      const contexts = reportedChecks.get(`${head[1]!}/${head[2]!}`) ?? [];
+      const reported = reportedChecks.get(`${head[1]!}/${head[2]!}`) ?? { runs: [], appId: 15368, statuses: [] };
       return head[3] === "check-runs"
-        ? json(200, { total_count: contexts.length, check_runs: contexts.map((name, index) => ({ id: index + 1, name, status: "completed", conclusion: "success" })) })
-        : json(200, []);
+        ? json(200, { total_count: reported.runs.length, check_runs: reported.runs.map((name, index) => ({ id: index + 1, name, status: "completed", conclusion: "success", app: { id: reported.appId } })) })
+        : json(200, reported.statuses.map((context, index) => ({ id: index + 1, context, state: "success" })));
     }
     const conversion = /^\/app-manifests\/([^/]+)\/conversions$/u.exec(request.path);
     if (request.method === "POST" && conversion !== null) {
@@ -337,11 +339,11 @@ export function fakeGithub(): FakeGithub {
       conversions.set(code, app);
       return app;
     },
-    reportChecks: (owner, repository, contexts) => {
+    reportChecks: (owner, repository, contexts, options = {}) => {
       const path = `/repos/${owner}/${repository}`;
       // The repository answers its default branch (merged into what a test stored there).
       objects.set(path, { ...(objects.get(path) as Record<string, unknown> | undefined), default_branch: "main" });
-      reportedChecks.set(`${owner}/${repository}`, [...contexts]);
+      reportedChecks.set(`${owner}/${repository}`, { runs: [...contexts], appId: options.appId ?? 15368, statuses: [...(options.statuses ?? [])] });
     },
     principalOf: (request: FakeRequest) => tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "")?.principal,
   });
