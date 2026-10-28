@@ -46,7 +46,8 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { doorRun } from "../../scripts/tooling/test-guards.ts";
+import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
+import { doorNodeArgs, doorRun } from "../../scripts/tooling/test-guards.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
@@ -250,4 +251,24 @@ test("THE SPACE-FORM HOLE (review of #626): `--import ./noop.mjs` from a folder 
   assert.equal(run.status, 1, `${run.stdout.slice(-400)}${run.stderr.slice(-400)}`);
   assert.ok(run.stderr.includes("write a flag's value in the same argument"), run.stderr.slice(-400));
   assert.ok(!run.stdout.includes("RAN-UNBOUNDED"), "a discovered test ran outside the bounds");
+});
+
+test("the door hands node EXACTLY its own argv — the bounds' preload, --test with the backstop, the door's flags, then the files it bounds — and main runs THAT, never the arguments it was given", () => {
+  const dir = createTempDir("subset-door-argv-");
+  writeFileSync(join(dir, "a.test.ts"), "");
+  const door = doorRun(["a.test.ts", "--test-name-pattern=x"], dir);
+  const bounds = { hangBackstopMs: 600_000, cpuClasses: null, repositoryRoot: dir, files: door.files };
+  assert.deepEqual(doorNodeArgs(bounds, door), [
+    "--experimental-strip-types",
+    engineTestBoundsImport(bounds),
+    "--test",
+    "--test-timeout=600000",
+    "--test-name-pattern=x",
+    join(dir, "a.test.ts"),
+  ]);
+  // The run main makes is that argv: a door that handed node its raw arguments again would not call it.
+  const source = readSourceView(join(ROOT, "scripts", "tooling", "test-guards.ts")).code();
+  const mainBody = source.slice(source.indexOf("export async function main"));
+  assert.ok(mainBody.includes("args: doorNodeArgs(bounds, door)"), "main hands node the door's own argv");
+  assert.ok(!mainBody.includes("process.argv.slice(2)]") && !mainBody.includes("...process.argv"), "main never spreads the arguments it was given into node's argv");
 });

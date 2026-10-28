@@ -47,7 +47,7 @@ import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
-import { engineTestBoundsFrom, engineTestBoundsImport } from "./engine-test-bounds.ts";
+import { engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
 import { enforceTestRunLock, type TestRunLock } from "./test-run-lock.ts";
 import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
@@ -106,6 +106,15 @@ export function doorRun(args: readonly string[], cwd: string): Readonly<{ flags:
   return { flags, files: [...files].toSorted() };
 }
 
+/**
+ * THE ARGV the door hands node, EXACTLY and nothing else: the bounds'
+ * preload, `--test` with the backstop as its per-test timeout, the door's
+ * flags, then the very files it bounds — never the arguments it was given.
+ */
+export function doorNodeArgs(bounds: EngineTestBounds, door: ReturnType<typeof doorRun>): readonly string[] {
+  return ["--experimental-strip-types", engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...door.flags, ...door.files];
+}
+
 export async function main(): Promise<void> {
   const runner = `engine ${process.env.npm_lifecycle_event ?? "node --test"}`;
   // THE FILES FIRST, and none is a refusal (`boundedTestFiles`): every file
@@ -146,8 +155,7 @@ export async function main(): Promise<void> {
     command: process.execPath,
     // `--test-timeout` IS the backstop, as the suite's `run({ timeout })` is:
     // node:test arms it per test, and the bounds both require it and refuse any other.
-    // EXACTLY the door's run: its flags, then the very files it bounds.
-    args: ["--experimental-strip-types", engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...door.flags, ...door.files],
+    args: doorNodeArgs(bounds, door),
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
     killGraceMs: engineSuiteWatchdog.killGraceMs,
     onStdout: (chunk) => process.stdout.write(chunk),
