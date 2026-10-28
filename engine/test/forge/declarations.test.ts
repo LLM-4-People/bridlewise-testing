@@ -191,6 +191,9 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   // Private repositories on this plan (no Secret Protection): neither, or the attach would fail there.
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning, "disabled");
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning_push_protection, "disabled");
+  // Secret scanning needs Secret Protection in a configuration (GitHub refuses one without it): advanced_security goes with it.
+  assert.equal(configuration("bridlewise-baseline").advanced_security, "enabled");
+  assert.equal(configuration("bridlewise-baseline-private").advanced_security, "disabled");
   for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "not_set", `${key}: CodeQL runs in advanced setup`);
   // Attached to the governed repositories only, by visibility, and default for no new repository.
   assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", TRUNK].sort(), default_for_new_repos: "none" });
@@ -198,6 +201,7 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   // With the add-on, the private configuration carries secret scanning too.
   const withAddOn = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection: true } } });
   assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).secret_scanning, "enabled");
+  assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).advanced_security, "enabled");
   // The project is private; no repository offers the Update-branch button; the Pages environment is governed.
   assert.equal((find(objects, "project", SETTINGS.project.title).desired as { public: boolean }).public, false);
   for (const settings of objects.filter((entry) => entry.kind === "repository-settings")) assert.equal((settings.desired as Record<string, unknown>).allow_update_branch, false, settings.key);

@@ -132,7 +132,8 @@ describe("the svelte template check is wired into the typecheck gate", () => {
       runner,
       "the runner must verify the loaded TypeScript version before running svelte-check",
     ).toMatch(/loaded\.version !== aliasVersion/);
-    expect(runner, "a failed self-check must exit non-zero").toMatch(/process\.exit\(1\)/);
+    // A refusal is thrown (an uncaught throw exits 1), never process.exit(), which can deadlock at shutdown (#351).
+    expect(runner, "a failed self-check must exit non-zero").toMatch(/function fail\(message: string\): never \{\s*throw /u);
   });
 });
 

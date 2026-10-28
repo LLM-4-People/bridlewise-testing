@@ -53,32 +53,6 @@ The flow's dev harness lives one level down:
 
 - `dev/` — the synthetic flow harness.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/flow/`.
-
-- `beat-request.ts` is consumed by `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/RunPane.svelte`.
-- `beat-state.ts` is consumed by `src/cockpit/flow/ActBeat.svelte`, `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/EventBeat.svelte`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/ToolBeat.svelte`, `src/cockpit/flow/grouping.ts`.
-- `composer-router.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/flow/DeskLine.svelte`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/dev/DevHarness.svelte`, `src/cockpit/shell/Desk.svelte`.
-- `dock.ts` is consumed by `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/effect-findings.ts`.
-- `effect-findings.ts` is consumed by `src/cockpit/flow/Flow.svelte`.
-- `elapsed-clock.ts` is consumed by `src/cockpit/flow/StreamPulse.svelte`, `src/cockpit/flow/ToolBeat.svelte`, `src/cockpit/flow/WaitLine.svelte`.
-- `fisheye.ts` is consumed by `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/Flow.svelte`.
-- `flow-config.ts` is consumed by `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/log.ts`, `src/cockpit/flow/rewind.ts`, `src/cockpit/sweep/ArmMenuBody.svelte`.
-- `flow-view.ts` is consumed by `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/run-stream.ts`.
-- `grouping.ts` is consumed by `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/Flow.svelte`.
-- `heights.ts` is consumed by `src/cockpit/flow/Flow.svelte`.
-- `ingest.ts` is consumed by `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/dev/DevHarness.svelte`, `src/state/run-pane.ts`.
-- `log.ts` is consumed by `src/cockpit/flow/BeatDepth.svelte`, `src/cockpit/flow/BeatScope.svelte`, `src/cockpit/flow/EffectBeat.svelte`, `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/ToolBeat.svelte`, `src/cockpit/flow/dev/DevHarness.svelte` and 4 more.
-- `rewind.ts` is consumed by `src/cockpit/flow/Verb.svelte`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/verbs.ts`.
-- `run-ownership.ts` is consumed by `src/cockpit/flow/ingest.ts`, `src/cockpit/flow/run-stream.ts`.
-- `run-stream.ts` is consumed by `src/cockpit/flow/composer-router.ts`, `src/cockpit/flow/rewind.ts`.
-- `thinking-fold.ts` is consumed by `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/TurnBeat.svelte`, `src/cockpit/flow/ingest.ts`.
-- `turn-timing.ts` is consumed by `src/cockpit/flow/StreamPulse.svelte`, `src/cockpit/flow/ToolBeat.svelte`, `src/cockpit/flow/TurnBeat.svelte`, `src/cockpit/flow/ingest.ts`, `src/cockpit/flow/run-stream.ts`, `src/state/run-pane.ts`.
-- `types.ts` is consumed by `src/cockpit/computer/FindingNote.svelte`, `src/cockpit/computer/admission.ts`, `src/cockpit/computer/findings.ts`, `src/cockpit/flow/ActBeat.svelte`, `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/BeatDepth.svelte` and 24 more.
-- `verbs.ts` is consumed by `src/cockpit/flow/Flow.svelte`.
-- `wait-stage.ts` is consumed by `src/cockpit/flow/Flow.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/StreamPulse.svelte`, `src/cockpit/flow/TurnBeat.svelte`, `src/cockpit/flow/WaitLine.svelte`, `src/cockpit/flow/ingest.ts` and 1 more.
-
-<!-- /consumers:generated -->

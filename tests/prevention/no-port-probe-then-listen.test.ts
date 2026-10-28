@@ -180,7 +180,7 @@ describe("no probe-then-listen — an ephemeral port is bound by its server, not
     // own readiness line (the `readPortFromReadiness` call) is the safe shape
     // and must NOT be indicted — only a String(port) with NO read-back is.
     const readBackHandoff = [
-      `const apiPort = await readPortFromReadiness(api, "api", /server on http:(\\d+)/, 60_000);`,
+      `const apiPort = await readPortFromReadiness(api, "api", /server on http:(\\d+)/);`,
       `spawn("npx", ["vite", "--port", "0"], { env: { HARNESS_WEB_PORT: String(apiPort) } });`,
     ].join("\n");
     expect(

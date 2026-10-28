@@ -53,6 +53,16 @@
       ]
     },
     {
+      "path": "engine/test/prevention/process-ends-by-draining.test.ts",
+      "lines": [
+        "GUARD SUBJECT: no process of this tree ends by `process.exit()` except the declared last resorts",
+        "GUARD OWNS: every tracked source file's code view, scanned with the one source-view owner",
+        "GUARD PLANT: a `process.exit(0)` planted in code is found; the same text in a comment or a string, and `process.exitCode = 0`, are not",
+        "GUARD DRIVEN: walk the repository (the walker checks its universe against the git index) and match `process.exit(` over each file's code view",
+        "GUARD LIVENESS: the walk is asserted to reach this file and more than a thousand sources, and every declaration to match its file's count"
+      ]
+    },
+    {
       "path": "engine/test/prevention/refusal-is-not-emptiness.test.ts",
       "lines": [
         "GUARD SUBJECT: a privacy/redaction refusal omits the payload at runtime rather than returning an empty-but-present payload field (a refusal is not an emptiness)",

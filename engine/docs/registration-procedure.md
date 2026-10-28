@@ -3,52 +3,38 @@
 How to register a new module + tests + hash bindings in the bridlewise. This
 is the single read-once authority; agents read it once and follow it.
 
-## 1. Add a `moduleContract({...})` entry
+## 1. Add the file; its module entry is derived
 
-For EACH new `src/*.ts` file, hand-add a `moduleContract({...})` entry to
-`src/architecture-manifest.ts` (use the shape of a recent comparable module).
-`harness register --write` only fixes drift on EXISTING entries; new files
-need a hand-added entry. Put placeholder `publicApi`/`dependencies` and let
-`harness register --write` fix them.
+Every source file under the source roots (`scripts/`, `src/`,
+`verification/`) is a module: the census is the tree itself
+(`architectureManifestOf`, `src/architecture-manifest.ts`), and a module takes
+its folder's default contract (`ARCHITECTURE_DIRECTORY_DEFAULTS`). Nothing
+derived — export counts, name hashes, dependencies — is committed (#221), so
+two branches adding different modules change only their own files.
 
-Minimal shape:
+Only a DECISION is committed, one line per module in
+`src/architecture-modules.ts`, holding only what differs from the folder
+default (an id, an owner, an execution boundary, ports, responsibilities):
 
 ```ts
-moduleContract({
-  id: "<kebab-case-id>", path: "src/<path>.ts", realm: "shared" | "runtime" | "builder",
-  layer: "trusted-kernel" | "domain" | "ports" | "application" | "infrastructure" | "interface" | "verification",
-  owner: "<team>", publicApi: { exportCount: 0, namesSha256: "<placeholder>" },
-  dependencies: [],
-}),
+{ path: "src/<path>.ts", id: "<kebab-case-id>", owner: "<team>" },
 ```
 
-After hand-adding the entry, run `harness register --write` (step 2) so the
-registrar recomputes `exportCount` and `namesSha256` from the actual exports
-and replaces the `<placeholder>` with the real 64-hex SHA-256. The registrar's
-write path only matches entries whose `namesSha256` is a 64-hex string, so a
-literal `"<placeholder>"` is NOT auto-replaced — the registrar recomputes the
-hash, prints a drift report, and the author copies the computed value into the
-manifest by hand (or replaces `"<placeholder>"` with the computed 64-hex value
-before re-running, which lets the registrar's write path update it). Either way,
-end with a 64-hex `namesSha256` that the registrar verifies.
+A new module that its folder's default classifies needs no line at all. A
+module in a folder with no default is refused (`architecture_module_unclassified`)
+until it gets a line or its folder a default.
 
 ## 2. Run `harness sync`
 
-`harness sync` (or `node src/cli.ts harness sync`) runs three phases in order:
+`harness sync` (or `node src/cli.ts harness sync`) runs, in order:
 
-1. `register --write` — fix module drift on existing entries (fills
-   `publicApi.exportCount`, `namesSha256`, `dependencies` from the actual
-   exports/imports).
-2. `regenerate` — auto-add disposition entries for new `test/**/*.test.ts`
-   files, repair stale hash bindings, regenerate the test inventory
-   (`traceability/s1-test-inventory.json`).
-3. `check --skip-typecheck` — verify all gates pass.
-
-If `harness register --write` could not fix a `<placeholder>` entry (its regex
-looks for a 64-hex hash, not the literal string `<placeholder>`), the drift
-report still computes the correct value. Read the drift report, copy the
-computed `namesSha256` into the manifest by hand, then re-run `harness sync`.
-Iterate until `harness check` reports `0 unregistered, 0 drifted`.
+1. `register --write` — `harness register --write` marks detected entry points
+   (composition roots) and removes decisions for modules that no longer
+   exist; it never writes a derived value.
+2. `regenerate` — refresh the generated values (hash bindings, the hooks, the
+   inventories that are caches) and add an exception disposition for a
+   recognizable test source outside the qualified patterns.
+3. `check --skip-typecheck` — verify all gates pass (`harness check`).
 
 ## 3. Run `npm test`
 
@@ -91,13 +77,19 @@ mode. `file-sha256` reads as UTF-8 and corrupts non-ASCII bytes — the Landlock
 work caught this. `file-binary-sha256` reads raw bytes via `readFileSync` with
 no encoding argument.
 
-## 8. Test files do NOT get `moduleContract` entries
+## 8. Test files are not modules; deleting one is a named decision
 
-The manifest's `sourceRoots` are `["scripts/", "src/", "verification/"]`. The
-`test/**/*.test.ts` files get dispositions in
-`traceability/test-surface-dispositions.json` via `harness regenerate`, not
-`moduleContract` entries. The `test/prevention/*.test.ts` files consumed by
-the D3 prevention suite follow the same rule.
+The `test/**/*.test.ts` files are the test surface, not modules. A qualified
+Node test source is canonical by default and has NO entry in
+`traceability/test-surface-dispositions.json`, which holds only exceptions.
+
+A deleted test is a decision the deleting commit names: one
+`Test-deleted: <repository path>` trailer per test source the commit takes
+off the surface (a rename too, every path of it), and none for a test it
+keeps (`scripts/verification/test-deletions.ts`). The `commit-msg` hook
+refuses a mismatch, and the required `commit-records` workflow refuses it
+over a pull request's commits. A deleted test that had an exception entry is
+also named to `harness sync --prune <path>`, which removes the entry.
 
 ## 9. Prevention-detector modules: one source of truth
 

@@ -15,21 +15,6 @@ The performance domain: the metrics collectors, budgets, and the profiling that 
 - `performance-config.ts` — the central performance configuration schema: scope, sampling, histograms, budgets, retention, exporters, label schema, cardinality, privacy, backpressure, failure behavior, diagnostic modes, and the resource knobs — `resourceDeltas.enabled` (the per-effect CPU/heap capture gate, default on) and `resourceSampler.enabled`/`intervalMs` (the process resource sampler, default on at 5000 ms).
 - `configured-performance.ts` — `performanceConfigOf`: THE one resolution of a `performance` section (undeclared = the declared default), shared by the engine CLI and the web server's metrics collector (CFG-0 B4); `configuredPerformanceConfig`: the document's section through it, for every performance command; a refused document propagates.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/performance/`.
-
-- `benchmark-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `benchmark-runner.ts` is consumed by `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/index.ts`.
-- `configured-performance.ts` is consumed by `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/workflow/harness-commands.ts`, `server/kernel/canonical.ts`.
-- `diagnostic-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `diagnostic-modes.ts` is consumed by `engine/src/performance/diagnostic-cli.ts`, `engine/src/performance/index.ts`.
-- `engine-instrumentation.ts` is consumed by `server/kernel/canonical.ts`.
-- `function-manifest.ts` is consumed by `engine/src/performance/index.ts`.
-- `index.ts` is consumed by nothing yet.
-- `metrics-collector.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/agents/orchestrator.ts`, `engine/src/index.ts`, `engine/src/performance/index.ts`, `engine/src/runtime/agent-tools.ts`, `engine/src/runtime/orchestrator-tools.ts` and 5 more.
-- `performance-config.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/performance/benchmark-cli.ts`, `engine/src/performance/benchmark-runner.ts`, `engine/src/performance/configured-performance.ts`, `engine/src/performance/diagnostic-cli.ts`, `engine/src/performance/diagnostic-modes.ts` and 6 more.
-
-<!-- /consumers:generated -->

@@ -28,19 +28,16 @@
  * Built-in `node:worker_threads` — no new runtime dependency, and the same
  * pattern the repository-map, quick-view and awareness workers already use.
  */
-import { parentPort, workerData } from "node:worker_threads";
+import { workerData } from "node:worker_threads";
 
 import { searchProjectContentSync, type ContentSearchRequest, type ContentSearchResult } from "./content-search-engine.ts";
-import { postWorkerResult } from "../run/worker-ipc.ts";
+import { postWorkerResult, requireWorkerThread } from "../run/worker-ipc.ts";
 
 type WorkerOk = Readonly<{ ok: true; result: ContentSearchResult }>;
 type WorkerErr = Readonly<{ ok: false; error: Readonly<{ message: string; code?: string }> }>;
 type WorkerResult = WorkerOk | WorkerErr;
 
-if (parentPort === null) {
-  // Spawned without a parent port (e.g. run directly) — nothing to do.
-  process.exit(1);
-}
+requireWorkerThread();
 
 const input = workerData as ContentSearchRequest | undefined;
 if (

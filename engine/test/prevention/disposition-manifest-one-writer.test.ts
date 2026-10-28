@@ -39,8 +39,9 @@ import { canonicalHash } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import {
   createTestSurfaceDispositionManifest,
+  defaultDispositionEntry,
   parseTestSurfaceDispositionManifestText,
-  resignTestSurfaceDispositionManifest,
+  rewriteTestSurfaceDispositionManifest,
   serializeTestSurfaceDispositionManifest,
   testSurfacePolicyHash,
 } from "../../src/kernel/test-surface-manifest.ts";
@@ -60,29 +61,33 @@ function liveManifestText(): string {
 
 test("the live manifest round-trips through the owner byte-for-byte", () => {
   // LIVENESS on the whole mechanism, and the format contract in one line: if
-  // re-signing produced different bytes, `harness regenerate` would rewrite
+  // the rewrite produced different bytes, `harness regenerate` would rewrite
   // the file on every run and every diff would be noise.
   const text = liveManifestText();
-  const resigned = resignTestSurfaceDispositionManifest(text);
-  assert.equal(resigned.status, "current");
-  assert.equal(resigned.text, text);
+  const rewritten = rewriteTestSurfaceDispositionManifest(text);
+  assert.equal(rewritten.status, "current");
+  assert.equal(rewritten.text, text);
 
-  // And the population is real, so a green verdict is not about an empty file.
+  // The population is the EXCEPTIONS (#221): real, and never a default entry —
+  // a qualified Node test source is canonical without one, so adding a test
+  // rewrites nothing here.
   const manifest = parseTestSurfaceDispositionManifestText(text);
-  assert.ok(manifest.entries.length > 100, `entries: ${manifest.entries.length}`);
+  assert.ok(manifest.entries.length > 0, "the exceptions are recorded");
+  assert.deepEqual(manifest.entries.filter((entry) => entry.disposition === "canonical-node-test" && entry.evidenceLinks.length === 0 && defaultDispositionEntry(entry.path) !== undefined).map((entry) => entry.path), []);
+  assert.doesNotMatch(text, /integrityHash/u, "no whole-file hash: it would change on every edit");
 });
 
-test("a stale SIGNATURE heals, and heals to what the one writer would have written", () => {
+test("a default entry written out by hand heals, and heals to what the one writer would have written", () => {
   const manifest = parseTestSurfaceDispositionManifestText(liveManifestText());
-  // The plant: a signature that is valid in shape and wrong in value, which is
-  // exactly what a hand edit to an entry leaves behind.
+  // The plant: this very file, a qualified Node test source, written out as the canonical entry it takes by default.
+  const self = "test/prevention/disposition-manifest-one-writer.test.ts";
   const damaged = serializeTestSurfaceDispositionManifest({
     ...manifest,
-    integrityHash: "0".repeat(64),
+    entries: [...manifest.entries, { ...defaultDispositionEntry(self)!, rationale: "Auto-registered by hand." }].toSorted((left, right) => left.path < right.path ? -1 : 1),
   });
   assert.notEqual(damaged, liveManifestText());
 
-  const healed = resignTestSurfaceDispositionManifest(damaged);
+  const healed = rewriteTestSurfaceDispositionManifest(damaged);
   assert.equal(healed.status, "regenerated");
   // The healed bytes are the ONE writer's output, not this function's idea of
   // the format — that is what "one writer" has to mean to be worth anything.
@@ -109,7 +114,7 @@ test("a stale POLICY refuses, and the refusal names both hashes", () => {
   });
 
   assert.throws(
-    () => resignTestSurfaceDispositionManifest(stale),
+    () => rewriteTestSurfaceDispositionManifest(stale),
     (error: unknown) => {
       assert.ok(error instanceof HarnessError, `expected HarnessError, got ${String(error)}`);
       assert.equal(error.code, "test_surface_disposition_policy_stale");
@@ -124,7 +129,7 @@ test("a stale POLICY refuses, and the refusal names both hashes", () => {
   // over the OLD entries, and that value is what re-blessed the pin.
   let produced: unknown = null;
   try {
-    produced = resignTestSurfaceDispositionManifest(stale);
+    produced = rewriteTestSurfaceDispositionManifest(stale);
   } catch {
     produced = null;
   }
@@ -138,7 +143,7 @@ test("THE CONSERVATION PINS ARE NOT THE POLICY: restating them keeps the manifes
   assert.notEqual(testSurfacePolicyHash(), canonicalHash(discovery), "the pins are not part of it");
   const manifest = parseTestSurfaceDispositionManifestText(liveManifestText());
   assert.equal(manifest.policyHash, testSurfacePolicyHash(), "the live manifest is signed under the pin-free policy");
-  assert.equal(resignTestSurfaceDispositionManifest.length, 1, "the re-sign takes the manifest text and nothing else: no token re-signs a stale policy");
+  assert.equal(rewriteTestSurfaceDispositionManifest.length, 1, "the rewrite takes the manifest text and nothing else: no token re-blesses a stale policy");
 });
 
 test("a hand-edited entry is rejected by the SCHEMA, not by two checks", () => {
@@ -153,33 +158,33 @@ test("a hand-edited entry is rejected by the SCHEMA, not by two checks", () => {
     entries: Record<string, unknown>[];
   };
   withExtraField.entries[0] = { ...first, unexpectedField: "smuggled" };
-  assert.throws(() => resignTestSurfaceDispositionManifest(`${JSON.stringify(withExtraField, null, 2)}\n`));
+  assert.throws(() => rewriteTestSurfaceDispositionManifest(`${JSON.stringify(withExtraField, null, 2)}\n`));
 
   // An invented disposition — a value the enum does not admit.
   const withBadDisposition = JSON.parse(serializeTestSurfaceDispositionManifest(manifest)) as {
     entries: Record<string, unknown>[];
   };
   withBadDisposition.entries[0] = { ...first, disposition: "definitely-fine" };
-  assert.throws(() => resignTestSurfaceDispositionManifest(`${JSON.stringify(withBadDisposition, null, 2)}\n`));
+  assert.throws(() => rewriteTestSurfaceDispositionManifest(`${JSON.stringify(withBadDisposition, null, 2)}\n`));
 
   // BENIGN CONTROL: the same construction with nothing changed still heals, so
   // the two refusals above are about the edits and not about the rebuild.
   const untouched = JSON.parse(serializeTestSurfaceDispositionManifest(manifest)) as unknown;
   assert.equal(
-    resignTestSurfaceDispositionManifest(`${JSON.stringify(untouched, null, 2)}\n`).status,
+    rewriteTestSurfaceDispositionManifest(`${JSON.stringify(untouched, null, 2)}\n`).status,
     "current",
   );
 });
 
-test("there is exactly one module that signs a disposition manifest", () => {
+test("there is exactly one module that writes a disposition manifest", () => {
   // The structural half. `createTestSurfaceDispositionManifest` is the only
-  // thing that computes the manifest's `integrityHash`, so the search is for a
-  // SECOND place that assembles the signed object — the shape the inlined copy
-  // had. Derived from the source, tree-wide, read as bytes.
+  // thing that assembles the manifest (its role, its policy pin), so the
+  // search is for a SECOND place that assembles it — the shape the inlined
+  // copy had. Derived from the source, tree-wide, read as bytes.
   // The owner's src/-relative path, resolved from the tree — the fold moved it
   // under kernel/, so it is never spelled here.
   const owner = engineModuleSourceRelative("test-surface-manifest.ts");
-  const signedRole = "complete-recognizable-test-surface-disposition";
+  const signedRole = "recognizable-test-surface-disposition-exceptions";
   const searched: string[] = [];
   const offenders: string[] = [];
 

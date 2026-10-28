@@ -16,31 +16,33 @@ import { v14, v15, v6 } from "./workspace-scenarios.ts";
 
 const steps = process.argv.slice(2);
 const known = new Set(["seed", "check", "V-6", "V-14", "V-15"]);
+// The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
 if (steps.length === 0 || steps.some((step) => !known.has(step))) {
   process.stderr.write(`usage: node test/forge/proving/run.ts <${[...known].join("|")}>…\n`);
-  process.exit(2);
-}
-const ground = provingGround();
-// The process's own temporary folder (removed when it exits): the clone and the worktrees; the evidence is on GitHub.
-const scratch = createTempDir("proving-ground-");
-let failed = false;
-for (const step of steps) {
-  let verdict: Verdict;
-  try {
-    if (step === "seed") {
-      const seeded = await seedMain(ground);
-      verdict = { v: "seed", status: "pass", detail: seeded.created ? "main seeded by the agent" : "main already exists", evidence: [`${ground.webUrl}/${ground.owner}/${ground.name}/commit/${seeded.head}`] };
-    } else if (step === "check") {
-      await requireConfigured(ground);
-      verdict = { v: "check", status: "pass", detail: "main exists; merge_queue and required_signatures in force on it; delete_branch_on_merge on", evidence: [] };
-    } else {
-      verdict = await (step === "V-6" ? v6 : step === "V-14" ? v14 : v15)(ground, scratch);
+  process.exitCode = 2;
+} else {
+  const ground = provingGround();
+  // The process's own temporary folder (removed when it exits): the clone and the worktrees; the evidence is on GitHub.
+  const scratch = createTempDir("proving-ground-");
+  let failed = false;
+  for (const step of steps) {
+    let verdict: Verdict;
+    try {
+      if (step === "seed") {
+        const seeded = await seedMain(ground);
+        verdict = { v: "seed", status: "pass", detail: seeded.created ? "main seeded by the agent" : "main already exists", evidence: [`${ground.webUrl}/${ground.owner}/${ground.name}/commit/${seeded.head}`] };
+      } else if (step === "check") {
+        await requireConfigured(ground);
+        verdict = { v: "check", status: "pass", detail: "main exists; merge_queue and required_signatures in force on it; delete_branch_on_merge on", evidence: [] };
+      } else {
+        verdict = await (step === "V-6" ? v6 : step === "V-14" ? v14 : v15)(ground, scratch);
+      }
+    } catch (error) {
+      const typed = error as { code?: unknown; forgeCode?: unknown; message?: unknown };
+      verdict = { v: step, status: "fail", detail: `${String(typed.forgeCode ?? typed.code ?? "error")}: ${String(typed.message).slice(0, 600)}`, evidence: [] };
     }
-  } catch (error) {
-    const typed = error as { code?: unknown; forgeCode?: unknown; message?: unknown };
-    verdict = { v: step, status: "fail", detail: `${String(typed.forgeCode ?? typed.code ?? "error")}: ${String(typed.message).slice(0, 600)}`, evidence: [] };
+    failed ||= verdict.status === "fail";
+    process.stdout.write(`${JSON.stringify({ ...verdict, at: new Date().toISOString() })}\n`);
   }
-  failed ||= verdict.status === "fail";
-  process.stdout.write(`${JSON.stringify({ ...verdict, at: new Date().toISOString() })}\n`);
+  process.exitCode = failed ? 1 : 0;
 }
-process.exit(failed ? 1 : 0);

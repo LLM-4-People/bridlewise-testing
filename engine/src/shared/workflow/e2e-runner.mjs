@@ -255,9 +255,8 @@ if (isMain) {
   }
   if (timeoutMs === undefined) {
     console.error("usage: node e2e-runner.mjs --integration <dir> --timeout-ms <ms>  (the merge gate's bound is DEFAULT_E2E_SUITE_TIMEOUT_MS in engine/src/workflow/workflow-config.ts)");
-    process.exit(2);
-  }
-  runE2e({ integrationDir, timeoutMs }).then((r) => {
+    process.exitCode = 2;
+  } else runE2e({ integrationDir, timeoutMs }).then((r) => {
     console.log(JSON.stringify({
       passed: r.passed,
       testCount: r.testCount,
@@ -272,6 +271,7 @@ if (isMain) {
       stripTypes: r.stripTypes,
       tsFiles: r.tsFiles,
     }, null, 2));
-    process.exit(r.passed ? 0 : 1);
-  }).catch((e) => { console.error(e); process.exit(1); });
+    // The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
+    process.exitCode = r.passed ? 0 : 1;
+  }).catch((e) => { console.error(e); process.exitCode = 1; });
 }

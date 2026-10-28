@@ -31,6 +31,7 @@ vi.mock("../../src/cockpit/shell/outlets.ts", () => ({
 }));
 
 import Cockpit from "../../src/cockpit/Cockpit.svelte";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -64,13 +65,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 describe("`,` opens the focused fact's setting through the existing owners", () => {
   let host: HTMLElement;
@@ -87,7 +81,7 @@ describe("`,` opens the focused fact's setting through the existing owners", () 
     host = document.createElement("div");
     document.body.appendChild(host);
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
+    await until(() => host.querySelector(".shell")?.getAttribute("data-revealed") === "true");
   });
 
   afterEach(() => {
@@ -115,7 +109,7 @@ describe("`,` opens the focused fact's setting through the existing owners", () 
   test("a focused data-setting stamp opens THE setting sheet as a scope", async () => {
     focusStamped("data-setting", "cockpit.density");
     pressComma(stamped!);
-    await waitFor(() => host.querySelector("[data-setting-sheet]") !== null);
+    await until(() => host.querySelector("[data-setting-sheet]") !== null);
     // The sheet is the ONE primitive, and it is about the stamped subject.
     expect(
       host.querySelector("[data-setting-sheet]")!.getAttribute("data-setting"),
@@ -136,7 +130,7 @@ describe("`,` opens the focused fact's setting through the existing owners", () 
   test("a focused data-signal stamp resolves through the registry linkage — an unlinked fact gets the linkage's own honest hint", async () => {
     focusStamped("data-signal", "nobody.linked-this");
     pressComma(stamped!);
-    await waitFor(() => host.querySelector(".hint") !== null);
+    await until(() => host.querySelector(".hint") !== null);
     expect(host.querySelector(".hint")!.textContent).toContain(
       "no served setting is linked to nobody.linked-this",
     );
@@ -145,7 +139,7 @@ describe("`,` opens the focused fact's setting through the existing owners", () 
   test("an unstamped focus is told WHERE facts live — never silence", async () => {
     (document.body as HTMLElement).focus?.();
     pressComma();
-    await waitFor(() => host.querySelector(".hint") !== null);
+    await until(() => host.querySelector(".hint") !== null);
     expect(host.querySelector(".hint")!.textContent).toContain("nothing focused declares a fact");
   });
 
@@ -189,12 +183,12 @@ describe("`,` opens the focused fact's setting through the existing owners", () 
 
   test("a sheet opened from inside a room paints ABOVE that room", async () => {
     pressRoomChord();
-    await waitFor(
+    await until(
       () => host.querySelector('section.room[data-room-active="true"]') !== null,
     );
     focusStamped("data-setting", "cockpit.density");
     pressComma(stamped!);
-    await waitFor(() => host.querySelector("[data-setting-sheet]") !== null);
+    await until(() => host.querySelector("[data-setting-sheet]") !== null);
     const scope = host.querySelector("aside.scope");
     expect(scope, "the sheet must exist while the room is open").not.toBeNull();
     // The room is still on screen — the sheet came OVER it, it did not
@@ -211,9 +205,9 @@ describe("`,` opens the focused fact's setting through the existing owners", () 
   test("a sheet from ANOTHER context stays under a room opened after it", async () => {
     focusStamped("data-setting", "cockpit.density");
     pressComma(stamped!);
-    await waitFor(() => host.querySelector("[data-setting-sheet]") !== null);
+    await until(() => host.querySelector("[data-setting-sheet]") !== null);
     pressRoomChord();
-    await waitFor(
+    await until(
       () => host.querySelector('section.room[data-room-active="true"]') !== null,
     );
     const scope = host.querySelector("aside.scope");
