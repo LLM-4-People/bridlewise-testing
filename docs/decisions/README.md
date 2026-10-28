@@ -99,6 +99,7 @@ check` reports it stale): change a decision's file, never its row.
 | [D-W5](D-W5-mock-free-test-files-share-a-process.md) | Mock-free test files share a process | coordinator | pending (WEB-EFFICIENCY) |
 | [EVD-STORE](EVD-STORE-raw-evidence-in-a-content-addressed-store.md) | Code and small records in git; raw evidence in a content-addressed store | user | partial (EVIDENCE-DURABILITY) |
 | [FLAKE-REPRO](FLAKE-REPRO-a-flake-cause-needs-a-recorded-reproduction.md) | A flake cause needs a recorded reproduction | coordinator | partial (FLAKE-REPRO-REDECLARE), amended by NO-LOAD-BLOCK |
+| [GEN-AGGREGATES](GEN-AGGREGATES-no-generated-aggregate-two-changes-both-rewrite.md) | No generated aggregate that two independent changes both rewrite | coordinator | partial (GH-563) |
 | [INSTRUMENT-LOCK](INSTRUMENT-LOCK-the-host-has-one-instrument-lock.md) | The host has one instrument lock | coordinator | superseded by NO-LOAD-BLOCK, amended by NO-LOAD-BLOCK |
 | [KILL-OWNED-ONLY](KILL-OWNED-ONLY-signal-only-what-you-started.md) | Signal only what you started | coordinator | done |
 | [LIVE-SUITE](LIVE-SUITE-one-live-suite-no-hermetic-skips.md) | One live suite; the hermetic suites have no skips | coordinator | done |

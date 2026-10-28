@@ -132,6 +132,19 @@ test("every finding kind is classified by name: gated, or shown under the check 
   assert.deepEqual(answer.unclassified, ["a-kind-nobody-classified:y"]);
 });
 
+test("through the --check door, a judge answer holding a kind nobody classified is REFUSED (s1_finding_unclassified), never gated or shown", () => {
+  // A tree whose instrument answers as the structure door does, with one kind in neither list.
+  const root = createTempDir("ratchet-unclassified-");
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
+  mkdirSync(join(root, "tests", "prevention"), { recursive: true });
+  mkdirSync(join(root, "engine", "scripts", "tooling"), { recursive: true });
+  writeFileSync(join(root, VERIFICATION_PATHS.architectureJudgeBaseline), `${JSON.stringify({ schema: RATCHET_SCHEMA, id: "architecture-judge", entries: [] }, null, 2)}\n`);
+  writeFileSync(join(root, "engine", "scripts", "tooling", "s1-verification.ts"),
+    `process.stdout.write(JSON.stringify({ structural: [], shown: {}, unclassified: ["a-kind-nobody-classified:x"] }) + "\\n");\n`);
+  assert.throws(() => syncRatchetBaselines(root, false, [ratchetBaseline("architecture-judge")]),
+    (error: unknown) => (error as { code?: unknown }).code === "s1_finding_unclassified" && /a-kind-nobody-classified:x/u.test((error as Error).message));
+});
+
 test("a testing tree whose architecture judge (S1) is deleted is refused, not skipped", () => {
   const root = createTempDir("ratchet-no-instrument-");
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
@@ -159,4 +172,3 @@ test("growth against the base is the commit guard's judgement, by id: a grown ba
   assert.deepEqual(ratchetGrowthSince(root, base), [{ id: "renamed", grown: ["debt:b"] }]);
   assert.throws(() => ratchetGrowthSince(root, "0".repeat(40)), (error: unknown) => (error as { code?: unknown }).code === "ratchet_base_unknown");
 });
-
