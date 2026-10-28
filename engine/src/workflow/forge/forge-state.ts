@@ -112,3 +112,8 @@ export function differences(desired: unknown, live: unknown, path: readonly (str
   }
   return Object.is(desired, live) ? [] : [pointer(path)];
 }
+
+/** THE FORGE'S ONE JSON FILE TEXT: two-space indented, one final newline (every generated file and identity copy). */
+export function jsonText(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}

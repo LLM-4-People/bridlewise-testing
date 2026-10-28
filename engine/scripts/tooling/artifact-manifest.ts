@@ -58,14 +58,17 @@ import { canonicalJson, canonicalJsonLines, sha256 } from "../../src/kernel/inte
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import {
   ARTIFACT_MANIFEST_PATH,
+  ARTIFACT_RECORD_SCHEMA,
   artifactProvenanceViolations,
-  buildArtifactAdmissionManifest,
+  artifactRecordOf,
+  deriveArtifactAdmissionManifest,
+  isCanonicalArtifact,
+  type ArtifactRecord,
 } from "./verification/artifact-admission.ts";
 import { rawSafeRepositoryRootAccess } from "../verification/safe-repository-reader.ts";
 
 const ENGINE_ROOT = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 /** The retention policy that forbids a pruned drop (canonical artifacts are append-only). */
-const CANONICAL_RETENTION = "retain-canonical-with-append-only-governed-supersession";
 
 type ArtifactManifestReport = Readonly<{
   allCurrent: boolean;
@@ -91,23 +94,16 @@ class ArtifactManifestRefusal extends Error {
 }
 
 /** The previous document's entries — path + retention only, the facts a prune decides on. */
-function previousEntries(path: string): readonly Readonly<{ path: string; retention: string }>[] {
-  if (!existsSync(path)) return [];
-  let parsed: unknown;
+/** The previous record (its paths are the population a deletion is judged against), or nothing when absent or malformed. */
+function previousRecord(path: string): ArtifactRecord | undefined {
+  if (!existsSync(path)) return undefined;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8"));
+    const parsed = ARTIFACT_RECORD_SCHEMA.safeParse(JSON.parse(readFileSync(path, "utf8")));
+    return parsed.success ? parsed.data : undefined;
   } catch {
-    // A malformed manifest is not a previous document: the rebuild replaces it.
-    return [];
+    // A malformed record is not a previous document: the rebuild replaces it.
+    return undefined;
   }
-  const entries = (parsed as { entries?: unknown } | null)?.entries;
-  if (!Array.isArray(entries)) return [];
-  return entries.flatMap((entry) => {
-    const record = entry as { path?: unknown; retention?: { policy?: unknown } } | null;
-    return typeof record?.path === "string" && typeof record.retention?.policy === "string"
-      ? [{ path: record.path, retention: record.retention.policy }]
-      : [];
-  });
 }
 
 /**
@@ -115,7 +111,7 @@ function previousEntries(path: string): readonly Readonly<{ path: string; retent
  * of an artifact whose retention forbids it. Every refusal names the way out.
  */
 function refuseDroppedArtifacts(
-  dropped: readonly Readonly<{ path: string; retention: string }>[],
+  dropped: readonly Readonly<{ path: string }>[],
   currentPaths: ReadonlySet<string>,
   prune: readonly string[],
 ): void {
@@ -139,13 +135,13 @@ function refuseDroppedArtifacts(
         `${unnamed.length > 10 ? " …" : ""} (then run harness sync).`,
     );
   }
-  const canonical = dropped.filter((entry) => prune.includes(entry.path) && entry.retention === CANONICAL_RETENTION);
+  const canonical = dropped.filter((entry) => prune.includes(entry.path) && isCanonicalArtifact(entry.path));
   if (canonical.length > 0) {
     throw new ArtifactManifestRefusal(
       "artifact_manifest_canonical_drop_refused",
       `artifact-manifest refused: ${canonical.map((entry) => entry.path).join(", ")} ` +
-        `${canonical.length === 1 ? "is a canonical artifact" : "are canonical artifacts"} with retention ` +
-        `${CANONICAL_RETENTION}: a canonical authority is append-only and cannot be pruned. Restore ` +
+        `${canonical.length === 1 ? "is a canonical artifact" : "are canonical artifacts"}: ` +
+        "a canonical authority is append-only and cannot be pruned. Restore " +
         `${canonical.length === 1 ? "it" : "them"} from version control; a genuine supersession must change the ` +
         "authority itself, not the inventory entry.",
     );
@@ -160,21 +156,10 @@ export function syncArtifactManifest(
   const prune = [...new Set(options.prune ?? [])].toSorted();
   const manifestPath = join(root, ARTIFACT_MANIFEST_PATH);
   const previousText = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : undefined;
-  const previous = previousEntries(manifestPath);
+  const previous = previousRecord(manifestPath);
   const access = rawSafeRepositoryRootAccess(root);
-  let previousManifest: unknown;
-  if (previousText !== undefined) {
-    try {
-      previousManifest = JSON.parse(previousText);
-    } catch {
-      previousManifest = undefined;
-    }
-  }
   // A function of the tree (#221): no clock is read, so one tree gives the same bytes at any time.
-  const manifest = buildArtifactAdmissionManifest({
-    root: access,
-    ...(previousManifest !== undefined ? { previousManifest } : {}),
-  });
+  const manifest = deriveArtifactAdmissionManifest(access, previous);
   const violations = artifactProvenanceViolations(manifest);
   if (violations.length > 0) {
     throw new ArtifactManifestRefusal(
@@ -183,11 +168,12 @@ export function syncArtifactManifest(
     );
   }
   const currentPaths = new Set(manifest.entries.map((entry) => entry.path));
-  const dropped = previous.filter((entry) => !currentPaths.has(entry.path)).toSorted((left, right) =>
+  const dropped = (previous?.artifacts ?? []).filter((entry) => !currentPaths.has(entry.path)).toSorted((left, right) =>
     left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   refuseDroppedArtifacts(dropped, currentPaths, prune);
-  // One entry per line (the one canonical form, `canonicalJsonLines`): two branches that change different artifacts merge.
-  const bytes = canonicalJsonLines(manifest);
+  // Only what the tree cannot say, one artifact per line (`canonicalJsonLines`): an edit to a governed file rewrites
+  // nothing, and two branches that add different artifacts merge.
+  const bytes = canonicalJsonLines(artifactRecordOf(manifest));
   const current = previousText !== undefined && bytes === previousText;
   let status: ArtifactManifestReport["status"];
   if (current) {

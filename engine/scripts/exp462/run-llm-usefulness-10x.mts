@@ -105,4 +105,4 @@ async function main() {
   console.log("Results saved to exp462-llm-results.json");
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch(e => { console.error(e); process.exitCode = 1; });

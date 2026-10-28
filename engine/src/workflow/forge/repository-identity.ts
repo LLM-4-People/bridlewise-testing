@@ -11,12 +11,11 @@
  * GitHub-side rename. Code reads it here, and generated files are
  * regenerated from it.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import { workingTreeReader } from "../../git/tree-reader.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ForgeError } from "./codes.ts";
+import { jsonText } from "./forge-state.ts";
 import { configuredForge } from "./configured-forge.ts";
 import { PRODUCT_NAME } from "../../kernel/product-identity.ts";
 import { FORGE_CONFIG_SCHEMA, trunkRepository, type ForgeSettings } from "./forge-config.ts";
@@ -253,9 +252,11 @@ export function withIdentityLinks(text: string, identity: RepositoryIdentity): s
  */
 export function repositoryIdentityCopies(top: string, identity: RepositoryIdentity): ReadonlyMap<string, string> {
   const copies = new Map<string, string>();
-  const manifestPath = join(top, "package.json");
-  if (existsSync(manifestPath)) {
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+  // One reader for every copy: the files the working tree owns.
+  const tree = workingTreeReader(top);
+  const manifestText = tree.text("package.json");
+  if (manifestText !== null) {
+    const manifest = JSON.parse(manifestText) as Record<string, unknown>;
     const record = (field: string): Record<string, unknown> => {
       const value = manifest[field];
       if (typeof value !== "object" || value === null || Array.isArray(value)) throw new ForgeError("forge_identity_copy_invalid", `package.json \`${field}\` is not an object with a url.`, { path: "package.json", field });
@@ -263,17 +264,16 @@ export function repositoryIdentityCopies(top: string, identity: RepositoryIdenti
     };
     const updated = { ...manifest, repository: { ...record("repository"), url: identity.gitUrl }, homepage: identity.webUrl, bugs: { ...record("bugs"), url: identity.issuesUrl } };
     // Key order is kept: the spread keeps each field where the file has it.
-    copies.set("package.json", `${JSON.stringify(updated, null, 2)}\n`);
+    copies.set("package.json", jsonText(updated));
   }
-  const citationPath = join(top, "CITATION.cff");
-  if (existsSync(citationPath)) {
-    const lines = readFileSync(citationPath, "utf8").split("\n");
+  const citation = tree.text("CITATION.cff");
+  if (citation !== null) {
+    const lines = citation.split("\n");
     const at = lines.flatMap((line, index) => (line.startsWith("repository-code:") ? [index] : []));
     if (at.length !== 1) throw new ForgeError("forge_identity_copy_invalid", `CITATION.cff must hold exactly one top-level repository-code line; it holds ${String(at.length)}.`, { path: "CITATION.cff", field: "repository-code" });
     lines[at[0]!] = `repository-code: "${identity.webUrl}"`;
     copies.set("CITATION.cff", lines.join("\n"));
   }
-  const tree = workingTreeReader(top);
   const documents = tree.paths().filter((path) => path.endsWith(".md"));
   tree.prefetch(documents);
   for (const path of documents) {

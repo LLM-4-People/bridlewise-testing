@@ -151,24 +151,6 @@ Stored names from before this rule are renamed once by DB migration 19.
   capabilities) and never resolves a pending call; an aborted call sends
   `notifications/cancelled`.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/mcp/`.
-
-- `auth.ts` is consumed by `engine/src/mcp/config.ts`, `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`.
-- `config.ts` is consumed by `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/shared/exposure/registrations/mcp.ts`, `server/kernel/canonical.ts`.
-- `core.ts` is consumed by `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/mcp/tool-adapter.ts`, `server/kernel/canonical.ts`.
-- `errors.ts` is consumed by `engine/src/mcp/config.ts`, `engine/src/mcp/core.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `engine/src/mcp/retry.ts` and 6 more.
-- `exposure.ts` is consumed by `engine/src/mcp/index.ts`.
-- `factory.ts` is consumed by `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `server/kernel/canonical.ts`.
-- `headers.ts` is consumed by `engine/src/mcp/exposure.ts`, `engine/src/mcp/factory.ts`, `engine/src/mcp/index.ts`, `server/kernel/canonical.ts`.
-- `index.ts` is consumed by nothing yet.
-- `registry.ts` is consumed by `engine/src/mcp/exposure.ts`, `engine/src/mcp/index.ts`, `server/kernel/canonical.ts`.
-- `retry.ts` is consumed by `engine/src/mcp/config.ts`, `engine/src/mcp/exposure.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`.
-- `tool-adapter.ts` is consumed by `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`.
-- `tool-name.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/mcp/config.ts`, `engine/src/mcp/index.ts`, `engine/src/mcp/registry.ts`, `server/kernel/canonical.ts`.
-- `unavailability.ts` is consumed by `engine/src/safety/investigation.ts`, `server/kernel/canonical.ts`.
-
-<!-- /consumers:generated -->

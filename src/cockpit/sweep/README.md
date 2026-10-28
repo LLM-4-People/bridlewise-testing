@@ -33,30 +33,6 @@ The sweep's dev harness lives one level down:
 
 - `dev/` — the synthetic sweep harness.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/sweep/`.
-
-- `arm-fire.ts` is consumed by `src/cockpit/shell/annunciator-data.ts`, `src/cockpit/sweep/ArmMenuBody.svelte`, `src/cockpit/sweep/arm-palette.ts`, `src/cockpit/sweep/sweep-store.ts`.
-- `arm-palette.ts` is consumed by `src/cockpit/sweep/ArmMenuBody.svelte`.
-- `arm-sync.ts` is consumed by `src/cockpit/sweep/ArmMenuBody.svelte`.
-- `band-request.ts` is consumed by `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/annunciator-data.ts`, `src/cockpit/sweep/ArmMenuBody.svelte`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/arm-fire.ts`.
-- `band-scope.ts` is consumed by `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/SweepHead.svelte`.
-- `bin-source.ts` is consumed by `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/spectrum-load.ts`.
-- `bins.ts` is consumed by `src/cockpit/sweep/bin-source.ts`.
-- `categories.ts` is consumed by `src/cockpit/flow/RunPane.svelte`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/bin-source.ts`, `src/cockpit/sweep/bins.ts`, `src/cockpit/sweep/dev/harness.svelte.ts`, `src/cockpit/sweep/painter.ts` and 2 more.
-- `causal.ts` is consumed by `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/painter.ts`, `src/state/run-pane.ts`.
-- `focus-seam.ts` is consumed by `src/cockpit/flow/Flow.svelte`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/dev/harness.svelte.ts`.
-- `marks.ts` is consumed by `src/cockpit/sweep/ArmMenuBody.svelte`, `src/cockpit/sweep/arm-fire.ts`, `src/cockpit/sweep/arm-sync.ts`, `src/cockpit/sweep/sweep-store.ts`.
-- `now-edge.ts` is consumed by `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/annunciator-data.ts`, `src/cockpit/sweep/ArmMenuBody.svelte`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/SweepHead.svelte`, `src/cockpit/sweep/arm-fire.ts` and 3 more.
-- `painter.ts` is consumed by `src/cockpit/sweep/Sweep.svelte`.
-- `ribbon.ts` is consumed by `src/cockpit/sweep/CausalRibbon.svelte`.
-- `spectrum-load.ts` is consumed by `src/cockpit/sweep/Sweep.svelte`.
-- `sweep-data.ts` is consumed by `src/cockpit/flow/run-stream.ts`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/dev/harness.svelte.ts`, `src/state/run-pane.ts`.
-- `sweep-store.ts` is consumed by `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/run-stream.ts`, `src/cockpit/rooms/SwitchRoom.svelte`, `src/cockpit/shell/annunciator-data.ts`, `src/cockpit/shell/right-menu.ts`, `src/cockpit/sweep/ArmMenuBody.svelte` and 6 more.
-- `types.ts` is consumed by `src/cockpit/flow/run-stream.ts`, `src/cockpit/sweep/CausalRibbon.svelte`, `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/SweepHead.svelte`, `src/cockpit/sweep/arm-fire.ts`, `src/cockpit/sweep/band-scope.ts` and 15 more.
-- `zoom.ts` is consumed by `src/cockpit/sweep/Sweep.svelte`, `src/cockpit/sweep/SweepHead.svelte`, `src/cockpit/sweep/painter.ts`.
-
-<!-- /consumers:generated -->

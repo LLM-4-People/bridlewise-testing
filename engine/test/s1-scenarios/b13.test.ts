@@ -4,29 +4,27 @@ import { join } from "node:path";
 import test from "node:test";
 import { verifyS1Structure } from "../../scripts/tooling/s1-verification.ts";
 import { analyzeArchitectureSource, verifyArchitectureSources } from "../../scripts/verification/architecture.ts";
-import { ARCHITECTURE_MANIFEST, EMPTY_COMPOSITION_ROOTS, type ArchitectureManifest } from "../../src/architecture-manifest.ts";
-import { canonicalHash } from "../../src/kernel/integrity.ts";
+import { EMPTY_COMPOSITION_ROOTS, type ArchitectureManifest } from "../../src/architecture-manifest.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { ARCHITECTURE_SOURCE_EXTENSIONS } from "../../src/shared/source-extensions.ts";
 import { makeRuntimeCandidate, createOwnedTemporaryDirectory, removeOwnedTemporaryDirectories, historicalApplicationName, appendCandidateSource, mountedRootBoundaryEvidence, repositoryArchitectureSources, REPOSITORY_ROOT, candidateModulePath, assertArchitectureBaselineClean } from "../support/s1-scenario-shared.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
   "S1-B13-CONTROL": assertArchitectureBaselineClean,
   "S1-B13-FAILURE": () => {
     const cycleRoot = makeRuntimeCandidate();
     const kernelErrors = candidateModulePath("kernel/errors.ts");
-    // The dependency-drift mutant imports cli.ts from the kernel folder, so
-    // the specifier must reach `src/cli.ts` from `src/kernel/` — "../cli.ts".
+    // The cycle mutant imports cli.ts from the kernel folder, so the specifier
+    // must reach `src/cli.ts` from `src/kernel/` — "../cli.ts".
     appendCandidateSource(cycleRoot, kernelErrors, [
       'import { runCli } from "../cli.ts";',
       "void runCli;",
     ].join("\n"));
     const cycle = verifyS1Structure(cycleRoot).violations;
-    assert.ok(
-      cycle.includes(`architecture-dependency-drift:${kernelErrors}`),
-      JSON.stringify(cycle),
-    );
-    assert.ok(cycle.some((entry) => entry.startsWith("architecture-import-cycle:")));
+    assert.ok(cycle.some((entry) => entry.startsWith("architecture-import-cycle:")), JSON.stringify(cycle));
 
     const reverseRoot = makeRuntimeCandidate();
     // root-policy.ts lives at src/kernel/ post-fold, so reaching src/cli.ts
@@ -37,7 +35,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       "void runCli;",
     ].join("\n"));
     const reverse = verifyS1Structure(reverseRoot).violations;
-    assert.ok(reverse.includes(`architecture-dependency-drift:${ROOT_POLICY.sourcePath}`));
     assert.ok(reverse.includes(`architecture-reverse-layer:${ROOT_POLICY.sourcePath}->src/cli.ts`));
 
     const adapterRoot = makeRuntimeCandidate();
@@ -57,7 +54,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       "void directArchitectureRead;",
     ].join("\n"));
     const effect = verifyS1Structure(effectRoot).violations;
-    assert.ok(effect.includes(`architecture-dependency-drift:${kernelContracts}`));
     assert.ok(effect.includes(`architecture-effect-owner:${kernelContracts}:node:fs:filesystem-read`));
 
     const existingFilesystemDependencyRoot = makeRuntimeCandidate();
@@ -67,7 +63,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'void architectureWriteMutant("architecture-mutant", "must-not-execute");',
     ].join("\n"));
     const existingFilesystemDependency = verifyS1Structure(existingFilesystemDependencyRoot).violations;
-    assert.equal(existingFilesystemDependency.includes(`architecture-dependency-drift:${kernelConfig}`), false);
     // The appended write merges with config.ts's pre-existing filesystem-read,
     // so the owner effect-set is read+write. The invariant: the appended write
     // IS detected and attributed to the module (not dropped, not misattributed).
@@ -83,7 +78,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'process.getBuiltinModule("node:fs").writeFileSync("architecture-mutant", "must-not-execute");',
     ].join("\n"));
     const builtinFilesystem = verifyS1Structure(builtinFilesystemRoot).violations;
-    assert.equal(builtinFilesystem.includes(`architecture-dependency-drift:${kernelConfig}`), false);
     assert.ok(builtinFilesystem.includes(
       `architecture-effect-owner:${kernelConfig}:node:fs:filesystem-read,filesystem-write`,
     ));
@@ -108,76 +102,39 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       const unregistered = verifyArchitectureSources([
         ...repositoryArchitectureSources(),
         { path: `verification/unregistered-extension${extension}`, source },
-      ]).violations;
+      ], REPOSITORY_MANIFEST).violations;
       assert.ok(unregistered.includes("architecture-module-registration-drift"));
     }
 
     for (const extension of [".jsx", ".tsx"] as const) {
       const path = `verification/registered-extension${extension}`;
       const source = 'export const registeredExtension = <Widget value={1} />;';
-      const facts = analyzeArchitectureSource(path, source);
-      const template = ARCHITECTURE_MANIFEST.modules.find((module) => module.path === kernelErrors)!;
+      const template = REPOSITORY_MANIFEST.modules.find((module) => module.path === kernelErrors)!;
       const fixtureManifest: ArchitectureManifest = {
-        ...ARCHITECTURE_MANIFEST,
+        ...REPOSITORY_MANIFEST,
         compositionRoots: EMPTY_COMPOSITION_ROOTS,
         modules: [{
           ...template,
           id: `registered-extension-${extension.slice(1)}`,
           path,
-          dependencies: [],
-          publicApi: {
-            exportCount: facts.exportedNames.length,
-            namesSha256: canonicalHash(facts.exportedNames),
-          },
         }],
       };
       const registered = verifyArchitectureSources([{ path, source }], fixtureManifest).violations;
       assert.equal(registered.includes(`architecture-source-parse:${path}`), false);
-      assert.equal(registered.includes(`architecture-public-api-drift:${path}`), false);
       assert.equal(registered.includes(`architecture-independent-export-disagreement:${path}`), false);
       assert.equal(registered.includes(`architecture-independent-import-disagreement:${path}`), false);
     }
 
-    const unregisteredCoreRoot = makeRuntimeCandidate();
-    writeFileSync(
-      join(unregisteredCoreRoot, "src", "unregistered-core.ts"),
-      "export const unregisteredCore = true;\n",
-    );
-    assert.ok(verifyS1Structure(unregisteredCoreRoot).violations.includes(
-      "architecture-module-registration-drift",
-    ));
-
-    const unregisteredVerificationRoot = makeRuntimeCandidate();
-    const unregisteredVerificationDirectory = join(
-      unregisteredVerificationRoot,
-      "verification",
-      "benchmarks",
-      "architecture-mutant",
-    );
-    mkdirSync(unregisteredVerificationDirectory, { recursive: true });
-    writeFileSync(
-      join(unregisteredVerificationDirectory, "unregistered-verifier.ts"),
-      "export const unregisteredVerifier = true;\n",
-    );
-    assert.ok(verifyS1Structure(unregisteredVerificationRoot).violations.includes(
-      "architecture-module-registration-drift",
-    ));
-
-    const unregisteredMjsRoot = makeRuntimeCandidate();
-    const unregisteredMjsDirectory = join(
-      unregisteredMjsRoot,
-      "verification",
-      "benchmarks",
-      "architecture-mutant",
-    );
-    mkdirSync(unregisteredMjsDirectory, { recursive: true });
-    writeFileSync(
-      join(unregisteredMjsDirectory, "unregistered-runner.mjs"),
-      "export const unregisteredRunner = true;\n",
-    );
-    assert.ok(verifyS1Structure(unregisteredMjsRoot).violations.includes(
-      "architecture-module-registration-drift",
-    ));
+    // A NEW SOURCE IS A MODULE THE DAY IT LANDS (#221): the census is the registration and its folder classifies it,
+    // so a plain new module in src/ or verification/ (.ts or .mjs) is no registration drift, and nothing is written.
+    for (const [directory, file] of [["src", "unregistered-core.ts"], ["verification/benchmarks/architecture-mutant", "unregistered-verifier.ts"], ["verification/benchmarks/architecture-mutant", "unregistered-runner.mjs"]] as const) {
+      const newModuleRoot = makeRuntimeCandidate();
+      mkdirSync(join(newModuleRoot, directory), { recursive: true });
+      writeFileSync(join(newModuleRoot, directory, file), "export const newModule = true;\n");
+      const judged = verifyS1Structure(newModuleRoot).violations;
+      assert.equal(judged.includes("architecture-module-registration-drift"), false, `${directory}/${file}`);
+      assert.equal(judged.some((violation) => violation.startsWith("architecture-") && violation.includes(file)), false, `${directory}/${file}: ${JSON.stringify(judged.filter((violation) => violation.includes(file)))}`);
+    }
 
     const externalArchitectureRoot = createOwnedTemporaryDirectory("architecture-external-");
     const rootNameCanary = "ROOT_DIRECTORY_NAME_CANARY_must_not_escape";
@@ -333,11 +290,13 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       assert.ok(verifyS1Structure(root).violations.includes(diagnostic));
     }
 
+    // A module's public API is derived from its source, never committed
+    // (#221): a new export is no architecture violation of its own.
+    const ofDataPolicy = (violations: readonly string[]): readonly string[] =>
+      violations.filter((violation) => violation.startsWith("architecture-") && violation.includes(dataPolicyPath));
     const exportRoot = makeRuntimeCandidate();
     appendCandidateSource(exportRoot, dataPolicyPath, "export const unregisteredSurface = true;");
-    assert.ok(verifyS1Structure(exportRoot).violations.includes(
-      `architecture-public-api-drift:${dataPolicyPath}`,
-    ));
+    assert.deepEqual(ofDataPolicy(verifyS1Structure(exportRoot).violations), ofDataPolicy(verifyS1Structure(makeRuntimeCandidate()).violations));
 
     const sqliteRoot = makeRuntimeCandidate();
     appendCandidateSource(sqliteRoot, contractsPath, [
@@ -345,7 +304,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       "void HiddenDatabase;",
     ].join("\n"));
     const sqlite = verifyS1Structure(sqliteRoot).violations;
-    assert.ok(sqlite.includes(`architecture-dependency-drift:${contractsPath}`));
     assert.ok(sqlite.includes(
       `architecture-effect-owner:${contractsPath}:node:sqlite:filesystem-read,filesystem-write`,
     ));
@@ -383,9 +341,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'void spawn("git", ["status", "--short"]);',
     ].join("\n"));
     const existingChildProcess = verifyS1Structure(existingChildProcessRoot).violations;
-    assert.equal(existingChildProcess.includes(
-      `architecture-dependency-drift:${spawner}`,
-    ), false);
     assert.ok(existingChildProcess.includes(
       `architecture-effect-owner:${spawner}:git-invocation:git`,
     ));
@@ -397,9 +352,6 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       'void architectureExecFile(architectureGitExecutable, ["status", "--short"]);',
     ].join("\n"));
     const aliasedGitPath = verifyS1Structure(aliasedGitPathRoot).violations;
-    assert.equal(aliasedGitPath.includes(
-      `architecture-dependency-drift:${spawner}`,
-    ), false);
     assert.ok(aliasedGitPath.includes(
       `architecture-effect-owner:${spawner}:git-invocation:git`,
     ));
@@ -577,16 +529,16 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     ));
 
     const thirdRootPath = "scripts/tooling/recorded-command.ts";
-    const modulesWithThirdRoot = ARCHITECTURE_MANIFEST.modules.map((module) =>
+    const modulesWithThirdRoot = REPOSITORY_MANIFEST.modules.map((module) =>
       module.path === thirdRootPath
         ? { ...module, compositionRoot: true as const, executionBoundary: "composition-root" as const }
         : module
     );
     const registeredThirdRoot: ArchitectureManifest = {
-      ...ARCHITECTURE_MANIFEST,
+      ...REPOSITORY_MANIFEST,
       compositionRoots: {
-        ...ARCHITECTURE_MANIFEST.compositionRoots,
-        builder: [...ARCHITECTURE_MANIFEST.compositionRoots.builder, thirdRootPath].toSorted(),
+        ...REPOSITORY_MANIFEST.compositionRoots,
+        builder: [...REPOSITORY_MANIFEST.compositionRoots.builder, thirdRootPath].toSorted(),
       },
       modules: modulesWithThirdRoot,
     };
@@ -597,7 +549,7 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     );
     const omittedThirdRoot: ArchitectureManifest = {
       ...registeredThirdRoot,
-      compositionRoots: ARCHITECTURE_MANIFEST.compositionRoots,
+      compositionRoots: REPOSITORY_MANIFEST.compositionRoots,
     };
     assert.ok(verifyArchitectureSources(
       repositoryArchitectureSources(omittedThirdRoot),

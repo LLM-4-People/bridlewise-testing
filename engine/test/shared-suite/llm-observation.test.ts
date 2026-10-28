@@ -305,6 +305,15 @@ test("Short and registry-overflow credentials protect HTTP, SSE, header keys and
   } finally { for (const label of added) forgetKnownSecret(label); }
 });
 
+test("a captured URL-valued header (a signed Location, Link or Referer) is judged by the ONE header rule, never the key-name rule: its token never survives; a credential-free header stays readable", () => {
+  const signed = "https://objects.example.net/release-asset/1?X-Amz-Signature=0123abcd&token=t0k3n";
+  const headers = extractResponseHeaders(new Response(null, { headers: { location: signed, link: `<${signed}>; rel="next"`, referer: signed, "content-type": "application/json" } }),
+    { ...TEST_TRANSPORT, capturedResponseHeaders: ["location", "link", "referer", "content-type"] });
+  assert.equal(Object.keys(headers).length, 4);
+  assert.ok(!JSON.stringify(headers).includes("0123abcd") && !JSON.stringify(headers).includes("t0k3n"), JSON.stringify(headers));
+  assert.equal(headers["content-type"], "application/json");
+});
+
 test("Provider diagnostic recording context uses the same held credential projection as event labels", async () => {
   const { withRecordingContext } = await import("../../src/timeline/recording-context.ts");
   const held = "a7", sink = createCollectingSink();
@@ -392,7 +401,8 @@ test("Envelope root keys remain trusted while native child aliases never become 
     const body = responseResource({ model: "visible-engine", content: `the ${held} value`, toolCalls: [{ id: "ordinary-id", type: "function", function: { name: "ordinary-name", arguments: JSON.stringify({ [held]: "kept", other: held }) } }] });
     const view = observeResponseEnvelope({ headers: { [held]: "header-value", "0": "existing-key" }, response: body }, { limits: TEST_TRANSPORT, heldCredentials: heldValues("test", [held]) });
     assert.ok(Object.hasOwn(view, "headers")); assert.ok(Object.hasOwn(view, "response"));
-    assert.equal(Object.keys(view.headers).length, 2); assert.equal(view.headers["0"], "existing-key");
+    // Both keys survive (the alias never erases the existing "0"); an unknown header's VALUE is masked by the one header rule.
+    assert.equal(Object.keys(view.headers).length, 2); assert.equal(view.headers["0"], "[REDACTED:token]");
     assert.equal(view.display!.model, "visible-engine"); assert.equal(view.display!.toolCalls[0]!.function.name, "ordinary-name");
     assert.equal((body.output as unknown[]).length, 2, "native output remains exact even if the public output key is aliased");
     assert.equal(JSON.parse(view.display!.toolCalls[0]!.function.arguments).other, "[REDACTED:token]");
@@ -433,7 +443,7 @@ test("Queued or unknown-status native envelopes withhold every public string", a
 
 
 test("Envelope budgets count both native subtrees once without charging trusted wrapper depth", () => {
-  const body = { nested: { text: "é" } }, headers = { "x-test": "é" };
+  const body = { nested: { text: "é" } }, headers = { "content-language": "é" }; // a credential-free header: shown as it is
   const maximumResponseBytes = Buffer.byteLength(JSON.stringify(body)), maximumResponseHeaderBytes = Buffer.byteLength(JSON.stringify(headers));
   const limits = { maximumResponseBytes, maximumResponseHeaderBytes, maximumDepth: 2, maximumNodes: 5 };
   assert.deepEqual(observeResponseEnvelope({ headers, response: body }, { limits }), { headers, response: body, diagnostic: {} });

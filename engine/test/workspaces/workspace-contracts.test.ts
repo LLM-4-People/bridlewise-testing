@@ -89,7 +89,7 @@ function makeUnsignedReceipt(): UnsignedMergeReceipt {
     landing: "fast-forward",
     landedIn: "/home/user/bridlewise-testing",
     changedPaths: ["src/x.ts"],
-    regeneratedPaths: ["engine/src/architecture-manifest.ts"],
+    regeneratedPaths: ["engine/src/architecture-modules.ts"],
     resolvedConflicts: [],
     importedRuns: ["engine/.bridlewise/state/test-results/run-history.json: 1"],
     timelineImportedEvents: 3,
@@ -229,9 +229,9 @@ test("canonicalizeWriteSetPath rejects traversal and absolute paths", () => {
 
 test("assertLeasableWriteSet refuses the wholly generated outputs (derived) and never-source segments", () => {
   for (const path of [
-    "engine/src/architecture-manifest.ts",
+    "engine/traceability/artifacts/manifest.json",
     "engine/traceability/config-document-schema.json",
-    "engine/src",
+    "engine/traceability",
     "engine",
     ".bridlewise/state",
     "engine/.bridlewise/state/x.json",
@@ -243,9 +243,10 @@ test("assertLeasableWriteSet refuses the wholly generated outputs (derived) and 
   }
 });
 
-test("assertLeasableWriteSet leases authored files that carry generated parts: pin-bearing sources, the dispositions, READMEs", () => {
+test("assertLeasableWriteSet leases authored files that carry generated parts: pin-bearing sources, the module entries, the dispositions, READMEs", () => {
   assert.doesNotThrow(() => assertLeasableWriteSet([
     "engine/src/kernel/root-policy.ts",
+    "engine/src/architecture-modules.ts",
     "engine/traceability/test-surface-dispositions.json",
     "engine/src/workflow/README.md",
     "engine/traceability/requirements.json",

@@ -120,4 +120,4 @@ async function main() {
   console.log(`\nWritten: results/comparison.json`);
 }
 
-main().catch((e) => { console.error("ERROR:", e); process.exit(1); });
+main().catch((e) => { console.error("ERROR:", e); process.exitCode = 1; });

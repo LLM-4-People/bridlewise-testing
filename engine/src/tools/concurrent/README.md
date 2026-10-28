@@ -16,17 +16,6 @@ is scheduled once and every caller goes through the same executor.
 - `long-task-wrapper.mjs` — the in-unit wrapper that runs as the
   `ExecStart` of a transient systemd user unit.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/tools/concurrent/`.
-
-- `dependency-graph.ts` is consumed by `engine/src/tools/concurrent/dispatcher.ts`, `engine/src/tools/concurrent/index.ts`.
-- `dispatcher.ts` is consumed by `engine/src/tools/concurrent/index.ts`.
-- `index.ts` is consumed by nothing yet.
-- `long-task-runner.ts` is consumed by `engine/src/cli.mjs`, `engine/src/tools/concurrent/index.ts`.
-- `long-task-wrapper.mjs` is consumed by nothing yet.
-- `worker-pool.ts` is consumed by `engine/src/tools/concurrent/dispatcher.ts`, `engine/src/tools/concurrent/index.ts`.
-
-<!-- /consumers:generated -->
