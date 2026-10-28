@@ -8,7 +8,8 @@
  * performance-measurements.ts) against `webUi.performance` and records
  * them in the run's ledger row, failing a breach; the workspace's ledger
  * judge passes a breach only when an open task row owns its budget and the
- * value is no worse than the target's lowest slotted value.
+ * value is no worse than the target's lowest value. A wall-time budget is a
+ * recorded signal and never fails a run (NO-LOAD-BLOCK).
  *
  * The report (`tests/performance/.report.json`) is REQUIRED: an absent
  * report fails the first test rather than skipping the suite. The gate was
@@ -289,10 +290,8 @@ describe("real population gate boundaries", () => {
 
 describe("web UI performance regression gate", () => {
   const report = loadReport();
-  // ONLY A SLOTTED REPORT IS JUDGED: a profile measured outside the host's one
-  // instrument lock (engine/src/process/instrument-lock.ts) may have shared the
-  // cores with another heavy run, so its numbers say nothing about this tree.
-  // It is REFUSED by the arm below (a named red), and no budget arm reads it.
+  // A REPORT IS JUDGEABLE WHATEVER RAN BESIDE IT (NO-LOAD-BLOCK, audit A-07):
+  // it is present and of this tree, and nothing asks how busy the host was.
   // THE ONE PREDICATE (judgeableProfileReport, the budget judge's own): every
   // arm that reads a measurement asks it, and an unjudgeable report FAILS that
   // arm by name — never a skipped arm that leaves the suite green having
@@ -308,14 +307,6 @@ describe("web UI performance regression gate", () => {
       report,
       "no parseable profile report — generate it with `npm run perf:profile` (the one profile step)",
     ).not.toBeNull();
-  });
-
-  it("the profile report was measured inside the host's one instrument lock (an unslotted report is refused, never judged)", () => {
-    expect(report, "no parseable profile report — generate it with `npm run perf:profile`").not.toBeNull();
-    expect(
-      (report as ProfileReport & { instrumentLock?: unknown }).instrumentLock,
-      "the profile report was measured without the host's one instrument lock — refused, not judged: profile with \`npm run perf:profile\` (it runs the profile inside the one supervising door, which holds the lock until the profile's process tree is gone)",
-    ).toBe("held");
   });
 
   it("page LCP was measured (its budget is judged once, by the one budget judgement)", () => {

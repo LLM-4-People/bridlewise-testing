@@ -4,9 +4,8 @@ date: 2026-10-07
 by: user
 group: process
 status: in-force
-implementation: partial
-route: AMBIENT-ALLOWANCE-REMOVE
-acted_in: [engine/src/shared/budget-verdict.ts, engine/src/shared/run-history.ts, engine/src/workflow/workspace-manager.ts]
+implementation: done
+acted_in: [engine/src/shared/budget-verdict.ts, engine/src/shared/run-history.ts, engine/src/workflow/workspace-manager.ts, engine/src/kernel/config-contracts.ts, tests/helpers/budget-config.ts]
 ---
 # No rerun forgiveness, no ambient-load allowance
 
@@ -25,18 +24,13 @@ The user's audit decisions of 2026-10-07 (PLAN.md, "USER DECISIONS (2026-10-07, 
   consecutive runs breached (`overCapRunsBeforeRed`) and inside a "recorded,
   not red" spread band; both are deleted: one judged run over the cap fails
   ([UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md)).
-- **The ~12% ambient-load allowance is REMOVED.** It is a slope of 5% per
-  unit of recorded 5-minute load per CPU, capped at 12%. It is STILL APPLIED
-  in code (engine/src/shared/budget-verdict.ts `ambientInflationFraction`,
-  config `webUiSuiteCpuBudget.ambientInflation*`) until AMBIENT-ALLOWANCE-REMOVE
-  lands. The removal is written, regenerated in round 13 against the landing
-  (with the floor re-derived from raw readings by the measuring tool, D-17),
-  checked on every run to still apply (engine/test/workflow/parked-patches.test.ts)
-  and kept at docs/trackers/patches/AMBIENT-ALLOWANCE-REMOVE.patch; it spans two leases (UR-23), so it
-  lands ATOMICALLY in the web writer's rebased workspace right after the
-  engine merge, as its FIRST item. Until then every budget verdict states the
-  allowance in force numerically, and what it added
+- **The ~12% ambient-load allowance is REMOVED** (built 2026-10-22 with
+  [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)'s
+  measurement half). It was a slope of 5% per unit of recorded 5-minute load
+  per CPU, capped at 12%. The envelope (`ambientInflationFraction` in
+  engine/src/shared/budget-verdict.ts), its configuration keys
+  (`webUiSuiteCpuBudget.ambientInflation*`) and its signals are deleted: no
+  cap moves with host load, and the load legs are printed beside every
+  verdict as recorded signals
   ([D-17](D-17-measured-budgets-come-from-a-tool.md),
-  [UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md));
-  and a reading counts only when it was measured inside the host's one
-  instrument lock.
+  [UR-24-BUDGETS](UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md)).

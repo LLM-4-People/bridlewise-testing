@@ -434,6 +434,7 @@ unattended run (`--auto`) exits 0 for the answers marked "auto 0".
 | `promotion_pending_conflict` | integrity | 6 | Stop and keep the evidence: another run pinned the pending ref while this one held the target's lock; report it, never publish either commit. |
 | `promotion_verified` | ok | 0 | Nothing to do: the product commit is the projection of the main commit its trailer names, recomputed here from that commit alone. |
 | `promotion_verify_source_unconfirmed` | precondition | 3 | Fetch the source branch and verify from it as published: the local source branch must equal the remote's (the profile's remote), or there is nothing to trust it against. |
+| `promotion_verify_remote_unreachable` | errored | 4 | Reach the profile's remote and run verify again: it confirms the source branch against the remote as published, never against a local copy. |
 | `promotion_verify_off_source` | integrity | 6 | Stop and keep the evidence: the product commit names a source that is not a commit of the profile's source branch, so it was not projected from main. Find who published it (its signature and the publish job's run). |
 | `promotion_forge_published` | ok | 0 | Attest the projection receipt (its digest is the attestation's subject); the product branch on the forge is the published commit. |
 | `promotion_forge_profile_mismatch` | integrity | 6 | Stop and keep the evidence: the built commit names another profile blob or source than the projection being published; never publish it. |
