@@ -82,7 +82,28 @@ jobs:
           sudo auditctl -a always,exit -F arch=b64 -S execve -F auid!=4294967295 -k execs || true
           sudo auditctl -a always,exit -F arch=b64 -S execve -k execs
           sudo auditctl -l
-          stat -c 'START %n mode=%a size=%s mtime=%.Y ctime=%.Z ino=%i' "$cfg"
+          stat -c 'START %n mode=%a size=%s links=%h mtime=%.Y ctime=%.Z ino=%i' "$cfg"
+          # Second probe (#509 run 1 saw a ctime-only change that audit -p wa did not attribute):
+          # kprobes on every kernel path that moves an inode's ctime without its content,
+          # filtered on the config's inode, each naming the process.
+          sudo apt-get install -y -qq bpftrace >/dev/null
+          ino=$(stat -c %i "$cfg")
+          cat > "$RUNNER_TEMP/paths.bt" <<BT
+          kprobe:notify_change { \$d = (struct dentry *)arg1; if (\$d->d_inode->i_ino == $ino) { \$a = (struct iattr *)arg2; printf("notify_change pid=%d ppid=%d comm=%s fs=%s ia_valid=0x%x mode=%o\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, \$a->ia_valid, \$a->ia_mode); } }
+          kprobe:vfs_link { \$d = (struct dentry *)arg0; if (\$d->d_inode->i_ino == $ino) { printf("vfs_link pid=%d ppid=%d comm=%s fs=%s new=%s\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, str(((struct dentry *)arg3)->d_name.name)); } }
+          kprobe:vfs_unlink { \$d = (struct dentry *)arg2; if (\$d->d_inode->i_ino == $ino) { printf("vfs_unlink pid=%d ppid=%d comm=%s fs=%s name=%s\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, str(\$d->d_name.name)); } }
+          kprobe:vfs_rename { \$r = (struct renamedata *)arg0; if (\$r->old_dentry->d_inode->i_ino == $ino) { printf("vfs_rename pid=%d ppid=%d comm=%s fs=%s\\n", pid, curtask->real_parent->tgid, comm, \$r->old_dentry->d_inode->i_sb->s_id); } }
+          kprobe:__vfs_setxattr { \$d = (struct dentry *)arg1; if (\$d->d_inode->i_ino == $ino) { printf("setxattr pid=%d ppid=%d comm=%s fs=%s name=%s\\n", pid, curtask->real_parent->tgid, comm, \$d->d_inode->i_sb->s_id, str(arg3)); } }
+          BT
+          cat > "$RUNNER_TEMP/ctime.bt" <<BT
+          kprobe:inode_set_ctime_current { \$i = (struct inode *)arg0; if (\$i->i_ino == $ino) { printf("inode_set_ctime_current pid=%d ppid=%d comm=%s fs=%s%s\\n", pid, curtask->real_parent->tgid, comm, \$i->i_sb->s_id, kstack(8)); } }
+          BT
+          cat "$RUNNER_TEMP/paths.bt"
+          sudo nohup bpftrace "$RUNNER_TEMP/paths.bt" > "$RUNNER_TEMP/bpf-paths.log" 2>&1 &
+          sudo nohup bpftrace "$RUNNER_TEMP/ctime.bt" > "$RUNNER_TEMP/bpf-ctime.log" 2>&1 &
+          sleep 15
+          head -5 "$RUNNER_TEMP/bpf-paths.log" "$RUNNER_TEMP/bpf-ctime.log"
+          uname -r
 
       - name: Run the engine suite
         run: |
@@ -112,7 +133,11 @@ jobs:
         if: always()
         run: |
           cfg="$PWD/engine/bridlewise.config.json"
-          stat -c 'END %n mode=%a size=%s mtime=%.Y ctime=%.Z ino=%i' "$cfg"
+          stat -c 'END %n mode=%a size=%s links=%h mtime=%.Y ctime=%.Z ino=%i' "$cfg"
+          sudo pkill -INT bpftrace || true
+          sleep 3
+          echo "=== bpf paths"; head -200 "$RUNNER_TEMP/bpf-paths.log"
+          echo "=== bpf ctime"; head -400 "$RUNNER_TEMP/bpf-ctime.log"
           sudo auditctl -D
           sudo cp /var/log/audit/audit.log* "$RUNNER_TEMP"/ 2>/dev/null; sudo chmod a+r "$RUNNER_TEMP"/audit.log*
           sudo ausearch -k cfgw -i 2>/dev/null | head -400
