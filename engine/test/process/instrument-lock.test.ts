@@ -441,18 +441,23 @@ test("A CUT RUN THAT WAS ALSO FAILING KEEPS ITS FAILURE (review of #564): the me
     "try {",
     "  await runInsideInstrumentLock(\"a failing command\", Number.POSITIVE_INFINITY, [\"sh\", \"-c\", `${JSON.stringify(process.execPath)} -e ${JSON.stringify(allocate)}; exit 3`], { lockPath, caps: { memoryMaxPercent, cpuWeight: 100 } });",
     "  console.log(\"DOOR ENDED\");",
-    "} catch (error) { console.log(\"DOOR \" + String(error.code) + \" | \" + String(error.message)); }",
+    "} catch (error) { console.log(\"DOOR \" + JSON.stringify({ code: error.code, cause: error.cause, namesTheCap: error.message.includes(\"memory cap\") })); }",
     // 2. A BODY THAT THROWS after a process of its run was cut.
     "const run = admitInstrumentRun(otherLockPath, \"a throwing body\", { memoryMaxPercent, cpuWeight: 100 }, SUBPROCESS_BOUNDS);",
     "try {",
     "  await withinInstrumentHold(run, async () => { spawnSync(process.execPath, [\"-e\", allocate]); throw new Error(\"the suite crashed\"); });",
-    "} catch (error) { console.log(\"BODY \" + String(error.code) + \" | cause: \" + String(error.cause?.message)); }",
+    "} catch (error) { console.log(\"BODY \" + JSON.stringify({ code: error.code, cause: error.cause?.message })); }",
+    // RELEASED ONCE: a later release (a runner's catch after a refused release) does nothing.
+    "try { run.release(\"a second failure\"); console.log(\"SECOND RELEASE quiet\"); } catch (error) { console.log(\"SECOND RELEASE threw \" + String(error.code)); }",
   ].join("\n"));
   const otherLockPath = join(createTempDir("instrument-lock-carry-other-"), "instrument.lock");
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath, otherLockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr.slice(0, 2_000));
-  assert.match(ran.stdout, /^DOOR run_memory_cap_exceeded \| .*memory cap.*The run was also failing when it was released \(the command a failing command ended exited with exit code 3\)/mu, `both appear: ${ran.stdout}`);
-  assert.match(ran.stdout, /^BODY run_memory_cap_exceeded \| cause: the suite crashed$/mu, `the thrown failure rides as the cause: ${ran.stdout}`);
+  const line = (prefix: string): string | undefined => ran.stdout.split("\n").find((one) => one.startsWith(`${prefix} `))?.slice(prefix.length + 1);
+  // Structured fields, never a pattern over the message: the refusal's code, its cause, and that it names the cap.
+  assert.deepEqual(JSON.parse(line("DOOR") ?? "null"), { code: "run_memory_cap_exceeded", cause: "the command a failing command ended exited with exit code 3", namesTheCap: true }, `both appear: ${ran.stdout}`);
+  assert.deepEqual(JSON.parse(line("BODY") ?? "null"), { code: "run_memory_cap_exceeded", cause: "the suite crashed" }, `the thrown failure rides as the cause: ${ran.stdout}`);
+  assert.equal(line("SECOND RELEASE"), "quiet", `the refusal is said once: ${ran.stdout}`);
   assert.deepEqual([...admittedRuns(lockPath), ...admittedRuns(otherLockPath)], [], "both runs released their records");
 });
 
