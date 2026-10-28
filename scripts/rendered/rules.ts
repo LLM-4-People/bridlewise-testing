@@ -262,8 +262,10 @@ function judgeFonts(args: { input: { stacks: Readonly<Record<string, string>>; f
       return range.getClientRects().length > 0;
     });
     if (rendered) judge(getComputedStyle(el), kit.describe(el));
+    // A control whose value the browser draws as text (a text field, a button's label); a checkbox's or a range's value is never drawn.
     const control = el as Partial<HTMLInputElement>;
-    if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && `${control.value ?? ""}${control.placeholder ?? ""}`.trim().length > 0 && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its value)`);
+    const drawsValue = el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && /^(?:text|search|email|url|tel|password|number|submit|reset|button)$/u.test(control.type ?? ""));
+    if (drawsValue && `${control.value ?? ""}${control.placeholder ?? ""}`.trim().length > 0 && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its value)`);
     for (const pseudo of ["::before", "::after"]) {
       const style = getComputedStyle(el, pseudo);
       if (style.display === "none" || ["none", "normal", '""', "''"].includes(style.content)) continue;
