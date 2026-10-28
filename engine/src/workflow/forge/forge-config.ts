@@ -73,6 +73,24 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     cpuLimitMs: z.number().int().min(100).max(3_600_000),
     killGraceMs: z.number().int().min(10).max(60_000),
   }),
+  /**
+   * The history importer (`harness forge import-history`): its pinned tools'
+   * HANG BACKSTOP, the one wall bound on a tool run (the tool's work bounds
+   * are the policy's; the progress floor is `harness.subprocessBounds`). An
+   * honest filter-repo of a large history runs for hours, so it is its own
+   * setting, far past the harness steps' backstop.
+   */
+  historyImport: z.strictObject({
+    toolHangBackstopMs: z.number().int().min(60_000).max(604_800_000),
+    /**
+     * THE ONE ALLOWED-IDENTITY LIST: the only addresses a history this
+     * importer publishes may carry (author, committer, tagger, any trailer).
+     * Every entry is public by definition (it is what gets published);
+     * anything else must be mapped by the identity mapping, kept outside the
+     * public tree (history-identities.ts).
+     */
+    allowedIdentities: z.array(z.string().regex(/^[^\s<>@]+@[^\s<>@]+$/u)).min(1),
+  }),
   /** The local page `harness forge apps create` serves (on 127.0.0.1 only). */
   appsPage: z.strictObject({
     port: z.number().int().min(1_024).max(65_535),

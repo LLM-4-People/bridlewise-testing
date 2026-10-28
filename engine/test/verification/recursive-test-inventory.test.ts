@@ -1021,8 +1021,10 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
         // and the remaining non-canonical set is the public tree's actual set.
         // This second copy is the mechanism working: `root-policy.ts` had
         // already moved to 8 while this file kept 16, and the suite said so.
-        count: 8,
-        sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
+        // RESTATED HERE TOO FOR THE HISTORY IMPORTER (2026-10-22, GH-6), 8 -> 9:
+        // the live suite's `live/history-import.test.ts` (the pinned tools).
+        count: 9,
+        sha256: "74795154cb36964aef06039377d5f3e20854af97e817beba48a9e7f05f910fcb",
       },
     },
     maximumDepth: 32,

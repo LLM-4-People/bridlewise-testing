@@ -56,6 +56,17 @@ export const KEY_HOME: PrivateHome = Object.freeze({ policy: ROOT_POLICY.selfPro
 /** THE EVIDENCE STORE: raw evidence kept out of git, by content (workflow/evidence-store.ts). */
 export const EVIDENCE_HOME: PrivateHome = Object.freeze({ policy: ROOT_POLICY.workflow.evidenceStore, what: "evidence store", code: "evidence_store" });
 
+/** THE HISTORY IMPORTER'S HOME: the mirrors it rewrites, the purge expressions (secret values) and the pinned tools (workflow/forge/history-import.ts). */
+export const IMPORT_HOME: PrivateHome = Object.freeze({ policy: ROOT_POLICY.workflow.historyImport, what: "history import home", code: "history_import_home" });
+
+/**
+ * The homes the keep-out list protects as STORES, wherever the operator put
+ * them (keep-out.ts): each sits outside the `~/.local/state/<product>-*`
+ * wildcard by default, so the floor alone would not keep it out. The key home
+ * is kept out through the key registry, which also holds its records.
+ */
+export const KEPT_OUT_STORE_HOMES: readonly PrivateHome[] = Object.freeze([EVIDENCE_HOME, IMPORT_HOME]);
+
 /** A place a home must share nothing with, and what to call it in a refusal. */
 export type PrivateHomeNeighbour = Readonly<{ path: string; what: string }>;
 

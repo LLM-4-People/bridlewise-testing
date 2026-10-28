@@ -18,7 +18,7 @@ import { deepFreeze } from "../../kernel/integrity.ts";
 import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, prepareOutboundRequest, readBody } from "../../shared/outbound-http.ts";
-import { ForgeError, type ForgeCode } from "./codes.ts";
+import { FORGE_LOG_CATEGORY, ForgeError, type ForgeCode } from "./codes.ts";
 import { FORGE_REFUSAL_TEXT } from "./forge-config.ts";
 import {
   GITHUB_API_VERSION,
@@ -34,7 +34,6 @@ import {
 } from "./port.ts";
 
 /** The central-log category of every forge request. */
-export const FORGE_LOG_CATEGORY = "forge";
 
 const MUTATING: ReadonlySet<ForgeMethod> = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 

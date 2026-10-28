@@ -35,13 +35,13 @@ The folder lives at `engine/src/runtime/`.
 - `admitted-node-runtime.ts` is consumed by `engine/scripts/tooling/run-tests.ts`, `engine/src/filesystem/durable-filesystem-internal.ts`, `engine/src/workflow/evidence-store.ts`.
 - `agent-tools.ts` is consumed by `server/kernel/canonical.ts`.
 - `capability-negotiation.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
-- `cli-debug.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/exp409/sweep.mjs`, `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/post-commit.ts` and 29 more.
+- `cli-debug.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/exp409/sweep.mjs`, `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/post-commit.ts` and 30 more.
 - `entry-point.ts` is consumed by `engine/scripts/tooling/engine-test-bounds.ts`, `engine/src/runtime/cli-debug.ts`.
 - `event-state.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/src/forensics/offline-contracts.ts`.
 - `extension-tools.ts` is consumed by nothing yet.
 - `git-tools.ts` is consumed by nothing yet.
 - `governed-tool-dispatch.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/interactive-session.ts`.
-- `harness-bootstrap.ts` is consumed by `engine/src/cli.ts`, `engine/src/workflow/harness-commands.ts`.
+- `harness-bootstrap.ts` is consumed by `engine/src/cli.ts`, `engine/src/workflow/forge/history-child.ts`, `engine/src/workflow/harness-commands.ts`.
 - `intelligence-tools.ts` is consumed by nothing yet.
 - `interactive-session.ts` is consumed by `engine/src/index.ts`.
 - `orchestrator-tools.ts` is consumed by `server/kernel/canonical.ts`.

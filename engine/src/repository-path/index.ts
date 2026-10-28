@@ -26,5 +26,6 @@ export {
   inspectRepositoryPath,
   portableRepositoryPathKey,
   requireRepositoryPath,
+  unicodeCaseFold,
 } from "./logical.ts";
 export { inspectRepositoryPathSet, requireRepositoryPathSet } from "./set.ts";

@@ -884,7 +884,16 @@
   },
   "harness": {
     "commandErroredRetries": 2,
-    "commandRetryBackoffMs": 60000
+    "commandRetryBackoffMs": 60000,
+    "subprocessBounds": {
+      "cpuBudgetMs": 1800000,
+      "minimumCpuRate": 0.05,
+      "stallMs": 1800000,
+      "hangBackstopMs": 7200000,
+      "pollMs": 1000,
+      "killGraceMs": 5000,
+      "outputBytes": 268435456
+    }
   },
   "workspaceIsolation": {
     "workspaceRoot": "../bridlewise-worktrees",
@@ -1207,6 +1216,15 @@
       "stallMs": 120000,
       "cpuLimitMs": 30000,
       "killGraceMs": 2000
+    },
+    "historyImport": {
+      "toolHangBackstopMs": 43200000,
+      "allowedIdentities": [
+        "hello@bridlewise.llm4people.dev",
+        "noreply@github.com",
+        "92832354+amberflag48@users.noreply.github.com",
+        "history-import@example.invalid"
+      ]
     },
     "appsPage": {
       "port": 47811,

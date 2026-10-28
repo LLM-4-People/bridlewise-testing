@@ -22,6 +22,9 @@
 import { HarnessError } from "../../kernel/errors.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 
+/** The log category of everything the forge reports (the adapter's requests and refusals, the importer's steps). */
+export const FORGE_LOG_CATEGORY = "forge";
+
 const FORGE_CLASSES = deepFreeze(["input", "refused", "budget", "errored", "integrity"] as const);
 export type ForgeClass = typeof FORGE_CLASSES[number];
 
@@ -64,6 +67,45 @@ const FORGE_CODES = deepFreeze({
   github_content_budget_exhausted: { class: "budget", remedy: "The content-creation budget (about 80 per minute, 500 per hour) is spent: the projection converges over the next windows; resume after `retryAfterSeconds` (at least a minute when GitHub names none)." },
   github_unavailable: { class: "errored", remedy: "GitHub failed (5xx) or the connection did: nothing is blamed on the request; the caller's scheduler retries it later." },
   github_response_invalid: { class: "errored", remedy: "GitHub answered with a body the adapter cannot read as the declared format; preserve the request id and report it." },
+  // The history importer (`history-import.ts`, `history-tools.ts`, `harness forge import-history`).
+  history_import_usage: { class: "input", remedy: "Run `harness forge import-history <source> --to <target> [--dispositions <file>]`." },
+  history_import_credentials_in_url: { class: "input", remedy: "Name the repository without a user or password; git reaches it through its credential helper (D-09)." },
+  history_import_source_empty: { class: "input", remedy: "Name a source repository (a path, a bundle or a URL) that holds at least one ref." },
+  history_import_target_not_empty: { class: "refused", remedy: "Import only into a new, empty repository: a published history is never rewritten." },
+  history_import_ref_collision: { class: "input", remedy: "Rename the source ref that lands on another's name (or on the receipt's ref) before importing." },
+  history_import_secret_in_name: { class: "refused", remedy: "A path or a ref name holds a secret: rename it in the source (a person's decision), rotate the credential, and import again." },
+  history_import_catalogue_gap: { class: "refused", remedy: "The oracle found a secret no catalogue hit contains: add (or widen) the catalogue row in `src/privacy/secret-signals.ts` for a real format, or record a reviewed disposition (`--dispositions`, by the value's sha256) for a false positive." },
+  history_import_review_invalid: { class: "input", remedy: "Write the review as the history-import-review schema: `dispositions` (each a rule, the value's sha256 and a reason; never a value) and `binaries` (each an object id and a reason)." },
+  history_import_undecodable: { class: "refused", remedy: "Objects no encoding decodes are listed in undecodable.json in the run folder (id, size, paths): review each and name it under `binaries` in the review file (`--review`), or remove it from the source." },
+  history_import_receipt_unsafe: { class: "integrity", remedy: "The receipt would carry an absolute or home path, or a catalogue hit: nothing was pushed; fix the field the message names (the receipt records repository-relative facts only)." },
+  history_import_purge_inexpressible: { class: "refused", remedy: "A hit's line cannot be a filter-repo expression (it holds `==>` or a line break): purge that line in the source by hand, then import." },
+  history_import_object_too_large: { class: "refused", remedy: "An object exceeds the git output bound: move it out of the history (or to the evidence store) before importing." },
+  history_import_identity_unallowed: { class: "refused", remedy: "The history carries an address-shaped string that is not on the allowed identities (in any object, path or ref name): map it to an allowed one in the ONE identity mapping (--identity-map), or, when it is not a person's address, dispose of it by its digest in the review (addresses.json lists each by digest with its objects); both files live in the coordination repository, never the public tree." },
+  history_import_identity_map_public: { class: "refused", remedy: "The identity mapping holds the addresses it replaces: keep it in the coordination repository, outside any tree that is published, and pass its path there." },
+  history_import_review_public: { class: "refused", remedy: "The import review names what must never be published (digests of secrets and of addresses): keep it in the coordination repository, outside any tree that is published, and pass its path there." },
+  history_import_identity_map_invalid: { class: "refused", remedy: "Fix the named line of the identity mapping (a mailmap line: Proper Name <proper> Commit Name <commit>, or a shorter form), or declare the allowed identities (forge.historyImport.allowedIdentities)." },
+  history_import_identity_residue: { class: "refused", remedy: "The rewritten history (or the receipt) still carries an address not on the allowed identities, in a place no rewrite reaches (a path, a ref name, a header other than an identity, an encoding rewritten only whole): rename it in the source, or dispose of it in the review when it is not a person's address; nothing was pushed (addresses.json names the objects)." },
+  history_import_residue: { class: "integrity", remedy: "The purged history still holds a secret: keep the run folder, find which expression missed (an encoding, a binary blob), fix the importer, and import again." },
+  history_import_refs_changed: { class: "integrity", remedy: "The rewrite changed the set of refs: keep the run folder and compare its refs before and after; nothing was pushed." },
+  history_import_push_refused: { class: "refused", remedy: "The target refused the push: a push-protection refusal is a catalogue defect to fix (never a bypass); any other refusal names its ref." },
+  history_import_push_mismatch: { class: "integrity", remedy: "The target does not hold exactly the pushed refs: inspect it before anything else writes there." },
+  history_import_identity_unreachable: { class: "refused", remedy: "A mapped-from address is written somewhere the rewrite cannot replace it: escaped or encoded (an entity, quoted-printable, base64), obfuscated ([at], [dot]), split over a line, in another spelling, or in a path or ref name. addresses.json names the objects by id (the address by its digest): remove it from the source, or dispose of the address in the review when it may be published; nothing was rewritten or pushed." },
+  history_import_strip_unreviewed: { class: "refused", remedy: "The rewrite would strip whole blobs it cannot rewrite in place (a secret or a mapped address in UTF-16, or after a NUL in the first bytes). strip.json in the run folder lists each with its paths and why: read them, then acknowledge each by its id under `strips` in the review file (`--review`), or fix the source. Nothing is stripped silently." },
+  history_import_child_failed: { class: "integrity", remedy: "The importer's bounded child (the address census or the catalogue scan) failed without a code of its own; its message (addresses withheld) says why. Record it and report it." },
+  history_import_notes_unreadable: { class: "refused", remedy: "A refs/notes/* ref holds a path that names no object. Notes follow their commits through the rewrite, so a notes ref must hold notes only: move anything else out of it in the source." },
+  history_import_tree_bound: { class: "refused", remedy: "The history's trees name more paths, or deeper ones, than the importer reads (historyImport.treePathsAtMost, treeDepthAtMost in the root policy): a tree bomb is refused; a real history that large is imported in parts." },
+  history_import_old_id_residue: { class: "refused", remedy: "The rewritten history still names an object id from before the rewrite (in a file, a message, a path or a ref name: a notes tree naming the commits it annotated, a .git-blame-ignore-revs, an id filter-repo did not translate). An old id with the public rewritten object confirms a guess of what the rewrite removed. addresses.json lists the objects; remove or translate the ids in the source (drop the notes on rewritten commits), then import again; nothing was pushed." },
+  history_import_git_answer: { class: "integrity", remedy: "git answered in a shape the importer does not read; record the git version and report it." },
+  history_import_oracle_report: { class: "integrity", remedy: "The oracle's report is not gitleaks' JSON finding list: check the pinned gitleaks version." },
+  history_import_write_failed: { class: "errored", remedy: "A file of the run folder could not be written: check the import home's free space and permissions." },
+  history_tool_missing: { class: "refused", remedy: "Provision the pinned tool with the command the refusal prints (it checks the release archive's digest)." },
+  history_tool_digest_mismatch: { class: "integrity", remedy: "The file is not the pinned tool: remove it and provision the pinned one; a pin moves only as a reviewed provenance change." },
+  history_tool_platform_unpinned: { class: "refused", remedy: "Pin the tool for this platform in `history-tools.ts` (the release archive, its published checksum, the member's sha256)." },
+  history_tool_failed: { class: "errored", remedy: "A pinned tool (or the host program it runs on) failed: its last stderr lines are in the message." },
+  history_tool_cpu_exhausted: { class: "refused", remedy: "The tool spent its CPU budget (`toolCpuBudgetMs`): keep the run folder, measure what it was doing, and raise the budget only with that measurement." },
+  history_tool_stalled: { class: "errored", remedy: "The tool produced no output and no CPU time for `toolStallMs` (a hung fetch, a lock): find what it waits on; a busy host slows a run but never stalls it." },
+  history_tool_output_exceeded: { class: "refused", remedy: "The tool's output passed the bound held in memory: split its input (the oracle's chunk size) or find why it reports so much." },
+  history_tool_unmeasurable: { class: "refused", remedy: "procfs cannot measure the tool's CPU time, so its budget cannot be judged: run the importer on a host with procfs (the tools are pinned for linux-x64)." },
 } as const satisfies Readonly<Record<string, CodeEntry>>);
 
 export type ForgeCode = keyof typeof FORGE_CODES;

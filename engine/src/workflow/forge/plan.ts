@@ -24,9 +24,8 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
-import { ForgeError, isForgeError, type ForgeCode } from "./codes.ts";
+import { FORGE_LOG_CATEGORY, ForgeError, isForgeError, type ForgeCode } from "./codes.ts";
 import { differences, referenceKey, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
-import { FORGE_LOG_CATEGORY } from "./github.ts";
 import { EXCLUSIVE_KINDS, KIND_ADAPTERS, type LiveContext, type LiveObject } from "./live-state.ts";
 import { looseningOf, movedPremisesUnmet } from "./strictness.ts";
 

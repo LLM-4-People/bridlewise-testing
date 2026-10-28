@@ -10,7 +10,7 @@ import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { holdInstrumentLock } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { resolveRepositoryRegistry } from "./repository-registry.ts";
-import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { configuredSubprocessBounds, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { configuredCheckoutCommandRunner, engineRelativePath, runCheckoutCommand, type CheckoutCommandRunner } from "./checkout-setup.ts";
 import {
   createWorkspaceManager,
@@ -215,7 +215,7 @@ async function withInstrumentLock<T>(label: string, run: () => Promise<T>): Prom
   // A whole instrument (it runs whole suites), heavy by kind.
   const lock = holdInstrumentLock({
     config: readTestExecutionConfig(engineRoot).instrumentLock, harnessRoot: engineRoot, runner: label,
-    testFileCount: Number.POSITIVE_INFINITY, cpu: SUBPROCESS_BOUNDS,
+    testFileCount: Number.POSITIVE_INFINITY, cpu: configuredSubprocessBounds(),
   });
   try {
     return await run();
