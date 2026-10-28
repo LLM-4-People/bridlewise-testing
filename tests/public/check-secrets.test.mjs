@@ -780,3 +780,55 @@ test("the notice window is ARMED by a trigger line: a notice completed by a line
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("one line definition for every read: CR-only, CRLF and mixed line endings, whole and streamed, report the same lines", () => {
+  const G = "General " + "Public";
+  const lines = [
+    `/* ${GPL_SPDX} */`,
+    LGPL_TITLE,
+    "/*",
+    ` * it under the terms of the GNU ${G} ${L_WORD}`,
+    " * as published by the Free Software Foundation.",
+    " */",
+  ];
+  const endings = { cr: ["\r"], crlf: ["\r\n"], mixed: ["\r\n", "\r", "\n"] };
+  const join = (body, breaks) => body.map((line, index) => line + breaks[index % breaks.length]).join("");
+  // Streamed above the whole-read threshold (2 MiB): one long first line moves every finding down by one.
+  const pad = "a".repeat(2 * 1024 * 1024 + 64);
+  const files = {};
+  for (const [name, breaks] of Object.entries(endings)) {
+    files[`small/${name}.c`] = join(lines, breaks);
+    files[`large/${name}.c`] = join([pad, ...lines], breaks);
+  }
+  const dir = repoWith(files);
+  try {
+    const result = scan(dir);
+    assert.equal(result.status, 1, result.stdout);
+    for (const name of Object.keys(endings)) {
+      for (const [size, shift] of [["small", 0], ["large", 1]]) {
+        const file = `${size}/${name}.c`;
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(1 + shift)}: gpl-licence-text: GPL-licensed text \\(spdx: GPL-2\\.0-only\\)`, "u"), `${file}: the SPDX line`);
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(2 + shift)}: gpl-licence-text: GPL-licensed text \\(title: `, "u"), `${file}: the anchored title line`);
+        assert.match(result.stderr, new RegExp(`${file.replace(".", "\\.")}:${String(5 + shift)}: gpl-licence-text: GPL-licensed text \\(notice: `, "u"), `${file}: the split notice`);
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the line splitter holds a CR that ends a chunk: every cut of a mixed text yields the same lines, and a capped read drops only the cut line", async () => {
+  const { createLineSplitter, textLines } = await import("../../engine/scripts/verification/text-lines.ts");
+  const text = "one\r\ntwo\rthree\nfour\r\n\rsix";
+  const expected = ["one", "two", "three", "four", "", "six"];
+  assert.deepEqual(textLines(text), expected);
+  assert.deepEqual(textLines("a\rb\r"), ["a", "b"]);
+  assert.deepEqual(textLines("a\n"), ["a"]);
+  for (let cut = 0; cut <= text.length; cut += 1) {
+    const splitter = createLineSplitter();
+    const read = [...splitter.push(text.slice(0, cut)), ...splitter.push(text.slice(cut))];
+    assert.deepEqual([...read, splitter.rest()], expected, `cut at ${String(cut)}`);
+  }
+  // The capped prefix: the complete lines only; the line the cap cut is the unread tail's.
+  assert.deepEqual(createLineSplitter().push("whole\r\nalso whole\rcut her"), ["whole", "also whole"]);
+});
