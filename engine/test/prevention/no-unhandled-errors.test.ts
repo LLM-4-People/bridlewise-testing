@@ -57,6 +57,7 @@ const STREAM_ALLOWED_FILES = new Set<string>([
   join("src", "shared", "run-cpu.ts"), // the run-CPU measurement command's JSON report
   join("src", "workflow", "checkout-setup.ts"), // setup progress for a CLI run
   join("src", "workflow", "flake-cli.ts"), // flake-reproduction command output
+  join("src", "workflow", "forge", "history-census-child.ts"), // the address census child's protocol: its answer on stdout, a typed failure line on stderr (addresses withheld)
   join("src", "workflow", "harness-commands.ts"), // harness subcommand reports and progress
   join("src", "workflow", "promotion", "promoter-home.ts"), // forwards a promoted process's stderr
   join("src", "workflow", "slot-cli.ts"), // slot command output

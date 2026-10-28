@@ -42,6 +42,7 @@ import { dirname } from "node:path";
 
 import { decodeHtmlEntities } from "../../../../shared/markup.ts";
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
+import { pathHasSecondName } from "../../filesystem/link-containment.ts";
 import { unicodeCaseFold } from "../../repository-path/index.ts";
 import { ForgeError, type ForgeCode } from "./codes.ts";
 
@@ -135,11 +136,9 @@ function percentDecodedRun(run: string): Readonly<{ decoded: string; from: reado
       let text = "\ufffd";
       if (length === 1) text = String.fromCharCode(byte);
       else if (length > 1 && index + length <= bytes.length) {
-        try {
-          text = new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(bytes.slice(index, index + length).map((one) => one.byte)));
-        } catch {
-          text = "\ufffd";
-        }
+        // A sequence is valid when it decodes to ONE code point that is not the replacement character.
+        const sequence = new TextDecoder("utf-8").decode(Buffer.from(bytes.slice(index, index + length).map((one) => one.byte)));
+        if ([...sequence].length === 1 && sequence !== "\ufffd") text = sequence;
       }
       emit(text, at);
       index += text === "\ufffd" ? 1 : length;
@@ -307,8 +306,7 @@ export function base64Payloads(text: string): readonly Buffer[] {
 export function insideTree(path: string, tree: string): boolean {
   const root = statSync(tree, { bigint: true });
   let current = realpathSync(path);
-  const file = statSync(current, { bigint: true });
-  if (!file.isDirectory() && file.nlink > 1n) return true;
+  if (pathHasSecondName(current)) return true;
   for (;;) {
     const here = statSync(current, { bigint: true });
     if (here.dev === root.dev && here.ino === root.ino) return true;
