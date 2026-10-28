@@ -38,11 +38,14 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { SECRET_TEXT_SIGNAL_CATALOG } from "../../src/privacy/secret-signals.ts";
 import { parseImportHistoryArguments } from "../../src/workflow/forge/cli.ts";
 import { gitleaksConfigText, gitleaksProjection } from "../../src/workflow/forge/gitleaks-config.ts";
-import { addressDigest, addressSpans, allowedAddresses, base64Payloads, canonicalText, foldAddress, insideTree, judgeAddresses, knownAddresses, knownMatches, planAddressRewrite, readIdentityMap, unescapedText, withoutAddresses, type AddressOccurrence } from "../../src/workflow/forge/history-identities.ts";
+import { addressDigest, addressSpans, allowedAddresses, base64Payloads, foldAddress, hexPayloads, insideTree, judgeAddresses, knownAddresses, knownMatches, planAddressRewrite, readIdentityMap, unescapedText, withoutAddresses, type AddressOccurrence } from "../../src/workflow/forge/history-identities.ts";
 import {
   addressCensus,
   enumerateHistory,
+  namesOldId,
+  oldIdIndex,
   runAddressCensus,
+  runHistoryScan,
   importHistory,
   judgeOracle,
   decodedTexts,
@@ -679,7 +682,7 @@ test("THE ADDRESS CENSUS on a real repository: every object in every reading (UT
   execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", `a change\n\n    Signed-off-by: ${UNALLOWED_ADDRESS}`], { cwd: root, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
   git(root, "branch", `${UNALLOWED_ADDRESS}/topic`);
   const inventory = enumerateHistory(repository(root));
-  const census = addressCensus(repository(root), inventory, []).occurrences;
+  const census = addressCensus(repository(root), inventory, { known: [] }).occurrences;
   const head = git(root, "rev-parse", "HEAD").trim();
   const blobOf = (path: string): string => git(root, "rev-parse", `HEAD:${path}`).trim();
   const at = (oid: string): readonly AddressOccurrence[] => census.filter((occurrence) => occurrence.place.kind === "object" && occurrence.place.oid === oid);
@@ -698,7 +701,7 @@ test("THE ADDRESS CENSUS on a real repository: every object in every reading (UT
   const refPlace = census.find((occurrence) => occurrence.place.kind === "ref")!.place as { refSha256: string };
   assert.equal(refPlace.refSha256, sha256(`refs/heads/${UNALLOWED_ADDRESS}/topic`));
   // `only` limits the census to what is new (the receipt's): those objects, their paths, those ref names.
-  const onlyHead = addressCensus(repository(root), inventory, [], { objects: new Set([head]), refs: new Set() }).occurrences;
+  const onlyHead = addressCensus(repository(root), inventory, { known: [], only: { objects: new Set([head]), refs: new Set() } }).occurrences;
   assert.ok(onlyHead.length > 0 && onlyHead.every((occurrence) => occurrence.place.kind === "object" && occurrence.place.oid === head));
 });
 
@@ -717,7 +720,7 @@ test("EVERY NAME: a path whose blob or tree another path shares is still read (r
   const tree = git(root, "rev-parse", "HEAD:a").trim();
   assert.deepEqual(inventory.paths.filter((entry) => entry.oid === blob).map((entry) => entry.path).sort(), ["README.md", `keys/${GITHUB_TOKEN}`, `people/${UNALLOWED_ADDRESS}.txt`].sort(), "every name of the shared blob");
   assert.equal(inventory.paths.filter((entry) => entry.oid === tree).length, 2, "both names of the shared tree");
-  const census = addressCensus(repository(root), inventory, []).occurrences.filter((occurrence) => occurrence.place.kind === "path");
+  const census = addressCensus(repository(root), inventory, { known: [] }).occurrences.filter((occurrence) => occurrence.place.kind === "path");
   assert.ok(census.some((occurrence) => occurrence.place.kind === "path" && occurrence.place.oid === blob), "the address in a file name beside a shared blob");
   assert.ok(census.some((occurrence) => occurrence.place.kind === "path" && occurrence.place.oid === tree), "the address in a folder name beside a shared tree");
   const scan = (await scanHistory(repository(root), inventory, NO_ORACLE)).catalogue;
@@ -727,8 +730,8 @@ test("EVERY NAME: a path whose blob or tree another path shares is still read (r
 test("A KNOWN ADDRESS in any spelling: every encoding, escape and obfuscation of a mapped-from address is found as that value; another address is not", () => {
   const known = knownAddresses([UNALLOWED_ADDRESS]);
   const [local, domain] = UNALLOWED_ADDRESS.split("@") as [string, string];
-  const found = (text: string): boolean => [text, unescapedText(text), ...base64Payloads(text).map((payload) => payload.toString("utf8"))]
-    .some((reading) => knownMatches(canonicalText(reading), known).length > 0);
+  const found = (text: string): boolean => [text, unescapedText(text), ...[...base64Payloads(text), ...hexPayloads(text)].flatMap((payload) => [payload.toString("utf8"), unescapedText(payload.toString("utf8"))])]
+    .some((reading) => knownMatches(reading, known).length > 0);
   const base64 = (prefix: string): string => Buffer.from(`${prefix}write to ${UNALLOWED_ADDRESS} please`).toString("base64");
   for (const [name, text] of [
     ["an HTML entity", `${local}${AT_REFERENCES.decimal}${domain}`],
@@ -752,10 +755,20 @@ test("A KNOWN ADDRESS in any spelling: every encoding, escape and obfuscation of
     ["underscores for dots", `${local.replaceAll(".", "_")}@${domain.replaceAll(".", "_")}`],
     ["a quoted local part", `"${local}"@${domain}`],
     ["upper case", UNALLOWED_ADDRESS.toUpperCase()],
+    // The third review's forms (K1, K4, K10, K11, K13, K14, K15, K19, K20): a skeleton search reads them all.
+    ["mixed case, a soft hyphen reference and an @ reference (K1)", `SomeOne.Pri${AT_REFERENCES.softHyphen}vate${AT_REFERENCES.decimal}Example.INVALID`],
+    ["a reference without its semicolon (K4)", `${local}${AT_REFERENCES.decimal.slice(0, -1)}${domain}`],
+    ["a double percent encoding (K10)", `${local}%2540${domain}`],
+    ["hex of the address (K11)", Buffer.from(UNALLOWED_ADDRESS).toString("hex")],
+    ["letter-spaced (K13)", [...UNALLOWED_ADDRESS].join(" ")],
+    ["base64 of the reference form (K14)", Buffer.from(`${local}${AT_REFERENCES.decimal}${domain}`).toString("base64")],
+    ["ideographic full stops (K15)", `${local.replaceAll(".", "\u3002")}@${domain.replaceAll(".", "\u3002")}`],
+    ["an octal escape (K19)", `${local}\\100${domain}`],
+    ["a CSS escape (K20)", `${local}\\40 ${domain}`],
   ] as const) assert.ok(found(text), name);
   assert.ok(!found(`${local}ly@${domain}`), "a longer local part is another address");
   assert.ok(!found(`${local}@other.invalid`), "another domain");
-  assert.ok(!found(`${local} wrote about ${domain}`), "the parts in prose, without an @ or an at word between them");
+  assert.ok(!found(`${local} wrote about ${domain}`), "the parts in prose, with other words between them");
   // A refusal or a quoted tool message withholds every address-shaped string.
   assert.equal(withoutAddresses(`bad line: Somebody <${UNALLOWED_ADDRESS}> and ${UNALLOWED_ADDRESS.replaceAll("@", "%40")}`), "bad line: Somebody <[address]> and [address]");
 });
@@ -771,7 +784,7 @@ test("THE SHAPE IS BOUNDED: a long run of address characters, of percent signs, 
   ] as const) {
     const before = process.cpuUsage();
     addressSpans(text);
-    knownMatches(canonicalText(text), known);
+    knownMatches(text, known);
     base64Payloads(text);
     const spent = process.cpuUsage(before);
     assert.ok((spent.user + spent.system) / 1000 < 3_000, `${name}: ${String((spent.user + spent.system) / 1000)} ms of CPU for 200,000 characters`);
@@ -788,8 +801,8 @@ test("THE ADDRESS CENSUS RUNS BOUNDED, in a child under the one bounded run; kno
   git(root, "add", ".");
   execFileSync(GIT, ["commit", "-q", "--author", `Somebody <${UNALLOWED_ADDRESS}>`, "-m", "a change"], { cwd: root, env: { ...process.env, GIT_COMMITTER_NAME: "Import Test", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } });
   const inventory = enumerateHistory(repository(root));
-  const inProcess = addressCensus(repository(root), inventory, knownAddresses([UNALLOWED_ADDRESS]));
-  const bounded = await runAddressCensus(repository(root), [UNALLOWED_ADDRESS]);
+  const inProcess = addressCensus(repository(root), inventory, { known: knownAddresses([UNALLOWED_ADDRESS]) });
+  const bounded = await runAddressCensus(repository(root), { known: [UNALLOWED_ADDRESS] });
   assert.deepEqual(bounded, JSON.parse(JSON.stringify(inProcess)), "the child answers exactly the in-process census");
   const variant = (oid: string): boolean | undefined => bounded.known.find((one) => one.place.kind !== "ref" && one.place.oid === oid)?.variant;
   const blobOf = (path: string): string => git(root, "rev-parse", `HEAD:${path}`).trim();
@@ -800,10 +813,60 @@ test("THE ADDRESS CENSUS RUNS BOUNDED, in a child under the one bounded run; kno
   assert.equal(variant(blobOf("both.txt")), true, "a fullwidth spelling beside a plain one: more matches than the shape read");
   // It is a CHILD under the one bounded run: a CPU budget smaller than its work stops it, typed.
   const tiny: SubprocessBounds = { cpuBudgetMs: 30, minimumCpuRate: 0.05, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 10, killGraceMs: 500, outputBytes: 1 << 20 };
-  await assert.rejects(runAddressCensus(repository(root), [UNALLOWED_ADDRESS], undefined, tiny), (error: Error & { code?: string }) => error.code === "history_tool_cpu_exhausted" && error.message.includes("the address census"));
+  await assert.rejects(runAddressCensus(repository(root), { known: [UNALLOWED_ADDRESS] }, tiny), (error: Error & { code?: string }) => error.code === "history_tool_cpu_exhausted" && error.message.includes("the address census"));
+  // So is the catalogue scan (quadratic on address-dense text in the redaction engine: never in the importer's own process).
+  await assert.rejects(runHistoryScan(repository(root), createTempDir("history-scan-home-"), createTempDir("history-scan-run-"), tiny), (error: Error & { code?: string }) => error.code === "history_tool_cpu_exhausted" && error.message.includes("the catalogue scan"));
 });
 
 test("a failed tool's quoted stderr withholds every address (filter-repo quotes a mailmap line it cannot parse)", async () => {
   await assert.rejects(runBounded("a tool", ["/bin/sh", "-c", `echo "cannot parse: Somebody <${UNALLOWED_ADDRESS}>" >&2; exit 3`], { cwd: createTempDir("history-tool-stderr-"), env: { PATH: process.env["PATH"] ?? "" } }),
     (error: Error & { code?: string }) => error.code === "history_tool_failed" && error.message.includes("cannot parse: Somebody <[address]>") && !error.message.includes(UNALLOWED_ADDRESS));
+});
+
+test("THE ORACLE CLASS: every place naming an old object id, whole or abbreviated to 7 or more characters, is found (a notes tree fans the id out over folders; a list of ids in a file); another id, or a shorter abbreviation, is not", () => {
+  const old = "3d5aadf5e5b8c0a1f2e3d4c5b6a7980112233445";
+  const index = oldIdIndex([old.toUpperCase()]);
+  for (const [name, text] of [
+    ["the whole id", `see ${old}.`],
+    ["an abbreviation of 7", `fixup ${old.slice(0, 7)} done`],
+    ["an abbreviation of 12, upper case", `(${old.slice(0, 12).toUpperCase()})`],
+    ["inside a longer hex run", `0000${old}ffff`],
+  ] as const) assert.equal(namesOldId(text, index), true, name);
+  for (const [name, text] of [["6 characters", old.slice(0, 6)], ["another id", "3d5aadf0000000"], ["a run that only starts like it", `${old.slice(0, 9)}0`]] as const) assert.equal(namesOldId(text, index), false, name);
+
+  const root = createTempDir("identity-old-ids-");
+  git(root, "init", "-q", "-b", "main");
+  write(root, "README.md", "x\n");
+  write(root, ".git-blame-ignore-revs", `${old}\n`);
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "lists an id");
+  // A notes tree with fan-out names the annotated commit over two folders.
+  const blob = git(root, "rev-parse", "HEAD:README.md").trim();
+  const fanned = execFileSync(GIT, ["mktree"], { cwd: root, input: `100644 blob ${blob}\t${old.slice(2)}\n` }).toString().trim();
+  const notes = execFileSync(GIT, ["mktree"], { cwd: root, input: `040000 tree ${fanned}\t${old.slice(0, 2)}\n` }).toString().trim();
+  git(root, "update-ref", "refs/notes/commits", execFileSync(GIT, ["commit-tree", notes, "-m", "notes"], { cwd: root, env: { ...process.env, GIT_AUTHOR_NAME: "N", GIT_AUTHOR_EMAIL: FIXTURE_ADDRESS, GIT_COMMITTER_NAME: "N", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } }).toString().trim());
+  const census = addressCensus(repository(root), enumerateHistory(repository(root)), { known: [], oldIds: index });
+  assert.ok(census.oldIds.some((place) => place.kind === "object" && place.oid === git(root, "rev-parse", "HEAD:.git-blame-ignore-revs").trim()), "a file listing the id");
+  assert.ok(census.oldIds.some((place) => place.kind === "path" && place.oid === blob), "the notes tree's fanned-out path");
+  assert.equal(addressCensus(repository(root), enumerateHistory(repository(root)), { known: [] }).oldIds.length, 0, "no old id is searched for without the rewrite's list");
+});
+
+test("THE BOUNDS CLASS: the trees' paths are read with a declared count and depth bound, a typed refusal past either (a tree bomb never exhausts memory)", () => {
+  const root = createTempDir("identity-tree-bomb-");
+  git(root, "init", "-q", "-b", "main");
+  write(root, "a/b/c/d/leaf.txt", "x\n");
+  write(root, "w1.txt", "1\n");
+  write(root, "w2.txt", "2\n");
+  git(root, "add", ".");
+  git(root, "commit", "-q", "-m", "deep and wide");
+  assert.ok(enumerateHistory(repository(root), { paths: 100, depth: 10 }).paths.length >= 7);
+  assert.throws(() => enumerateHistory(repository(root), { paths: 100, depth: 3 }), (error: Error & { code?: string }) => error.code === "history_import_tree_bound" && error.message.includes("deeper"));
+  assert.throws(() => enumerateHistory(repository(root), { paths: 4, depth: 10 }), (error: Error & { code?: string }) => error.code === "history_import_tree_bound" && error.message.includes("pairs"));
+  // A real bomb: each level holds the one below eight times; 8^7 paths are never materialised.
+  let tree = execFileSync(GIT, ["mktree"], { cwd: root, input: `100644 blob ${git(root, "rev-parse", "HEAD:w1.txt").trim()}\tf\n` }).toString().trim();
+  for (let level = 0; level < 7; level += 1) tree = execFileSync(GIT, ["mktree"], { cwd: root, input: Array.from({ length: 8 }, (_, index) => `040000 tree ${tree}\td${String(index)}\n`).join("") }).toString().trim();
+  git(root, "update-ref", "refs/heads/bomb", execFileSync(GIT, ["commit-tree", tree, "-m", "bomb"], { cwd: root, env: { ...process.env, GIT_AUTHOR_NAME: "N", GIT_AUTHOR_EMAIL: FIXTURE_ADDRESS, GIT_COMMITTER_NAME: "N", GIT_COMMITTER_EMAIL: FIXTURE_ADDRESS } }).toString().trim());
+  const before = process.memoryUsage().rss;
+  assert.throws(() => enumerateHistory(repository(root), { paths: 10_000, depth: 128 }), (error: Error & { code?: string }) => error.code === "history_import_tree_bound");
+  assert.ok(process.memoryUsage().rss - before < 256 * 1024 * 1024, "the refusal comes before the paths fill memory");
 });

@@ -34,9 +34,9 @@ conversion.
 - `app-registry.ts` — THE APP REGISTRY (github-only §4.1): the four Apps (`agent`, `verifier`, `door`, `publisher`), each one's exact GitHub permissions, key custody (`host`, or a GitHub environment secret with its client-id variable) and the repository kinds it is installed on; `narrowedPermissions` (a token is never minted wider than the registry; `metadata: read` is implied).
 - `app-keys.ts` — THE APP KEY CUSTODY, the one credential module every App key passes through (the runbook's "broker" is the key home): `<key home>/forge-apps/<role>.json` (0600, atomic, durable). `storeAppKey` is the first step after a conversion, for every custody. A host App's custody (`keyHomeCustody`) answers the identity and signs, and never hands the key out. An environment App's key is HELD only until `pushHeldKey` puts it in its GitHub environment; then the record keeps the identity and the push time, and a failed push leaves the key held for the next run. `appKeyState` answers absent, held or done.
 - `credentials.ts` — THE FIVE CREDENTIALS: `appInstallationCredential` (the installation looked up once, the token minted narrowed to one repository and the action's permissions, checked to be exactly what was asked — else `forge_token_scope_mismatch` —, cached in memory and renewed `renewBeforeMs` before it expires), `appJwtCredential` / `appJwt` (RS256, 9 minutes, `iss` = the client id), `environmentCredential`, `memoryCredential` and `anonymousCredential` (the manifest conversion only).
-- `history-import.ts` — THE HISTORY IMPORTER (above): `importHistory`, and its steps for the tests — `enumerateHistory`, `scanHistory` (one read of every blob, commit and tag, and of every path and ref name, for the catalogue's spans and the oracle's chunked findings), `judgeOracle` (covered, disposed or a gap), `planPurge` (the expressions, deterministic), `planRefs` (kept namespaces, everything else under `refs/heads/imported/`), `purgeResidue` (what the re-scan left), `decodedTexts`, `addressCensus` / `runAddressCensus` (the address census, in-process and bounded), `receiptRefusal` and `recordedLocation`, `readImportReview`, `admitImportHome`.
-- `history-identities.ts` — THE ADDRESS GATE's pure parts: the address shapes (`addressSpans`: plain, percent-encoded, RFC 2047; bounded, from each `@`), the known-address search (`knownAddresses`, `knownMatches`, `canonicalText`, `unescapedText`, `base64Payloads`), the one fold (`foldAddress`: NFKC and the Unicode case fold) and the digest a disposition names (`addressDigest`), `withoutAddresses` (a printed message withholds every address), the public-tree check by identity (`insideTree`), the one mapping file (`readIdentityMap`), the judgement (`judgeAddresses`), the rewrite plan (`planAddressRewrite`) and the one comparator of the generated lists (`longestFirst`).
-- `history-census-child.ts` — the address census's child program: `addressCensus` in a process of its own under the one bounded run, its answer on stdout only.
+- `history-import.ts` — THE HISTORY IMPORTER (above): `importHistory`, and its steps for the tests — `enumerateHistory`, `scanHistory` (one read of every blob, commit and tag, and of every path and ref name, for the catalogue's spans and the oracle's chunked findings), `judgeOracle` (covered, disposed or a gap), `planPurge` (the expressions, deterministic), `planRefs` (kept namespaces, everything else under `refs/heads/imported/`), `purgeResidue` (what the re-scan left), `decodedTexts`, `addressCensus` / `runAddressCensus` (the address census, in-process and bounded), `runHistoryScan` (the scan, bounded), `namesOldId` / `oldIdIndex` (the old-id search), `receiptRefusal` and `recordedLocation`, `readImportReview`, `admitImportHome`.
+- `history-identities.ts` — THE ADDRESS GATE's pure parts: the address shapes (`addressSpans`: plain, percent-encoded, RFC 2047; bounded, from each `@`), the known-address search (`knownAddresses`, `knownMatches`, `unescapedText`, `base64Payloads`, `hexPayloads`), the one fold (`foldAddress`: NFKC and the Unicode case fold) and the digest a disposition names (`addressDigest`), `withoutAddresses` (a printed message withholds every address), the public-tree check by identity (`insideTree`), the one mapping file (`readIdentityMap`), the judgement (`judgeAddresses`), the rewrite plan (`planAddressRewrite`) and the one comparator of the generated lists (`longestFirst`).
+- `history-child.ts` — the importer's bounded child program: the address census (`addressCensus`) and the catalogue scan (`scanHistory`), each in a process of its own under the one bounded run, its answer on stdout only.
 - `history-tools.ts` — THE PINNED TOOLS: gitleaks 8.30.1 and git-filter-repo 2.47.0, each pinned by the sha256 of its release archive and of the file run (an AUTHORED PINS region), `resolveHistoryTool` (absent → the provisioning command; other bytes → refused), `runBounded` / `runHistoryTool` (a process group bounded by CPU time and a stall check, never wall time; stopped only through the owned-process `terminate`).
 - `gitleaks-config.ts` — THE ORACLE'S CONFIGURATION, projected from the catalogue: gitleaks' default rules plus one `bridlewise-<row>` rule per catalogue row RE2 can express; a row with a lookaround or a JavaScript-only escape is named in the header, never approximated.
 
@@ -128,20 +128,28 @@ objects and listing each address by its digest, with its objects, in
 also searched as that value in every spelling a reader recognises (entities,
 quoted-printable, percent and backslash escapes, base64 at any alignment, a
 compatibility form after NFKC, invisible characters, a folded line,
-`[at]`/`[dot]`, a quoted local part): one the rewrite cannot reach is refused
-before the rewrite (`history_import_identity_unreachable`). The census runs in
-a child process under the one bounded run (`runAddressCensus`). The
+`[at]`/`[dot]`, a quoted local part: its letter-and-digit SKELETON in the
+skeleton of every reading, references read loosely through the markup owner):
+one the rewrite cannot reach is refused before the rewrite
+(`history_import_identity_unreachable`). The census and the catalogue scan run
+in the importer's child process under the one bounded run (`runAddressCensus`,
+`runHistoryScan`), and the trees' paths are read under a declared count and
+depth bound (`history_import_tree_bound`): no history holds the importer's own
+process unbounded. The
 importer applies the mapping in its one rewrite: a generated mailmap of the
 exact header spellings, a literal expression for every exact spelling in text
 filter-repo rewrites in place, and a blob it cannot rewrite in place stripped
 whole (acknowledged). The SAME census then judges the rewritten history and
 the receipt: an unallowed address, or the mapped-from address in ANY spelling,
-is refused (`history_import_identity_residue`). The published receipt holds
-counts and public facts only: no id from before the rewrite (with the public
-rewritten commit, an old id would confirm a guessed address), no stripped
-blob's id, no digest of the mapping, the review or the expressions; those, and
-filter-repo's commit map, are in the PRIVATE record (`record.json`,
-`commit-map`) in the run folder. `--dry-run` stops after the scans and answers
+is refused (`history_import_identity_residue`), and so is ANY object id from
+before the rewrite, whole or abbreviated, anywhere it is published
+(`history_import_old_id_residue`: with the public rewritten object an old id
+confirms a guess); notes follow their commits first (`translateNotes`, through
+the commit map). The published receipt holds only post-rewrite facts anyone
+can recompute: nothing measured before the rewrite (a byte total's difference
+is a replaced identity's length), no old id, no digest of the mapping, the
+review or the expressions; those, and filter-repo's commit map, are in the
+PRIVATE record (`record.json`, `commit-map`) in the run folder. `--dry-run` stops after the scans and answers
 COUNTS only: the hits, the gaps, every unallowed address by what resolves it,
 the places the rewrite cannot reach, and the blobs it would strip
 (`addresses.json` and `strip.json` hold the details, privately). A secret in a path or a ref name,

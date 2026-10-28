@@ -23,10 +23,14 @@
  *    (by its digest); anything else is refused, the address never echoed
  *    (`addresses.json` lists digests and objects). A MAPPED-FROM address is
  *    also searched as that value in every spelling (escaped, encoded,
- *    obfuscated, folded): one the rewrite cannot reach is refused. The census
- *    runs in a bounded child (`runAddressCensus`), its shape found from each
- *    `@` with bounded parts, so a history costs its length.
- * 3. SCAN every blob, commit and tag object, read ONCE and decoded into
+ *    obfuscated, folded: its letter-and-digit skeleton in the skeleton of
+ *    every reading): one the rewrite cannot reach is refused. The census runs
+ *    in the importer's bounded child (`runAddressCensus`), its shape found
+ *    from each `@` with bounded parts, so a history costs its length; the
+ *    trees' paths are read under a declared count and depth bound.
+ * 3. SCAN (in the importer's bounded child, `runHistoryScan`: the catalogue
+ *    is quadratic on some texts, and no history may hold the importer's own
+ *    process unbounded) every blob, commit and tag object, read ONCE and decoded into
  *    every text it holds before any matching (`decodedTexts`: a BOM's
  *    encoding, else strict UTF-8, plus UTF-16 by the NULs' shape; an object
  *    nothing decodes is matched byte for byte and refused unless the review
@@ -46,18 +50,22 @@
  *    encoding but UTF-8) is stripped whole, and only once the review
  *    acknowledges it by id (`strips`; `strip.json` lists each with its
  *    paths): nothing is dropped silently.
- * 5. RE-SCAN to zero with both scanners (`purgeResidue`), and the SAME
- *    address census over the rewritten history (an address no rewrite
- *    reaches — a path, a ref name — is refused), and again over the receipt
- *    before the push; filter-repo's commit map (old id → new id) is kept
- *    beside the receipt; anything left is a refusal.
- * 6. RECEIPT: counts and public facts only (the object counts, the hits per
- *    entry and per oracle rule, never a value; the refs as pushed; the tools'
- *    pins); a local repository is recorded by its folder name only. Nothing
- *    in it confirms a guess of what the rewrite removed: the ids from before
- *    the rewrite, the stripped blobs' ids and the mapping's, the review's and
- *    the expressions' digests are in the PRIVATE record (`record.json`, with
- *    `commit-map`, in the run folder), never published. It is itself
+ * 5. NOTES FOLLOW THEIR COMMITS (`translateNotes`: each note names its
+ *    commit's new id), then RE-SCAN to zero with both scanners
+ *    (`purgeResidue`), and the SAME address census over the rewritten
+ *    history and again over the receipt before the push: an address no
+ *    rewrite reaches (a path, a ref name) is refused, and so is ANY OLD
+ *    OBJECT ID, whole or abbreviated, anywhere (`namesOldId`: with the public
+ *    rewritten object an old id confirms a guess of what was removed);
+ *    filter-repo's commit map (old id → new id) is kept privately beside the
+ *    record; anything left is a refusal.
+ * 6. RECEIPT: post-rewrite facts anyone can recompute from the published
+ *    history only (its object counts, no hit left, the refs as pushed, the
+ *    tools' pins); a local repository is recorded by its folder name only.
+ *    NOTHING MEASURED BEFORE THE REWRITE is published (a byte total's
+ *    difference is the length of what was replaced), and nothing that
+ *    confirms a guess (an old id, a digest of the mapping): those are in the
+ *    PRIVATE record (`record.json`, with `commit-map`, in the run folder). It is itself
  *    SCANNED before any push
  *    (`receiptRefusal`: no absolute or home path, no catalogue hit), then
  *    committed to the imported history on `receipt.ref`
@@ -105,12 +113,12 @@ import { debugLog } from "../../shared/debug/debug-system.ts";
 import type { SubprocessBounds } from "../../process/subprocess-bounds.ts";
 import { FORGE_LOG_CATEGORY, ForgeError, type ForgeCode, type ForgeFacts } from "./codes.ts";
 import { GITLEAKS_CATALOGUE_RULE_PREFIX, gitleaksConfigText } from "./gitleaks-config.ts";
-import { addressDigest, addressSpans, allowedAddresses, base64Payloads, canonicalText, foldAddress, judgeAddresses, knownAddresses, knownMatches, longestFirst, occurrenceObjects, planAddressRewrite, readIdentityMap, refDigest, refuseInsidePublicTree, unescapedText, type AddressJudgement, type AddressOccurrence, type AddressPlace, type AddressSpan, type IdentityMap, type KnownAddress } from "./history-identities.ts";
+import { addressDigest, addressSpans, allowedAddresses, base64Payloads, foldAddress, hexPayloads, judgeAddresses, knownAddresses, knownMatches, longestFirst, occurrenceObjects, planAddressRewrite, readIdentityMap, refDigest, refuseInsidePublicTree, unescapedText, type AddressJudgement, type AddressOccurrence, type AddressPlace, type AddressSpan, type IdentityMap, type KnownAddress } from "./history-identities.ts";
 import { hostProgramVersion, resolveHistoryTool, runBounded, runHistoryTool, type ResolvedHistoryTool } from "./history-tools.ts";
 
 const POLICY = ROOT_POLICY.workflow.historyImport;
 
-const HISTORY_IMPORT_RECEIPT_SCHEMA = schemaId("history-import-receipt", 3);
+const HISTORY_IMPORT_RECEIPT_SCHEMA = schemaId("history-import-receipt", 4);
 const HISTORY_IMPORT_DRY_RUN_SCHEMA = schemaId("history-import-dry-run", 2);
 export const IMPORT_REVIEW_SCHEMA = schemaId("history-import-review", 1);
 
@@ -160,6 +168,9 @@ function lines(output: Buffer): readonly string[] {
   return output.toString("utf8").split("\n").filter((line) => line.length > 0);
 }
 
+/** How far the trees' paths are read: (path, object) pairs in all, and folders deep (the root policy's, unless a test narrows them). */
+export type TreeBounds = Readonly<{ paths: number; depth: number }>;
+
 /** The entries of a tree object's bytes: each name, the object it names, and whether that is a tree. */
 function treeEntries(bytes: Buffer, hashBytes: number): readonly Readonly<{ name: string; oid: string; tree: boolean }>[] {
   const entries: { name: string; oid: string; tree: boolean }[] = [];
@@ -181,7 +192,7 @@ function treeEntries(bytes: Buffer, hashBytes: number): readonly Readonly<{ name
  * size. A tree that is also a commit's root is walked under the folder that holds it: its names are read
  * whole inside that longer path.
  */
-function treePaths(repository: GitRepository, trees: readonly HistoryObject[]): readonly Readonly<{ path: string; oid: string }>[] {
+function treePaths(repository: GitRepository, trees: readonly HistoryObject[], bounds: TreeBounds): readonly Readonly<{ path: string; oid: string }>[] {
   const entries = new Map<string, readonly Readonly<{ name: string; oid: string; tree: boolean }>[]>();
   for (const batch of objectBatches(repository, trees)) {
     for (const { object, bytes } of batch) entries.set(object.oid, treeEntries(bytes, object.oid.length / 2));
@@ -190,15 +201,23 @@ function treePaths(repository: GitRepository, trees: readonly HistoryObject[]): 
   for (const list of entries.values()) for (const entry of list) if (entry.tree) held.add(entry.oid);
   const pairs = new Map<string, Readonly<{ path: string; oid: string }>>();
   const walked = new Set<string>();
-  const pending: [string, string][] = [...entries.keys()].filter((oid) => !held.has(oid)).map((oid) => [oid, ""]);
+  const pending: [string, string, number][] = [...entries.keys()].filter((oid) => !held.has(oid)).map((oid) => [oid, "", 0]);
+  // BOUNDED, so a tree bomb (a tree holding itself many times over, a path count exponential in its depth)
+  // is a typed refusal, never memory exhausted: a path at most `treeDepthAtMost` folders deep, and at most
+  // `treePathsAtMost` (path, object) pairs in all.
+  const bound = (what: string): never => {
+    throw new ForgeError("history_import_tree_bound", `the history's trees name ${what}; the importer reads at most ${String(bounds.paths)} (path, object) pairs, ${String(bounds.depth)} folders deep (a tree bomb, or a history to import in parts)`, { paths: pairs.size });
+  };
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    const [tree, folder] = next;
+    const [tree, folder, depth] = next;
+    if (depth > bounds.depth) bound(`a path deeper than ${String(bounds.depth)} folders`);
     for (const entry of entries.get(tree) ?? []) {
       const path = `${folder}${entry.name}`;
       pairs.set(`${path}\0${entry.oid}`, { path, oid: entry.oid });
+      if (pairs.size > bounds.paths) bound(`more than ${String(bounds.paths)} (path, object) pairs`);
       if (entry.tree && !walked.has(`${entry.oid}\0${path}/`)) {
         walked.add(`${entry.oid}\0${path}/`);
-        pending.push([entry.oid, `${path}/`]);
+        pending.push([entry.oid, `${path}/`, depth + 1]);
       }
     }
   }
@@ -206,7 +225,7 @@ function treePaths(repository: GitRepository, trees: readonly HistoryObject[]): 
 }
 
 /** {@link HistoryInventory} of `repository`: `for-each-ref`, every object (`rev-list --objects --all`, typed by one `cat-file --batch-check`), and every name every tree records ({@link treePaths}). */
-export function enumerateHistory(repository: GitRepository): HistoryInventory {
+export function enumerateHistory(repository: GitRepository, bounds: TreeBounds = { paths: POLICY.treePathsAtMost, depth: POLICY.treeDepthAtMost }): HistoryInventory {
   const refs: Record<string, string> = {};
   for (const line of lines(gitOutput(repository, ["for-each-ref", "--format=%(objectname) %(refname)"]).stdout)) {
     const space = line.indexOf(" ");
@@ -225,7 +244,7 @@ export function enumerateHistory(repository: GitRepository): HistoryInventory {
     }
   }
   const sortedRefs = Object.fromEntries(Object.entries(refs).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-  return deepFreeze({ refs: sortedRefs, objects, paths: treePaths(repository, objects.filter((object) => object.type === "tree")) });
+  return deepFreeze({ refs: sortedRefs, objects, paths: treePaths(repository, objects.filter((object) => object.type === "tree"), bounds) });
 }
 
 /**
@@ -318,31 +337,100 @@ export type KnownPlace = Readonly<{ kind: "object" | "path"; oid: string }> | Re
  */
 export type KnownOccurrence = Readonly<{ key: string; place: KnownPlace; variant: boolean }>;
 
-/** What the address census found: every address-shaped occurrence, and every known address in any spelling. */
-export type AddressCensus = Readonly<{ occurrences: readonly AddressOccurrence[]; known: readonly KnownOccurrence[] }>;
+/** What the address census found: every address-shaped occurrence, every known address in any spelling, and every place naming an old object id. */
+export type AddressCensus = Readonly<{ occurrences: readonly AddressOccurrence[]; known: readonly KnownOccurrence[]; oldIds: readonly KnownPlace[] }>;
+
+/** The ids of the objects a rewrite replaced, indexed for the search: whole, and by their first 7 characters. */
+export type OldIdIndex = Readonly<{ full: ReadonlySet<string>; byPrefix: ReadonlyMap<string, readonly string[]> }>;
+
+/** The shortest abbreviation of an object id that is searched for (git's default). */
+const OLD_ID_ABBREVIATION = 7;
+
+/** {@link OldIdIndex} of `ids` (lower-case hex). */
+export function oldIdIndex(ids: Iterable<string>): OldIdIndex {
+  const full = new Set<string>();
+  const byPrefix = new Map<string, string[]>();
+  for (const id of ids) {
+    const lower = id.toLowerCase();
+    full.add(lower);
+    const prefix = lower.slice(0, OLD_ID_ABBREVIATION);
+    byPrefix.set(prefix, [...(byPrefix.get(prefix) ?? []), lower]);
+  }
+  return deepFreeze({ full, byPrefix });
+}
+
+/**
+ * Whether `text` names an old id: a hex token of 7 or more characters that an old id begins with (an
+ * abbreviation, or the whole id), or a longer hex run that holds a whole old id. Linear in the text.
+ */
+export function namesOldId(text: string, index: OldIdIndex): boolean {
+  if (index.full.size === 0) return false;
+  for (const match of text.matchAll(/[0-9A-Fa-f]{7,}/gu)) {
+    const run = match[0].toLowerCase();
+    if (index.byPrefix.get(run.slice(0, OLD_ID_ABBREVIATION))?.some((id) => id.startsWith(run)) === true) return true;
+    for (const width of [40, 64]) {
+      for (let at = 0; at + width <= run.length; at += 1) if (index.full.has(run.slice(at, at + width))) return true;
+    }
+  }
+  return false;
+}
+
+/** How many spellings of one address the shape census read in one object (the most any one reading holds): plain, in every form, and in an encoded word. */
+type ShapedCounts = Readonly<{ plain: number; all: number; encodedWord: number }>;
+
+/** {@link ShapedCounts} of each address over `readings` (each reading's spans). */
+function shapedCounts(readings: readonly (readonly AddressSpan[])[]): ReadonlyMap<string, ShapedCounts> {
+  const counts = new Map<string, ShapedCounts>();
+  for (const spans of readings) {
+    const here = new Map<string, { plain: number; all: number; encodedWord: number }>();
+    for (const span of spans) {
+      const key = foldAddress(span.address);
+      const one = here.get(key) ?? { plain: 0, all: 0, encodedWord: 0 };
+      one.all += 1;
+      if (span.form === "plain") one.plain += 1;
+      if (span.form === "rfc2047") one.encodedWord += 1;
+      here.set(key, one);
+    }
+    for (const [key, one] of here) {
+      const most = counts.get(key);
+      counts.set(key, { plain: Math.max(one.plain, most?.plain ?? 0), all: Math.max(one.all, most?.all ?? 0), encodedWord: Math.max(one.encodedWord, most?.encodedWord ?? 0) });
+    }
+  }
+  return counts;
+}
 
 /**
  * Notes in `found` each known address one raw reading `text` holds, in it or in any reading derived from it
- * (escapes decoded, base64 runs decoded), and whether some match is a {@link KnownOccurrence} variant: a raw
- * match the shape census did not read as that address (`spans`, this reading's), or more matches in the
- * unescaped reading than every form the shape read, or a match only base64 holds outside an encoded word.
+ * (escapes decoded; base64 and hex payloads decoded, and their escapes), and whether some match is a
+ * {@link KnownOccurrence} variant: more skeleton matches in a raw reading than the plain spellings the shape
+ * census read in the object (its readings hold the same bytes: a UTF-16 run is letter-spaced in the UTF-8
+ * reading), more in the unescaped reading than every form the shape read, or a match only a payload holds
+ * outside an encoded word.
  */
-function knownInReading(text: string, spans: readonly AddressSpan[], known: readonly KnownAddress[], found: Map<string, boolean>): void {
+function knownInReading(text: string, shaped: ReadonlyMap<string, ShapedCounts>, known: readonly KnownAddress[], found: Map<string, boolean>): void {
   const note = (key: string, variant: boolean): void => {
     found.set(key, (found.get(key) ?? false) || variant);
   };
-  const shaped = (key: string, forms: readonly AddressSpan["form"][]): number => spans.filter((span) => forms.includes(span.form) && foldAddress(span.address) === key).length;
-  for (const match of knownMatches(canonicalText(text), known)) note(match.key, match.other > 0 || match.exact > shaped(match.key, ["plain"]));
+  const of = (key: string): ShapedCounts => shaped.get(key) ?? { plain: 0, all: 0, encodedWord: 0 };
+  for (const match of knownMatches(text, known)) note(match.key, match.count > of(match.key).plain);
   const unescaped = unescapedText(text);
   if (unescaped !== text) {
-    for (const match of knownMatches(canonicalText(unescaped), known)) note(match.key, match.other > 0 || match.exact > shaped(match.key, ["plain", "percent", "rfc2047"]));
+    for (const match of knownMatches(unescaped, known)) note(match.key, match.count > of(match.key).all);
   }
-  for (const payload of base64Payloads(text)) {
+  // A payload shorter than every skeleton cannot hold one (most base64-shaped runs are words).
+  const shortest = Math.min(...known.map((one) => one.skeleton.length));
+  for (const payload of [...base64Payloads(text), ...hexPayloads(text)]) {
+    if (payload.length < shortest) continue;
     for (const reading of addressTexts(payload)) {
-      for (const match of knownMatches(canonicalText(reading.text), known)) note(match.key, shaped(match.key, ["rfc2047"]) === 0);
+      for (const candidate of new Set([reading.text, unescapedText(reading.text)])) {
+        for (const match of knownMatches(candidate, known)) note(match.key, of(match.key).encodedWord === 0);
+      }
     }
   }
 }
+
+/** What one census searches for: the known addresses, the old ids (after a rewrite), and, when given, only what is new since the rest was judged. */
+export type CensusSearch = Readonly<{ known: readonly KnownAddress[]; oldIds?: OldIdIndex; only?: Readonly<{ objects: ReadonlySet<string>; refs: ReadonlySet<string> }> }>;
 
 /**
  * THE ADDRESS CENSUS of a history: every address-shaped string
@@ -350,13 +438,17 @@ function knownInReading(text: string, spans: readonly AddressSpan[], known: read
  * `addressTexts`), in every path a tree records, and in every ref name; each
  * with its folded key, the exact spelling, and its place (a commit or tag's
  * region; whether filter-repo rewrites that text in place). And every KNOWN
- * address (`known`: the mapped-from addresses) in any spelling, in the same
- * places. `only`, when given, limits the census to what is new since the rest
- * was judged (the receipt's): those objects, the paths that name them, and
- * those ref names. In-process; the importer runs it in a bounded child
+ * address (the mapped-from addresses) in any spelling, and every place that
+ * names an OLD object id (a path and a ref name are also read with their
+ * slashes removed: a notes tree fans an id out over folders), in the same
+ * places. `only`, when given, limits the census to what is new since the
+ * rest was judged (the receipt's): those objects, the paths that name them,
+ * and those ref names. In-process; the importer runs it in a bounded child
  * ({@link runAddressCensus}).
  */
-export function addressCensus(repository: GitRepository, inventory: HistoryInventory, known: readonly KnownAddress[], only?: Readonly<{ objects: ReadonlySet<string>; refs: ReadonlySet<string> }>): AddressCensus {
+export function addressCensus(repository: GitRepository, inventory: HistoryInventory, search: CensusSearch): AddressCensus {
+  const { known, only } = search;
+  const oldIds = search.oldIds ?? oldIdIndex([]);
   const found = new Map<string, AddressOccurrence>();
   const add = (address: string, spelling: string, form: AddressOccurrence["form"], name: string | null, place: AddressPlace): void => {
     const occurrence: AddressOccurrence = { key: foldAddress(address), address, spelling, form, name, place };
@@ -366,21 +458,28 @@ export function addressCensus(repository: GitRepository, inventory: HistoryInven
   const noteKnown = (place: KnownPlace, keys: ReadonlyMap<string, boolean>): void => {
     for (const [key, variant] of keys) knownFound.push({ key, place, variant });
   };
+  const oldFound: KnownPlace[] = [];
   const objects = inventory.objects.filter((object) => object.type !== "tree" && (only === undefined || only.objects.has(object.oid)));
   for (const batch of objectBatches(repository, objects)) {
     for (const { object, bytes } of batch) {
       const type = object.type as "blob" | "commit" | "tag";
       const nulProbe = type === "blob" && bytes.subarray(0, POLICY.binaryProbeBytes).includes(0);
       const keys = new Map<string, boolean>();
-      for (const decoded of addressTexts(bytes)) {
-        const spans = addressSpans(decoded.text);
+      let namesOld = false;
+      const readings = addressTexts(bytes).map((decoded) => ({ decoded, spans: addressSpans(decoded.text) }));
+      for (const { decoded, spans } of readings) {
         for (const span of spans) {
           const where = type === "blob" ? { region: "content" as const, name: null } : commitRegion(decoded.text, span.start);
           add(span.address, span.spelling, span.form, where.name, { kind: "object", oid: object.oid, type, region: where.region, encoding: decoded.encoding, rewritable: decoded.rewritable && !nulProbe });
         }
-        if (known.length > 0) knownInReading(decoded.text, spans, known, keys);
+        namesOld ||= namesOldId(decoded.text, oldIds);
+      }
+      if (known.length > 0) {
+        const shaped = shapedCounts(readings.map(({ spans }) => spans));
+        for (const { decoded } of readings) knownInReading(decoded.text, shaped, known, keys);
       }
       noteKnown({ kind: "object", oid: object.oid }, keys);
+      if (namesOld) oldFound.push({ kind: "object", oid: object.oid });
     }
   }
   // A name is never rewritten: every known address in one is a variant. Each distinct path is read once.
@@ -388,59 +487,85 @@ export function addressCensus(repository: GitRepository, inventory: HistoryInven
   for (const { path, oid } of inventory.paths.filter((entry) => only === undefined || only.objects.has(entry.oid))) byPath.set(path, [...(byPath.get(path) ?? []), oid]);
   const nameKnown = (name: string): ReadonlyMap<string, boolean> => {
     const keys = new Map<string, boolean>();
-    if (known.length > 0) knownInReading(name, [], known, keys);
+    if (known.length > 0) knownInReading(name, new Map(), known, keys);
     return keys;
   };
+  const nameNamesOld = (name: string): boolean => namesOldId(name, oldIds) || namesOldId(name.replaceAll("/", ""), oldIds);
   for (const [path, oids] of byPath) {
     const spans = addressSpans(path);
     const keys = nameKnown(path);
+    const old = nameNamesOld(path);
     for (const oid of oids) {
       for (const span of spans) add(span.address, span.spelling, span.form, null, { kind: "path", oid });
       noteKnown({ kind: "path", oid }, keys);
+      if (old) oldFound.push({ kind: "path", oid });
     }
   }
   for (const ref of Object.keys(inventory.refs).filter((name) => only === undefined || only.refs.has(name))) {
     for (const span of addressSpans(ref)) add(span.address, span.spelling, span.form, null, { kind: "ref", refSha256: refDigest(ref) });
     noteKnown({ kind: "ref", refSha256: refDigest(ref) }, nameKnown(ref));
+    if (nameNamesOld(ref)) oldFound.push({ kind: "ref", refSha256: refDigest(ref) });
   }
-  return deepFreeze({ occurrences: [...found.values()], known: knownFound });
+  return deepFreeze({ occurrences: [...found.values()], known: knownFound, oldIds: oldFound });
 }
 
-/** The address census's request to its bounded child (`history-census-child.ts`), on its stdin. */
-export type AddressCensusRequest = Readonly<{ repository: GitRepository; known: readonly string[]; only?: Readonly<{ objects: readonly string[]; refs: readonly string[] }> }>;
+/** The importer's bounded child's requests (`history-child.ts`), on its stdin: the address census, or the catalogue scan. */
+export type HistoryChildRequest =
+  | Readonly<{ kind: "census"; repository: GitRepository; known: readonly string[]; oldIds?: readonly string[]; only?: Readonly<{ objects: readonly string[]; refs: readonly string[] }> }>
+  | Readonly<{ kind: "scan"; repository: GitRepository; home: string; runFolder: string }>;
 
-/** Runs {@link addressCensus} for `request` (the child's side): the inventory enumerated afresh, the answer as JSON. */
-export function answerAddressCensus(request: AddressCensusRequest): string {
+/** Runs `request` (the child's side): the inventory enumerated afresh, the answer as JSON. */
+export async function answerHistoryChild(request: HistoryChildRequest): Promise<string> {
+  const inventory = enumerateHistory(request.repository);
+  if (request.kind === "scan") {
+    return JSON.stringify(await scanHistory(request.repository, inventory, gitleaksOracle(resolveHistoryTool(request.home, "gitleaks"), request.runFolder)));
+  }
   const only = request.only === undefined ? undefined : { objects: new Set(request.only.objects), refs: new Set(request.only.refs) };
-  return JSON.stringify(addressCensus(request.repository, enumerateHistory(request.repository), knownAddresses(request.known), only));
+  return JSON.stringify(addressCensus(request.repository, inventory, { known: knownAddresses(request.known), oldIds: oldIdIndex(request.oldIds ?? []), ...(only === undefined ? {} : { only }) }));
 }
 
-/** The address census's child program. */
-const CENSUS_CHILD = join(dirname(fileURLToPath(import.meta.url)), "history-census-child.ts");
+/** The importer's bounded child program. */
+const HISTORY_CHILD = join(dirname(fileURLToPath(import.meta.url)), "history-child.ts");
 
-/**
- * THE ADDRESS CENSUS, BOUNDED: {@link addressCensus} runs in a child process under the one bounded run
- * (`runBounded`: its CPU budget, the stall check, the kernel's CPU limit, the hang backstop), never in this
- * process unbounded. The request (the known addresses) goes on its stdin and the answer comes back on its
- * stdout, held in memory only; the child prints no address anywhere else. `bounds` are the tools' (the
- * importer's policy) unless given.
- */
-export async function runAddressCensus(
-  repository: GitRepository,
-  known: readonly string[],
-  only?: Readonly<{ objects: ReadonlySet<string>; refs: ReadonlySet<string> }>,
-  bounds?: SubprocessBounds,
-): Promise<AddressCensus> {
-  const request: AddressCensusRequest = { repository, known: [...known].sort(), ...(only === undefined ? {} : { only: { objects: [...only.objects].sort(), refs: [...only.refs].sort() } }) };
-  const run = await runBounded("the address census", [process.execPath, CENSUS_CHILD], {
-    cwd: repository.root, env: projectEnvironment(process.env, COMMAND_ENVIRONMENT), input: Buffer.from(JSON.stringify(request), "utf8"),
+/** Runs `request` in the importer's bounded child (`runBounded`), answering its JSON, held in memory only. */
+async function runHistoryChild<T>(label: string, request: HistoryChildRequest, bounds: SubprocessBounds | undefined): Promise<T> {
+  const run = await runBounded(label, [process.execPath, HISTORY_CHILD], {
+    cwd: request.repository.root, env: projectEnvironment(process.env, COMMAND_ENVIRONMENT), input: Buffer.from(JSON.stringify(request), "utf8"),
     ...(bounds === undefined ? {} : { bounds }),
   });
   try {
-    return deepFreeze(JSON.parse(run.stdout) as AddressCensus);
+    return deepFreeze(JSON.parse(run.stdout) as T);
   } catch {
-    throw new ForgeError("history_import_git_answer", "the address census answered something that is not its JSON answer");
+    throw new ForgeError("history_import_git_answer", `${label} answered something that is not its JSON answer`);
   }
+}
+
+/**
+ * THE ADDRESS CENSUS, BOUNDED: {@link addressCensus} runs in the importer's child process under the one
+ * bounded run (`runBounded`: its CPU budget, the stall check, the kernel's CPU limit, the hang backstop),
+ * never in this process unbounded. The request (the known addresses, the old ids) goes on its stdin and the
+ * answer comes back on its stdout, held in memory only; the child prints no address anywhere else. `bounds`
+ * are the tools' (the importer's policy) unless given.
+ */
+export function runAddressCensus(
+  repository: GitRepository,
+  search: Readonly<{ known: readonly string[]; oldIds?: readonly string[]; only?: Readonly<{ objects: ReadonlySet<string>; refs: ReadonlySet<string> }> }>,
+  bounds?: SubprocessBounds,
+): Promise<AddressCensus> {
+  const { only } = search;
+  return runHistoryChild<AddressCensus>("the address census", {
+    kind: "census", repository, known: [...search.known].sort(), oldIds: [...(search.oldIds ?? [])].sort(),
+    ...(only === undefined ? {} : { only: { objects: [...only.objects].sort(), refs: [...only.refs].sort() } }),
+  }, bounds);
+}
+
+/**
+ * THE CATALOGUE SCAN, BOUNDED: {@link scanHistory} (the catalogue and the oracle) runs in the importer's child
+ * under the one bounded run, the oracle the pinned gitleaks of `home` (re-verified there). Its answer holds the
+ * values found, in memory only.
+ */
+export function runHistoryScan(repository: GitRepository, home: string, runFolder: string, bounds?: SubprocessBounds): Promise<HistoryScan> {
+  return runHistoryChild<HistoryScan>("the catalogue scan", { kind: "scan", repository, home, runFolder }, bounds);
 }
 
 /**
@@ -971,6 +1096,66 @@ function firstChangedCommits(repository: GitRepository): readonly string[] {
   return existsSync(path) ? readFileSync(path, "utf8").split("\n").filter((line) => line.length > 0).sort() : [];
 }
 
+/** filter-repo's commit map as old id → new id, for the commits it changed. */
+function changedCommits(commitMapText: string): ReadonlyMap<string, string> {
+  const changed = new Map<string, string>();
+  for (const line of commitMapText.split("\n").slice(1)) {
+    const [old, now] = line.split(" ");
+    if (old !== undefined && now !== undefined && old.length > 0 && old !== now) changed.set(old, now);
+  }
+  return changed;
+}
+
+/**
+ * NOTES FOLLOW THEIR COMMITS. A notes tree names each annotated object by its id (over fan-out folders), and
+ * filter-repo leaves those names as they were: a note on a rewritten commit would name its OLD id, which with
+ * the public commit confirms a guess of what the rewrite removed, and would annotate a commit that no longer
+ * exists. Every commit of every `refs/notes/*` ref is rewritten so each note names the commit's new id (the
+ * commit map; a flat tree, which git reads like a fanned one), its author, committer and message kept byte for
+ * byte; a notes commit nothing changes keeps its id. A notes tree holding anything but notes is refused
+ * (`history_import_notes_unreadable`). Answers how many notes commits it rewrote.
+ */
+function translateNotes(repository: GitRepository, changed: ReadonlyMap<string, string>): number {
+  const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+  const rewritten = new Map<string, string>();
+  let count = 0;
+  const notesRefs = lines(gitOutput(repository, ["for-each-ref", "--format=%(objectname) %(refname)", "refs/notes/"]).stdout);
+  for (const line of notesRefs) {
+    const space = line.indexOf(" ");
+    const [tip, ref] = [line.slice(0, space), line.slice(space + 1)];
+    for (const commit of lines(gitOutput(repository, ["rev-list", "--reverse", "--topo-order", tip]).stdout)) {
+      if (rewritten.has(commit)) continue;
+      const text = gitOutput(repository, ["cat-file", "commit", commit]).stdout.toString("latin1");
+      const split = text.indexOf("\n\n");
+      const header = (split < 0 ? text : text.slice(0, split)).split("\n");
+      const tree = header[0]!.slice("tree ".length);
+      const entries = lines(gitOutput(repository, ["ls-tree", "-r", tree]).stdout).map((entry) => {
+        const tab = entry.indexOf("\t");
+        const annotated = entry.slice(tab + 1).replaceAll("/", "");
+        if (!OBJECT_ID.test(annotated)) throw new ForgeError("history_import_notes_unreadable", `${ref} holds a path that names no object (in its commit ${commit}); a notes ref holds notes only`, { ref });
+        return { meta: entry.slice(0, tab), annotated, now: changed.get(annotated) ?? annotated };
+      }).filter((entry) => !/^0+$/u.test(entry.now)); // a note on a commit the rewrite pruned goes with it
+      const parents = header.filter((field) => field.startsWith("parent ")).map((field) => field.slice("parent ".length));
+      const pruned = lines(gitOutput(repository, ["ls-tree", "-r", "--name-only", tree]).stdout).length !== entries.length;
+      const moved = pruned || entries.some((entry) => entry.now !== entry.annotated) || parents.some((parent) => (rewritten.get(parent) ?? parent) !== parent);
+      if (!moved) {
+        rewritten.set(commit, commit);
+        continue;
+      }
+      const newTree = pruned || entries.some((entry) => entry.now !== entry.annotated)
+        ? gitOutput(repository, ["mktree"], { input: Buffer.from(entries.map((entry) => `${entry.meta}\t${entry.now}\n`).join(""), "utf8") }).stdout.toString("utf8").trim()
+        : tree;
+      const newHeader = header.map((field) => (field.startsWith("tree ") ? `tree ${newTree}` : field.startsWith("parent ") ? `parent ${rewritten.get(field.slice("parent ".length)) ?? field.slice("parent ".length)}` : field));
+      const body = `${newHeader.join("\n")}${split < 0 ? "" : text.slice(split)}`;
+      rewritten.set(commit, gitOutput(repository, ["hash-object", "-t", "commit", "-w", "--stdin"], { input: Buffer.from(body, "latin1") }).stdout.toString("utf8").trim());
+      count += 1;
+    }
+    const newTip = rewritten.get(tip) ?? tip;
+    if (newTip !== tip) gitOutput(repository, ["update-ref", ref, newTip, tip]);
+  }
+  return count;
+}
+
 // ── Refs, receipt, push ──────────────────────────────────────────────────
 
 export type RefMapping = Readonly<{ source: string; target: string; oid: string }>;
@@ -1009,29 +1194,12 @@ export type HistoryImportReceipt = Readonly<{
   /** Where the history came from and went: a URL as given (never with credentials), or `local:<folder name>` (never an absolute path). */
   source: string;
   target: string;
-  before: Readonly<{ refs: number; objects: Readonly<Record<HistoryObjectType, number>>; scannedBytes: number }>;
-  findings: Readonly<{
-    catalogue: Readonly<Record<string, number>>;
-    oracle: Readonly<{ covered: Readonly<Record<string, number>>; disposed: Readonly<Record<string, number>> }>;
-    review: Readonly<{ dispositions: number; binaries: number; addresses: number; strips: number }>;
-  }>;
-  purge: Readonly<{ expressions: number; strippedBlobs: number }>;
-  /** After the purge: no catalogue hit and no oracle finding left, except the reviewed dispositions (counted per rule); the exempted undecodable objects. */
+  /** The published history, as anyone can recompute it: its object counts, no catalogue hit and no oracle gap left (the reviewed dispositions counted per rule), the undecodable objects exempted. */
   after: Readonly<{ objects: Readonly<Record<HistoryObjectType, number>>; catalogueHits: 0; oracleGaps: 0; oracleDisposed: Readonly<Record<string, number>>; undecodableExempted: number }>;
   /** The refs as published (their new ids: public, they are pushed). */
   refMap: readonly RefMapping[];
-  /** The identity gate, in counts: the allowed list's digest (the list is public: it is what is published). */
-  identities: Readonly<{
-    allowedSha256: string;
-    /** Distinct unallowed addresses the census found, how many the review disposed and how many the mapping rewrote. */
-    unallowedAddresses: number;
-    disposedAddresses: number;
-    mappedAddresses: number;
-    /** Objects the mapping rewrote, blobs stripped whole because no rewrite reaches their occurrence in place, and commits the rewrite gave a new id. */
-    rewrittenObjects: number;
-    strippedBlobs: number;
-    changedCommits: number;
-  }>;
+  /** The allowed list's digest (the list is public: it is what is published). */
+  allowedIdentitiesSha256: string;
   tools: Readonly<{
     git: string;
     python: string;
@@ -1050,6 +1218,17 @@ export type HistoryImportReceipt = Readonly<{
  */
 export type HistoryImportRecord = Readonly<{
   receipt: HistoryImportReceipt;
+  /** Everything MEASURED BEFORE THE REWRITE (counts and sizes): never published, a difference from what the public history shows would leak what the rewrite removed (a byte count, the length of a replaced identity). */
+  measured: Readonly<{
+    before: Readonly<{ refs: number; objects: Readonly<Record<HistoryObjectType, number>>; scannedBytes: number }>;
+    findings: Readonly<{
+      catalogue: Readonly<Record<string, number>>;
+      oracle: Readonly<{ covered: Readonly<Record<string, number>>; disposed: Readonly<Record<string, number>> }>;
+      review: Readonly<{ dispositions: number; binaries: number; addresses: number; strips: number }>;
+    }>;
+    purge: Readonly<{ expressions: number; strippedBlobs: number }>;
+    identities: Readonly<{ unallowedAddresses: number; disposedAddresses: number; mappedAddresses: number; rewrittenObjects: number; strippedBlobs: number; changedCommits: number; replacedObjects: number; notesCommitsRewritten: number }>;
+  }>;
   beforeRefs: Readonly<Record<string, string>>;
   firstChangedCommits: readonly string[];
   strippedBlobs: readonly Readonly<{ oid: string; paths: readonly string[] }>[];
@@ -1343,11 +1522,10 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   const mappings = planRefs(before.refs);
   progress("judging every address (every object in every reading, every path, every ref name)");
   const known = mappedFromAddresses(identityMap, allowed, review);
-  const census = await runAddressCensus(mirror, known);
+  const census = await runAddressCensus(mirror, { known });
   const addresses = census.occurrences;
   const addressJudgement = judgeAddresses(addresses, allowed, review.addresses, identityMap);
-  const oracle = gitleaksOracle(gitleaks, runFolder);
-  const both = await scanHistory(mirror, before, oracle);
+  const both = await runHistoryScan(mirror, options.home, runFolder);
   const scan = both.catalogue;
   // The mapped addresses ride the one rewrite: a generated mailmap (exact spellings) for the identity headers,
   // literal expressions for every exact spelling in text filter-repo rewrites in place, and the blobs it cannot
@@ -1419,9 +1597,12 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
     ...(addressRewrite.mailmap.length > 0 ? ["--mailmap", mailmapPath] : []),
   ], { cwd: mirrorPath, env: projectEnvironment(process.env, GIT_NETWORK_ENVIRONMENT) });
 
+  // Notes follow their commits: each note names its commit's NEW id (never an old one).
+  const notesRewritten = translateNotes(mirror, changedCommits(readCommitMap(mirror)));
+
   progress("re-scanning to zero");
   const after = enumerateHistory(mirror);
-  const rescanned = await scanHistory(mirror, after, oracle);
+  const rescanned = await runHistoryScan(mirror, options.home, runFolder);
   const residue = purgeResidue(rescanned, review);
   if (Object.keys(residue.left).length > 0) {
     refuse(runFolder, `the purged history still holds secrets: ${Object.entries(residue.left).map(([entry, count]) => `${entry}: ${String(count)}`).join(", ")}`, "history_import_residue");
@@ -1432,11 +1613,17 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   // THE SAME CENSUS over the rewritten history: every address allowed or disposed, and no mapped-from address
   // in ANY spelling, anywhere; anything the rewrite did not reach is refused.
   progress("judging every address again (the rewritten history)");
-  const afterCensus = await runAddressCensus(mirror, known);
+  // And no OLD id anywhere: every object the rewrite replaced or removed is named by an id that, with the
+  // public rewritten object, confirms a guess of what was removed (a notes tree naming the commits it
+  // annotated, a .git-blame-ignore-revs, an id filter-repo did not translate).
+  const remaining = new Set(after.objects.map((object) => object.oid));
+  const oldIds = before.objects.map((object) => object.oid).filter((oid) => !remaining.has(oid));
+  const afterCensus = await runAddressCensus(mirror, { known, oldIds });
   const leftAfter = addressesLeft(afterCensus, allowed, review);
   if (leftAfter.length > 0) {
     refuseAddresses(runFolder, leftAfter, "history_import_identity_residue", "the rewritten history still carries addresses not on the allowed identities, or a mapped-from address in some spelling (in a place no rewrite reaches: a path, a ref name, a header other than an identity, an encoding it does not rewrite in place; rename them in the source, or dispose of them in the review)");
   }
+  refuseOldIds(runFolder, afterCensus.oldIds, "the rewritten history");
   // The rewrite's own record of every commit's old and new id: PRIVATE (an old id confirms a guessed address).
   const commitMapText = readCommitMap(mirror);
   writePrivate(join(runFolder, "commit-map"), commitMapText);
@@ -1448,24 +1635,9 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
     importedAt: new Date().toISOString(),
     source: recordedLocation(request.source),
     target: recordedLocation(target!),
-    before: { refs: Object.keys(before.refs).length, objects: objectCounts(before), scannedBytes: scan.scanned.bytes },
-    findings: {
-      catalogue: countByEntry(scan.hits),
-      oracle: { covered: judgement.covered, disposed: judgement.disposed },
-      review: { dispositions: review.dispositions.length, binaries: review.binaries.size, addresses: review.addresses.size, strips: review.strips.size },
-    },
-    purge: { expressions: plan.expressionCount, strippedBlobs: strippedBlobs.length },
     after: { objects: objectCounts(after), catalogueHits: 0, oracleGaps: 0, oracleDisposed: residue.disposed, undecodableExempted: rescanned.catalogue.undecodable.length },
     refMap: afterMappings,
-    identities: {
-      allowedSha256: sha256([...allowed].sort().join("\n")),
-      unallowedAddresses: addressJudgement.unallowed.size,
-      disposedAddresses: addressJudgement.disposed.size,
-      mappedAddresses: addressJudgement.mapped.size,
-      rewrittenObjects: addressRewrite.rewrittenObjects,
-      strippedBlobs: addressRewrite.strippedBlobs.length,
-      changedCommits: commitMapText.split("\n").slice(1).filter((line) => { const [old, now] = line.split(" "); return old !== undefined && now !== undefined && old !== now; }).length,
-    },
+    allowedIdentitiesSha256: sha256([...allowed].sort().join("\n")),
     tools: {
       git: gitOutput(run, ["--version"]).stdout.toString("utf8").trim(),
       python: await hostProgramVersion("python3", projectEnvironment(process.env, COMMAND_ENVIRONMENT)),
@@ -1478,6 +1650,25 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   const named = pathsByObject(before);
   const record: HistoryImportRecord = deepFreeze({
     receipt,
+    measured: {
+      before: { refs: Object.keys(before.refs).length, objects: objectCounts(before), scannedBytes: scan.scanned.bytes },
+      findings: {
+        catalogue: countByEntry(scan.hits),
+        oracle: { covered: judgement.covered, disposed: judgement.disposed },
+        review: { dispositions: review.dispositions.length, binaries: review.binaries.size, addresses: review.addresses.size, strips: review.strips.size },
+      },
+      purge: { expressions: plan.expressionCount, strippedBlobs: strippedBlobs.length },
+      identities: {
+        unallowedAddresses: addressJudgement.unallowed.size,
+        disposedAddresses: addressJudgement.disposed.size,
+        mappedAddresses: addressJudgement.mapped.size,
+        rewrittenObjects: addressRewrite.rewrittenObjects,
+        strippedBlobs: addressRewrite.strippedBlobs.length,
+        changedCommits: changedCommits(commitMapText).size,
+        replacedObjects: oldIds.length,
+        notesCommitsRewritten: notesRewritten,
+      },
+    },
     beforeRefs: before.refs,
     firstChangedCommits: firstChangedCommits(mirror),
     strippedBlobs: strippedBlobs.map((oid) => ({ oid, paths: named.get(oid) ?? [] })),
@@ -1498,14 +1689,18 @@ export async function importHistory(request: HistoryImportRequest, options: Hist
   // The receipt is published too: its commit, its tree and its blob, and its ref name pass the same census.
   const withReceipt = enumerateHistory(mirror);
   const judged = new Set(after.objects.map((object) => object.oid));
-  const receiptCensus = await runAddressCensus(mirror, known, {
-    objects: new Set(withReceipt.objects.map((object) => object.oid).filter((oid) => !judged.has(oid))),
-    refs: new Set(Object.keys(withReceipt.refs).filter((ref) => !(ref in after.refs))),
+  const receiptCensus = await runAddressCensus(mirror, {
+    known, oldIds,
+    only: {
+      objects: new Set(withReceipt.objects.map((object) => object.oid).filter((oid) => !judged.has(oid))),
+      refs: new Set(Object.keys(withReceipt.refs).filter((ref) => !(ref in after.refs))),
+    },
   });
   const leftReceipt = addressesLeft(receiptCensus, allowed, review);
   if (leftReceipt.length > 0) {
     refuseAddresses(runFolder, leftReceipt, "history_import_identity_residue", "the receipt carries addresses not on the allowed identities (the receipt commit's identity is historyImport.identity in the root policy)");
   }
+  refuseOldIds(runFolder, receiptCensus.oldIds, "the receipt");
   pushHistory(mirror, target!, [...afterMappings, { source: POLICY.receipt.ref, target: POLICY.receipt.ref, oid: receiptCommit }]);
 
   writePrivate(join(runFolder, "record.json"), `${canonicalJson(record)}\n`);
@@ -1522,4 +1717,16 @@ function addressesLeft(census: AddressCensus, allowed: ReadonlySet<string>, revi
     ...census.occurrences.filter((occurrence) => !allowed.has(occurrence.key) && !review.addresses.has(addressDigest(occurrence.key))),
     ...census.known,
   ];
+}
+
+/**
+ * Refuses (`history_import_old_id_residue`) when `places` (from the census after the rewrite) name an old object
+ * id, writing `old-ids.json` (the published objects, by their NEW ids, and the ref names counted): what a person
+ * needs to remove or translate them in the source. The message counts only.
+ */
+function refuseOldIds(runFolder: string, places: readonly KnownPlace[], what: string): void {
+  if (places.length === 0) return;
+  const where = occurrenceObjects(places.map((place) => ({ place })));
+  writePrivate(join(runFolder, "old-ids.json"), `${JSON.stringify({ stage: what, objects: where.objects, refs: where.refs, places: [...new Set(places.map((place) => place.kind))].sort() }, null, 2)}\n`);
+  refuse(runFolder, `${what} still names an object id from before the rewrite in ${String(where.objects.length)} object(s)${where.refs > 0 ? ` and ${String(where.refs)} ref name(s)` : ""} (a notes tree on a rewritten commit, a list of commit ids, an id no rewrite translated; listed in old-ids.json)`, "history_import_old_id_residue", { objects: where.objects.length, refs: where.refs });
 }

@@ -67,7 +67,7 @@ The folder lives at `engine/src/timeline/`.
 - `ledger-primitives.ts` is consumed by `engine/src/cli.ts`, `engine/src/kernel/execution-closure.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/recorded-effect.ts`, `engine/src/timeline/timeline-query.ts` and 4 more.
 - `provider-recording.ts` is consumed by nothing yet.
 - `recorded-effect.ts` is consumed by `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/exposure/action.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/effect-sink.ts`, `engine/src/timeline/provider-recording.ts` and 1 more.
-- `recording-context.ts` is consumed by `engine/src/cli.ts`, `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/timeline/effect-sink.ts` and 5 more.
+- `recording-context.ts` is consumed by `engine/src/cli.ts`, `engine/src/performance/engine-instrumentation.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/timeline/effect-sink.ts` and 6 more.
 - `rollback.ts` is consumed by `engine/src/timeline/timeline-recorder.ts`, `engine/src/workflow/harness-commands.ts`.
 - `timeline-config.ts` is consumed by `engine/src/runtime/harness-bootstrap.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/timeline-store.ts`, `server/kernel/canonical.ts`.
 - `timeline-query.ts` is consumed by `engine/src/timeline/timeline-recorder.ts`, `server/kernel/canonical.ts`.

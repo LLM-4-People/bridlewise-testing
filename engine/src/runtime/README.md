@@ -41,7 +41,7 @@ The folder lives at `engine/src/runtime/`.
 - `extension-tools.ts` is consumed by nothing yet.
 - `git-tools.ts` is consumed by nothing yet.
 - `governed-tool-dispatch.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/interactive-session.ts`.
-- `harness-bootstrap.ts` is consumed by `engine/src/cli.ts`, `engine/src/workflow/harness-commands.ts`.
+- `harness-bootstrap.ts` is consumed by `engine/src/cli.ts`, `engine/src/workflow/forge/history-child.ts`, `engine/src/workflow/harness-commands.ts`.
 - `intelligence-tools.ts` is consumed by nothing yet.
 - `interactive-session.ts` is consumed by `engine/src/index.ts`.
 - `orchestrator-tools.ts` is consumed by `server/kernel/canonical.ts`.

@@ -23,9 +23,9 @@
  *   the public tree as well.
  *
  * A MAPPED-FROM address is KNOWN, so it is also searched as that value in
- * every spelling a reader would recognise ({@link knownAddresses}: escapes,
- * entities, quoted-printable, base64, compatibility forms, `[at]`/`[dot]`,
- * a folded line, a quoted local part): one the rewrite cannot reach is
+ * every spelling a reader would recognise ({@link knownAddresses}: its
+ * letter-and-digit SKELETON in the skeleton of every reading, after every
+ * escape and payload a reader decodes): one the rewrite cannot reach is
  * refused, before the rewrite and again after it. The shape stays the
  * defence in depth for every address nobody named.
  *
@@ -40,7 +40,7 @@
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { decodeHtmlEntities } from "../../../../shared/markup.ts";
+import { looseCharacterReferences } from "../../../../shared/markup.ts";
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { pathHasSecondName } from "../../filesystem/link-containment.ts";
 import { unicodeCaseFold } from "../../repository-path/index.ts";
@@ -214,59 +214,57 @@ export function withoutAddresses(text: string): string {
 // ── A KNOWN address, in any spelling ─────────────────────────────────────
 //
 // The shape finds an address that is written as one. An address the gate KNOWS (a mapped-from address: the
-// mapping names it) is searched as that value, in every spelling a reader would still recognise: entities
-// (`&#64;`), quoted-printable (`=40`, soft line breaks), percent and backslash escapes, base64 at any
-// alignment, a compatibility form (fullwidth `＠`) after NFKC, any case, invisible characters removed, a line
-// folded inside it, `[at]`/`[dot]` and `at`/`dot` words, `_` or `-` for a dot, a quoted local part.
+// mapping names it) is searched as its SKELETON: its letters and digits, in order, after NFKC, the one case
+// fold and the removal of every invisible character. Every reading of a text is reduced the same way, so any
+// separator, any spelling of `@` or `.` (`[at]`, U+3002, a letter-spaced line, a soft hyphen, a folded line),
+// any case and any compatibility form is the same skeleton; the escapes a reader decodes (character
+// references written loosely, percent, quoted-printable, backslash with octal, twice for a double encoding)
+// and the payloads a reader decodes (base64 and hex at any alignment) are read first. STRICT by decision: a
+// text whose letters run through the address's skeleton is refused unless the address is disposed.
 
-/** What a text is searched in for a known address: NFKC, the one case fold, then default-ignorable characters (zero-width spaces, soft hyphens) removed. */
-export function canonicalText(text: string): string {
+/** What a text is compared in: NFKC, the one case fold, then default-ignorable characters (zero-width spaces, soft hyphens) removed. */
+function canonicalText(text: string): string {
   return unicodeCaseFold(text.normalize("NFKC")).normalize("NFKC").replace(/\p{Default_Ignorable_Code_Point}/gu, "");
 }
 
-/** What may stand between two parts of a known address's local part or domain: up to 8 separators, or a `dot` word. */
-const KNOWN_SEPARATOR = String.raw`(?:[\s"'._+\-\\=()\[\]{}<>]{0,8}|[\s"'._\-()\[\]{}<>]{0,4}dot[\s"'._\-()\[\]{}<>]{0,4})`;
-/** What may stand for its `@`: `@` (any compatibility form, after NFKC) or an `at` word, with up to 8 separators on each side (a line fold, brackets, a quote). */
-const KNOWN_AT = String.raw`[\s"'._\-\\=()\[\]{}<>]{0,8}(?:@|at)[\s"'._\-\\=()\[\]{}<>]{0,8}`;
+/** A text's skeleton: its {@link canonicalText} with every character that is not a letter or a digit removed. */
+function textSkeleton(text: string): string {
+  return canonicalText(text).replace(/[^\p{L}\p{N}]+/gu, "");
+}
 
-/** A known address (its folded form) and the pattern that finds it, in any spelling, in a {@link canonicalText}. */
-export type KnownAddress = Readonly<{ key: string; pattern: RegExp }>;
+/** A known address: its folded form, its skeleton, and the search for that skeleton (its parts may also be joined by `at` and `dot` words, which a skeleton keeps as letters: `[at]`, `(dot)`). */
+export type KnownAddress = Readonly<{ key: string; skeleton: string; pattern: RegExp }>;
 
-/** The search for each of `keys` (folded addresses): its local part's and its domain's letter-and-digit runs, in order, with any separator spelling between them. */
+/** The search for each of `keys` (folded addresses). */
 export function knownAddresses(keys: Iterable<string>): readonly KnownAddress[] {
-  const runs = (part: string): string => part.split(/[^\p{L}\p{N}\p{M}]+/u).filter((run) => run.length > 0)
-    .map((run) => run.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(KNOWN_SEPARATOR);
+  const runs = (part: string): readonly string[] => part.split(/[^\p{L}\p{N}]+/u).map(textSkeleton).filter((run) => run.length > 0);
   return deepFreeze([...new Set(keys)].sort().map((key) => {
     const at = key.lastIndexOf("@");
-    return { key, pattern: new RegExp(`${runs(key.slice(0, at))}${KNOWN_AT}${runs(key.slice(at + 1))}`, "gu") };
+    const joined = (part: string): string => runs(part).map((run) => run.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("(?:dot)?");
+    return { key, skeleton: textSkeleton(key), pattern: new RegExp(`${joined(key.slice(0, at))}(?:at)?${joined(key.slice(at + 1))}`, "gu") };
   }));
 }
 
-/** Each known address `canonical` holds, and whether every match is the address exactly as folded (`exact`), or some match is another spelling. */
-export function knownMatches(canonical: string, known: readonly KnownAddress[]): readonly Readonly<{ key: string; exact: number; other: number }>[] {
-  const found: { key: string; exact: number; other: number }[] = [];
-  for (const { key, pattern } of known) {
-    let exact = 0;
-    let other = 0;
-    for (const match of canonical.matchAll(pattern)) {
-      if (match[0] === key) exact += 1;
-      else other += 1;
-    }
-    if (exact + other > 0) found.push({ key, exact, other });
+/** How many times each known address's skeleton occurs (without overlap) in the skeleton of `text` (one reading). Linear: each search starts with a literal run. */
+export function knownMatches(text: string, known: readonly KnownAddress[]): readonly Readonly<{ key: string; count: number }>[] {
+  if (known.length === 0) return [];
+  const skeleton = textSkeleton(text);
+  const found: { key: string; count: number }[] = [];
+  for (const { key, skeleton: wanted, pattern } of known) {
+    if (wanted.length === 0) continue;
+    const count = [...skeleton.matchAll(pattern)].length;
+    if (count > 0) found.push({ key, count });
   }
   return found;
 }
 
-/** A byte escape (`%XX`, quoted-printable `=XX` and its soft line break, `\\xXX`). */
+/** A byte escape (`%XX`, quoted-printable `=XX` and its soft line break, `\xXX`). */
 const BYTE_ESCAPE = /%([0-9A-Fa-f]{2})|=([0-9A-Fa-f]{2})|=\r?\n|\\x([0-9A-Fa-f]{2})/gu;
-/** A backslash escape (`\\uXXXX`, `\\u{X}`, a backslash before a character). */
-const BACKSLASH_ESCAPE = /\\u\{([0-9A-Fa-f]{1,6})\}|\\u([0-9A-Fa-f]{4})|\\([^\n])/gu;
+/** A backslash escape (`\uXXXX`, `\u{X}`, an octal `\NNN`, a backslash before a character). */
+const BACKSLASH_ESCAPE = /\\u\{([0-9A-Fa-f]{1,6})\}|\\u([0-9A-Fa-f]{4})|\\([0-7]{1,3})|\\([^\n])/gu;
 
-/**
- * `text` with every escape decoded: byte escapes as UTF-8 bytes (lossy), then character references (by the
- * ONE markup owner, `decodeHtmlEntities`), then backslash escapes.
- */
-export function unescapedText(text: string): string {
+/** `text` with every escape decoded ONCE: byte escapes as UTF-8 bytes (lossy), then character references as a reader takes them (the ONE markup owner, `looseCharacterReferences`), then backslash escapes. */
+function unescapedOnce(text: string): string {
   const parts: Buffer[] = [];
   let last = 0;
   for (const match of text.matchAll(BYTE_ESCAPE)) {
@@ -277,11 +275,33 @@ export function unescapedText(text: string): string {
   }
   const bytesDecoded = last === 0 ? text : Buffer.concat([...parts, Buffer.from(text.slice(last), "utf8")]).toString("utf8");
   const point = (value: number): string => (value <= 0x10ffff && (value < 0xd800 || value > 0xdfff) ? String.fromCodePoint(value) : "");
-  return decodeHtmlEntities(bytesDecoded).replace(BACKSLASH_ESCAPE, (whole, braced?: string, four?: string, escaped?: string) => {
+  return looseCharacterReferences(bytesDecoded).replace(BACKSLASH_ESCAPE, (whole, braced?: string, four?: string, octal?: string, escaped?: string) => {
     if (braced !== undefined) return point(Number.parseInt(braced, 16));
     if (four !== undefined) return point(Number.parseInt(four, 16));
+    if (octal !== undefined) return point(Number.parseInt(octal, 8));
     return escaped ?? whole;
   });
+}
+
+/** `text` with every escape decoded, twice (a double encoding such as `%2540`). */
+export function unescapedText(text: string): string {
+  const once = unescapedOnce(text);
+  return once === text ? text : unescapedOnce(once);
+}
+
+/** A run of hex digits long enough to hold an address (5 bytes or more). */
+const HEX_RUN = /[0-9A-Fa-f]{10,}/gu;
+
+/** The bytes of every hex run in `text`, at both alignments. */
+export function hexPayloads(text: string): readonly Buffer[] {
+  const payloads: Buffer[] = [];
+  for (const match of text.matchAll(HEX_RUN)) {
+    for (const offset of [0, 1]) {
+      const even = match[0].slice(offset, offset + Math.floor((match[0].length - offset) / 2) * 2);
+      payloads.push(Buffer.from(even, "hex"));
+    }
+  }
+  return payloads;
 }
 
 /** A run of base64 (standard or URL-safe), possibly wrapped over lines (MIME, PEM, a folded header). */

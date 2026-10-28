@@ -58,7 +58,7 @@ export const NON_ASCII_ADDRESS = "jösé@example.invalid";
  * ampersand so no reference is spelled in the source.
  */
 const AMPERSAND = String.fromCharCode(0x26);
-export const AT_REFERENCES = Object.freeze({ decimal: `${AMPERSAND}#64;`, hex: `${AMPERSAND}#x40;`, named: `${AMPERSAND}commat;` });
+export const AT_REFERENCES = Object.freeze({ decimal: `${AMPERSAND}#64;`, hex: `${AMPERSAND}#x40;`, named: `${AMPERSAND}commat;`, softHyphen: `${AMPERSAND}shy;` });
 /** The address the tests' identity mapping brings the unallowed one to. */
 export const MAPPED_ADDRESS = "mapped@example.invalid";
 

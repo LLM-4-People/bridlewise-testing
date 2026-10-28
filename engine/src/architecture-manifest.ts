@@ -257,6 +257,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       "src/evaluation/cli.ts",
       "src/intelligence/farm-child.ts",
       "src/tools/concurrent/long-task-wrapper.mjs",
+      "src/workflow/forge/history-child.ts",
       "src/workflow/harness-commands.ts",
       "src/workflow/workspace-cli.ts",
     ],
@@ -5850,24 +5851,25 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
       dependencies: ["src/kernel/integrity.ts","src/privacy/secret-signals.ts"],
     }),
     moduleContract({
-      id: "src-workflow-forge-history-census-child", path: "src/workflow/forge/history-census-child.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 0, namesSha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
-      dependencies: ["node:fs","src/runtime/cli-debug.ts","src/workflow/forge/history-identities.ts","src/workflow/forge/history-import.ts"],
-    }),
-    moduleContract({
       id: "src-workflow-forge-history-identities", path: "src/workflow/forge/history-identities.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "51c30856387a24effd1eda6015c58424a56b779a0885d4d18673137c1c284056" },
+      owner: "verification-workflow", publicApi: { exportCount: 26, namesSha256: "5e80f87348b85501444f3c8b311d62939e6b483e82f69ef136a319f550b1452f" },
       dependencies: ["../shared/markup.ts","node:fs","node:path","src/filesystem/link-containment.ts","src/kernel/integrity.ts","src/repository-path/index.ts","src/workflow/forge/codes.ts"],
     }),
     moduleContract({
       id: "src-workflow-forge-history-import", path: "src/workflow/forge/history-import.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 43, namesSha256: "e26aa4fd56ac2a0b2b2a6da2addd99baf7a8c582942e679118fc8c3fe5d14de6" },
+      owner: "verification-workflow", publicApi: { exportCount: 49, namesSha256: "024da53b7077c3373905d2f7372767abd61fcadd3477e649efe4f121d2e77144" },
       dependencies: ["node:fs","node:os","node:path","node:url","src/filesystem/atomic-write.ts","src/filesystem/private-home.ts","src/filesystem/private-state.ts","src/git/git-port.ts","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/kernel/root-policy.ts","src/privacy/privacy-policy.ts","src/privacy/redaction-engine.ts","src/privacy/secret-intelligence.ts","src/privacy/secret-signals.ts","src/process/environment-projection.ts","src/shared/debug/debug-system.ts","src/workflow/forge/codes.ts","src/workflow/forge/gitleaks-config.ts","src/workflow/forge/history-identities.ts","src/workflow/forge/history-tools.ts","zod"],
     }),
     moduleContract({
       id: "src-workflow-forge-history-tools", path: "src/workflow/forge/history-tools.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 11, namesSha256: "0ef6ca32c55d4d3e2b8576f07cbecbfe413ade1ba8518f0486f61eabe93ece31" },
       dependencies: ["node:fs","node:path","src/kernel/integrity.ts","src/kernel/root-policy.ts","src/process/subprocess-bounds.ts","src/process/supervised-run.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/history-identities.ts","src/workflow/workflow-config.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-history-child", path: "src/workflow/forge/history-child.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 0, namesSha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945" },
+      dependencies: ["node:fs","src/runtime/cli-debug.ts","src/runtime/harness-bootstrap.ts","src/timeline/recording-context.ts","src/workflow/forge/history-identities.ts","src/workflow/forge/history-import.ts"],
+      executionBoundary: "composition-root", compositionRoot: true,
     }),
   ],
 });

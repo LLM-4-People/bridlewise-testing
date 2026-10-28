@@ -67,6 +67,19 @@ export function decodeHtmlEntities(text: string): string {
   return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/gu, (whole, decimal, hex, name) => referenceValue(whole, decimal, hex, name));
 }
 
+/**
+ * Every character reference token AS A READER MAY WRITE IT, for a search (never for rendering): a numeric
+ * reference (`&#NN`, `&#xNN`) with or without its `;` is its character; a named one this owner knows is its
+ * character; any other name (`&shy;`, a name no table holds) is REMOVED, since a reader skips what it does
+ * not show. ONE pass.
+ */
+export function looseCharacterReferences(text: string): string {
+  return text.replace(/&(?:#(\d{1,7});?|#[xX]([0-9a-fA-F]{1,6});?|([a-zA-Z][a-zA-Z0-9]{0,31});)/gu, (whole, decimal, hex, name) => {
+    const value = referenceValue(whole, decimal, hex, name);
+    return value === whole && name !== undefined ? "" : value;
+  });
+}
+
 /** One character reference's character, or the reference as written when it names none. */
 function referenceValue(whole: string, decimal: string | undefined, hex: string | undefined, name: string | undefined): string {
   if (decimal !== undefined || hex !== undefined) {
