@@ -941,6 +941,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/declarations.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/forge/github-client.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -949,7 +957,55 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/forge/main-red.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/plan.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/projector.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/proving-ground-api.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/proving-isolation.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/forge/publish/product.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/forge/roadmap-feed.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -3829,6 +3885,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/community-categories.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/community-health-files.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4085,6 +4149,14 @@
       "blocksFullRepositoryClaim": false
     },
     {
+      "path": "test/workflow/site-prose.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "test/workflow/test-execution-config.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
@@ -4126,6 +4198,14 @@
     },
     {
       "path": "test/workflow/tracker-items.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "canonical-node-test",
+      "rationale": "Auto-registered by npm test auto-heal.",
+      "evidenceLinks": [],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "test/workflow/tracker-status.test.ts",
       "language": "javascript-typescript",
       "disposition": "canonical-node-test",
       "rationale": "Auto-registered by npm test auto-heal.",
@@ -4293,5 +4373,5 @@
       "blocksFullRepositoryClaim": false
     }
   ],
-  "integrityHash": "465dcafb3028bca150c388946a88e055a1ec67e6dde3b7b85e3ef5eb909463e4"
+  "integrityHash": "ceb422cc7736bef3a6ed3ad1152c815f2ff3d896a08758fc228c10318a0516f2"
 }

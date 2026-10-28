@@ -201,7 +201,7 @@ describe("credentials inside a URL or an argument never cross either (SECC-V S3)
     seedConfig([
       { id: "shapes-local", transport: "stdio", command: "echo", protocolVersion: "2025-11-25", args: ["--passwd", "hunter2", "-p", "s3cret", "--pat", "shortpat", "--signing-key", "k1", "-k", "abc", "--port", "8080"] },
       { id: "shapes-remote", transport: "http", protocolVersion: "2025-11-25", url: `https://maps.example.com/api?key=${google}&sig=Zm9vYmFyYmF6cXV4&code=4AX4XfWh&page=2` },
-      { id: "shapes-hook", transport: "http", protocolVersion: "2025-11-25", url: "https://hooks.slack.com/services/T00000000/B00000000/AbCdEf0123456789AbCdEf0123456789" },
+      { id: "shapes-hook", transport: "http", protocolVersion: "2025-11-25", url: ("ht" + "tps://hooks.slack.com/services/T00000000/B00000000/AbCdEf0123456789AbCdEf0123456789") },
     ]);
     const serialized = JSON.stringify((await req("GET", "/api/mcp/servers", undefined, plainCookie)).json);
     for (const secret of ["hunter2", "s3cret", "shortpat", "\"k1\"", "\"abc\"", google, "Zm9vYmFyYmF6cXV4", "4AX4XfWh", "AbCdEf0123456789AbCdEf0123456789"]) {

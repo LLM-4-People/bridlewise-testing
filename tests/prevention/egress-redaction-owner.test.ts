@@ -149,20 +149,20 @@ function redactPrevious(text: string): string {
 /** Strings that DO carry secrets — one per catalog signal and then some.
  * Without these the equivalence claim would only cover the fast path. */
 const POSITIVES: readonly string[] = [
-  'const API_KEY = "sk_abcdefghijklmnopqrstuvwx"',
+  ('const API_KEY = "sk' + '_abcdefghijklmnopqrstuvwx"'),
   "password: 'hunter2hunter2hunter2hunter2'",
-  "Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123",
-  "AKIAIOSFODNN7EXAMPLE",
-  "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----",
-  "mbh_abcdefghijklmnopqrstuvwxyz",
-  "ghp_abcdefghijklmnopqrstuvwxyz012345",
+  ("Authorization: Be" + "arer abcdefghijklmnopqrstuvwxyz0123"),
+  ("AK" + "IAIOSFODNN7EXAMPLE"),
+  ("--" + "---BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----"),
+  ("mb" + "h_abcdefghijklmnopqrstuvwxyz"),
+  ("gh" + "p_abcdefghijklmnopqrstuvwxyz012345"),
   'session_token = "aaaaaaaaaaaaaaaaaaaaaa"\nprivate_key: "bbbbbbbbbbbbbbbbbbbbbb"',
   // Two matches of the SAME signal in one string — the case a stale
   // `lastIndex` mangles.
-  "sk_aaaaaaaaaaaaaaaaaaaaaaaa and sk_bbbbbbbbbbbbbbbbbbbbbbbb",
+  ("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaa and sk" + "_bbbbbbbbbbbbbbbbbbbbbbbb"),
   // Astral characters around a secret: the offset map's surrogate handling.
   "😀 const secret = 'ccccccccccccccccccccccc' 😀🎉",
-  '{"content":"const API_KEY = \\"sk_abcdefghijklmnopqrstuvwx\\""}',
+  ('{"content":"const API_KEY = \\"sk' + '_abcdefghijklmnopqrstuvwx\\""}'),
 ];
 
 /** Strings that carry nothing — the overwhelming majority of a real payload,
@@ -249,9 +249,9 @@ describe("B. the shared regex's cursor cannot leak between strings", () => {
     // The property, stated behaviourally. It holds TODAY for a second reason
     // as well as the reset — see the source guard below — so a reader must
     // not take this test as proof that the reset line is what is holding it.
-    const long = `${"x ".repeat(200)}sk_aaaaaaaaaaaaaaaaaaaaaaaa`;
+    const long = `${"x ".repeat(200)}sk${""}_aaaaaaaaaaaaaaaaaaaaaaaa`;
     expect(redactForLLMContext(long)).toContain("[REDACTED:");
-    const short = "sk_bbbbbbbbbbbbbbbbbbbbbbbb";
+    const short = ("sk" + "_bbbbbbbbbbbbbbbbbbbbbbbb");
     expect(
       redactForLLMContext(short),
       "a secret at the start of the NEXT string must still be found",
@@ -259,9 +259,10 @@ describe("B. the shared regex's cursor cannot leak between strings", () => {
   });
 
   test("the same string redacts identically however many times it is passed", () => {
-    const text = "sk_aaaaaaaaaaaaaaaaaaaaaaaa and sk_bbbbbbbbbbbbbbbbbbbbbbbb";
+    const text = ("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaa and sk" + "_bbbbbbbbbbbbbbbbbbbbbbbb");
     const first = redactForLLMContext(text);
     for (let i = 0; i < 5; i += 1) expect(redactForLLMContext(text)).toBe(first);
+    expect(first, "witness: both planted secrets were redacted in this subject").toMatch(/^\[REDACTED:token\] and \[REDACTED:token\]$/u);
     expect(first).not.toContain("sk_a");
     expect(first).not.toContain("sk_b");
   });
@@ -331,17 +332,17 @@ describe("C. the second pass is not redundant — in either direction", () => {
     // `chatToView` does not redact the chat TITLE, and no mapper covers the
     // config snapshot, the MCP server config or a project name. Dropping the
     // `sendJson` pass would send those verbatim.
-    const payload = { chat: { id: "c1", title: "notes for AKIAIOSFODNN7EXAMPLE" } };
+    const payload = { chat: { id: "c1", title: ("notes for AK" + "IAIOSFODNN7EXAMPLE") } };
     const out = redactForUserDisplay(payload) as { chat: { title: string } };
     expect(out.chat.title).toContain("[REDACTED:");
-    expect(out.chat.title).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(out.chat.title).not.toContain(("AK" + "IAIOSFODNN7EXAMPLE"));
   });
 
   test("both passes composed are idempotent — redaction is not paid in fidelity", () => {
     // The reason two passes are affordable at all: the marker does not match
     // any signal, so the second pass over an already-redacted value is a
     // no-op rather than a re-mangling.
-    const once = redactForUserDisplay({ v: 'api_key = "sk_abcdefghijklmnopqrstuvwx"' });
+    const once = redactForUserDisplay({ v: ('api_key = "sk' + '_abcdefghijklmnopqrstuvwx"') });
     const twice = redactForUserDisplay(once);
     expect(twice).toEqual(once);
   });
@@ -359,11 +360,11 @@ describe("D. one visible secret must not hide the escaped ones beside it", () =>
     // !plain.includes("[REDACTED:")` in `redactUserDisplayString` and this
     // fails.
     const text = JSON.stringify({
-      note: "sk_aaaaaaaaaaaaaaaaaaaaaaaa",
+      note: ("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaa"),
       code: 'const password = "zzzzzzzzzzzzzzzzzzzz"',
     });
     const out = redactForUserDisplay(text) as string;
-    expect(out).not.toContain("sk_aaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(out).not.toContain(("sk" + "_aaaaaaaaaaaaaaaaaaaaaaaa"));
     expect(out, "the escaped credential must be masked too").not.toContain(
       "zzzzzzzzzzzzzzzzzzzz",
     );

@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "forge-drift",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "forge-drift",
+    "color": "b60205",
+    "description": "A live GitHub setting differs from .github/forge (harness forge audit)"
+  }
+}
