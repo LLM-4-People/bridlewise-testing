@@ -22,7 +22,7 @@
  *   action-pin / action-version-comment
  *       every external `uses:` is `owner/repo[/path]@<40-hex> # vN[.N[.N]]`;
  *       the commit and comment equal the registry entry.
- *   action-undeclared / local-workflow-undeclared
+ *   action-undeclared / local-workflow-undeclared / local-action-undeclared
  *       an action or reusable workflow the registry does not declare.
  *   image-digest / image-undeclared
  *       every `FROM`, `image:` and devcontainer feature carries
@@ -344,6 +344,7 @@ function audit(tree: Tree): Finding[] {
   const knownKinds = new Set([
     "github-action",
     "local-workflow",
+    "local-action",
     "runner",
     "node-runtime",
     "package-manager",
@@ -524,10 +525,29 @@ function audit(tree: Tree): Finding[] {
   const actionsById = new Map(actions.map((surface) => [surface.id, surface]));
   const actualActionFiles = new Map<string, Set<string>>();
   const actualLocalFiles = new Map<string, Set<string>>();
+  const actualLocalActionFiles = new Map<string, Set<string>>();
   for (const path of workflows) {
     if (!tree.has(path)) continue;
     const text = tree.read(path);
     for (const use of scanUses(text)) {
+      // A local ACTION (`./.github/actions/<name>`) is this repository's own code: its `action.yml` must exist, and
+      // the call is declared like a local workflow's, with every file that uses it.
+      if (use.ref.startsWith("./.github/actions/")) {
+        const target = use.ref.slice(2);
+        const declared = registry.surfaces.find((surface) => surface.kind === "local-action" && surface.id === use.ref);
+        if (!tree.has(`${target}/action.yml`)) {
+          findings.push({ rule: "local-action-undeclared", detail: `${path}:${use.line} uses ${use.ref}, which holds no action.yml` });
+        }
+        if (declared === undefined) {
+          findings.push({ rule: "local-action-undeclared", detail: `${path}:${use.line} uses undeclared local action ${use.ref}` });
+        } else {
+          if (declared.pinned["path"] !== target) findings.push({ rule: "local-action-undeclared", detail: `${use.ref} declares a different target than ${target}` });
+          const set = actualLocalActionFiles.get(use.ref) ?? new Set<string>();
+          set.add(path);
+          actualLocalActionFiles.set(use.ref, set);
+        }
+        continue;
+      }
       if (use.ref.startsWith("./")) {
         const target = use.ref.slice(2);
         if (!workflowUniverseIncludes(workflows, target) || !tree.has(target)) {
@@ -594,6 +614,9 @@ function audit(tree: Tree): Finding[] {
   }
   for (const local of ofKind("local-workflow")) {
     compareUsedIn(local, actualLocalFiles.get(local.id) ?? new Set<string>(), "local-workflow-usedin-mismatch");
+  }
+  for (const local of ofKind("local-action")) {
+    compareUsedIn(local, actualLocalActionFiles.get(local.id) ?? new Set<string>(), "local-action-usedin-mismatch");
   }
 
   // ── one CodeQL release across every entry ─────────────────────────────
@@ -1223,6 +1246,15 @@ describe("external surfaces — the live tree is declared and pinned", () => {
 });
 
 describe("external surfaces — plants fail for the defect they name", () => {
+  test("an undeclared or missing local action is refused, and so is one whose users the registry does not list", () => {
+    const original = LIVE.read(".github/workflows/ci.yml");
+    const declared = "uses: ./.github/actions/end-job-processes";
+    expect(original).toContain(declared);
+    expectRule(planted({ ".github/workflows/ci.yml": original.replace(declared, "uses: ./.github/actions/elsewhere") }), "local-action-undeclared", "./.github/actions/elsewhere");
+    const docs = LIVE.read(".github/workflows/docs-links.yml");
+    expectRule(planted({ ".github/workflows/docs-links.yml": docs.replace(declared, "run: echo none") }), "local-action-usedin-mismatch", "end-job-processes");
+  });
+
   test("a tag-pinned action is refused", () => {
     const original = LIVE.read(".github/workflows/ci.yml");
     const changed = original.replace(

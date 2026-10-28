@@ -1,0 +1,10 @@
+name: End this job's own processes
+description: >-
+  Armed right after the checkout; its post step runs after every other step and
+  every other action's post step (post steps run in reverse order), lists each
+  process still carrying this job's RUNNER_TRACKING_ID, ends them, and fails the
+  job naming each one (#421).
+runs:
+  using: node24
+  main: main.mjs
+  post: post.mjs

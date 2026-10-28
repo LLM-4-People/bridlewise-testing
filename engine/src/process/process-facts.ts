@@ -221,6 +221,43 @@ export function ownedAnnouncement(announced: ProcessIdentity): OwnedProcess {
   return own(announced);
 }
 
+/** The environment variable a GitHub Actions runner marks every process of a job with (its orphan cleanup ends them). */
+export const JOB_MARK_VARIABLE = "RUNNER_TRACKING_ID";
+
+/**
+ * Whether a process environment (procfs `environ`: NUL-separated entries)
+ * carries THIS job's mark — the entry `RUNNER_TRACKING_ID=<trackingId>`,
+ * exactly. Another job's id, one that merely starts or ends like this one,
+ * or the name without its value is not this job's mark.
+ */
+export function carriesJobMark(environ: string, trackingId: string): boolean {
+  if (trackingId.length === 0) return false;
+  return environ.split("\0").includes(`${JOB_MARK_VARIABLE}=${trackingId}`);
+}
+
+/**
+ * The live processes of THIS CI job (#421), owned: each carries this job's
+ * mark ({@link carriesJobMark}) — the runner started it for this job, which is
+ * the proof that the job's own reaper may end it — and is neither this
+ * process, one of its ancestors, nor one of its descendants. A process whose
+ * environment cannot be read is not this job's.
+ */
+export function jobProcesses(trackingId: string): readonly OwnedProcess[] {
+  const ancestry = new Set(ancestorsOf(process.pid));
+  ancestry.add(process.pid);
+  let entries: readonly string[];
+  try {
+    entries = readdirSync(procfsPath());
+  } catch {
+    return [];
+  }
+  return entries.filter((name) => /^\d+$/u.test(name)).map(Number).filter((pid) => {
+    if (ancestry.has(pid) || ancestorsOf(pid).includes(process.pid)) return false;
+    const environ = procfsDocument(String(pid), "environ");
+    return environ !== undefined && carriesJobMark(environ, trackingId);
+  }).map((pid) => own(processIdentity(pid)));
+}
+
 /** This process, owned by itself: what its lifecycle records so that a later step of the same run can stop it. */
 export function ownedSelf(): OwnedProcess {
   return own(processIdentity());
