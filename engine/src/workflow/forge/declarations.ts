@@ -114,7 +114,7 @@ function requiredChecksRule(settings: ForgeSettings): unknown {
   return { type: "required_status_checks", parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: checks } };
 }
 
-/** The merge queue rule (github-only §3.2, R1): MERGE, every entry judged, the generated bounds of `forge.mergeQueue`. */
+/** The merge queue rule (github-only §3.2, the trunk's ruleset): MERGE, every entry judged, the generated bounds of `forge.mergeQueue`. */
 function mergeQueueRule(settings: ForgeSettings): unknown {
   const queue = settings.mergeQueue;
   return { type: "merge_queue", parameters: {
