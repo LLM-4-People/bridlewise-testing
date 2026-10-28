@@ -5765,11 +5765,11 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-community-community-cli", path: "src/workflow/community/community-cli.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "dbf4220642228b9daecb8ff88b1cefb8ce3b53ea1355f7488ba9fc976d46f43c" },
-      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/command-result.ts","src/workflow/community/categories.ts","src/workflow/community/labels.ts","src/workflow/community/sources.ts","src/workflow/evidence-store.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts"],
+      dependencies: ["src/kernel/errors.ts","src/kernel/integrity.ts","src/workflow/command-result.ts","src/workflow/community/categories.ts","src/workflow/community/sources.ts","src/workflow/evidence-store.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/credentials.ts","src/workflow/forge/forge-config.ts"],
     }),
     moduleContract({
       id: "src-workflow-community-labels", path: "src/workflow/community/labels.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "fde5fab1d49638120459fc1ac065fa342196ff8ce9e33b0eca646cd3a574ca40" },
+      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "ff0f1e1c7985012f2fdeefcefd2b79087a74694a5e31d85ee2a0217203a50719" },
       dependencies: ["src/kernel/product-identity.ts","src/workflow/community/sources.ts","zod"],
     }),
     moduleContract({

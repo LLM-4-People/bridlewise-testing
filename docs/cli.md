@@ -87,7 +87,6 @@ Use it to confirm the config is pinned and hashed, not to claim that a run is sa
 | `harness benchmark` | Run performance benchmarks | Writes benchmark results |
 | `harness eval` | Run evaluation scenarios | Writes results |
 | `harness flake` | Inspect or reproduce flaky-test evidence | Varies |
-| `harness community labels` | Audit the community labels against `docs/community/labels.json`: a declared label missing or different in colour or description is drift (exit 1); the repository's other labels are listed. Token in `GH_TOKEN` | No |
 | `harness community categories` | Audit the repository's Discussion categories against `docs/community/intake.json`: each live category exists with its name, answerability and description, a planned one that now exists is flagged to flip, an undeclared one is named. Token in `GH_TOKEN`; drift exits 1 | No |
 | `harness extension list` | List registered extensions | No |
 

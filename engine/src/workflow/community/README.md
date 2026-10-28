@@ -44,13 +44,13 @@ folder owns what they are told and who may do what.
   exists, to flip live; an undeclared one). GitHub has no API that creates a
   category, so the audit is the receipt of the registry's live statuses and
   the maintainer's checklist.
-- `labels.ts` — THE COMMUNITY LABELS AS CODE: `docs/community/labels.json`
-  declares the labels the community surface relies on (`good first issue`,
-  `help wanted`, the ones Dependabot applies), each with its colour and
-  description; `labelDrift` names a declared label missing or different on
-  GitHub, and lists the repository's other labels (other owners write labels
-  too) without judging them.
-- `community-cli.ts` — THE `harness community` DOOR (`categories`, `labels`), on the
+- `labels.ts` — THE LABELS, DECLARED ONCE: `docs/community/labels.json` is the
+  one declaration of every label but the forge's `area:` ones (community,
+  Dependabot, lanes, the forge's markers), each with its colour and
+  description; `readLabels` validates it for `harness check` and for the
+  forge, whose `harness forge apply` is the one writer and `plan`/`audit` the
+  one drift report.
+- `community-cli.ts` — THE `harness community` DOOR (`categories`), on the
   `forge` configuration's trunk with the token in `GH_TOKEN`; drift exits 1.
 
 ## Where it lives and what consumes it
@@ -62,7 +62,7 @@ The folder lives at `engine/src/workflow/community/`.
 - `categories.ts` is consumed by `engine/src/workflow/community/community-cli.ts`.
 - `community-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
 - `health-files.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `labels.ts` is consumed by `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/health-files.ts`.
+- `labels.ts` is consumed by `engine/src/workflow/community/health-files.ts`.
 - `sources.ts` is consumed by `engine/src/workflow/community/categories.ts`, `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/community/labels.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts` and 3 more.
 
 <!-- /consumers:generated -->
