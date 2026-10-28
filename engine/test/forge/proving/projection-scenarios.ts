@@ -6,9 +6,12 @@
  * a FIXTURE board, not this repository's tracker: its objects carry the
  * `PG25-`/`PG28-` ids, so the two scenarios never touch each other's objects
  * (each sees the other's as orphans, which a run only reports). Its items are
- * in the tracker's own `floor` lane, whose label is declared once with the
- * forge's labels (the projector creates no label of its own). Reruns are
- * expected: the proving ground keeps the objects.
+ * in the tracker's own `floor` lane. PRECONDITION: the label `lane:floor`
+ * already exists on the proving ground. Nothing guarantees it there (the
+ * forge declares labels on the trunk only), and the projector must not be
+ * the one to create it, so each scenario verifies it before its first write
+ * (`requireLabels`, refused `proving_ground_label_missing` naming the label).
+ * Reruns are expected: the proving ground keeps the objects.
  *
  * - V-25 (idempotent): one run brings the proving ground to D (verified); a
  *   second run of the same D writes nothing and is verified.
@@ -32,9 +35,9 @@ import { configuredForge } from "../../../src/workflow/forge/configured-forge.ts
 import { applyProjection, type ProjectionReceipt } from "../../../src/workflow/forge/projector/apply.ts";
 import { hostConfinement } from "../../../src/workflow/forge/projector/confined.ts";
 import { githubProjectionStore } from "../../../src/workflow/forge/projector/github-store.ts";
-import { PROJECTION_INPUT_SCHEMA, type InputItem, type ProjectionInput } from "../../../src/workflow/forge/projector/model.ts";
+import { laneLabel, PROJECTION_INPUT_SCHEMA, type InputItem, type ProjectionInput } from "../../../src/workflow/forge/projector/model.ts";
 import { computeProjection } from "../../../src/workflow/forge/projector/projection.ts";
-import { v25Verdict, v28Verdict, type ProvingGround, type Verdict } from "../proving-ground-api.ts";
+import { requireLabels, v25Verdict, v28Verdict, type ProvingGround, type Verdict } from "../proving-ground-api.ts";
 
 const ENGINE_ROOT = join(import.meta.dirname, "..", "..", "..");
 /** The fixture board's source identity (a fixture, not a commit of this repository): the same D on every run. */
@@ -58,10 +61,12 @@ function fixtureInput(ground: ProvingGround, items: readonly InputItem[]): Proje
   };
 }
 
-/** One projector run of `input` on the proving ground (`previous`: the foreign-edit baseline, `null` for none). */
+/** One projector run of `input` on the proving ground (`previous`: the foreign-edit baseline, `null` for none), its label precondition verified first. */
 async function projectOnce(ground: ProvingGround, input: ProjectionInput, previous: ProjectionReceipt | null): Promise<ProjectionReceipt> {
+  const { maxPages } = configuredForge().request;
+  await requireLabels(ground, [laneLabel(LANE)], maxPages);
   const { projection } = computeProjection(input, hostConfinement(ENGINE_ROOT));
-  const store = githubProjectionStore(ground.client, { repository: `${ground.owner}/${ground.name}`, maxPages: configuredForge().request.maxPages });
+  const store = githubProjectionStore(ground.client, { repository: `${ground.owner}/${ground.name}`, maxPages });
   return applyProjection(projection, store, { allowance: ALLOWANCE, previous, foreignEdit: "auto" });
 }
 

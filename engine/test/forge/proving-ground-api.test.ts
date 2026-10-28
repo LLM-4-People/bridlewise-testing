@@ -13,6 +13,7 @@ import {
   branchGone,
   mainHead,
   provingGroundRepository,
+  requireLabels,
   requireConfigured,
   seedMain,
   v14Verdict,
@@ -213,4 +214,15 @@ test("V-28's verdict: the written candidate GitHub did not keep is caught as pro
     assert.equal(verdict.status, "fail", String(named));
     assert.match(verdict.detail, named);
   }
+});
+
+test("the projector scenarios' label precondition: a label missing on the proving ground is refused typed, naming it, before any write; present in any case, it holds", async () => {
+  const fake = fakeGithub();
+  let labels: { name: string }[] = [{ name: "good first issue" }];
+  fake.route("GET", new RegExp(`^${REPO}/labels$`, "u"), () => ({ status: 200, body: labels }));
+  const ground = groundOn(fake);
+  await assert.rejects(requireLabels(ground, ["lane:floor"], 10), (error: unknown) => refusedWith("proving_ground_label_missing")(error) && /lane:floor/u.test((error as Error).message));
+  assert.ok(fake.requests.length > 0 && fake.requests.every((request) => request.method === "GET"), "the precondition only reads");
+  labels = [{ name: "Lane:Floor" }];
+  await requireLabels(ground, ["lane:floor"], 10);
 });

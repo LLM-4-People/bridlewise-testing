@@ -22,6 +22,8 @@ so the offline suites never load them. Run them from the engine folder:
   - V-25: one run brings the proving ground to the projection, verified; a second run of the same projection writes nothing;
   - V-28: under a publisher token without push access, an issue's `type` that GitHub accepts and does not keep is caught as `projection_unverified`; a kept type is V-28's fail, never a pass.
 
+  Their fixture items are in the tracker's `floor` lane. PRECONDITION: the label `lane:floor` exists on the proving ground. The forge declares labels on the trunk only, and the projector never creates one, so each scenario reads the proving ground's labels before its first write and refuses `proving_ground_label_missing` when it is absent (`requireLabels` in `../proving-ground-api.ts`, tested offline).
+
   They run in the publish job (the publisher's key exists only there), which hands the installation tokens in `BRIDLEWISE_PUBLISHER_TOKEN` and `BRIDLEWISE_PUBLISHER_ISSUES_TOKEN`.
 - `run.ts` — the runner. It prints one JSON verdict per step, with its evidence URLs, and exits 1 if any step failed.
 

@@ -113,6 +113,22 @@ export async function commitVerification(ground: ProvingGround, sha: string): Pr
   return Object.freeze({ verified: answer.data?.verification?.verified === true, reason: String(answer.data?.verification?.reason ?? "unknown") });
 }
 
+/**
+ * A PRECONDITION OF THE PROJECTOR'S SCENARIOS: each label in `names` exists
+ * on the proving ground (GitHub compares label names without case). The
+ * projector is not a label's owner, and GitHub would create a missing label
+ * an issue write names, so a scenario verifies its labels before its first
+ * write and refuses typed (`proving_ground_label_missing`, naming each
+ * missing one) — a read only, never a write.
+ */
+export async function requireLabels(ground: ProvingGround, names: readonly string[], maxPages: number): Promise<void> {
+  const live = new Set((await ground.client.paginate<{ name: string }>({ path: provingGroundPath(ground, "/labels") }, { maxPages, perPage: 100 })).map((label) => label.name.toLowerCase()));
+  const missing = names.filter((name) => !live.has(name.toLowerCase()));
+  if (missing.length > 0) {
+    throw new HarnessError(`${ground.owner}/${ground.name} has no label ${missing.join(", ")}: the projector's scenarios need it there before their first write (declare it and apply it on the proving ground; the projector never creates one)`, "proving_ground_label_missing", false, { labels: missing.join(",") });
+  }
+}
+
 export type Verdict = Readonly<{ v: string; status: "pass" | "fail"; detail: string; evidence: readonly string[] }>;
 
 /** A verdict from named checks: pass only when every one held (the failed ones are named). */
