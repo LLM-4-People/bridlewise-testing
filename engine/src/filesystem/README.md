@@ -41,13 +41,14 @@ The key and SQLite migration are separate effects: a failed migration can leave 
 The folder lives at `engine/src/filesystem/`.
 
 - `atomic-write.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/pin-authority-regeneration.ts`, `engine/scripts/regenerate-handoff-manifest.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/scripts/tooling/roadmap-feed.ts` and 42 more.
-- `checkout-write-door.ts` is consumed by `engine/scripts/tooling/test-worker.ts`, `engine/src/filesystem/atomic-write.ts`, `engine/src/filesystem/database-provenance.ts`, `engine/src/filesystem/journaled-commit.ts`, `engine/src/filesystem/move-path.ts`, `engine/src/filesystem/private-home.ts` and 2 more.
+- `checkout-write-door.ts` is consumed by `engine/scripts/tooling/test-worker.ts`, `engine/src/filesystem/atomic-write.ts`, `engine/src/filesystem/database-provenance.ts`, `engine/src/filesystem/file-mode.ts`, `engine/src/filesystem/journaled-commit.ts`, `engine/src/filesystem/move-path.ts` and 3 more.
 - `database-files.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/filesystem/self-protection/key-home.ts`, `server/kernel/canonical.ts`.
 - `database-provenance.ts` is consumed by `engine/src/timeline/timeline-store.ts`, `server/db/client.ts`, `server/db/wire.ts`.
 - `durable-filesystem-contracts.ts` is consumed by `engine/src/filesystem/durable-filesystem-internal.ts`, `engine/src/filesystem/durable-filesystem.ts`.
 - `durable-filesystem-internal.ts` is consumed by `engine/src/filesystem/durable-filesystem.ts`, `engine/src/filesystem/immutable-receipt.ts`.
 - `durable-filesystem.ts` is consumed by nothing yet.
 - `file-lock.ts` is consumed by `engine/src/filesystem/journaled-commit.ts`, `engine/src/git/declared-deletions.ts`, `engine/src/kernel/config-write-lock.ts`, `engine/src/process/instrument-lock-adoption.ts`, `engine/src/process/instrument-lock.ts`, `engine/src/shared/run-history.ts` and 3 more.
+- `file-mode.ts` is consumed by `engine/scripts/tooling/bootstrap-permissions.ts`, `engine/src/workflow/checkout-setup.ts`.
 - `immutable-receipt.ts` is consumed by `engine/scripts/tooling/test-execution.ts`, `engine/src/workflow/evidence-store.ts`.
 - `journaled-commit.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/candidate-checkout.ts`, `engine/src/runtime/harness-bootstrap.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/promotion/publication.ts`.
 - `link-containment.ts` is consumed by `engine/scripts/tooling/bootstrap-permissions.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/safe-repository-reader.ts`, `engine/src/filesystem/durable-filesystem-internal.ts`, `engine/src/filesystem/immutable-receipt.ts` and 6 more.

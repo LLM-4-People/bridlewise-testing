@@ -40,7 +40,7 @@
  * mount (`safe_path_root_ancestor_mountpoint`), and a tmpfs loses it.
  */
 
-import { appendFileSync, chmodSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, statSync, symlinkSync } from "node:fs";
+import { appendFileSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, statSync, symlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { availableParallelism, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -49,6 +49,7 @@ import { StringDecoder } from "node:string_decoder";
 import { generateId, sha256 } from "../kernel/integrity.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
+import { settleFileMode } from "../filesystem/file-mode.ts";
 import { QUALIFICATION_INVOCATION_ENV } from "../shared/run-history.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
@@ -746,8 +747,10 @@ export function applyCheckoutFiles(
 export function settleCheckout(checkoutRoot: string, engineRelative: string): readonly CheckoutStep[] {
   const configPath = join(checkoutRoot, engineRelative, ROOT_POLICY.configuration.basename);
   if (!existsSync(configPath)) return Object.freeze([]);
-  chmodSync(configPath, Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
-  return Object.freeze([step("config-mode", "pass", `${ROOT_POLICY.configuration.requiredConfigFileMode} ${relative(checkoutRoot, configPath)}`)]);
+  // Through the one mode owner, which changes nothing when the mode is already right: a same-mode chmod
+  // still moves the ctime every configuration bootstrap compares (#293).
+  const changed = settleFileMode(configPath, Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
+  return Object.freeze([step("config-mode", "pass", `${ROOT_POLICY.configuration.requiredConfigFileMode} ${relative(checkoutRoot, configPath)}${changed ? "" : " (already)"}`)]);
 }
 
 /**
