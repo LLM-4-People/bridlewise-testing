@@ -259,9 +259,10 @@ function judgeFonts(args: { input: { stacks: Readonly<Record<string, string>>; f
     if (rendered) judge(getComputedStyle(el), kit.describe(el));
     // A control the browser draws text in: its value, placeholder or label (a text field, a date, a file's name, a
     // button). Judged by EXCLUSION: only the input types HTML gives no text at all — hidden, a checkbox, a radio
-    // button, a slider, a colour well, a picture button — are passed, so a type added later is judged by default.
+    // button, a slider, a colour well — are passed, so a type added later is judged by default. A picture button
+    // is judged: when its picture is unavailable, HTML renders it as a button labelled with its alt text.
     const control = el as Partial<HTMLInputElement>;
-    const drawsText = el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && !/^(?:hidden|checkbox|radio|range|color|image)$/u.test(control.type ?? "text"));
+    const drawsText = el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && !/^(?:hidden|checkbox|radio|range|color)$/u.test(control.type ?? "text"));
     if (drawsText && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its text)`);
     for (const pseudo of ["::before", "::after"]) {
       const style = getComputedStyle(el, pseudo);

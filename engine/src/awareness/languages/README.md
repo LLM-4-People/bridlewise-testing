@@ -9,6 +9,10 @@ here and registering it in `index.ts`.
 
 - `index.ts` — the language adapter registry: dispatches each file to the
   adapter whose extensions include the file's.
+- `python-tree-sitter.ts` — python adapter (tree-sitter) — REAL AST parser, no regex.
+- `python.ts` — python adapter — line + regex based.
+- `rust-tree-sitter.ts` — rust adapter (tree-sitter) — REAL AST parser, no regex.
+- `rust.ts` — rust adapter — line + regex based.
 - `typescript.ts` — the TypeScript/JavaScript adapter, using `@babel/parser`
   (a real parser, already a dependency).
 - `go.ts` / `python.ts` / `rust.ts` — the line+regex Go/Python/Rust
@@ -21,21 +25,6 @@ here and registering it in `index.ts`.
 - `generic.ts` — the fallback adapter for any file whose extension matches
   no language adapter, so the engine never silently skips a file.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/awareness/languages/`.
-
-- `generic.ts` is consumed by `engine/src/awareness/engine.ts`, `engine/src/awareness/languages/index.ts`.
-- `go-tree-sitter.ts` is consumed by `engine/src/awareness/languages/index.ts`.
-- `go.ts` is consumed by `engine/src/awareness/languages/go-tree-sitter.ts`.
-- `index.ts` is consumed by `engine/src/awareness/engine.ts`.
-- `python-tree-sitter.ts` is consumed by `engine/src/awareness/languages/index.ts`.
-- `python.ts` is consumed by `engine/src/awareness/languages/python-tree-sitter.ts`.
-- `rust-tree-sitter.ts` is consumed by `engine/src/awareness/languages/index.ts`.
-- `rust.ts` is consumed by `engine/src/awareness/languages/rust-tree-sitter.ts`.
-- `tree-sitter-base.ts` is consumed by `engine/src/awareness/languages/go-tree-sitter.ts`, `engine/src/awareness/languages/python-tree-sitter.ts`, `engine/src/awareness/languages/rust-tree-sitter.ts`.
-- `typescript.ts` is consumed by `engine/src/awareness/languages/index.ts`.
-
-<!-- /consumers:generated -->

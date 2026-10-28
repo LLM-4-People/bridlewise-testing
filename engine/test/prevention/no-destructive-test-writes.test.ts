@@ -884,17 +884,21 @@ const ENDED = (): boolean => false;
 test("prevention: a nested runner in a working copy protects THAT copy — generator CLIs with scrubbed env are refused (inventory renameSync, register)", async () => {
   const copy = createRepositoryWorkingCopy("checkout-door-", { include: (path) => path.startsWith("engine/") || path.startsWith("shared/") });
   try {
-    // A new test makes `test-inventory --write` rewrite the inventory and the
-    // root policy's pin; a new module makes `harness register --write` rewrite
-    // the architecture manifest.
+    // A new test makes `test-inventory --write` rewrite the inventory; module
+    // decisions out of their one form make `harness register --write` rewrite
+    // them (a new module writes nothing: its folder classifies it, #221).
     // An added case in an existing test file (dispositions stay complete).
     const existing = join(copy.engineRoot, "test", "shared-suite", "dev-mode-env.test.ts");
     writeFileSync(existing, `${readFileSync(existing, "utf8")}\ntest("checkout door probe extra case", () => {});\n`);
-    writeFileSync(join(copy.engineRoot, "src", "workflow", "door-probe-module.ts"), "export const PROBE = 1;\n");
+    const decisions = join(copy.engineRoot, "src", "architecture-modules.ts");
+    const lines = readFileSync(decisions, "utf8").split("\n");
+    const first = lines.findIndex((line) => line.startsWith("  { path: "));
+    [lines[first], lines[first + 1]] = [lines[first + 1]!, lines[first]!];
+    writeFileSync(decisions, lines.join("\n"));
     // The copy's OWN index (never the live one) stages the tree as it stands,
     // so the generators judge a coherent checkout and reach their writes.
     stageInCopy(copy.root, ["engine", "shared"]);
-    const watched = [...generatedOutputPaths(copy.root)].map((path) => join(copy.root, path)).filter((path) => existsSync(path));
+    const watched = [...generatedOutputPaths()].map((path) => join(copy.root, path)).filter((path) => existsSync(path));
     const before = watched.map((path) => readFileSync(path, "utf8"));
     const probe = plantProbe(copy.engineRoot, "generators", [
       `const env = ${JSON.stringify(scrubbedEnvironment())};`,

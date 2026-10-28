@@ -7,6 +7,7 @@
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
       ".github/workflows/commit-records.yml",
+      ".github/workflows/community.yml",
       ".github/workflows/dependency-review.yml",
       ".github/workflows/docs-links.yml",
       ".github/workflows/pages.yml",
@@ -44,6 +45,7 @@
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
@@ -63,12 +65,25 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",
         ".github/workflows/test-shards.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Node tarball it installs is pinned by the node-runtime surface; a moved action SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/create-github-app-token",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "fee1f7d63c2ff003460e3d139729b119787bc349",
+        "version": "v2.2.2"
+      },
+      "usedIn": [
+        ".github/workflows/community.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It mints the publisher App's installation token in the `publish` environment for the community bots, narrowed to the permissions each job names; a moved action SHA is refused until this declaration moves with it."
     },
     {
       "id": "actions/upload-artifact",
@@ -238,6 +253,7 @@
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
@@ -276,6 +292,7 @@
         "engine/package.json",
         ".github/workflows/ci.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/docs-links.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",

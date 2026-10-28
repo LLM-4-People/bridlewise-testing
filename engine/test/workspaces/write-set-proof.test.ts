@@ -5,9 +5,8 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK } from "../../src/kernel/verification-paths.ts";
+import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
 import { bindingPinRanges, generatedOutputPaths, isGenerationOnlyChange, wholesaleGeneratedPaths } from "../../src/workflow/hash-binding-registry.ts";
-import { TEST_REPOSITORY_ROOT } from "../support/repository-local-temporary.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 import {
@@ -97,9 +96,6 @@ test("a regeneration-only change: a wholly generated output always; a pin-bearin
   assert.equal(isGenerationOnlyChange(pinBearing, realPolicy, handEdit), false, "a hand edit beside the pin");
   assert.equal(isGenerationOnlyChange(pinBearing, null, withPin("a".repeat(64))), false, "an added file is authored");
   assert.equal(isGenerationOnlyChange(pinBearing, withPin("a".repeat(64)), null), false, "a deleted file is authored");
-  const readme = (prose: string, block: string): string => `# M\n${prose}\n${README_CONSUMER_BLOCK.begin}\n${block}\n${README_CONSUMER_BLOCK.end}\ntail\n`;
-  assert.equal(isGenerationOnlyChange("src/m/README.md", readme("p", "a"), readme("p", "a\nb")), true, "the consumer block re-derived");
-  assert.equal(isGenerationOnlyChange("src/m/README.md", readme("p", "a"), readme("q", "a")), false, "the README's prose edited");
   assert.equal(isGenerationOnlyChange("src/m/README.md", `x ${"a".repeat(64)}`, `x ${"b".repeat(64)}`), false, "a 64-hex value in a file that bears no pin is authored");
   const decisions = (prose: string, index: string): string => `${prose}\n${DECISION_INDEX.begin}\n${index}\n${DECISION_INDEX.end}\n`;
   assert.equal(isGenerationOnlyChange(DECISION_INDEX.path, decisions("p", "| a |"), decisions("p", "| a |\n| b |")), true, "the decision index re-derived");
@@ -109,7 +105,7 @@ test("a regeneration-only change: a wholly generated output always; a pin-bearin
 });
 
 test("every wholly generated output is a generated output (the lease exemption and the never-leasable set agree)", () => {
-  const generated = generatedOutputPaths(resolve(TEST_REPOSITORY_ROOT, ".."));
+  const generated = generatedOutputPaths();
   for (const wholesale of wholesaleGeneratedPaths()) assert.ok(generated.has(wholesale), wholesale);
 });
 

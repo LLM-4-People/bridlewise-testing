@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -10,15 +11,17 @@ import {
 import { createDiagnosticRunner } from "../../src/performance/diagnostic-modes.ts";
 import { generateFunctionManifest, validateFunctionManifest } from "../../src/performance/function-manifest.ts";
 import { createBenchmarkRunner, validateBenchmarkResult } from "../../src/performance/benchmark-runner.ts";
-import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 import { DEFAULT_PERFORMANCE_CONFIG, parsePerformanceConfig, isLabelAllowed, redactLabelValue } from "../../src/performance/performance-config.ts";
 import { makePerfConfig } from "../support/factories.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 const KEY: MetricScopeKey = { module: "test", function: "op", scope: "unit" };
 
 function repositoryModuleSources(): Map<string, string> {
   const map = new Map<string, string>();
-  for (const module of ARCHITECTURE_MANIFEST.modules) {
+  for (const module of REPOSITORY_MANIFEST.modules) {
     map.set(module.path, readFileSync(module.path, "utf8"));
   }
   return map;
@@ -156,7 +159,7 @@ test("hostile: function manifest does not echo a credential planted in a module 
   // `moduleSources` is the manifest's whole input, so a credential in a module
   // body is the real shape of this risk.
   const sources = repositoryModuleSources();
-  const planted = ARCHITECTURE_MANIFEST.modules[0];
+  const planted = REPOSITORY_MANIFEST.modules[0];
   assert.ok(planted !== undefined, "witness: the architecture manifest declares at least one module");
   sources.set(
     planted.path,
@@ -167,7 +170,7 @@ test("hostile: function manifest does not echo a credential planted in a module 
 
   const manifest = generateFunctionManifest({
     config: makePerfConfig(),
-    architectureModules: ARCHITECTURE_MANIFEST.modules,
+    architectureModules: REPOSITORY_MANIFEST.modules,
     moduleSources: sources,
   });
   const json = JSON.stringify(manifest);
@@ -273,10 +276,10 @@ test("hostile: snapshot after close still returns valid data", () => {
 test("hostile: function manifest stale detection blocks claims", () => {
   const manifest = generateFunctionManifest({
     config: makePerfConfig(),
-    architectureModules: ARCHITECTURE_MANIFEST.modules,
+    architectureModules: REPOSITORY_MANIFEST.modules,
     moduleSources: repositoryModuleSources(),
   });
-  const staleModules = ARCHITECTURE_MANIFEST.modules.slice(0, 5);
+  const staleModules = REPOSITORY_MANIFEST.modules.slice(0, 5);
   const result = validateFunctionManifest(manifest, staleModules);
   assert.equal(result.valid, false);
   assert.equal(result.stale, true);
@@ -353,12 +356,12 @@ test("integration: full pipeline - config, metrics, diagnostics, manifest, bench
   const collector = createMetricsCollector({ config });
   const diagRunner = createDiagnosticRunner({ config });
   const benchRunner = createBenchmarkRunner({ config });
-  const manifest = generateFunctionManifest({ config, architectureModules: ARCHITECTURE_MANIFEST.modules, moduleSources: repositoryModuleSources() });
+  const manifest = generateFunctionManifest({ config, architectureModules: REPOSITORY_MANIFEST.modules, moduleSources: repositoryModuleSources() });
 
   collector.recordCall(KEY, { runId: "integration" }, 10, "succeeded", "shared");
   const diagResults = diagRunner.runAll();
   const benchResult = await benchRunner.run({ name: "integration-bench", operation: () => {} });
-  const manifestValidation = validateFunctionManifest(manifest, ARCHITECTURE_MANIFEST.modules);
+  const manifestValidation = validateFunctionManifest(manifest, REPOSITORY_MANIFEST.modules);
 
   assert.ok(collector.snapshot().totalCallCount > 0);
   assert.ok(diagResults.length > 0);
