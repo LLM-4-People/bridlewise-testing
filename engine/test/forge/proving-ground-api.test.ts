@@ -6,6 +6,8 @@ import { configuredForge } from "../../src/workflow/forge/configured-forge.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import type { ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
+import type { ProjectionReceipt } from "../../src/workflow/forge/projector/apply.ts";
+import { schemaId } from "../../src/kernel/product-identity.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
 import {
   branchGone,
@@ -15,6 +17,8 @@ import {
   seedMain,
   v14Verdict,
   v15Verdict,
+  v25Verdict,
+  v28Verdict,
   v6Verdict,
   type ProvingGround,
 } from "./proving-ground-api.ts";
@@ -161,6 +165,49 @@ test("V-14's verdict: every one of the stack's six facts must hold; each that do
     [{ ...held, childChangedPaths: ["proving/v14/x/child.md", "proving/v14/x/parent.md"] }, /only its own change/u],
   ] as const) {
     const verdict = v14Verdict(broken, []);
+    assert.equal(verdict.status, "fail", String(named));
+    assert.match(verdict.detail, named);
+  }
+});
+
+/** A receipt with only what the verdict rules read set; the rest is a verified, empty run. */
+function receipt(overrides: Partial<ProjectionReceipt> = {}): ProjectionReceipt {
+  return {
+    schema: schemaId("projection-receipt", 1) as ProjectionReceipt["schema"], source: SHA("5"), ledger: null, digest: "d".repeat(64), observedDigest: "d".repeat(64),
+    writes: [], refusals: [], pending: [], orphans: [], unverified: [], foreignEdits: [], proposals: [], objects: {}, verified: true, ...overrides,
+  };
+}
+const write = (key: string, fields: readonly string[]): ProjectionReceipt["writes"][number] => ({ phase: "create", kind: "create", class: "issue", key, fields });
+
+test("V-25's verdict: a verified first run, the same D, and a second run with zero writes that is verified", () => {
+  const first = receipt({ writes: [write("PG25-T1", ["title", "block", "type"])] });
+  assert.equal(v25Verdict({ first, second: receipt() }, []).status, "pass");
+  for (const [broken, named] of [
+    [{ first: receipt({ verified: false }), second: receipt() }, /the first run is verified at D/u],
+    [{ first, second: receipt({ digest: "e".repeat(64) }) }, /both runs projected the same D/u],
+    [{ first, second: receipt({ writes: [write("PG25-T1", ["block"])] }) }, /the second run made zero writes/u],
+    [{ first, second: receipt({ verified: false }) }, /the second run is verified/u],
+  ] as const) {
+    const verdict = v25Verdict(broken, []);
+    assert.equal(verdict.status, "fail", String(named));
+    assert.match(verdict.detail, named);
+  }
+});
+
+test("V-28's verdict: the written candidate GitHub did not keep is caught as projection_unverified, naming only fields the run wrote", () => {
+  const candidate = "issue/PG28-PROBE.type";
+  const dropped = { class: "issue" as const, key: "PG28-PROBE", field: "type", expected: "Task", observed: null };
+  const caught = receipt({ writes: [write("PG28-PROBE", ["title", "block", "type", "labels"])], unverified: [dropped], verified: false });
+  assert.equal(v28Verdict({ receipt: caught, candidate }, []).status, "pass");
+  for (const [broken, named] of [
+    // GitHub KEPT the type: the candidate is no silent drop, and V-28 says so.
+    [receipt({ writes: [write("PG28-PROBE", ["title", "block", "type"])] }), /GitHub did not keep issue\/PG28-PROBE\.type/u],
+    [receipt({ writes: [write("PG28-PROBE", ["block"])], unverified: [dropped], verified: false }), /the run wrote issue\/PG28-PROBE\.type/u],
+    [receipt({ ...caught, unverified: [dropped, { ...dropped, key: "PG25-T1" }] }), /every unverified field is one the run wrote/u],
+    // A refusal is not a caught drop: its failure is the refusal's own code.
+    [receipt({ ...caught, unverified: [], refusals: [{ code: "forge_rate_limited", message: "x", retryable: true }] }), /its failure is projection_unverified/u],
+  ] as const) {
+    const verdict = v28Verdict({ receipt: broken, candidate }, []);
     assert.equal(verdict.status, "fail", String(named));
     assert.match(verdict.detail, named);
   }
