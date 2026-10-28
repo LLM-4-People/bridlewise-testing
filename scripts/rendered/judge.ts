@@ -462,8 +462,16 @@ async function countShifts(page: Page, counting: boolean): Promise<void> {
 export async function judgeStates(page: Page, surface: Surface, restore: RenderRestore | null, rules?: readonly PageRule[], states: readonly RenderState[] = statesOf(surface)): Promise<readonly string[]> {
   const findings: string[] = [];
   // The load is over once the page is ready as it loaded; the judge's own
-  // viewport and media changes that follow are not the page shifting.
+  // viewport and media changes that follow are not the page shifting. The
+  // page's clock holds still while the judge changes it, so what the page
+  // does next (a timer, a frame) happens after, where its shifts count again.
+  // The page's clock first runs one step on (its load's own timers fire and
+  // count) and then holds; a frame is drawn so those shifts are made before
+  // the count is switched off.
   await ready(page);
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + STEP_MS);
+  await ready(page);
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
   await countShifts(page, false);
   for (const state of states) {
     await enter(page, state);
@@ -476,6 +484,12 @@ export async function judgeStates(page: Page, surface: Surface, restore: RenderR
     await ready(page);
   }
   for (const finding of await judgeForcedStates(page, surface, rules)) findings.push(`(hover, active and focus forced) ${finding}`);
+  // A frame is drawn (a screenshot of one pixel), so every shift the judge's
+  // own changes caused is made and taken before the count runs again; then
+  // the page's clock runs on, and what the page does next is its own shift.
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  await countShifts(page, true);
+  await page.clock.resume();
   return findings;
 }
 
@@ -527,8 +541,6 @@ async function judgeForcedStates(page: Page, surface: Surface, rules?: readonly 
  * at the first moment it was seen.
  */
 export async function judgeFuture(page: Page, surface: Surface, rules?: readonly PageRule[]): Promise<readonly string[]> {
-  // Whatever the page's future moves is the page's own shift again.
-  await countShifts(page, true);
   const first = new Map<string, string>();
   const note = (moment: string, findings: readonly string[]): void => { for (const finding of findings) if (!first.has(finding)) first.set(finding, moment); };
   for (let at = STEP_MS; at <= FUTURE_MS; at += STEP_MS) {
