@@ -27,7 +27,9 @@ projection store.
   - a download follows one redirect, only to an asset origin and without the credential (another origin, a look-alike and a chain are refused);
   - the bytes are held to the caller's SHA-256, and the sink never sees a byte past the bound;
   - `downloadToFile` publishes only verified bytes (no partial file, no temporary sibling, an existing file untouched);
-  - a transfer that stops moving ends at the stall bound, and one that keeps moving is never cut (the mocked clock).
+  - there is no total wall cap: a slow download and a slow upload that keep moving past the progress floor finish, and a drip under the floor ends (the mocked clock);
+  - a stream reaching its declared size and then yielding more is refused before it completes;
+  - a local sink failure (a full disk) and the caller's own cancellation are their own failures, never GitHub's.
 - `proving/` — the proving-ground scenarios on real GitHub (P1.11, P3.8), run by `proving/run.ts`, never by the offline suites (see its README).
 - `proving-ground-api.ts` — the proving ground's rules on any forge client, shared by the scenarios and their offline tests (not a test file): the repository's identity (the one `provingGround` repository, never the trunk), the seed, the read-only configuration check, a deleted branch (404 only), a commit's verification, and the verdict rules of V-6, V-14 and V-15.
 - `proving-ground-api.test.ts` — those rules against the fake GitHub, each red under mutation.

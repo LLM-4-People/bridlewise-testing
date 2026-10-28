@@ -84,8 +84,8 @@ test("an upload whose bytes break their declaration is cut before it completes: 
       ] as const) {
         const fake = fakeGithub();
         const mark = connectionsClosed();
-        await assert.rejects(client(fake).upload({ path: UPLOADS, query: { name: "x.bin" }, contentType: "application/octet-stream", body: body(bytes, declared, chunk) }),
-          (error: unknown) => isForgeError(error, "forge_asset_integrity"), `${why}, ${String(size)} bytes in ${String(chunk)}-byte chunks`);
+        await within(assert.rejects(client(fake).upload({ path: UPLOADS, query: { name: "x.bin" }, contentType: "application/octet-stream", body: body(bytes, declared, chunk) }),
+          (error: unknown) => isForgeError(error, "forge_asset_integrity"), `${why}, ${String(size)} bytes in ${String(chunk)}-byte chunks`), `${why}, ${String(size)}/${String(chunk)}`);
         await connectionsSettled(mark);
         assert.deepEqual(fake.requests.filter((request) => request.host === UPLOADS_HOST), [], `${why}, ${String(size)}/${String(chunk)}: the server never handled a complete body`);
         assert.equal(fake.assets.size, 0, `${why}, ${String(size)}/${String(chunk)}: nothing was stored`);
@@ -158,24 +158,35 @@ test("a download to a file publishes only verified bytes: a refused download lea
   assert.deepEqual(readdirSync(directory), ["docs.tar.gz"]);
 });
 
+/** `promise`, settled within event-loop turns (never a clock): one still pending after them is a red with its name, never a hang. */
+async function within<T>(promise: Promise<T>, what: string): Promise<T> {
+  let settled = false;
+  const watched = promise.finally(() => { settled = true; });
+  for (let turn = 0; turn < 200_000 && !settled; turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.ok(settled, `${what} never settled`);
+  return watched;
+}
+
 /** Event-loop turns until `condition` holds (never a clock). */
 async function until(condition: () => boolean): Promise<void> {
   for (let turn = 0; turn < 200_000 && !condition(); turn += 1) await new Promise<void>((resolve) => setImmediate(resolve));
   assert.ok(condition(), "the condition never held");
 }
 
-test("a transfer that stops moving ends at the stall bound; one that keeps moving is never cut, however long it takes (mocked clock)", async (t) => {
+test("no total wall cap: a slow download and a slow upload that keep moving past the floor finish, however long; a drip under the floor, or silence, ends (mocked clock)", async (t) => {
   mockDoorClock(t);
   const fake = fakeGithub();
   const id = await uploaded(fake, new Uint8Array([0]));
   const path = `/repos/o/r/releases/assets/${String(id)}`;
+  // The floor in this test: 64 bytes in every 1 s window, and a request timeout of 1 s that assets do not use.
+  const floor = { progressWindowMs: 1_000, minBytesPerWindow: 64 };
   // A trickle the test drives: each chunk is pushed only when the test says so.
   let push: ((chunk: Uint8Array | null) => void) | undefined;
   fake.onAssetHost(() => new Response(new ReadableStream<Uint8Array>({ start(controller) { push = (chunk) => chunk === null ? controller.close() : controller.enqueue(chunk); } }), { status: 200 }));
-  // Moving: twenty chunks, each 900 ms after the last (18 s in all, past the 1 s request timeout and the 1 s stall bound), all arrive.
+  // Moving: twenty 64-byte chunks, one every 900 ms (18 s in all, eighteen windows), all arrive.
   const moving = new Uint8Array(randomBytes(20 * 64));
   let received = 0;
-  const slow = client(fake, { stallMs: 1_000 }, { timeoutMs: 1_000 }).download({ path, sha256: hex(moving), sink: (chunk) => { received += chunk.byteLength; } });
+  const slow = client(fake, floor, { timeoutMs: 1_000 }).download({ path, sha256: hex(moving), sink: (chunk) => { received += chunk.byteLength; } });
   await until(() => push !== undefined);
   for (let index = 0; index < 20; index += 1) {
     t.mock.timers.tick(900);
@@ -183,16 +194,68 @@ test("a transfer that stops moving ends at the stall bound; one that keeps movin
     await until(() => received === (index + 1) * 64);
   }
   push!(null);
-  assert.deepEqual(await slow, { bytes: moving.byteLength, sha256: hex(moving) });
-  // Stopped: one chunk, then nothing; the stall bound ends it.
+  assert.deepEqual(await within(slow, "the slow download"), { bytes: moving.byteLength, sha256: hex(moving) });
+  // A drip under the floor: the first window passes (GitHub's answer arrived in it), the second moves 10 bytes and ends it.
   push = undefined;
   let got = 0;
-  const stalled = client(fake, { stallMs: 1_000 }).download({ path, sha256: hex(moving), sink: (chunk) => { got += chunk.byteLength; } });
-  const refused = assert.rejects(stalled, (error: unknown) => isForgeError(error, "forge_asset_stalled"));
+  const dripping = client(fake, floor).download({ path, sha256: hex(moving), sink: (chunk) => { got += chunk.byteLength; } });
+  const dripRefused = assert.rejects(dripping, (error: unknown) => isForgeError(error, "forge_asset_stalled"));
   await until(() => push !== undefined);
-  push!(moving.subarray(0, 64));
-  await until(() => got === 64);
-  t.mock.timers.tick(999);
-  t.mock.timers.tick(1);
-  await refused;
+  push!(moving.subarray(0, 10));
+  await until(() => got === 10);
+  t.mock.timers.tick(1_000);
+  push!(moving.subarray(10, 20));
+  await until(() => got === 20);
+  t.mock.timers.tick(1_000);
+  await within(dripRefused, "the drip's end at the floor");
+  // A slow UPLOAD that keeps moving (the reviewer's shape): twenty 64-byte chunks, one every 900 ms, the 1 s request timeout far behind.
+  fake.onAssetHost(undefined);
+  const bytes = new Uint8Array(randomBytes(20 * 64));
+  let release: (() => void) | undefined;
+  let sent = 0;
+  const chunks = (async function* () {
+    for (let index = 0; index < 20; index += 1) {
+      await new Promise<void>((resolve) => { release = resolve; });
+      sent += 64;
+      yield bytes.subarray(index * 64, (index + 1) * 64);
+    }
+  })();
+  const upload = client(fake, floor, { timeoutMs: 1_000 }).upload<{ size: number }>({ path: UPLOADS, query: { name: "slow.bin" }, contentType: "application/octet-stream", body: { chunks, size: bytes.byteLength, sha256: hex(bytes) } });
+  for (let index = 0; index < 20; index += 1) {
+    await until(() => release !== undefined);
+    t.mock.timers.tick(900);
+    const go = release!;
+    release = undefined;
+    go();
+    await until(() => sent === (index + 1) * 64);
+  }
+  assert.equal((await within(upload, "the slow upload")).data.size, bytes.byteLength, "the slow upload landed whole");
+});
+
+test("a stream that reaches its declared size exactly and then yields more is refused before it completes (the reviewer's shape), at every chunk boundary", async () => {
+  // 12 288 bytes declared as 8 192, with the SHA-256 of the first 8 192: size and digest hold at 8 192, and more follows.
+  const bytes = new Uint8Array(randomBytes(12_288));
+  for (const chunk of [4_096, 8_192, 1_024]) {
+    const fake = fakeGithub();
+    const mark = connectionsClosed();
+    await within(assert.rejects(client(fake).upload({ path: UPLOADS, query: { name: "x.bin" }, contentType: "application/octet-stream", body: body(bytes, { size: 8_192, sha256: hex(bytes.subarray(0, 8_192)) }, chunk) }),
+      (error: unknown) => isForgeError(error, "forge_asset_integrity"), String(chunk)), String(chunk));
+    await connectionsSettled(mark);
+    assert.deepEqual(fake.requests.filter((request) => request.host === UPLOADS_HOST), [], `${String(chunk)}: the server never handled a complete body`);
+    assert.equal(fake.assets.size, 0, `${String(chunk)}: nothing was stored`);
+  }
+});
+
+test("a local failure (a full disk) and the caller's own cancellation are their own failures, never GitHub's", async () => {
+  const fake = fakeGithub();
+  const bytes = new Uint8Array(randomBytes(40_000));
+  const id = await uploaded(fake, bytes);
+  const path = `/repos/o/r/releases/assets/${String(id)}`;
+  const full = Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+  await assert.rejects(client(fake).download({ path, sha256: hex(bytes), sink: () => { throw full; } }),
+    (error: unknown) => isForgeError(error, "forge_asset_sink_failed") && /ENOSPC/u.test(error.message));
+  // The caller cancels with its own reason (not an AbortError): it gets that reason back, unchanged.
+  const controller = new AbortController();
+  const reason = new Error("the release was withdrawn");
+  await assert.rejects(client(fake).download({ path, sha256: hex(bytes), signal: controller.signal, sink: () => { controller.abort(reason); } }), (error: unknown) => error === reason);
 });

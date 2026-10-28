@@ -1079,8 +1079,8 @@
       "maxPages": 50,
       "assets": {
         "maxBytes": 1073741824,
-        "stallMs": 60000,
-        "hangBackstopMs": 7200000
+        "progressWindowMs": 30000,
+        "minBytesPerWindow": 1024
       }
     },
     "tokenRenewBeforeMs": 300000,

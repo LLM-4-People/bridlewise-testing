@@ -54,17 +54,19 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     maxPages: z.number().int().min(1).max(1_000),
     /**
      * A release asset's transfer (an upload or a download). It is bounded by
-     * size and by PROGRESS, never by a total wall time: a large asset on a
-     * loaded host is slow work, not a failure.
+     * size and by a PROGRESS FLOOR, never by a total wall time: every window
+     * of `progressWindowMs` must move `minBytesPerWindow` bytes (or bring the
+     * far end's answer), so a drip or silence ends (`forge_asset_stalled`),
+     * and a large asset on a loaded host that keeps moving is never cut.
      */
     assets: z.strictObject({
       /** The largest asset uploaded or downloaded (GitHub's own limit is 2 GiB). */
       maxBytes: z.number().int().min(1_024).max(2_147_483_648),
-      /** No byte moved either way for this long: the transfer is stalled (`forge_asset_stalled`). */
-      stallMs: z.number().int().min(1_000).max(600_000),
-      /** The one wall bound: a transfer still going at this point is hung, not slow. */
-      hangBackstopMs: z.number().int().min(60_000).max(86_400_000),
-    }).refine((assets) => assets.stallMs < assets.hangBackstopMs, { message: "stallMs must be below hangBackstopMs (a stall bound the backstop always pre-empts never fires)", path: ["stallMs"] }),
+      /** The length of one progress window. */
+      progressWindowMs: z.number().int().min(1_000).max(600_000),
+      /** The fewest bytes a window must move. */
+      minBytesPerWindow: z.number().int().min(1).max(1_073_741_824),
+    }),
   }),
   /** An installation token is minted again this long before it expires. */
   tokenRenewBeforeMs: z.number().int().min(0).max(3_000_000),
@@ -219,8 +221,8 @@ export function forgeEndpoint(settings: ForgeSettings): ForgeEndpoint {
     assets: {
       origins: settings.assetOrigins.map((origin) => origin.replace(/\/$/u, "")),
       maxBytes: settings.request.assets.maxBytes,
-      stallMs: settings.request.assets.stallMs,
-      hangBackstopMs: settings.request.assets.hangBackstopMs,
+      progressWindowMs: settings.request.assets.progressWindowMs,
+      minBytesPerWindow: settings.request.assets.minBytesPerWindow,
     },
     allowPrivateAddress: false,
     timeoutMs: settings.request.timeoutMs,

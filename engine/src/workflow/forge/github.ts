@@ -341,16 +341,27 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
   }
 
   /**
-   * An asset transfer's lifetime: bounded by PROGRESS (no byte moved for
-   * `assets.stallMs`) and by the one wall bound, the hang backstop. A large
-   * asset on a loaded host is slow work that keeps moving, and is never cut.
+   * An asset transfer's lifetime: a PROGRESS FLOOR (every window of
+   * `assets.progressWindowMs` moves `assets.minBytesPerWindow` bytes, or
+   * brings GitHub's answer), and no total wall cap. A large asset on a
+   * loaded host is slow work that keeps moving, and is never cut.
    */
   function assetLifetime(signal: AbortSignal | undefined, method: ForgeMethod, path: string) {
-    const { stallMs, hangBackstopMs } = endpoint.assets;
-    return outboundProgressDeadline(signal, { stallMs, hangBackstopMs }, {
-      stalled: () => new ForgeError("forge_asset_stalled", `${method} ${path}: no byte of the asset moved for ${String(stallMs)} ms.`, { method, path, stallMs }),
-      hung: () => new ForgeError("github_unavailable", `${method} ${path}: the asset transfer was still going at the hang backstop (${String(hangBackstopMs)} ms).`, { method, path, hangBackstopMs }),
-    });
+    const { progressWindowMs, minBytesPerWindow } = endpoint.assets;
+    return outboundProgressDeadline(signal, { windowMs: progressWindowMs, minBytes: minBytesPerWindow },
+      () => new ForgeError("forge_asset_stalled", `${method} ${path}: a ${String(progressWindowMs)} ms window moved fewer than ${String(minBytesPerWindow)} bytes of the asset.`, { method, path, progressWindowMs, minBytesPerWindow }));
+  }
+
+  /**
+   * The end of a transfer that failed: the CALLER's own cancellation answers
+   * its own reason; the progress floor answers `forge_asset_stalled`; a
+   * typed forge refusal is kept; anything else is classified by the door.
+   */
+  function transferFailure(error: unknown, request: Readonly<{ signal?: AbortSignal | undefined }>, lifetime: Readonly<{ expired: () => boolean; signal: AbortSignal }>, method: ForgeMethod, path: string): never {
+    if (request.signal?.aborted === true) throw request.signal.reason;
+    if (lifetime.expired()) throw lifetime.signal.reason;
+    if (error instanceof ForgeError) throw error;
+    return assetFailure(error, method, path);
   }
 
   async function upload<T>(request: ForgeUploadRequest): Promise<ForgeResponse<T>> {
@@ -362,7 +373,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     const url = forgeRequestUrl(endpoint, path, request.query, baseUrl(endpoint.uploadsUrl, "uploadsUrl"));
     const lifetime = assetLifetime(request.signal, method, path);
     // Every chunk that leaves is progress; so is the answer that follows the last one.
-    const chunks = (async function* () { for await (const chunk of body.chunks) { lifetime.progress(); yield chunk; } })();
+    const chunks = (async function* () { for await (const chunk of body.chunks) { lifetime.progress(chunk.byteLength); yield chunk; } })();
     try {
       const prepared = prepareOutboundRequest({
         url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
@@ -372,9 +383,9 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
       try {
         response = await dispatchOutboundRequest(prepared, { chunks, size: body.size, sha256: body.sha256 }, lifetime.signal);
       } catch (error) {
-        if (lifetime.expired()) throw lifetime.signal.reason;
-        return assetFailure(error, method, path);
+        return transferFailure(error, request, lifetime, method, path);
       }
+      lifetime.answered();
       if (response.status < 200 || response.status >= 300) return await refusedAnswer(response, lifetime.signal, method, path);
       const data = parseBody(await readBody(response, lifetime.signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY), method, path);
       // GitHub records the asset's own digest: it must be the one sent, or the release holds bytes nobody checked.
@@ -426,22 +437,28 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
           }
         }
       } catch (error) {
-        if (lifetime.expired()) throw lifetime.signal.reason;
-        if (error instanceof ForgeError) throw error;
-        return assetFailure(error, method, path);
+        return transferFailure(error, request, lifetime, method, path);
       }
-      lifetime.progress();
+      lifetime.answered();
       if (response.status < 200 || response.status >= 300) return await refusedAnswer(response, lifetime.signal, method, path);
       try {
         const read = await readBodyBytes(response, {
           signal: lifetime.signal, maxBytes: endpoint.assets.maxBytes, cleanupTimeoutMs: endpoint.cleanupTimeoutMs, logCategory: FORGE_LOG_CATEGORY, sha256: request.sha256,
-          sink: (chunk) => { lifetime.progress(); return request.sink(chunk); },
+          sink: async (chunk) => {
+            lifetime.progress(chunk.byteLength);
+            try {
+              await request.sink(chunk);
+            } catch (error) {
+              // The local side failed (a full disk, a removed folder): never GitHub's failure.
+              const code = (error as { code?: unknown } | undefined)?.code;
+              throw new ForgeError("forge_asset_sink_failed", `${method} ${path}: writing the downloaded bytes failed here (${error instanceof Error ? error.message : String(error)}).`, { method, path, ...(typeof code === "string" ? { cause: code } : {}) });
+            }
+          },
         });
         debugLog(FORGE_LOG_CATEGORY, "debug", "forge_asset_downloaded", () => ({ principal: credential.principal, path, bytes: read.bytes }));
         return read;
       } catch (error) {
-        if (lifetime.expired()) throw lifetime.signal.reason;
-        return assetFailure(error, method, path);
+        return transferFailure(error, request, lifetime, method, path);
       }
     } finally {
       lifetime.clear();

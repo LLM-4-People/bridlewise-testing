@@ -351,7 +351,7 @@ export function fakeGithub(): FakeGithub {
   return Object.freeze({
     apiUrl,
     endpoint: (overrides: Partial<ForgeEndpoint> = {}) => Object.freeze({
-      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assets: { origins: [address(FAKE_ASSETS_ORIGIN)], maxBytes: 1_048_576, stallMs: 60_000, hangBackstopMs: 7_200_000 },
+      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assets: { origins: [address(FAKE_ASSETS_ORIGIN)], maxBytes: 1_048_576, progressWindowMs: 30_000, minBytesPerWindow: 1_024 },
       allowPrivateAddress: true, timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64,
       userAgent: "bridlewise-forge-test", ...overrides,
     }),

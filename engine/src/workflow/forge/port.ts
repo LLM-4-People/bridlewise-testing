@@ -97,9 +97,9 @@ export type ForgeEndpoint = Readonly<{
   /**
    * Release assets: the origins a download may be redirected to (GitHub's
    * signed asset hosts), the largest asset, and the transfer's progress
-   * bounds (a stall, and the one wall bound, a hang backstop).
+   * floor (bytes per window; no total wall cap).
    */
-  assets: Readonly<{ origins: readonly string[]; maxBytes: number; stallMs: number; hangBackstopMs: number }>;
+  assets: Readonly<{ origins: readonly string[]; maxBytes: number; progressWindowMs: number; minBytesPerWindow: number }>;
   /** May a request reach a loopback or private address? (false for GitHub; true only for a local test server). */
   allowPrivateAddress: boolean;
   /** Each request's lifetime. */
@@ -143,7 +143,7 @@ export type ForgeUploadRequest = Readonly<{
 /**
  * A raw-body download of a release asset (`GET …/releases/assets/{id}` as
  * `application/octet-stream`). The bytes stream to `sink`, bounded by
- * `forge.request.maxAssetBytes` and held to `sha256` (the caller's own
+ * `forge.request.assets.maxBytes` and held to `sha256` (the caller's own
  * checksum, from SHA256SUMS). A mismatch is `forge_asset_integrity` after
  * the sink has seen the bytes, and the caller discards what it wrote.
  */
