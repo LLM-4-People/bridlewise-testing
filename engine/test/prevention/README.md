@@ -4,6 +4,8 @@ The `engine/test/prevention/` folder of the development surface.
 
 ## What each file does
 
+- `adding-modules-merges.test.ts` — TWO PRS THAT ADD DIFFERENT MODULES MERGE WITH ZERO CONFLICTS (#221).
+- `architecture-judge-ratchet.test.ts` — the derived architecture judge is a gate: a module on a folder default that does not fit it is refused as new debt (the real judge, on a whole-repository copy); a deleted baseline is refused unless git's index says why it is absent (a partial copy, or a tree without its folder); a baseline that grew since its base is refused.
 - `bundle-staleness.test.ts` — bundle-staleness prevention test.
 - `commit-compile-door.test.ts` — tHE COMPILE DOOR'S REFUSAL BRANCHES ARE DRIVEN AT THE REAL DOOR. The compile leg of `engine/scripts/commit-guard.ts` had no in-suite drive: running….
 - `commit-move-guard.test.ts` — a MOVE CANNOT SILENTLY DROP A TRACKED FILE, AND THE HOOK THAT SAYS SO IS ACTUALLY INSTALLED. Two claims, and they fail in opposite directions, so….
@@ -31,7 +33,6 @@ The `engine/test/prevention/` folder of the development surface.
 - `integration-awareness-arch-owner.test.ts` — test/prevention/integration-awareness-arch-owner.test.ts.
 - `integration-backend-owner-1.test.ts` — the `integration-backend-owner-1.test` module.
 - `integration-intelligence-owner.test.ts` — test/prevention/integration-intelligence-owner.test.ts.
-- `integration-manifest-consistency.test.ts` — sPO R50 — Architecture-manifest hash-consistency mechanical test.
 - `integration-memory-owner.test.ts` — test/prevention/integration-memory-owner.test.ts.
 - `integration-remaining-owner.test.ts` — sPO R49 — Integration.
 - `integration-safety-runtime-owner.test.ts` — sPO R45 — Integration.
@@ -58,6 +59,7 @@ The `engine/test/prevention/` folder of the development surface.
 - `no-hand-maintained-pins.test.ts` — the `no-hand-maintained-pins.test` module.
 - `exclusive-create-owner.test.ts` — one exclusive writer (`atomicWriteFile` exclusive + durable): no `linkSync` publication or `"wx"` create outside it and the declared descriptor-pinned protocols; the persisted key, the config write lock and the test-run lock fsync their folder after naming the record.
 - `owned-temporary-owner.test.ts` — the one owned-temporary rule (`src/filesystem/private-state.ts`): no `mkdtemp` outside the owner, no pid-built temp/pending/stage names, no `Math.random().toString(36)` names in the engine, the scripts, the engine's test support or the server; planted shapes caught.
+- `process-ends-by-draining.test.ts` — every process ends by draining (`process.exitCode`), never `process.exit()`, which can deadlock at shutdown (Node #54918, #351): a scan over every tracked source's code view refuses an undeclared call, and each declared last resort carries its exact count.
 - `process-liveness-owner.test.ts` — the one liveness answer (`src/process/process-facts.ts`): no `kill(pid, 0)` probe anywhere else; pid 1 answers alive (EPERM is alive), an exited pid and group answer dead.
 - `product-identity-owner.test.ts` — the `product-identity-owner.test` module.
 - `prevention-review.test.ts` — the `prevention-review.test` module.

@@ -50,7 +50,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, PRIVATE_STATE_DIRECTORY_MODE, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
 import { flakeCauseContentKeys, judgeCauseChange, parseFlakeCause } from "../git/flake-cause-fixes.ts";
@@ -443,7 +443,7 @@ export type CommitInventory = Readonly<{ hermetic: ReadonlySet<string>; liveFile
 export type InventoryAt = (commit: string) => Promise<string>;
 
 /** The hermetic identities and live files an inventory's text names. */
-export function commitInventoryOf(text: string): CommitInventory {
+function commitInventoryOf(text: string): CommitInventory {
   const inventory = JSON.parse(text) as { tests?: { sourceId: string; name: string }[]; scope?: { qualifiedExternalSourceIds?: string[] } };
   return {
     hermetic: new Set((inventory.tests ?? []).map((entry) => `${entry.sourceId}::${entry.name}`)),
@@ -566,7 +566,7 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
       config: moveLock, harnessRoot: ENGINE_ROOT, runner: "flake move (two inventories)",
       testFileCount: wholeInstrumentTestFileCount(moveLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
     });
-    const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake move", testProcessSupervisorBinary());
+    const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake move", ensureTestProcessSupervisor());
     try {
       const inventoryAt: InventoryAt = async (commit) => {
         await checkout.moveTo(commit);
@@ -600,7 +600,7 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
     config: declaredLock, harnessRoot: ENGINE_ROOT, runner: `flake reproduce (${String(request.tests.length)} test(s))`,
     testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
   });
-  const supervisor = testProcessSupervisorBinary();
+  const supervisor = ensureTestProcessSupervisor();
   const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake reproduce", supervisor);
   try {
     const answers = await reproduceFlake(request, topRepository, testPathOf, async (revision, files) => {

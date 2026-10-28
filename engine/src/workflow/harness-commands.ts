@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from "../process/subprocess-bounds.ts";
+import type { SpawnSyncReturns } from "node:child_process";
+import { boundedEnding, spawnBoundedSync, type SubprocessBounds } from "../process/subprocess-bounds.ts";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
@@ -10,21 +10,21 @@ import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { HarnessError, InputError, extractErrorContext, extractErrorMessage } from "../kernel/errors.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { resignTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
+import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, README_CONSUMER_BLOCK, SHIPPED_HOOK_FILES, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
+import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
 import { ARCHITECTURE_MANIFEST } from "../architecture-manifest.ts";
 import {
   externalCommandSourceFinding,
   PUBLISHED_EXTERNAL_COMMAND_POPULATION_SHA256,
 } from "../kernel/architecture-external-commands.ts";
-import { readExternalCommandSources, verifyExternalCommands } from "../../scripts/verification/architecture.ts";
+import { readExternalCommandSources, repositoryArchitectureManifest, verifyExternalCommands } from "../../scripts/verification/architecture.ts";
 import { currentConfigContractArtifact, generateAutoGeneratorReport, type AutoGeneratorReport } from "./auto-generator.ts";
 import {
   generatedOutputPaths,
-  generatedReadmePaths,
   repairAllBindings,
   verifyAllBindings,
   type BindingRepairReport,
@@ -125,8 +125,6 @@ export type HarnessCheckOutput = Readonly<{
   pinAuthorities: CheckStepResult;
   /** Would `harness regenerate` prune a ratchet baseline (debt that fell)? */
   ratchetBaselines: CheckStepResult;
-  /** Would `harness regenerate` rewrite a README's generated consumer block (the import graph moved)? */
-  readmeConsumers: CheckStepResult;
   /** Would `harness regenerate` rewrite the decision index (a decision file's front matter changed)? */
   decisionIndex: CheckStepResult;
   /** Would `harness regenerate` rewrite the task board (a tracker item changed)? */
@@ -157,6 +155,8 @@ export type HarnessCheckOutput = Readonly<{
   webBudgetPopulation: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
+  /** Would the engine runner accept the tree at its setup (scripts/verification/candidate-manifest.ts --verdict, its own door)? */
+  candidateFormat: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -184,10 +184,9 @@ export type HarnessRegenerateOutput = Readonly<{
     inventoryHash: string | null;
   }>;
   dispositionAutoAdd: DispositionAutoAddResult;
+  /** The disposition manifest in its one form (the exceptions only, sorted); `absent` on a tree without a test surface. */
   dispositionManifest: Readonly<{
     status: "current" | "regenerated" | "absent";
-    /** The manifest's own identity; null when the tree carries no test surface (`absent`). */
-    integrityHash: string | null;
   }>;
   /**
    * Config-document schema artifact regeneration (EXP468 finding fix).
@@ -219,12 +218,6 @@ export type HarnessRegenerateOutput = Readonly<{
    * no finding matches is removed; a key is never added.
    */
   ratchetBaselines: RatchetBaselinesArm;
-  /**
-   * The README consumer blocks (`README_CONSUMER_BLOCK`): every marked
-   * README's block re-projected from the import graph, so a moved import
-   * never leaves a writer to run the generator by hand (WF-DEL leftover).
-   */
-  readmeConsumers: ReadmeConsumersArm;
   /**
    * The decision index (`docs/decisions/README.md`), generated from the
    * decision files' front matter (`scripts/verification/decision-index.ts`),
@@ -307,14 +300,6 @@ export type CommunityFilesArm = Readonly<{
   refusal: string;
 }>;
 
-/** What the README consumer arm did: `changed` is what a write rewrote, or what a check found stale. */
-export type ReadmeConsumersArm = Readonly<{
-  status: "current" | "regenerated" | "stale" | "absent";
-  converged: boolean;
-  readmes: number;
-  changed: readonly string[];
-}>;
-
 /**
  * What the ratchet-baseline arm did: per baseline, its status, the stale keys
  * (a check reports them as drift) and the unbaselined ones (new debt: a check
@@ -323,7 +308,7 @@ export type ReadmeConsumersArm = Readonly<{
 export type RatchetBaselinesArm = Readonly<{
   status: "current" | "regenerated";
   converged: boolean;
-  results: readonly Readonly<{ id: string; path: string; status: string; stale: readonly string[]; unbaselined: readonly string[] }>[];
+  results: readonly Readonly<{ id: string; path: string; status: string; stale: readonly string[]; unbaselined: readonly string[]; shown?: Readonly<Record<string, readonly string[]>>; contradiction?: readonly string[] }>[];
 }>;
 
 export type HarnessSyncStepSummary = Readonly<{
@@ -374,8 +359,14 @@ export function ratchetBaselinesStep(ratchetBaselines: RatchetBaselinesArm): Che
     step: "ratchet-baselines",
     status: ratchetBaselines.converged && newDebt.length === 0 ? "pass" : "fail",
     message: [
-      ...(ratchetBaselines.converged ? [] : [`ratchet baselines hold debt that fell (run harness sync to prune): ${ratchetBaselines.results.flatMap((result) => result.stale.map((key) => `${result.path}: ${key}`)).join("; ")}`]),
+      ...(ratchetBaselines.results.length === 0 && !ratchetBaselines.converged ? ["the ratchet judge did not answer (see its details)"] : []),
+      ...ratchetBaselines.results.filter((result) => (result.contradiction ?? []).length > 0).map((result) => `this tree declares itself the product (TREE-KIND.txt) yet holds the testing floor (${(result.contradiction ?? []).join(", ")}): the declaration is refused, and the ${result.id} gate runs`),
+      ...ratchetBaselines.results.filter((result) => result.status === "missing").map((result) => `${result.path} is missing: this tree carries its folder, so the ${result.id} gate would be off — restore it (a baseline is never deleted to pass)`),
+      ...(ratchetBaselines.results.some((result) => result.stale.length > 0) ? [`ratchet baselines hold debt that fell (run harness sync to prune): ${ratchetBaselines.results.flatMap((result) => result.stale.map((key) => `${result.path}: ${key}`)).join("; ")}`] : []),
       ...(newDebt.length === 0 ? [] : [`new debt no ratchet baseline accepts (fix each site; a baseline never takes a new entry): ${newDebt.join("; ")}`]),
+      // Shown, never gated: what a guard reports that another owner judges (a test run's evidence, another generator's drift).
+      ...ratchetBaselines.results.flatMap((result) => Object.entries(result.shown ?? {}).filter(([, findings]) => findings.length > 0)
+        .map(([family, findings]) => `shown, not gated — ${result.id} ${family} (${String(findings.length)}): ${findings.join("; ")}`)),
     ].join(" | ") || "no ratchet baseline holds an entry its guard no longer finds, and no guard finds debt its baseline does not hold",
     details: ratchetBaselines,
   });
@@ -406,7 +397,7 @@ export async function harnessCheck(
     step: "module-registrar",
     status: registrarInSync(moduleRegistrarReport) ? "pass" : "fail",
     message: registrarInSync(moduleRegistrarReport)
-      ? "all modules registered and no drift"
+      ? "the module decisions agree with the tree"
       : registrarDriftMessage(moduleRegistrarReport),
     details: moduleRegistrarReport,
   }));
@@ -462,17 +453,6 @@ export async function harnessCheck(
   // stale half (a dead Markdown link is caught before any suite runs).
   emitProgress(onProgress, "Checking the ratchet baselines...");
   steps.push(ratchetBaselinesStep(regenerateRatchetBaselines(root, false)));
-
-  emitProgress(onProgress, "Checking the README consumer blocks...");
-  const readmeConsumers = regenerateReadmeConsumers(root, false);
-  steps.push(deepFreeze({
-    step: "readme-consumers",
-    status: readmeConsumers.converged ? "pass" : "fail",
-    message: readmeConsumers.converged
-      ? `every generated README consumer block matches the import graph (${String(readmeConsumers.readmes)} README(s)${readmeConsumers.status === "absent" ? "; this tree carries no generator" : ""})`
-      : `README consumer blocks are stale against the import graph (run harness sync): ${readmeConsumers.changed.join(", ")}`,
-    details: readmeConsumers,
-  }));
 
   emitProgress(onProgress, "Checking the decision index...");
   const decisionIndex = regenerateDecisionIndex(root, false);
@@ -563,6 +543,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the bundle against a rebuild of the source...");
   steps.push(bundleFreshnessStep(root));
 
+  emitProgress(onProgress, "Checking the tree the engine runner would accept...");
+  steps.push(candidateFormatStep(root));
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -574,22 +557,22 @@ export async function harnessCheck(
     configSchemaArtifact: steps[6]!,
     pinAuthorities: steps[7]!,
     ratchetBaselines: steps[8]!,
-    readmeConsumers: steps[9]!,
-    decisionIndex: steps[10]!,
-    liveIndex: steps[11]!,
-    journals: steps[12]!,
-    deadCommands: steps[13]!,
-    promotions: steps[14]!,
-    shippedHooks: steps[15]!,
-    evidenceIgnore: steps[16]!,
-    forgeFiles: steps[17]!,
-    frozenRecords: steps[18]!,
-    guardianSpecArtifact: steps[19]!,
-    trackerBoard: steps[20]!,
-    artifactManifest: steps[21]!,
-    communityFiles: steps[22]!,
-    webBudgetPopulation: steps[23]!,
-    bundle: steps[24]!,
+    decisionIndex: steps[9]!,
+    liveIndex: steps[10]!,
+    journals: steps[11]!,
+    deadCommands: steps[12]!,
+    promotions: steps[13]!,
+    shippedHooks: steps[14]!,
+    evidenceIgnore: steps[15]!,
+    forgeFiles: steps[16]!,
+    frozenRecords: steps[17]!,
+    guardianSpecArtifact: steps[18]!,
+    trackerBoard: steps[19]!,
+    artifactManifest: steps[20]!,
+    communityFiles: steps[21]!,
+    webBudgetPopulation: steps[22]!,
+    bundle: steps[23]!,
+    candidateFormat: steps[24]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -912,7 +895,7 @@ export function harnessRegenerate(
   // the strict manifest parse in the auto-add step below refuses a
   // stale-hash manifest. Healing the hash first keeps manual edits
   // recoverable through `harness regenerate` alone.
-  const dispositionManifest = recomputeDispositionManifestIntegrityHash(root, write);
+  const dispositionManifest = rewriteDispositionManifest(root, write);
   // Auto-add missing disposition entries for recognizable test files so
   // agents never have to register new test files manually. This runs as a
   // subprocess (scripts/run-tests.ts --auto-add-dispositions) to keep the
@@ -962,9 +945,6 @@ export function harnessRegenerate(
   // The ratchet arm: every shrink-only baseline pruned against its guard's
   // scan, so a debt that fell leaves its list without a hand edit (a2b-design H2).
   const ratchetBaselines = regenerateRatchetBaselines(root, write);
-  // The README consumer arm, last: its blocks project the import graph of
-  // the tree every arm above has finished writing.
-  const readmeConsumers = regenerateReadmeConsumers(root, write);
   // The decision index: rebuilt from the decision files' front matter.
   const decisionIndex = regenerateDecisionIndex(root, write);
   // The task board: rendered from the structured tracker items.
@@ -982,10 +962,10 @@ export function harnessRegenerate(
   // The web test budget's population, from the live supported test files (before the inventory digests the settings).
   const webBudgetPopulation = regenerateWebBudgetPopulation(root, write);
   // The canonical artifact inventory, LAST: every governed file the arms above
-  // rewrote (a README in a governed root, the test inventory, the traces) must
+  // rewrote (the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, readmeConsumers, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -998,10 +978,9 @@ export function harnessRegenerate(
   const testInventoryConverged = testSurfacePresent(root) ? testInventory.status !== "skipped" : true;
   const status = write
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
-        moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean &&
-        moduleRegistrar.postWrite.unregisteredModules === 0 && testInventoryConverged &&
+        moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && readmeConsumers.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1061,53 +1040,32 @@ export function autoAddDispositionEntries(root: string, write: boolean, prune: r
 }
 
 /**
- * Heal a stale disposition-manifest signature — through the manifest's ONE
- * owner, never beside it.
- *
- * When entries are edited by hand the `integrityHash` field goes stale and the
- * strict parse in the auto-add step below refuses the manifest, so healing it
- * first keeps a manual edit recoverable through `harness regenerate` alone.
- *
- * WHAT THIS USED TO BE, AND WHY IT MATTERED. It was an inlined copy of the
- * manifest logic, sitting here because importing the builder-layer
- * verification module would have put `src/ -> scripts/` into the runtime
- * import graph. The constraint was real; the copy was not the only way to
- * satisfy it. The copy read the file with a raw `JSON.parse`, checked two
- * fields by hand instead of against the schema, and wrote `policyHash` from
- * the CURRENT policy unconditionally — so a manifest whose discovery policy
- * had moved on was silently re-blessed here, and the refusal that exists to
- * catch exactly that could be walked straight past. It was the only such path
- * in the repository.
- *
- * The shared half now lives in the runtime layer, where both this command and
- * the builder module may import it, and the distinction the copy erased is
- * enforced there: a stale SIGNATURE heals, a stale POLICY refuses.
+ * Rewrite the disposition manifest in its one form — through the manifest's
+ * ONE owner (`rewriteTestSurfaceDispositionManifest`), never beside it: a
+ * hand edit (an entry out of order, a default entry written out) heals; a
+ * manifest whose discovery policy moved refuses, never re-blessed.
  */
-function recomputeDispositionManifestIntegrityHash(
+function rewriteDispositionManifest(
   root: string,
   write: boolean,
 ): Readonly<{
   status: "current" | "regenerated" | "absent";
-  integrityHash: string | null;
 }> {
   const manifestPath = resolve(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
   if (!existsSync(manifestPath)) {
     if (!testSurfacePresent(root)) {
       // A product-only tree carries no test surface to recompute against: the manifest's subject is absent.
-      return deepFreeze({ status: "absent", integrityHash: null });
+      return deepFreeze({ status: "absent" });
     }
     throw new InputError("test-surface disposition manifest file not found", "input_error");
   }
-  const current = readFileSync(manifestPath, "utf8");
-  const resigned = resignTestSurfaceDispositionManifest(current);
-  if (resigned.status === "current" || !write) {
-    return deepFreeze({ status: resigned.status, integrityHash: resigned.integrityHash });
-  }
-  const writeResult = atomicWriteFile(manifestPath, resigned.text);
+  const rewritten = rewriteTestSurfaceDispositionManifest(readFileSync(manifestPath, "utf8"));
+  if (rewritten.status === "current" || !write) return deepFreeze({ status: rewritten.status });
+  const writeResult = atomicWriteFile(manifestPath, rewritten.text);
   if (!writeResult.success) {
     throw new InputError(`Could not write disposition manifest: ${writeResult.reason ?? "unknown"}`, "input_error");
   }
-  return deepFreeze({ status: "regenerated", integrityHash: resigned.integrityHash });
+  return deepFreeze({ status: "regenerated" });
 }
 
 export function regenerateTestInventory(root: string, write: boolean): Readonly<{
@@ -1267,7 +1225,7 @@ export function regenerateRatchetBaselines(root: string, write: boolean): Ratche
   return deepFreeze({
     status: parsed.results.some((result) => result.status === "pruned") ? "regenerated" : "current",
     converged: answer.ok && parsed.allCurrent,
-    results: parsed.results.map(({ id, path, status, stale, unbaselined }) => ({ id, path, status, stale, unbaselined })),
+    results: parsed.results.map(({ id, path, status, stale, unbaselined, shown, contradiction }) => ({ id, path, status, stale, unbaselined, shown: shown ?? {}, contradiction: contradiction ?? [] })),
   });
 }
 
@@ -1405,7 +1363,8 @@ export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegene
   dispositionManifest: null,
   schemaArtifact: null,
   pinAuthorities: null,
-  ratchetBaselines: null,
+  // The architecture judge runs in every tree that holds the engine's testing floor, a copy too: its baseline comes along.
+  ratchetBaselines: (repositoryPath: string) => repositoryPath === VERIFICATION_PATHS.architectureJudgeBaseline,
   readmeConsumers: null,
   decisionIndex: null,
   trackerBoard: null,
@@ -1458,41 +1417,6 @@ export function generatorReport<Status extends string>(root: string, generator: 
   }
   // Current only from a clean exit: a generator that exited non-zero is never all-current, whatever it printed.
   return answer.ok ? parsed : { ...parsed, allCurrent: false };
-}
-
-/**
- * The README consumer arm: the generator (`README_CONSUMER_BLOCK.generator`,
- * relative to the repository git names for `root`) as a subprocess like the
- * other builder-layer arms — it walks the whole repository's import graph
- * with the web suite's resolver, which the runtime must not import. With
- * `write` every marked README's block is rewritten; without, a stale block is
- * drift. The generator projects exactly `generatedReadmePaths` (one
- * selection, hash-binding-registry.ts). A tree without the generator — a product-only tree has no test
- * surface; its READMEs are byte-locked to the testing tree, where this arm
- * runs — or outside a work tree is converged by absence.
- */
-export function regenerateReadmeConsumers(root: string, write: boolean): ReadmeConsumersArm {
-  const absent = deepFreeze({ status: "absent" as const, converged: true, readmes: 0, changed: [] });
-  const repositoryRoot = repositoryToplevel(root, "directory");
-  if (repositoryRoot === undefined) return absent;
-  // THE POPULATION IS THE MARKED READMES, NOT THE GENERATOR'S EXISTENCE. A
-  // missing generator used to answer `absent`/converged no matter how many
-  // marked READMEs were waiting — the checker's absence was read as the
-  // subject's absence. Only a tree with NO marked README has nothing to
-  // generate; a tree that has them and lost the generator is stale, named.
-  const readmes = generatedReadmePaths(repositoryRoot);
-  const generator = resolve(repositoryRoot, README_CONSUMER_BLOCK.generator);
-  if (!existsSync(generator)) {
-    if (readmes.length === 0) return absent;
-    return deepFreeze({
-      status: "stale" as const,
-      converged: false,
-      readmes: readmes.length,
-      changed: [`${README_CONSUMER_BLOCK.generator} (missing; ${String(readmes.length)} marked README(s) still need it)`],
-    });
-  }
-  const report = generatorReport<"current" | "regenerated" | "stale">(root, generator, [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the README consumer generator", "readme_consumers_no_result");
-  return deepFreeze({ status: report.status, converged: report.allCurrent, readmes: typeof report["readmes"] === "number" ? report["readmes"] : 0, changed: report.changed });
 }
 
 /**
@@ -1568,8 +1492,7 @@ export function harnessRegister(
   // top-level counts describe the pre-fix drift. In read-only mode the
   // predicate fallback derives the status from the unmodified report.
   const status = write
-    ? (registrarReport.postWrite !== null && registrarReport.postWrite.clean &&
-        registrarReport.postWrite.unregisteredModules === 0 ? "pass" : "fail")
+    ? (registrarReport.postWrite !== null && registrarReport.postWrite.clean ? "pass" : "fail")
     : undefined;
   return wrapResult("register", output, status === undefined ? {} : { status });
 }
@@ -1636,7 +1559,7 @@ export async function harnessSync(
   options: Readonly<{ withBundle?: boolean; prune?: readonly string[]; onProgress?: (message: string) => void }> = {},
 ): Promise<HarnessCommandResult<HarnessSyncOutput>> {
   const repositoryRoot = repositoryToplevel(root, "directory") ?? resolve(root, "..");
-  const outputs = [...generatedOutputPaths(repositoryRoot)];
+  const outputs = [...generatedOutputPaths()];
   const fingerprint = (): ReadonlyMap<string, string> => new Map(outputs.map((path) => {
     const absolute = join(repositoryRoot, path);
     return [path, existsSync(absolute) ? sha256(readFileSync(absolute)) : "absent"] as const;
@@ -1697,6 +1620,40 @@ function bundleFreshnessStep(root: string): CheckStepResult {
   } catch (error) {
     return deepFreeze({ step: "bundle", status: "fail", message: error instanceof Error ? error.message : "the bundle check failed", details: null });
   }
+}
+
+/**
+ * `harness check`'s candidate-format step: the engine runner's own setup door
+ * (`buildCandidateManifest`, run as `scripts/verification/candidate-manifest.ts
+ * --verdict`, the builder layer, as a subprocess). The door lives in
+ * `scripts/verification/`, which ships, so a product tree's check runs the same
+ * step — never a probe that skips it where the file is stripped. The runner refuses a tree
+ * it cannot certify (a non-canonical text file, an LFS pointer, an unreadable
+ * entry) before it runs a single test; asked only there, a file it refuses
+ * landed through every required check and left the suite running nothing
+ * (#417). Asked here, it is refused before it lands.
+ */
+function candidateFormatStep(root: string): CheckStepResult {
+  let answer: ScriptAnswer;
+  try {
+    answer = runScriptSubprocess(root, "scripts/verification/candidate-manifest.ts", ["--root", ".", "--verdict"]);
+  } catch (error) {
+    return deepFreeze({ step: "candidate-format", status: "fail", message: `the engine runner's candidate check did not answer: ${error instanceof Error ? error.message : String(error)}`, details: null });
+  }
+  if (answer.ok) {
+    const verdict = JSON.parse(answer.payload) as { accepted?: unknown; files?: unknown };
+    return deepFreeze({ step: "candidate-format", status: "pass", message: `the engine runner accepts the tree (${String(verdict.files)} files)`, details: verdict });
+  }
+  const refusal = printedRecord(answer);
+  const violations = Array.isArray(refusal?.["violations"]) ? refusal["violations"] as readonly string[] : [];
+  return deepFreeze({
+    step: "candidate-format",
+    status: "fail",
+    message: violations.length === 0
+      ? `the engine runner's candidate check did not answer (${answer.ending}): ${answer.printed}`
+      : `the engine runner would refuse this tree at its setup and run no test: ${violations.join(", ")}`,
+    details: refusal ?? null,
+  });
 }
 
 /** One pass of `harness sync` (see {@link harnessSync}): the steps, each a CLI subprocess. */
@@ -1920,15 +1877,7 @@ function subprocessFailureSummary(lines: readonly string[]): string | undefined 
 
 /** One synchronous run of `command args…` under `bounds` (src/process/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
 function runBoundedSync(command: string, args: readonly string[], cwd: string, bounds: SubprocessBounds): SpawnSyncReturns<string> {
-  const invocation = cpuLimitedInvocation(command, args, bounds);
-  return spawnSync(invocation.command, [...invocation.args], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: bounds.hangBackstopMs,
-    killSignal: "SIGKILL",
-    maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES,
-  });
+  return spawnBoundedSync(command, args, bounds, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES });
 }
 
 export function runScriptSubprocess(
@@ -2045,12 +1994,13 @@ export function harnessNewModule(
       throw new InputError(`Could not write module file: ${writeResult.reason ?? "unknown"}`, "input_error");
     }
   }
-  const manifestExists = existsSync(resolve(root, "src/architecture-manifest.ts"));
+  const manifestExists = existsSync(resolve(root, ARCHITECTURE_MODULES_PATH));
   const registrarReport = generateModuleRegistrarReport(root, { write: created && manifestExists });
   const output: HarnessNewModuleOutput = deepFreeze({
     modulePath: normalizedPath,
     created,
-    registered: registrarReport.unregisteredModules === 0,
+    // Every source module under the source roots IS registered (its folder classifies it): the census is the registration.
+    registered: created || existsSync(absolutePath),
     registrarReport,
   });
   return wrapResult("new-module", output);
@@ -2077,14 +2027,14 @@ export async function runTypecheck(root: string, bounds: SubprocessBounds = SUBP
   return deepFreeze({ step: "typecheck", status: "fail", message: `typecheck failed: ${ending}${said.length === 0 ? "" : `\n${said}`}`, details: null });
 }
 
-/** The registrar's verdict: every module registered, none drifted, the composition-root lists derived. */
+/** The registrar's verdict: no decision drifted from the tree, the decisions file in its one form. */
 function registrarInSync(report: ModuleRegistrarReport): boolean {
-  return report.unregisteredModules === 0 && report.driftedModules === 0 && report.compositionRootsCurrent;
+  return report.driftedModules === 0 && report.entriesCurrent;
 }
 
 function registrarDriftMessage(report: ModuleRegistrarReport): string {
-  return `${report.unregisteredModules} unregistered, ${report.driftedModules} drifted` +
-    (report.compositionRootsCurrent ? "" : ", composition-root lists stale (run harness sync)");
+  return `${report.driftedModules} drifted (${report.drift.map((module) => module.path).join(", ")})` +
+    (report.entriesCurrent ? "" : `, ${ARCHITECTURE_MODULES_PATH} not in its one form (sorted, one line each: run harness sync)`);
 }
 
 /**
@@ -2122,7 +2072,7 @@ function externalCommandCheckViolations(root: string): readonly string[] {
     const finding = externalCommandSourceFinding(command, sourceByPath.get(command.path));
     if (finding.kind === "declared-absent") declaredAbsence.add(finding.violation);
   }
-  const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module] as const));
+  const moduleByPath = new Map(repositoryArchitectureManifest(root).modules.map((module) => [module.path, module] as const));
   const verifierViolations: string[] = [];
   verifyExternalCommands(
     ARCHITECTURE_MANIFEST,

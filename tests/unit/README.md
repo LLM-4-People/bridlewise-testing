@@ -52,6 +52,7 @@ The `tests/unit/` folder of the development surface.
 - `editor-recycle-http.test.ts` — tHE FILE RECYCLE BIN AT ITS AUTHORIZATION CHOKE POINT — over the real router. Round-5 findings (all three reproduced through real HTTP + the real bridge).
 - `errors.test.ts` — @vitest-environment node.
 - `codebase-file-retrieval.test.ts` — @vitest-environment node.
+- `rendered-forced-states.test.ts` — the rendered judgement's forced :hover, :active and :focus on a live page, over a stand-in CDP session: a node the page removes between the read and the force is gone, an element it adds meanwhile is forced too, the tree is read once (a second read drops the forced states), and any other CDP error is refused.
 - `tool-execution-root-scoping.test.ts` — the `tool-execution-root-scoping.test` module.
 - `chat-message-data-exposure.test.ts` — @vitest-environment node.
 - `filesystem-routes.test.ts` — @vitest-environment node.

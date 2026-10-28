@@ -14,8 +14,10 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   organization: "LLM-4-People",
   apiUrl: "https://api.github.com",
   webUrl: "https://github.com",
+  uploadsUrl: "https://uploads.github.com",
+  assetOrigins: ["https://release-assets.githubusercontent.com"],
   userAgent: "bridlewise-forge-test",
-  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10 },
+  request: { timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64, maxPages: 10, assets: { maxBytes: 1_048_576, progressWindowMs: 30_000, minBytesPerWindow: 1_024, answerSilenceMs: 600_000 } },
   tokenRenewBeforeMs: 300_000,
   repositories: [
     { name: "bridlewise-testing", kind: "trunk", visibility: "public" },
@@ -30,6 +32,7 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   stage: "p0",
   plan: { name: "team", secretProtection: false },
   maintainer: "amberflag48",
+  teamMembers: {},
   p0RequiredChecks: [{ context: "Typecheck, public tests, build", integrationId: 15368 }, { context: "Secret and privacy scan", integrationId: 15368 }],
   mergeQueue: { maxEntriesToBuild: 1, minEntriesToMerge: 1, maxEntriesToMerge: 4, minEntriesToMergeWaitMinutes: 0, checkResponseTimeoutMinutes: 60 },
   areas: [

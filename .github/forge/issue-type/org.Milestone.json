@@ -1,0 +1,14 @@
+{
+  "kind": "issue-type",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "Milestone",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "Milestone",
+    "color": "green",
+    "description": "A roadmap milestone: its state is computed from its members",
+    "is_enabled": true
+  }
+}

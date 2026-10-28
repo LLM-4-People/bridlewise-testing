@@ -6,12 +6,6 @@ The auxiliary aggregator: the public entry point that bundles the four auxiliary
 
 - `index.ts` — Unified auxiliary modules aggregator.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/aux/`.
-
-- `index.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

@@ -713,17 +713,16 @@ test("EXP467/stream-slot: a fully-drained stream releases its concurrency slot",
     if (c.type === "content" && c.text) chunks1.push(c.text);
   }
   assert.ok(chunks1.length > 0, "first stream produced content");
-  // Slot must be released now → a second call acquires it immediately.
-  const t0 = Date.now();
+  // RELEASED BY ITS PATH, never judged by a wall clock (NO-LOAD-BLOCK): the
+  // queue holds no slot now, and a second call acquires the only one.
+  assert.equal(client.getQueue().active, 0, "the drained stream released its slot");
   const gen2 = client.stream(MESSAGES);
   const chunks2: string[] = [];
   for await (const c of gen2) {
     if (c.type === "content" && c.text) chunks2.push(c.text);
   }
-  const elapsed = Date.now() - t0;
   assert.ok(chunks2.length > 0, "second stream produced content after first drained");
-  assert.ok(elapsed < 1500, `second stream acquired the released slot promptly (elapsed=${elapsed}ms < 1500ms)`);
-  console.log(`  [stream-slot-drain] chunks1=${chunks1.length} chunks2=${chunks2.length} secondElapsed=${elapsed}ms`);
+  console.log(`  [stream-slot-drain] chunks1=${chunks1.length} chunks2=${chunks2.length}`);
 });
 
 test("EXP467/stream-slot: an explicitly-.return'd stream releases its concurrency slot", async () => {
@@ -750,13 +749,11 @@ test("EXP467/stream-slot: an explicitly-.return'd stream releases its concurrenc
   assert.ok(!first.done, "first chunk arrived");
   // Explicitly close the generator → `finally` runs → slot released.
   await gen.return(undefined);
-  // Slot must be released now → a complete call acquires it promptly.
-  const t0 = Date.now();
+  // RELEASED BY ITS PATH, never judged by a wall clock (NO-LOAD-BLOCK).
+  assert.equal(client.getQueue().active, 0, "the .return()'d stream released its slot");
   const result = await client.create(MESSAGES);
-  const elapsed = Date.now() - t0;
   assert.ok(result.content.length > 0, "complete() produced content after stream .return()");
-  assert.ok(elapsed < 1500, `complete() acquired the released slot promptly (elapsed=${elapsed}ms < 1500ms)`);
-  console.log(`  [stream-slot-return] complete() after .return() elapsed=${elapsed}ms content=${JSON.stringify(result.content.slice(0, 40))}`);
+  console.log(`  [stream-slot-return] complete() after .return() content=${JSON.stringify(result.content.slice(0, 40))}`);
 });
 
 test("EXP467/stream-slot: a stream that throws still releases its slot (finally runs)", async () => {

@@ -52,20 +52,6 @@ reads it); this domain holds the server's bridges to that ledger.
   membership hides unknown traces; it does not authorize other trace rows.
 - `timeline-migration-worker.ts` — the ledger's migration worker (SCALE-CR1 C10): runs a ledger's pending migrations (`migrateTimelineFile`) off the serving thread through the one task pool, so the server listens while a large ledger migrates; the bridge (`startTimeline`) opens the ledger when it answers.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/observability/`.
-
-- `component-registry.ts` is consumed by `server/blocks/anatomy.ts`, `server/db/thread-backend.ts`, `server/integrations/mcp-runtime-bridge.ts`, `server/intelligence/intelligence-bridge.ts`, `server/kernel/harness-config.ts`, `server/observability/metrics-bridge.ts` and 3 more.
-- `debug-bridge.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/awareness/auto-check-runner.ts`, `server/awareness/dedup-bridge.ts`, `server/blocks/intelligence.ts`, `server/db/client.ts`, `server/db/conversation-archive.ts` and 30 more.
-- `metrics-bridge.ts` is consumed by `server/index.ts`, `server/routes/metrics.ts`.
-- `metrics-recorder.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/llm/llm-bridge.ts`, `server/observability/metrics-bridge.ts`, `server/tools/tool-executor.ts`.
-- `process-census.ts` is consumed by `server/blocks/anatomy.ts`.
-- `self-improving.ts` is consumed by `server/observability/metrics-bridge.ts`, `server/routes/metrics.ts`.
-- `timeline-bridge.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/agent/agents-bridge.ts`, `server/blocks/arm.ts`, `server/blocks/breaker.ts`, `server/blocks/client-telemetry.ts`, `server/blocks/compose.ts` and 18 more.
-- `timeline-migration-worker.ts` is consumed by nothing yet.
-- `timeline-scope.ts` is consumed by `server/blocks/spectrum.ts`, `server/routes/timeline.ts`.
-
-<!-- /consumers:generated -->

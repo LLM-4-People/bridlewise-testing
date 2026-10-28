@@ -10,12 +10,6 @@ document is regenerated rather than hand-maintained.
   upstream sources (git's `path.c` and the Unicode data files), with
   canonical JSON and digest binding.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/scripts/generation/`.
-
-- `repository-path-unicode.ts` is consumed by `engine/scripts/verification/corpus.ts`.
-
-<!-- /consumers:generated -->

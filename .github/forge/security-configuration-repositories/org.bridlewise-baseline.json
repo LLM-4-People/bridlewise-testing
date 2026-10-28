@@ -1,0 +1,16 @@
+{
+  "kind": "security-configuration-repositories",
+  "scope": {
+    "kind": "org"
+  },
+  "key": "bridlewise-baseline",
+  "unavailableOnPlan": [],
+  "desired": {
+    "repositories": [
+      ".github",
+      "bridlewise-evidence",
+      "bridlewise-testing"
+    ],
+    "default_for_new_repos": "none"
+  }
+}

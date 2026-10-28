@@ -632,7 +632,6 @@ export type UnmigratedScanner =
   | "integration:src/filesystem/immutable-receipt.ts"
   | "integration:src/intelligence/file-slice.ts"
   | "integration:src/intelligence/quick-view.ts"
-  | "integration:src/workflow/module-registrar.ts"
   | "integration:src/workflow/test-result-collector.ts"
   | "integration:test/architecture/dead-package-scanner.test.ts"
   | "integration:test/architecture/no-math-random-ids.test.ts"
@@ -715,7 +714,6 @@ export const UNMIGRATED_SCANNERS: Record<UnmigratedScanner, MigrationDebt> = {
   "integration:src/filesystem/immutable-receipt.ts": TASK_102,
   "integration:src/intelligence/file-slice.ts": TASK_102,
   "integration:src/intelligence/quick-view.ts": TASK_102,
-  "integration:src/workflow/module-registrar.ts": TASK_102,
   "integration:src/workflow/test-result-collector.ts": TASK_102,
   "integration:test/architecture/dead-package-scanner.test.ts": TASK_102,
   "integration:test/architecture/no-math-random-ids.test.ts": TASK_102,

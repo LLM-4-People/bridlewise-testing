@@ -43,34 +43,9 @@ The cockpit shell: the HORIZON, DESK, ROOMS, and SCOPE grammar — the keyboard 
 - `UpdateChip.svelte` — THE UPDATE CHIP — a running page's one honest sentence.
 - `WorkspaceStrip.svelte` — THE TAB STRIP — several projects open at once.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/shell/`.
-
-- `annunciator-data.ts` is consumed by `src/cockpit/Cockpit.svelte`.
-- `brand-mark.ts` is consumed by `src/cockpit/shell/Brand.svelte`.
-- `chords.ts` is consumed by `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/flow/composer-router.ts`, `src/cockpit/rooms/SwitchRoom.svelte`, `src/cockpit/shell/keyboard.ts`, `src/cockpit/shell/room-chords.ts`.
-- `config.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/editor/editor-config.ts`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/main.ts`, `src/cockpit/rooms/custody-config.ts`, `src/cockpit/rooms/instruments-data.ts` and 3 more.
-- `contract.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/desk/BreakerRow.svelte`, `src/cockpit/desk/ChannelScope.svelte`, `src/cockpit/desk/ChannelStrip.svelte`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte` and 34 more.
-- `flow-anchor.ts` is consumed by `src/cockpit/Cockpit.svelte`.
-- `keyboard.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/flow/Beat.svelte`, `src/cockpit/flow/PathChip.svelte`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/rooms/CustodyRoom.svelte`, `src/cockpit/rooms/EditorRoom.svelte` and 11 more.
-- `mouse-paths.ts` is consumed by `src/cockpit/flow/Beat.svelte`, `src/cockpit/sweep/Sweep.svelte`.
-- `open-intent.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/rooms/Reel.svelte`, `src/cockpit/rooms/SwitchRoom.svelte`.
-- `outlets.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/sweep/ArmMenu.svelte`.
-- `right-menu.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/desk/Gauge.svelte`, `src/cockpit/desk/desk-bus.ts`, `src/cockpit/shell/Desk.svelte`, `src/cockpit/shell/Horizon.svelte` and 5 more.
-- `room-chords.ts` is consumed by `src/cockpit/rooms/SwitchRoom.svelte`, `src/cockpit/shell/ContextMenu.svelte`.
-- `room-visibility.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/rooms/CustodyRoom.svelte`, `src/cockpit/rooms/EditorRoom.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte`, `src/cockpit/rooms/MicroSweep.svelte`, `src/cockpit/rooms/SettingsRoom.svelte` and 5 more.
-- `room-warm.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/shell/ChordGrip.svelte`, `src/cockpit/shell/Desk.svelte`, `src/cockpit/shell/Horizon.svelte`.
-- `routing.ts` is consumed by `src/cockpit/Cockpit.svelte`.
-- `sw-update.ts` is consumed by `src/cockpit/main.ts`, `src/cockpit/shell/UpdateChip.svelte`.
-- `tab-fit.ts` is consumed by `src/cockpit/shell/WorkspaceStrip.svelte`.
-- `verb-marks.ts` is consumed by `src/cockpit/editor/DeleteConfirm.svelte`, `src/cockpit/flow/types.ts`, `src/cockpit/render/CopyButton.svelte`, `src/cockpit/rooms/FolderPicker.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte`, `src/cockpit/rooms/Parcel.svelte` and 12 more.
-- `view-request.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/state/ui-control.ts`.
-- `workspace-view.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/Disclosure.svelte`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/sweep/ArmMenuBody.svelte`.
-
-<!-- /consumers:generated -->
 
 ## Extending the workspace inspector
 

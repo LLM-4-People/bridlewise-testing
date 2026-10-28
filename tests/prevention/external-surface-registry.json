@@ -6,8 +6,11 @@
     "workflows": [
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
+      ".github/workflows/commit-records.yml",
+      ".github/workflows/community.yml",
       ".github/workflows/dependency-review.yml",
       ".github/workflows/docs-links.yml",
+      ".github/workflows/forge-apps-audit.yml",
       ".github/workflows/pages.yml",
       ".github/workflows/reusable-workflow-failure.yml",
       ".github/workflows/scorecard.yml",
@@ -42,8 +45,11 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/secret-scan.yml",
@@ -60,12 +66,27 @@
       },
       "usedIn": [
         ".github/workflows/ci.yml",
+        ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",
         ".github/workflows/test-shards.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Node tarball it installs is pinned by the node-runtime surface; a moved action SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/create-github-app-token",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "fee1f7d63c2ff003460e3d139729b119787bc349",
+        "version": "v2.2.2"
+      },
+      "usedIn": [
+        ".github/workflows/community.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It mints the publisher App's installation token in the `publish` environment for the community bots, narrowed to the permissions each job names; a moved action SHA is refused until this declaration moves with it."
     },
     {
       "id": "actions/upload-artifact",
@@ -235,8 +256,11 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
+        ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/reusable-workflow-failure.yml",
         ".github/workflows/scorecard.yml",
@@ -267,15 +291,18 @@
         ]
       },
       "usedIn": [
-        ".node-version",
-        ".nvmrc",
-        "package.json",
-        "engine/package.json",
         ".github/workflows/ci.yml",
+        ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/test-shards.yml",
+        ".node-version",
+        ".nvmrc",
+        "engine/package.json",
+        "package.json"
       ],
       "drift": "The guard requires .node-version and .nvmrc to equal 24.20.0 and every workflow setup-node to read .nvmrc (node-version-file), refusing a workflow that spells an exact node-version; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move changes the two pin files and the manifests."
     },

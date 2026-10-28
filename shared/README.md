@@ -61,32 +61,6 @@ two cannot drift.
   `color-mix` in sRGB) and writes a surface's token sheet; an undeclared name
   is a typed refusal.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `shared/`.
-
-- `arm-vocabulary.ts` is consumed by `server/blocks/arm.ts`, `src/cockpit/sweep/arm-fire.ts`, `src/cockpit/sweep/arm-palette.ts`.
-- `block-contract.ts` is consumed by `server/blocks/define.ts`, `src/cockpit/computer/commands.ts`, `src/cockpit/rooms/instruments-data.ts`, `src/cockpit/settings/settings-data.ts`, `src/data/broker.ts`.
-- `constants.ts` is consumed by `engine/src/performance/diagnostic-modes.ts`, `engine/src/timeline/effect-documents.ts`, `engine/src/timeline/ledger-dig.ts`, `engine/src/timeline/timeline-recorder.ts`, `engine/src/timeline/timeline-store.ts`, `engine/src/timeline/timeline-types.ts` and 39 more.
-- `dev-ports.ts` is consumed by `server/kernel/config.ts`.
-- `errors.ts` is consumed by `server/blocks/define.ts`, `server/kernel/errors.ts`, `server/router/sse.ts`, `server/routes/projects.ts`, `server/run/run-executor.ts`, `src/client.ts` and 3 more.
-- `event-types.ts` is consumed by `server/db/schema.ts`, `server/run/run-executor.ts`, `server/safety/safety-bridge.ts`, `src/client.ts`, `src/cockpit/flow/ingest.ts`, `src/cockpit/flow/types.ts` and 2 more.
-- `html-preview.ts` is consumed by `src/state/web-ui-config.ts`.
-- `input-schemas.ts` is consumed by `server/routes/auto-checks.ts`, `server/routes/chats.ts`, `server/routes/projects.ts`, `src/state/auto-checks.ts`, `src/state/chats.ts`, `src/state/projects.ts`.
-- `markdown.ts` is consumed by `engine/src/workflow/markdown-links.ts`, `engine/src/workflow/record-links.ts`, `engine/src/workflow/site-prose.ts`, `src/cockpit/render/MdBlocks.svelte`, `src/cockpit/render/MdInline.svelte`, `src/cockpit/render/Prose.svelte` and 1 more.
-- `markup.ts` is consumed by `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/failure-owners.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/projector/project.ts`, `engine/src/workflow/promotion/release-notes.ts`, `engine/src/workflow/site-prose.ts`.
-- `module-contract.ts` is consumed by `server/schema/derive-modules.ts`, `server/schema/ui-declarations.ts`, `src/cockpit/rooms/instruments-data.ts`, `src/cockpit/settings/settings-data.ts`, `src/state/schema-store.ts`.
-- `provenance.ts` is consumed by `server/blocks/provenance.ts`, `src/cockpit/lens/LensCallout.svelte`, `src/cockpit/lens/lens-callout-data.ts`, `src/data/broker.ts`, `src/data/ledger.ts`, `src/state/lens.ts`.
-- `routes.ts` is consumed by `server/tools/ui-control.ts`, `src/cockpit/desk/DeskPanel.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/shell/RightMenuHost.svelte`, `src/cockpit/shell/right-menu.ts`, `src/cockpit/shell/view-request.ts` and 3 more.
-- `site-page.ts` is consumed by nothing yet.
-- `token-reader.ts` is consumed by nothing yet.
-- `types.ts` is consumed by `src/client.ts`, `src/cockpit/desk/TripScope.svelte`, `src/cockpit/flow/RunPane.svelte`, `src/cockpit/flow/run-stream.ts`, `src/state/chat-messages.ts`, `src/state/config-snapshot.ts` and 6 more.
-- `ui-schema.ts` is consumed by `server/schema/ui-declarations.ts`, `server/schema/ui-schema.ts`, `src/client.ts`, `src/cockpit/lens/lens-callout-data.ts`, `src/cockpit/rooms/InstrumentCell.svelte`, `src/cockpit/rooms/InstrumentsRoom.svelte` and 5 more.
-- `web-ui-defaults.ts` is consumed by `server/kernel/harness-config.ts`, `src/state/web-ui-config.ts`.
-- `web-ui-types.ts` is consumed by `server/kernel/harness-config.ts`.
-- `when-eval.ts` is consumed by `server/blocks/arm.ts`, `src/cockpit/sweep/arm-fire.ts`, `src/cockpit/sweep/arm-palette.ts`.
-- `wire-types.ts` is consumed by `server/blocks/compose.ts`, `server/context/memory-bridge.ts`, `server/filesystem/editor-bridge.ts`, `server/integrations/mcp-bridge.ts`, `server/integrations/mcp-runtime-bridge.ts`, `server/kernel/harness-config.ts` and 13 more.
-
-<!-- /consumers:generated -->

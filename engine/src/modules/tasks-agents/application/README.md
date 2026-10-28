@@ -7,13 +7,6 @@ The tasks-agents application layer: the use-cases that admit a handoff and compi
 - `admit-handoff.ts` — Admit a handoff under the admission context.
 - `compile-assignment-contract.ts` — Snapshots an untrusted assignment exactly once before schema or hash work.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/modules/tasks-agents/application/`.
-
-- `admit-handoff.ts` is consumed by `engine/src/modules/tasks-agents/index.ts`.
-- `compile-assignment-contract.ts` is consumed by `engine/src/modules/tasks-agents/application/admit-handoff.ts`, `engine/src/modules/tasks-agents/index.ts`.
-
-<!-- /consumers:generated -->

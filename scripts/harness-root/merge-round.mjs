@@ -594,8 +594,11 @@ function finishReport(report) {
 }
 
 // --- CLI ---
-if (isEntryPoint(import.meta.url)) {
-  bootstrapProcess({ role: "cli" });
+/**
+ * The CLI, answering its exit code: the caller sets it and the loop drains,
+ * never `process.exit()`, which can deadlock at shutdown (Node #54918, #351).
+ */
+async function runMergeRoundCli() {
   const args = process.argv.slice(2);
   const wantBootstrap = args.includes("--bootstrap");
   const wantStatus = args.includes("--status");
@@ -614,7 +617,7 @@ if (isEntryPoint(import.meta.url)) {
 
   if (wantStatus) {
     console.log(JSON.stringify(statusIntegration(), null, 2));
-    process.exit(0);
+    return 0;
   }
 
   if (wantBootstrap) {
@@ -622,10 +625,10 @@ if (isEntryPoint(import.meta.url)) {
     try {
       const res = bootstrapIntegration({ force });
       console.log(JSON.stringify(res, null, 2));
-      process.exit(res.bootstrapped ? 0 : 1);
+      return res.bootstrapped ? 0 : 1;
     } catch (e) {
       console.error(JSON.stringify({ bootstrapped: false, error: e.message }, null, 2));
-      process.exit(1);
+      return 1;
     }
   }
 
@@ -645,21 +648,16 @@ if (isEntryPoint(import.meta.url)) {
         "record rounds that are already finished, and merging them again would replay\n" +
         "closed history over the live engine.\n",
     );
-    process.exit(1);
+    return 1;
   }
 
-  // Acquire the merge lock before touching integration/.
-  acquireMergeLock().then(async (release) => {
-    // THE LOCK IS RELEASED BEFORE THE EXIT, NOT IN A `finally` AROUND IT.
-    // `process.exit()` terminates the process immediately and `finally` blocks
-    // do NOT run — so the old shape (`try { … process.exit(…) } finally {
-    // release() }`) left `.merge.lock` on disk after every single CLI run,
-    // observed live. A stale lock is stolen only once its recorded pid is
-    // dead, so the next round paid the poll timeout for it.
-    let exitCode = 1;
+  // Acquire the merge lock before touching integration/. It is released in a
+  // `finally`, so the lock is gone before the round's code is answered (a run
+  // that ended by `process.exit()` once left `.merge.lock` on disk every time).
+  try {
+    const release = await acquireMergeLock();
     try {
       const report = await mergeRound({ experimentsRoot, onlyExperiments, runE2e: !noE2e, requireIssues: !noRequireIssues });
-      exitCode = report.passed ? 0 : 1;
       console.log(JSON.stringify({
         schema: report.schema,
         mergedAt: report.mergedAt,
@@ -691,12 +689,17 @@ if (isEntryPoint(import.meta.url)) {
         promoted: report.promoted,
         passed: report.passed,
       }, null, 2));
+      return report.passed ? 0 : 1;
     } finally {
       release();
     }
-    process.exit(exitCode);
-  }).catch((e) => {
+  } catch (e) {
     console.error(e instanceof MergeRoundInputError ? e.message : String(e));
-    process.exit(1);
-  });
+    return 1;
+  }
+}
+
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
+  process.exitCode = await runMergeRoundCli();
 }

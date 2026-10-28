@@ -42,6 +42,7 @@ vi.mock("../../src/cockpit/shell/outlets.ts", async () => {
 
 import Cockpit from "../../src/cockpit/Cockpit.svelte";
 import { resetUiSchema } from "../../src/state/schema-store.ts";
+import { until } from "../helpers/until.ts";
 
 type Json = Record<string, unknown> | unknown[];
 
@@ -72,13 +73,6 @@ function stubApi(): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
 
 /** THE harness: record every DOM mutation under `root` for `ms`. */
 export function observeIdle(root: Node, ms: number): Promise<MutationRecord[]> {
@@ -149,7 +143,7 @@ describe("cockpit-boot-owner — one-reveal, then stillness", () => {
 
   test("warm signed-in boot reveals, and the registration column is 3 lines", async () => {
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true",
     );
     // session · schema · index — compression is the correct warm experience
@@ -164,7 +158,7 @@ describe("cockpit-boot-owner — one-reveal, then stillness", () => {
 
   test("the project room is assigned in the reveal frame, not after it", async () => {
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true",
     );
     const room = host.querySelector('[aria-label="switch room"]');
@@ -175,7 +169,7 @@ describe("cockpit-boot-owner — one-reveal, then stillness", () => {
 
   test("GUARD: zero DOM mutations in the idle window after the reveal", async () => {
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true",
     );
     // Let the reveal frame's own flush finish (it IS the coordinated frame).
@@ -191,7 +185,7 @@ describe("cockpit-boot-owner — one-reveal, then stillness", () => {
 
   test("mutation: a late mount IS caught by the harness", async () => {
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true",
     );
     await new Promise((r) => setTimeout(r, 50));
@@ -207,7 +201,7 @@ describe("cockpit-boot-owner — one-reveal, then stillness", () => {
 
   test("mutation: a late style move IS caught by the harness", async () => {
     app = mount(Cockpit, { target: host });
-    await waitFor(
+    await until(
       () => host.querySelector(".cockpit")?.getAttribute("data-revealed") === "true",
     );
     await new Promise((r) => setTimeout(r, 50));
@@ -241,7 +235,7 @@ describe("cockpit-boot-owner — one-reveal, then stillness", () => {
       }),
     );
     app = mount(Cockpit, { target: host });
-    await waitFor(() => host.querySelector(".gate") !== null);
+    await until(() => host.querySelector(".gate") !== null);
     expect(host.querySelector(".cockpit")?.getAttribute("data-revealed")).toBe("false");
     // The signature line and the passphrase field, in the column, on the
     // measure — no floating form (§10.2 step 3).

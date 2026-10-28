@@ -12,6 +12,8 @@ import { schemaId } from "./product-identity.ts";
  * instead of inlining `"application/json"`.
  */
 export const CONTENT_TYPE_JSON = "application/json" as const;
+/** Raw bytes (`application/octet-stream`): a binary body, such as a release asset. */
+export const CONTENT_TYPE_OCTET_STREAM = "application/octet-stream" as const;
 
 /**
  * WHERE A REQUEST GOES WHEN NOBODY HAS SAID WHERE — and it deliberately goes

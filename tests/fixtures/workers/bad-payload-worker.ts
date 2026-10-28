@@ -9,9 +9,7 @@
  */
 import { parentPort } from "node:worker_threads";
 
-if (parentPort === null) {
-  process.exit(1);
-}
+if (parentPort === null) throw new Error("this fixture is a worker thread's entry; start it as a worker");
 // Posts { ok: true } with NO payload — the caller's validateOk should
 // throw (missing field) → the pool rejects with `${label}_worker_bad_payload`.
 parentPort.postMessage({ ok: true });
