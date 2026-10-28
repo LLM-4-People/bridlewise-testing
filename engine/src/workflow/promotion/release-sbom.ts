@@ -14,7 +14,7 @@
  * and is not a package of its own.
  *
  * Deterministic: the creation time is the product commit's committer time,
- * the namespace names the commit, and every order is by UTF-8 bytes
+ * the namespace is the release asset's own address, and every order is by UTF-8 bytes
  * (`compareUtf8Bytes`, never the host's locale), so the same commit gives
  * the same bytes on any machine; no clock is read. Fail closed: a lockfile
  * that is not a v2/v3 `packages` map, an installed entry with no version, or
@@ -33,9 +33,8 @@
  * Nothing is stripped: a lockfile that records a credentialed registry is
  * fixed on main.
  */
-import { createHash } from "node:crypto";
-
-import { deepFreeze } from "../../kernel/integrity.ts";
+import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
+import { SBOM_ELEMENT_ID_DIGEST_LENGTH } from "../workflow-config.ts";
 import { compareUtf8Bytes } from "../../kernel/ordered.ts";
 import { MAXIMUM_PRIVACY_URL_DECODE_LEVELS } from "../../privacy/privacy-config.ts";
 import { splitUrl, urlCredentialSpellings } from "../../privacy/secret-parts.ts";
@@ -77,7 +76,7 @@ function invalid(path: string, why: string): PromotionError {
 
 /** An SPDX element id (letters, digits, `.`, `-`) unique to `key`. */
 function spdxId(kind: string, label: string, key: string): string {
-  return `SPDXRef-${kind}-${label.replace(/[^A-Za-z0-9.-]+/gu, "-").replace(/^-+|-+$/gu, "")}-${createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
+  return `SPDXRef-${kind}-${label.replace(/[^A-Za-z0-9.-]+/gu, "-").replace(/^-+|-+$/gu, "")}-${sha256(key).slice(0, SBOM_ELEMENT_ID_DIGEST_LENGTH)}`;
 }
 
 /** The npm purl of `name@version` (a scope's `@` percent-encoded). */
@@ -118,8 +117,12 @@ function committedAt(repository: GitRepository, commit: string): string {
   return new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/u, "Z");
 }
 
-/** The SPDX 2.3 document of `plan`'s product commit (see the header), as its canonical bytes. */
-export function releaseSbom(repository: GitRepository, plan: ReleasePlan): string {
+/**
+ * The SPDX 2.3 document of `plan`'s product commit (see the header), as its
+ * canonical bytes. Its namespace is `location`, the SBOM asset's own download
+ * address (`releaseAssetUrl`): a URI the product owns, one per release.
+ */
+export function releaseSbom(repository: GitRepository, plan: ReleasePlan, location: string): string {
   const reader = commitTreeReader(repository, plan.product.commit);
   const lockfiles = reader.paths().filter((path) => path === LOCKFILE || path.endsWith(`/${LOCKFILE}`)).sort(compareUtf8Bytes);
   if (lockfiles.length === 0) throw invalid(plan.product.commit, "holds no package-lock.json");
@@ -171,7 +174,7 @@ export function releaseSbom(repository: GitRepository, plan: ReleasePlan): strin
     dataLicense: "CC0-1.0",
     SPDXID: "SPDXRef-DOCUMENT",
     name: `${PRODUCT_NAME}-${plan.version}`,
-    documentNamespace: `https://spdx.org/spdxdocs/${PRODUCT_NAME}-${plan.version}-${plan.product.commit}`,
+    documentNamespace: location,
     creationInfo: { created: committedAt(repository, plan.product.commit), creators: [`Tool: ${PRODUCT_NAME}-harness`] },
     packages: [...packages.values()].sort((left, right) => compareUtf8Bytes(left.SPDXID, right.SPDXID)),
     relationships: unique,

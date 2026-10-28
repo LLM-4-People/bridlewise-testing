@@ -7,7 +7,7 @@
  *   records   --out <records.jsonl>
  *   plan      --releases <records.jsonl> [--now <iso time>] [--manual]
  *   notes     --releases … --repository <forge>/<owner>/<name> --out <file> [--now …] [--manual]
- *   sbom      --releases … --out <file> [--now …] [--manual]
+ *   sbom      --releases … --repository <forge>/<owner>/<name> --out <file> [--now …] [--manual]
  *   assemble  --releases … --out <empty folder> --bundle <file> --guardian <file>
  *             --sbom <file> --docs-site <file> [--now …] [--manual]
  *
@@ -30,7 +30,7 @@ import { wrapResult } from "../command-result.ts";
 import { PromotionError, answer, promotionExitCode, type PromotionAnswer } from "./codes.ts";
 import { resolveRepositoryContext, type PromotionDocument } from "./context.ts";
 import type { PromoteCliOutcome } from "./promote-cli.ts";
-import { assembleRelease, RELEASE_INPUTS, type ReleaseInput } from "./release-assets.ts";
+import { assembleRelease, releaseAssetNames, releaseAssetUrl, RELEASE_INPUTS, type ReleaseInput } from "./release-assets.ts";
 import { renderReleaseNotes } from "./release-notes.ts";
 import { releaseSbom } from "./release-sbom.ts";
 import { RELEASE_WAIT_REMEDIES, planRelease, type ReleasePlan, type ReleaseRecord } from "./release-train.ts";
@@ -46,9 +46,12 @@ const VALUE_FLAGS: Readonly<Record<ReleaseVerb, readonly string[]>> = deepFreeze
   records: ["--out"],
   plan: ["--now", "--releases"],
   notes: ["--now", "--releases", "--repository", "--out"],
-  sbom: ["--now", "--releases", "--out"],
+  sbom: ["--now", "--releases", "--repository", "--out"],
   assemble: ["--now", "--releases", "--out", "--bundle", "--guardian", "--sbom", "--docs-site"],
 });
+
+/** The platform this process builds for (`<os>-<arch>`): the guardian asset's name part. */
+const PLATFORM = `${process.platform}-${process.arch}`;
 
 const INPUT_FLAGS: Readonly<Record<ReleaseInput, string>> = deepFreeze({ bundle: "--bundle", guardian: "--guardian", sbom: "--sbom", docsSite: "--docs-site" });
 
@@ -73,7 +76,7 @@ export function parseReleaseArguments(argv: readonly string[]): ReleaseRequest {
       values.set(argument, value);
     } else throw usage(`${verb} takes no ${argument}`);
   }
-  const required = verb === "records" ? ["--out"] : verb === "sbom" ? ["--releases", "--out"] : verb === "notes" ? ["--releases", "--repository", "--out"] : verb === "assemble" ? VALUE_FLAGS.assemble.filter((flag) => flag !== "--now") : ["--releases"];
+  const required = verb === "records" ? ["--out"] : verb === "sbom" ? ["--releases", "--repository", "--out"] : verb === "notes" ? ["--releases", "--repository", "--out"] : verb === "assemble" ? VALUE_FLAGS.assemble.filter((flag) => flag !== "--now") : ["--releases"];
   const absent = required.filter((flag) => !values.has(flag));
   if (absent.length > 0) throw usage(`${verb} needs ${absent.join(", ")}`);
   if (values.has("--repository") && !/^https:\/\/[^/\s]+\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(values.get("--repository")!)) throw usage("--repository is the repository's web address, <forge>/<owner>/<name> (the release job passes $GITHUB_SERVER_URL/$GITHUB_REPOSITORY)");
@@ -170,12 +173,13 @@ async function releaseVerb(root: string, request: ReleaseRequest, document?: Pro
   }
   if (request.verb === "sbom") {
     const out = request.values.get("--out")!;
-    const written = atomicWriteFile(out, releaseSbom(context.repository, plan));
+    const location = releaseAssetUrl(request.values.get("--repository")!, plan.tag, releaseAssetNames(plan.version, PLATFORM).sbom);
+    const written = atomicWriteFile(out, releaseSbom(context.repository, plan, location));
     if (!written.success) throw written.error;
     return answer("promotion_release_sbom_written", `the SBOM of ${plan.tag} (SPDX 2.3, the product commit's own lockfiles) is in ${out}`, { plan, out });
   }
   const inputs = Object.fromEntries(RELEASE_INPUTS.map((role) => [role, request.values.get(INPUT_FLAGS[role])!]));
-  const assets = assembleRelease({ repository: context.repository, plan, out: request.values.get("--out")!, inputs, platform: `${process.platform}-${process.arch}` });
+  const assets = assembleRelease({ repository: context.repository, plan, out: request.values.get("--out")!, inputs, platform: PLATFORM });
   return answer("promotion_release_assembled", `${String(assets.length)} asset(s) of ${plan.tag} are in ${request.values.get("--out")!}`, { plan, assets });
 }
 

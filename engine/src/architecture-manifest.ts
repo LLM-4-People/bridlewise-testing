@@ -4251,7 +4251,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-workflow-config", path: "src/workflow/workflow-config.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 47, namesSha256: "23611ed3d567c35c3effe6420e81045f17b89ee5e01402618243f4c1b1516832" },
+      owner: "verification-workflow", publicApi: { exportCount: 48, namesSha256: "66ffea05c53831afcc1bc9f28a91d78df2ba74d432b88035eb9a50f8c06d8715" },
       dependencies: ["src/kernel/errors.ts","src/kernel/product-identity.ts"],
     }),
     moduleContract({
@@ -5644,7 +5644,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-promotion-release-assets", path: "src/workflow/promotion/release-assets.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "9e71c5eb1b310574b13ffe2d02c8f51ecf7b1faad0199850b40cbea084094622" },
+      owner: "verification-workflow", publicApi: { exportCount: 6, namesSha256: "44ba830e28ce08541ffce97ff45f4e5b974c4feae177f43bc93bdedbe8d1c346" },
       dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/product-identity.ts","src/workflow/promotion/codes.ts"],
     }),
     moduleContract({
@@ -5770,7 +5770,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-promotion-release-sbom", path: "src/workflow/promotion/release-sbom.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 1, namesSha256: "842789e3cda9efac145258e7f83e48e8ba9f36c447dd28111d1a25cfa7fa1887" },
-      dependencies: ["node:crypto","src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/ordered.ts","src/kernel/product-identity.ts","src/privacy/privacy-config.ts","src/privacy/secret-parts.ts","src/privacy/secret-signals.ts","src/workflow/promotion/codes.ts"],
+      dependencies: ["src/git/tree-reader.ts","src/kernel/integrity.ts","src/kernel/ordered.ts","src/kernel/product-identity.ts","src/privacy/privacy-config.ts","src/privacy/secret-parts.ts","src/privacy/secret-signals.ts","src/workflow/promotion/codes.ts","src/workflow/workflow-config.ts"],
     }),
   ],
 });
