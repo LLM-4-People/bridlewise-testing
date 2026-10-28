@@ -77,6 +77,13 @@ export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): R
   });
 }
 /**
+ * How many hex digits of a commit id a person-facing line shows (the release
+ * train's answers, the release notes), each linking or naming the full id
+ * beside it: git's own short form tops out at 12.
+ */
+export const DISPLAY_COMMIT_ID_LENGTH = 12;
+
+/**
  * How many hex digits of its key's SHA-256 an SBOM element id carries
  * (`release-sbom.ts`: `SPDXRef-npm-<name>-<digits>`), so ids stay unique in
  * one document however a name sanitises. Twelve keeps them unique for any

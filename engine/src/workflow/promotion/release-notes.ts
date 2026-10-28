@@ -16,6 +16,7 @@
 import { escapeMarkdownText } from "../../../../shared/markup.ts";
 import { commitTreeReader, gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import type { ReleasePlan, ReleaseSettings } from "./release-train.ts";
+import { DISPLAY_COMMIT_ID_LENGTH } from "../workflow-config.ts";
 
 /** Where the decision records live (one per file, `docs/decisions/<ID>-<slug>.md`). */
 const DECISIONS_FOLDER = "docs/decisions/";
@@ -108,12 +109,13 @@ export function renderReleaseNotes(repository: GitRepository, plan: ReleasePlan,
   const to = plan.product.source;
   // The door validated the address (<forge>/<owner>/<name>, no trailing slash).
   const url = repositoryUrl;
-  const slug = url.split("/").slice(-2).join("/");
+  // `<owner>/<name>`: the address's path, which the door holds to exactly those two segments.
+  const slug = new URL(url).pathname.replace(/^\//u, "");
   const lines: string[] = [];
   if (plan.prerelease) {
     lines.push("> [!WARNING]", "> **Developer preview. Not production-ready.** Do not use Bridlewise with sensitive, proprietary, regulated or production codebases. Read SECURITY.md before running anything.", "");
   }
-  lines.push(`The product \`${plan.version}\` is the \`product\` commit [\`${plan.product.commit.slice(0, 12)}\`](${url}/commit/${plan.product.commit}), projected from \`main\` at [\`${to.slice(0, 12)}\`](${url}/commit/${to}).`, "");
+  lines.push(`The product \`${plan.version}\` is the \`product\` commit [\`${plan.product.commit.slice(0, DISPLAY_COMMIT_ID_LENGTH)}\`](${url}/commit/${plan.product.commit}), projected from \`main\` at [\`${to.slice(0, DISPLAY_COMMIT_ID_LENGTH)}\`](${url}/commit/${to}).`, "");
   if (plan.previous === null || from === null) {
     // No earlier release, or one from before the product was a projection of
     // main (a seeded preview): there is no source range to read records from.

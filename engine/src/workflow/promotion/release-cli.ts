@@ -35,6 +35,7 @@ import { renderReleaseNotes } from "./release-notes.ts";
 import { releaseSbom } from "./release-sbom.ts";
 import { RELEASE_WAIT_REMEDIES, planRelease, type ReleasePlan, type ReleaseRecord } from "./release-train.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
+import { DISPLAY_COMMIT_ID_LENGTH } from "../workflow-config.ts";
 import { configuredForge } from "../forge/configured-forge.ts";
 import { configuredProductForge, forgeRefusal, type ProductForge } from "../forge/publish/product.ts";
 import { listReleases } from "../forge/repository-reads.ts";
@@ -136,7 +137,7 @@ export function readReleaseRecords(path: string): readonly ReleaseRecord[] {
 
 function describePlan(plan: ReleasePlan): string {
   return plan.due
-    ? `${plan.tag} departs: the product ${plan.product.commit.slice(0, 12)} (from main ${plan.product.source.slice(0, 12)})${plan.approval ? ", through an approving reviewer" : ""}`
+    ? `${plan.tag} departs: the product ${plan.product.commit.slice(0, DISPLAY_COMMIT_ID_LENGTH)} (from main ${plan.product.source.slice(0, DISPLAY_COMMIT_ID_LENGTH)})${plan.approval ? ", through an approving reviewer" : ""}`
     : `${plan.tag} waits: ${plan.reasons.map((reason) => RELEASE_WAIT_REMEDIES[reason]).join("; ")}`;
 }
 
