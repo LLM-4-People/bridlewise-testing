@@ -9,7 +9,7 @@ import { randomBytes } from "node:crypto";
 import test from "node:test";
 
 import { redactHeaders } from "../../src/mcp/headers.ts";
-import { isSensitiveHeaderName, NON_CREDENTIAL_HEADER_NAMES } from "../../src/privacy/secret-signals.ts";
+import { isSensitiveHeaderName, NON_CREDENTIAL_HEADER_NAMES, URL_VALUED_HEADER_NAMES } from "../../src/privacy/secret-signals.ts";
 
 /**
  * Credential-bearing names, including those a denylist missed: `Authentication`, `X-Authentication`,
@@ -28,6 +28,21 @@ const spellings = (name: string): readonly string[] => [name, name.toLowerCase()
 
 test("every credential-bearing header, in any case, is sensitive", () => {
   for (const name of CREDENTIAL_BEARING) for (const spelling of spellings(name)) assert.equal(isSensitiveHeaderName(spelling), true, spelling);
+});
+
+test("THE RULE: every URL-valued header (the declared classification) is sensitive, whatever the allowlist says; Referer and Origin included; a signed URL never survives redaction", () => {
+  for (const name of ["location", "link", "content-location", "refresh", "referer", "origin"]) assert.ok(URL_VALUED_HEADER_NAMES.has(name), `${name} is declared URL-valued`);
+  for (const name of URL_VALUED_HEADER_NAMES) {
+    assert.equal(name, name.toLowerCase(), `${name} is declared lower-case`);
+    for (const spelling of spellings(name)) assert.equal(isSensitiveHeaderName(spelling), true, spelling);
+    assert.ok(!NON_CREDENTIAL_HEADER_NAMES.has(name), `${name} carries a URL, so it is never on the credential-free allowlist`);
+  }
+  const signed = "https://objects.example.net/release-asset/123?X-Amz-Signature=0123abcd&X-Amz-Credential=AKIDEXAMPLE&token=t0k3n#frag";
+  const link = `<${signed}>; rel="next"`;
+  const redacted = redactHeaders({ Location: signed, Link: link, Referer: signed, Origin: "https://user:t0k3n@app.example.net", "Content-Type": "application/octet-stream" });
+  for (const [name, value] of [["Location", signed], ["Link", link], ["Referer", signed], ["Origin", "https://user:t0k3n@app.example.net"]] as const) assert.equal(redacted[name], `<redacted:${value.length}>`, name);
+  assert.equal(redacted["Content-Type"], "application/octet-stream");
+  assert.ok(!JSON.stringify(redacted).includes("0123abcd") && !JSON.stringify(redacted).includes("t0k3n"), "no part of a signed URL survives");
 });
 
 test("a header nobody has named is sensitive BY DEFAULT", () => {
