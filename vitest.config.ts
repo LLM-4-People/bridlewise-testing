@@ -22,7 +22,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 import { BUILD_CONFIG } from "./vite.config.ts";
 import { TEST_HANG_BACKSTOP_MS } from "./tests/test-budget.ts";
 import { TEST_INCLUDE } from "./tests/test-include.ts";
-import { enableSharedCompileCache } from "./engine/scripts/tooling/compile-cache.ts";
+import { enableSharedCompileCache, vitestModuleCacheDirectory } from "./engine/scripts/tooling/compile-cache.ts";
 import { armCheckoutUnderTest } from "./engine/src/filesystem/checkout-write-door.ts";
 import { armTestKeyHome } from "./engine/test/support/test-key-home.ts";
 import {
@@ -155,10 +155,13 @@ export default mergeConfig(BUILD_CONFIG, defineConfig({
     // per-file TS→JS transform + module-graph evaluation. The first run
     // builds the cache; subsequent runs (the common dev-iteration case)
     // read from disk — vitest docs show import 5.52s→2.35s, transform
-    // 4.02s→842ms on reruns. The cache lives in node_modules/.experimental-
-    // vitest-cache (gitignored as node_modules). `vitest --clearCache` resets.
+    // 4.02s→842ms on reruns. The cache lives OUTSIDE the checkout, which a test
+    // run sees read-only, at the one place the cache owner names
+    // (engine/scripts/tooling/compile-cache.ts `vitestModuleCacheDirectory`).
+    // `vitest --clearCache` resets.
     experimental: {
       fsModuleCache: true,
+      fsModuleCachePath: vitestModuleCacheDirectory(import.meta.dirname),
     },
     // Pre-bundle external dependencies (node_modules) with esbuild so each
     // worker reads one optimized bundle instead of evaluating dozens of
