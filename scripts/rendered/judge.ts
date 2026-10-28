@@ -36,7 +36,7 @@ import { parseArgs } from "node:util";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Frame, type Page } from "playwright-core";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
-import { FRAMES_NOT_JUDGED, FUTURE_MS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type RenderState, type RequestRule, type Surface } from "./rules.ts";
+import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type RenderState, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
   readonly code: string;
@@ -98,7 +98,8 @@ async function recordedOf(page: Page, journal: Journal): Promise<Recorded> {
  * prototype — on every assignment (whatever its spelling: ctx.font =,
  * ctx["font"] =, Object.assign, +=, another frame's setter) and on every text
  * it draws (the default font included) — never at a spelling. A shared
- * worker, which no frame or CDP attach reaches, is recorded as it is made.
+ * worker, which no frame or CDP attach reaches, is recorded as it is made, and
+ * so is a delayed scheduler.postTask, which the page clock does not run.
  */
 function instrumentFrame(binding: string): void {
   const scope = globalThis as unknown as Record<string, unknown>;
@@ -133,6 +134,17 @@ function instrumentFrame(binding: string): void {
         return original.apply(this, args);
       };
     }
+  }
+  // A delayed scheduler.postTask runs on the browser's scheduler, which the page clock does not fake: refused,
+  // at the prototype (however it is called), so the future the judge runs never misses it in silence.
+  const scheduler = (scope.Scheduler as { prototype: Record<string, unknown> } | undefined)?.prototype;
+  const postTask = scheduler?.postTask as ((this: object, callback: unknown, options?: { delay?: number }) => unknown) | undefined;
+  if (scheduler !== undefined && typeof postTask === "function") {
+    scheduler.postTask = function (this: object, callback: unknown, options?: { delay?: number }): unknown {
+      const delay = Number(options?.delay ?? 0);
+      if (delay > 0) send("unjudgeable", `a scheduler.postTask with a ${String(delay)} ms delay: the page's clock does not run it forward`);
+      return postTask.call(this, callback, options);
+    };
   }
   const Shared = scope.SharedWorker as (new (...args: unknown[]) => object) | undefined;
   if (typeof Shared === "function") {
@@ -491,7 +503,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const pages = sitePages(resolve(values.site), values.baseurl).length;
   for (const finding of findings) process.stdout.write(`${finding}\n`);
   const pending = RENDERED_RULES.flatMap((r) => (r.pending?.site === undefined ? [] : [{ id: r.id, why: r.pending.site }]));
-  process.stdout.write(`${JSON.stringify({ surface: "site", pages, rules: RENDERED_RULES.filter((r) => r.surfaces.includes("site")).map((r) => r.id), pending, findings: findings.length })}\n`);
+  process.stdout.write(`${JSON.stringify({ surface: "site", pages, rules: RENDERED_RULES.filter((r) => r.surfaces.includes("site")).map((r) => r.id), pending, limits: JUDGE_LIMITS, findings: findings.length })}\n`);
   return findings.length === 0 ? 0 : 1;
 }
 

@@ -33,8 +33,10 @@
  * records as it runs (every canvas font and every Content-Security-Policy
  * violation, in any frame) reaches the rows through `record`; and whatever
  * the judgement cannot reach — a worker, a closed shadow root, a window the
- * page opens — is refused by the judgeable row, never passed in silence. The
- * request rows stay on for the whole session.
+ * page opens, a delayed scheduler.postTask — is refused by the judgeable row,
+ * never passed in silence. What a green judgement still does not claim is
+ * declared in JUDGE_LIMITS, and every report prints it. The request rows stay
+ * on for the whole session.
  */
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 import { vendoredFaces } from "../vendor-fonts.ts";
@@ -360,6 +362,20 @@ export const FUTURE_MS = 30_000;
 export const STEP_MS = 1_000;
 
 /**
+ * THE JUDGE'S DECLARED LIMITS — what a green judgement does NOT claim, each
+ * in one sentence. Every report the judge makes prints this table (judge.ts
+ * `site`, proof.ts, the capture walk's --judge-only), so no limit is a silent
+ * gap. What the judge can detect but cannot judge is not listed here: the
+ * judgeable row refuses it (a worker, a closed shadow root, a window the page
+ * opens, a delayed scheduler.postTask).
+ */
+export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string }>[] = [
+  { id: "between-steps", limit: `a change that appears and is undone within one step (${String(STEP_MS)} ms of page time) of a page's future is not seen` },
+  { id: "past-the-future", limit: `work a page schedules later than ${String(FUTURE_MS)} ms of page time into its future is not run` },
+  { id: "animation-keyframes", limit: "a CSS animation or transition is judged where it stands at each judgement and at its end, not at every keyframe between" },
+];
+
+/**
  * THE FRAMES NOT JUDGED, each declared with its reason: a frame whose element
  * carries the attribute is skipped with everything inside it. Every other
  * frame is judged by every page row.
@@ -412,7 +428,7 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "judgeable",
-    holds: "Everything the page runs is within the judgement's reach: no worker (dedicated or shared), no closed shadow root, no window the page opens; every frame outside FRAMES_NOT_JUDGED is judged.",
+    holds: "Everything the page runs is within the judgement's reach: no worker (dedicated or shared), no closed shadow root, no window the page opens, no scheduler.postTask with a delay (the page's clock does not run it); every frame outside FRAMES_NOT_JUDGED is judged.",
     surfaces: ["cockpit", "site"],
     input: () => ({}),
     judge: judgeJudgeable as PageRule["judge"],
