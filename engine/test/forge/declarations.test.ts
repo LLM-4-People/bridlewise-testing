@@ -154,6 +154,10 @@ test("Dependabot covers exactly the tracked lockfiles (frozen benchmarks exclude
   assert.deepEqual(dependabotEntryViolations({ "package-ecosystem": "npm", directory: "/", cooldown: { "semver-major": 7 } }, 0), ["updates[0]: cooldown.semver-major is not a Dependabot cooldown key"]);
   assert.deepEqual(dependabotEntryViolations({ "package-ecosystem": "npm", directory: "/", "versioning-strategy": "increase" }, 0), ["updates[0]: versioning-strategy is not a key the forge writes"]);
   assert.equal(dependabotEntryViolations({ "package-ecosystem": "docker", directory: "/" }, 0).length, 1, "an ecosystem the forge does not classify is refused");
+  // The generator itself refuses a reachable declaration Dependabot would not take: the forge section's github-actions entry
+  // at "/.github" makes dependabotFile throw, naming the entry (never a file GitHub refuses on push).
+  const misplaced = { ...SETTINGS, dependabot: { ...SETTINGS.dependabot, packages: SETTINGS.dependabot.packages.map((entry) => entry.ecosystem === "github-actions" ? { ...entry, directory: "/.github" } : entry) } };
+  assert.throws(() => dependabotFile(misplaced, facts), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && error.message.includes('github-actions takes directory "/" only'));
   // A lockfile nobody declared (in another place than the root), and a declared root without one: both refused.
   assert.throws(() => dependabotFile(SETTINGS, forgeTreeFacts(tree({ ...files, "server/package-lock.json": "{}" }), SETTINGS)), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /\/server/u.test(error.message));
   const withoutEngine: Record<string, string> = { ...files };

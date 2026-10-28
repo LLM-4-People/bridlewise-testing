@@ -121,7 +121,9 @@ type DependabotEcosystem = ForgeSettings["dependabot"]["packages"][number]["ecos
  * - `cooldown.default-days`, `include` and `exclude` hold for every ecosystem;
  * - `cooldown.semver-major-days` and its minor and patch siblings only where
  *   the reference marks SemVer support (npm and Cargo yes, GitHub Actions no);
- * - GitHub Actions takes `directory: "/"` only (it covers `.github/workflows`).
+ * - and one FORGE POLICY, not a Dependabot rule: GitHub Actions is declared at
+ *   `directory: "/"` only (that entry covers `.github/workflows`; the forge
+ *   keeps no composite action elsewhere, so another directory is a mistake).
  * Exhaustive over the ecosystems the forge section admits: a new one does
  * not compile until it is classified here.
  */
