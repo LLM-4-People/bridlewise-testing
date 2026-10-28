@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { buildCandidateManifest, buildCandidateManifestDetailed } from "../scripts/tooling/candidate-manifest.ts";
+import { buildCandidateManifest, buildCandidateManifestDetailed } from "../scripts/verification/candidate-manifest.ts";
 import {
   candidateFormatForBytes,
   candidateFormatErrorViolations,

@@ -114,7 +114,7 @@ const INTERNAL_IMPORT_POLICIES = deepFreeze([{
 }, {
   id: "pinned-process",
   path: "src/process/pinned-process-internal.ts",
-  allowedImporters: ["src/filesystem/durable-filesystem-internal.ts", "src/runtime/admitted-node-runtime.ts", "src/git/git-adapter.ts", "scripts/tooling/repository-git.ts"],
+  allowedImporters: ["src/filesystem/durable-filesystem-internal.ts", "src/runtime/admitted-node-runtime.ts", "src/git/git-adapter.ts", "scripts/verification/repository-git.ts"],
   deniedNames: ["*"],
 }, {
   id: "root-capability-internal",

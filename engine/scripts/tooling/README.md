@@ -107,7 +107,7 @@ gated fast-forward. With it, A5 deleted the tools it replaces (D-11):
 - the repository checkpoint (`snapshot-working-tree.mjs`,
   `repository-snapshot.ts`, `repository-restore.ts`, `repository-artifacts.ts`):
   its one live use was the backup of the uncommitted tree, which step 6
-  committed; `repository-git.ts` keeps what the candidate manifest reads
+  committed; `repository-git.ts` (now in `engine/scripts/verification/`, beside the candidate manifest) keeps what the candidate manifest reads
   (`probeRepositoryGit`, `repositoryTreeEntries`, `fileGitMode`,
   `gitBlobObjectId`);
 - the owned-change composition (`merge-integration.mjs`,

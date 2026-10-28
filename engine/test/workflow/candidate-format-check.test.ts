@@ -5,7 +5,7 @@
  * a tree it cannot certify. Asked only there, a file with an extra trailing
  * newline landed through every required check and main's engine suite ran
  * zero tests. The check's candidate-format step asks the same door
- * (`scripts/tooling/candidate-manifest.ts --verdict`), so the commit guard
+ * (`scripts/verification/candidate-manifest.ts --verdict`), so the commit guard
  * and CI's required check refuse the file before it lands.
  */
 import assert from "node:assert/strict";
@@ -29,7 +29,9 @@ test("harness check refuses a tree the engine runner would refuse at setup, nami
     appendFileSync(join(copy.engineRoot, "src", "cli.ts"), "\n");
     const refused = (await harnessCheck(copy.engineRoot, options)).result;
     assert.equal(refused.candidateFormat.status, "fail");
-    assert.match(refused.candidateFormat.message, /would refuse this tree at its setup and run no test: .*candidate-text-excess-final-newline:src%2Fcli\.ts/u);
+    assert.match(refused.candidateFormat.message, /would refuse this tree at its setup and run no test/u);
+    const violations = (refused.candidateFormat.details as { violations?: readonly string[] } | null)?.violations ?? [];
+    assert.ok(violations.includes("candidate-text-excess-final-newline:src%2Fcli.ts"), `the refusal names the file: ${violations.join(", ")}`);
     assert.equal(refused.allPassed, false, "the refusal fails the whole check");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);

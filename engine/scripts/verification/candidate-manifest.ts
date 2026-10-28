@@ -17,10 +17,10 @@ import {
   createCandidateFormatError,
   strictUtf8Text,
   type ImmutableTextSourceException,
-} from "../verification/candidate-format.ts";
+} from "./candidate-format.ts";
 import { probeRepositoryGit, repositoryTreeEntries, fileGitMode, gitBlobObjectId } from "./repository-git.ts";
 import { parseIndexRecords } from "../../src/git/index-entries.ts";
-import { parseS2OfficialFragmentManifestText } from "../verification/official-fragment-manifest.ts";
+import { parseS2OfficialFragmentManifestText } from "./official-fragment-manifest.ts";
 import {
   rawSafeRepositoryRootAccess,
   readSafeRepositoryFile,
@@ -28,7 +28,7 @@ import {
   safeRepositoryRootPathForInternalUse,
   type SafeRepositoryReadHooks,
   type SafeRepositoryRootAccessInput,
-} from "../verification/safe-repository-reader.ts";
+} from "./safe-repository-reader.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
 type GitMode = "100644" | "100755";

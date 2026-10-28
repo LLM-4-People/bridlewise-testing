@@ -157,7 +157,7 @@ export type HarnessCheckOutput = Readonly<{
   webBudgetPopulation: CheckStepResult;
   /** Is `dist/bundle.js` exactly a rebuild of the current source (no committed digest, #221; `scripts/build-bundle.ts --check`)? */
   bundle: CheckStepResult;
-  /** Would the engine runner accept the tree at its setup (scripts/tooling/candidate-manifest.ts --verdict, its own door)? */
+  /** Would the engine runner accept the tree at its setup (scripts/verification/candidate-manifest.ts --verdict, its own door)? */
   candidateFormat: CheckStepResult;
   allPassed: boolean;
 }>;
@@ -1707,8 +1707,10 @@ function bundleFreshnessStep(root: string): CheckStepResult {
 
 /**
  * `harness check`'s candidate-format step: the engine runner's own setup door
- * (`buildCandidateManifest`, run as `scripts/tooling/candidate-manifest.ts
- * --verdict`, the builder layer, as a subprocess). The runner refuses a tree
+ * (`buildCandidateManifest`, run as `scripts/verification/candidate-manifest.ts
+ * --verdict`, the builder layer, as a subprocess). The door lives in
+ * `scripts/verification/`, which ships, so a product tree's check runs the same
+ * step — never a probe that skips it where the file is stripped. The runner refuses a tree
  * it cannot certify (a non-canonical text file, an LFS pointer, an unreadable
  * entry) before it runs a single test; asked only there, a file it refuses
  * landed through every required check and left the suite running nothing
@@ -1717,7 +1719,7 @@ function bundleFreshnessStep(root: string): CheckStepResult {
 function candidateFormatStep(root: string): CheckStepResult {
   let answer: ScriptAnswer;
   try {
-    answer = runScriptSubprocess(root, "scripts/tooling/candidate-manifest.ts", ["--root", ".", "--verdict"]);
+    answer = runScriptSubprocess(root, "scripts/verification/candidate-manifest.ts", ["--root", ".", "--verdict"]);
   } catch (error) {
     return deepFreeze({ step: "candidate-format", status: "fail", message: `the engine runner's candidate check did not answer: ${error instanceof Error ? error.message : String(error)}`, details: null });
   }

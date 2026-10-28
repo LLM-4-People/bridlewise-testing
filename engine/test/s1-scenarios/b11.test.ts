@@ -157,14 +157,14 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     ));
 
     const caseVariantRoot = makeRuntimeCandidate();
-    appendCandidateSource(caseVariantRoot, "scripts/tooling/candidate-manifest.ts", [
+    appendCandidateSource(caseVariantRoot, "scripts/verification/candidate-manifest.ts", [
       "const hostileAuthority = Object.freeze({",
       '  [["SoUrCe", "Of", "TrUtH"].join("")]: ["memory", "store"].join("-"),',
       "});",
       "JSON.stringify(hostileAuthority);",
     ].join("\n"));
     assert.ok(verifyS1Structure(caseVariantRoot).violations.includes(
-      "evidence-graph-competing-authority:scripts/tooling/candidate-manifest.ts",
+      "evidence-graph-competing-authority:scripts/verification/candidate-manifest.ts",
     ));
 
     const nestedRoot = makeRuntimeCandidate();
