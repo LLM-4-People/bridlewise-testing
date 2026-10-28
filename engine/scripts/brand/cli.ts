@@ -2,10 +2,9 @@
  * THE PUBLIC WORDS' COMMAND — renders each surface from the messaging source
  * and the claims register (render.ts).
  *
- *   node scripts/brand/cli.ts render readme-hero|org-profile|repo-metadata|release-header [--out <file>]
- *       One surface's text (repo-metadata is JSON). GH-7's projector writes
- *       the README block, the org profile and the repository metadata from
- *       these; the release train prepends the release header.
+ *   node scripts/brand/cli.ts render readme-hero|org-profile|release-header [--out <file>]
+ *       One surface's text. GH-7's projector writes the README block and the
+ *       org profile from these; the release train prepends the release header.
  *   node scripts/brand/cli.ts build --site <assembled site> --checks <status.json>
  *       The claims page's body (into `<site>/floor/claims.md`, the shell the site
  *       assembles from docs/floor/claims.md), every claim judged
@@ -30,10 +29,10 @@ import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { decisionStates, readClaims } from "./claims.ts";
 import { readWords } from "./words.ts";
-import { claimsPage, CLAIMS_PAGE_BLOCK, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, type CheckResult } from "./render.ts";
+import { claimsPage, CLAIMS_PAGE_BLOCK, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, type CheckResult } from "./render.ts";
 
 const REPOSITORY_ROOT = dirname(fileURLToPath(new URL("../../", import.meta.url)));
-const SURFACES = ["readme-hero", "org-profile", "repo-metadata", "release-header"] as const;
+const SURFACES = ["readme-hero", "org-profile", "release-header"] as const;
 
 /** The checks and the commit of a floor status document (`bridlewise-floor-status/v1`), refused whole when malformed. */
 export function readStatus(path: string): Readonly<{ commit: string; checks: readonly CheckResult[] }> {
@@ -57,10 +56,6 @@ export function renderSurface(root: string, surface: typeof SURFACES[number]): s
   switch (surface) {
     case "readme-hero": return `${readmeHero(messaging, claims, decisionStates(root))}\n`;
     case "org-profile": return `${orgProfile(messaging, claims)}\n`;
-    case "repo-metadata": {
-      const metadata = repositoryMetadata(messaging);
-      return `${JSON.stringify(metadata, null, 2)}\n`;
-    }
     case "release-header": return `${releaseHeader(messaging)}\n`;
   }
 }

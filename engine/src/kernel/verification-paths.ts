@@ -43,12 +43,11 @@ export const DECISION_INDEX = deepFreeze({
  * `generator` (relative to the engine), which validates both sources whole
  * first — every cited proof path exists, every decision named is a record —
  * so a broken source fails `harness check`, a required check, rather than the
- * Pages build on main. A tree without `messaging` (repository-relative) has no
- * front doors to generate.
+ * Pages build on main. Its messaging source is a required input
+ * (`messaging_source_missing` when absent).
  */
 export const FRONT_DOOR_GENERATOR = deepFreeze({
   generator: "scripts/brand/cli.ts",
-  messaging: "docs/brand/messaging.json",
 } as const);
 
 /**

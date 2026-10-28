@@ -13,6 +13,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { frontDoorInput } from "./messaging.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -1291,14 +1292,13 @@ export type FrontDoorsArm = Readonly<{
 /**
  * The front-door arm, as a subprocess like the other builder-layer arms: the
  * brand generator validates both sources and renders the README's and the site
- * home's opening blocks (`FRONT_DOOR_GENERATOR.generator`). A tree without the
- * generator or the messaging source (a product-only tree, a repository copy
- * for a generator test) is converged by absence.
+ * home's opening blocks (`FRONT_DOOR_GENERATOR.generator`). Only a tree
+ * without the generator (a product-only tree) is converged by absence: with
+ * the generator, a missing messaging source is refused by name
+ * (`messaging_source_missing`), never passed.
  */
 export function regenerateFrontDoors(root: string, write: boolean): FrontDoorsArm {
-  const absent = deepFreeze({ status: "absent" as const, converged: true, changed: [], problems: [] });
-  const repositoryRoot = repositoryToplevel(root, "directory");
-  if (repositoryRoot === undefined || !existsSync(resolve(root, FRONT_DOOR_GENERATOR.generator)) || !existsSync(resolve(repositoryRoot, FRONT_DOOR_GENERATOR.messaging))) return absent;
+  if (!existsSync(resolve(root, FRONT_DOOR_GENERATOR.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [], problems: [] });
   const report = generatorReport<FrontDoorsArm["status"]>(root, FRONT_DOOR_GENERATOR.generator, ["sync", write ? "--write" : "--check"], "the front-door generator", "front_doors_no_result");
   const problems = Array.isArray(report.problems) ? report.problems.filter((p): p is string => typeof p === "string") : [];
   return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed, problems });
@@ -1422,8 +1422,8 @@ export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegene
   // Converges by absence alone, but runs for real once the forge arm's community sources are present: it declares its own.
   communityFiles: communityFilesInput,
   webBudgetPopulation: null,
-  // Its inputs are docs/brand/ and every path a claim cites; a copy without the messaging source converges by absence.
-  frontDoors: null,
+  // Its sources, the files it writes into, the addresses' owner and every file a claim cites (src/workflow/messaging.ts).
+  frontDoors: frontDoorInput,
   guardianSpecArtifact: null,
   artifactManifest: null,
 });

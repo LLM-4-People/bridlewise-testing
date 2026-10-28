@@ -2,30 +2,30 @@
  * THE MESSAGING SOURCE — the project's public words and identity in one file
  * (`docs/brand/messaging.json`): the name, the promise, the
  * summary, what this repository is, the honest status line, the licence, the
- * repository description and topics, and the name's own story (the
- * dictionary entry). Every generated surface reads it: the README's and the
- * site home's front blocks (written by `harness sync`, judged by `harness
- * check`), the org profile, the repository metadata (description, homepage
- * and topics, for the forge's repository settings), the release-note header,
- * the claims page, the roadmap and (through DESIGN's renderers) the social
- * images. None restates a word of it. The addresses are not words: the
+ * site's description, and the name's own story (the dictionary entry). Every
+ * generated surface reads it: the README's and the site home's front blocks
+ * and the site's title and description (written by `harness sync`, judged by
+ * `harness check`), the org profile, the release-note header, the claims page,
+ * the roadmap and (through DESIGN's renderers) the social images. None
+ * restates a word of it. It is a REQUIRED input: a tree that carries the brand
+ * generator and not this file is refused, by name, never passed in silence. The addresses are not words: the
  * repository's and the site's come from `package.json` `repository.url`,
  * their one declaration (scripts/floor/repository.mjs).
  *
- * It lives in the runtime layer so the forge's settings declarations read the
- * same reader the builder-layer renderers (engine/scripts/brand/) read.
+ * It lives in the runtime layer so `harness check` and the builder-layer
+ * renderers (engine/scripts/brand/) share one reader, and one statement of the
+ * files the front doors are made from (`frontDoorInput`).
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { InputError } from "../kernel/errors.ts";
 
 export const MESSAGING_PATH = "docs/brand/messaging.json";
 export const MESSAGING_SCHEMA = "bridlewise-messaging/v1";
-/** GitHub's own limits for a repository's description and topics. */
+/** The longest description the site's pages carry as their meta description. */
 const DESCRIPTION_MAX = 350;
-const TOPICS_MAX = 20;
-const TOPIC = /^[a-z0-9][a-z0-9-]{0,49}$/u;
 
 export type Messaging = Readonly<{
   name: string;
@@ -40,8 +40,6 @@ export type Messaging = Readonly<{
   license: string;
   /** The repository description (GitHub: at most 350 characters). */
   description: string;
-  /** The repository topics (GitHub: at most 20, lower-case words joined by hyphens). */
-  topics: readonly string[];
   /** The name's own story (concept B): a cited dictionary entry and the line it supports. */
   about: Readonly<{ word: string; partOfSpeech: string; definition: string; source: string; sourceUrl: string; line: string }>;
 }>;
@@ -55,18 +53,13 @@ export function messagingViolations(document: unknown): readonly string[] {
   const record = document as Record<string, unknown>;
   const problems: string[] = [];
   // The repository's and the site's addresses are not words: package.json repository.url is their one declaration.
-  const known = ["schema", "topics", "about", ...TEXT_FIELDS];
+  const known = ["schema", "about", ...TEXT_FIELDS];
   for (const key of Object.keys(record)) if (!known.includes(key)) problems.push(`${key} is not a field of the messaging source`);
   if (record.schema !== MESSAGING_SCHEMA) problems.push(`schema must be ${MESSAGING_SCHEMA}`);
   for (const field of TEXT_FIELDS) if (typeof record[field] !== "string" || (record[field] as string).trim().length === 0) problems.push(`${field} is required`);
   if (typeof record.description === "string" && record.description.length > DESCRIPTION_MAX) problems.push(`description is ${record.description.length} characters; GitHub allows ${DESCRIPTION_MAX}`);
   if (typeof record.status === "string" && !/developer preview/iu.test(record.status)) problems.push("status must say it is a developer preview");
   if (typeof record.description === "string" && !/developer preview/iu.test(record.description)) problems.push("description must say it is a developer preview");
-  if (!Array.isArray(record.topics) || record.topics.length === 0 || record.topics.length > TOPICS_MAX) problems.push(`topics must be 1 to ${TOPICS_MAX} topics`);
-  else {
-    for (const topic of record.topics) if (typeof topic !== "string" || !TOPIC.test(topic)) problems.push(`topic ${JSON.stringify(topic)} is not lower-case words joined by hyphens (at most 50 characters)`);
-    if (new Set(record.topics).size !== record.topics.length) problems.push("a topic is listed twice");
-  }
   const about = record.about as Record<string, unknown> | undefined;
   if (typeof about !== "object" || about === null) problems.push("about is required");
   else {
@@ -84,6 +77,9 @@ export function messagingViolations(document: unknown): readonly string[] {
 
 /** The messaging source of the repository at `root`, validated whole. */
 export function readMessaging(root: string): Messaging {
+  if (!existsSync(join(root, MESSAGING_PATH))) {
+    throw new InputError(`${MESSAGING_PATH} is missing: the README's and the site's front doors, the site's title and description and the claims are made from it`, "messaging_source_missing");
+  }
   let document: unknown;
   try {
     document = JSON.parse(readFileSync(join(root, MESSAGING_PATH), "utf8"));
@@ -93,4 +89,38 @@ export function readMessaging(root: string): Messaging {
   const problems = messagingViolations(document);
   if (problems.length > 0) throw new InputError(`${MESSAGING_PATH} breaks ${MESSAGING_SCHEMA}:\n${problems.join("\n")}`, "messaging_source_invalid");
   return Object.freeze(document as Messaging);
+}
+
+/** The claims register, beside the messaging source. */
+export const CLAIMS_PATH = "docs/brand/claims.json";
+/** The decision records a designed claim names. */
+const DECISIONS_DIRECTORY = "docs/decisions";
+/** The files the front doors are written into, and the readers outside the engine they are made with. */
+const FRONT_DOOR_FILES = Object.freeze(["README.md", "docs/index.md", "docs/floor/claims.md", "package.json", "scripts/floor/repository.mjs"]);
+
+/** The repository file a claim's evidence names (its `#anchor` dropped), or null for an https address. */
+export function evidencePath(evidence: string): string | null {
+  return evidence.startsWith("https://") ? null : evidence.split("#")[0]!;
+}
+
+/**
+ * Every repository path the front doors are made from, beyond the engine: the
+ * two sources (`docs/brand/`), the decision records, the files the blocks are
+ * written into, the addresses' owner, and every file a claim cites as its
+ * evidence (read from the register of the checkout this module is in). A
+ * generator test's repository copy carries exactly these
+ * (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+ */
+export function frontDoorInput(path: string): boolean {
+  if (path.startsWith("docs/brand/") || path.startsWith(`${DECISIONS_DIRECTORY}/`) || FRONT_DOOR_FILES.includes(path)) return true;
+  return citedEvidence().has(path);
+}
+
+let cited: ReadonlySet<string> | undefined;
+function citedEvidence(): ReadonlySet<string> {
+  if (cited === undefined) {
+    const register = JSON.parse(readFileSync(join(fileURLToPath(new URL("../../..", import.meta.url)), CLAIMS_PATH), "utf8")) as { claims?: readonly { evidence?: unknown }[] };
+    cited = new Set((register.claims ?? []).flatMap((claim) => (typeof claim.evidence === "string" ? [evidencePath(claim.evidence)] : [])).filter((path): path is string => path !== null));
+  }
+  return cited;
 }

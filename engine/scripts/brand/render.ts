@@ -7,7 +7,6 @@
  * Surfaces (each a pure function):
  * - the README's front block (Markdown; GH-7's projector writes it into the README);
  * - the org profile (Markdown; GH-7 writes `profile/README.md` in `.github`);
- * - the repository metadata (description, homepage, topics; GH-7 applies it);
  * - the release-note header (Markdown; the release train prepends it);
  * - the claims page (`/floor/claims/`, built at publish with the checks
  *   snapshot): every claim with its proof, and a claim whose check is red, or
@@ -154,9 +153,6 @@ export const FRONT_DOORS: readonly Readonly<{ path: string; begin: string; end: 
   },
 ]);
 
-export function repositoryMetadata(m: Words): Readonly<{ description: string; homepage: string; topics: readonly string[] }> {
-  return { description: m.description, homepage: m.siteUrl, topics: m.topics };
-}
 
 /** The header every release note opens with: the status line and where the evidence lives. */
 export function releaseHeader(m: Words): string {

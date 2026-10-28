@@ -7,7 +7,7 @@
  * and every surface renders from the sources alone, escaped and promise-free.
  */
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -18,7 +18,7 @@ import { InputError } from "../../src/kernel/errors.ts";
 import { claimViolations, decisionStates, readClaims, type Claim } from "../../scripts/brand/claims.ts";
 import { messagingViolations, readMessaging, type Messaging } from "../../src/workflow/messaging.ts";
 import { readWords, type Words } from "../../scripts/brand/words.ts";
-import { CLAIMS_PAGE_BLOCK, claimsPage, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, repositoryMetadata, siteFront } from "../../scripts/brand/render.ts";
+import { CLAIMS_PAGE_BLOCK, claimsPage, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, siteFront } from "../../scripts/brand/render.ts";
 
 const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
 const COMMIT = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -29,7 +29,7 @@ const register = (...claims: unknown[]): unknown => ({ schema: "bridlewise-claim
 const SOURCE: Messaging = {
   name: "Bridlewise",
   promise: "Every claim comes with a receipt.", summary: "A cockpit <for> runs.", repository: "This repository is the floor.", status: "Developer preview. Not for sensitive code.",
-  license: "AGPL-3.0", description: "A cockpit. Developer preview.", topics: ["agent-harness"],
+  license: "AGPL-3.0", description: "A cockpit. Developer preview.",
   about: { word: "bridle-wise", partOfSpeech: "adjective", definition: "trained to obey the reins", source: "Collins", sourceUrl: "https://example.test/d", line: "The harness holds the reins." },
 };
 /** The words a surface renders: the source plus the addresses package.json declares. */
@@ -76,12 +76,13 @@ test("the messaging source: complete and honest, or refused", () => {
   // The addresses are package.json's, never restated in the words.
   assert.deepEqual(messagingViolations({ schema: "bridlewise-messaging/v1", ...MESSAGING }), ["repositoryUrl is not a field of the messaging source", "siteUrl is not a field of the messaging source"]);
   assert.equal(readWords(REPOSITORY_ROOT).repositoryUrl, JSON.parse(readFileSync(join(REPOSITORY_ROOT, "package.json"), "utf8")).repository.url.replace(/\.git$/u, ""));
-  const problems = messagingViolations({ ...SOURCE, schema: "x", status: "Production ready.", description: "x".repeat(351), topics: ["Bad Topic", "a", "a"], promise: "Ship 10x faster, guaranteed.", tagline: "!", about: { ...SOURCE.about, sourceUrl: "ftp://x" } });
-  for (const expected of [/schema must be/u, /status must say it is a developer preview/u, /description is 351 characters/u, /topic "Bad Topic"/u, /a topic is listed twice/u, /promise makes a promise or names a date/u, /tagline is not a field/u, /about\.sourceUrl must be/u]) {
+  const problems = messagingViolations({ ...SOURCE, schema: "x", status: "Production ready.", description: "x".repeat(351), topics: ["agent-harness"], promise: "Ship 10x faster, guaranteed.", tagline: "!", about: { ...SOURCE.about, sourceUrl: "ftp://x" } });
+  for (const expected of [/schema must be/u, /status must say it is a developer preview/u, /description is 351 characters/u, /topics is not a field/u, /promise makes a promise or names a date/u, /tagline is not a field/u, /about\.sourceUrl must be/u]) {
     assert.ok(problems.some((p) => expected.test(p)), String(expected));
   }
   assert.doesNotThrow(() => readMessaging(REPOSITORY_ROOT));
-  assert.throws(() => readMessaging(join(REPOSITORY_ROOT, "engine")), (error: unknown) => error instanceof InputError && error.code === "messaging_source_invalid");
+  // The source is required: a root without it is refused by name, never read as empty.
+  assert.throws(() => readMessaging(join(REPOSITORY_ROOT, "engine")), (error: unknown) => error instanceof InputError && error.code === "messaging_source_missing");
 });
 
 test("this repository's register is read whole against its own decision records", () => {
@@ -108,7 +109,6 @@ test("every surface renders from the sources: escaped, honest, the retraction vi
   assert.match(hero, /> \[!WARNING\]\n> \*\*Developer preview\./u);
   assert.match(hero, /\[UR-17\]\(https:\/\/github\.com\/o\/r\/blob\/main\/docs\/decisions\/UR-17-no-fallbacks\.md\)/u);
   assert.match(orgProfile(MESSAGING, CLAIMS), /2 claims, each with the check that backs it; 1 designed but not built yet/u);
-  assert.deepEqual(repositoryMetadata(MESSAGING), { description: MESSAGING.description, homepage: MESSAGING.siteUrl, topics: MESSAGING.topics });
   assert.match(releaseHeader(MESSAGING), /^> \[!WARNING\]\n> \*\*Developer preview\./u);
   const judged = judgeClaims(CLAIMS, [{ id: "testing.ci", status: "fail", headSha: COMMIT, runUrl: "https://example.test/run/1" }], COMMIT);
   const page = claimsPage(MESSAGING, judged, COMMIT, decisions);
@@ -169,4 +169,9 @@ test("mutation: a broken source, a missing block or a hand edit fails the front-
   // A page with two blocks keeps both: setting one never undoes the other.
   writeFileSync(readme, readFileSync(join(REPOSITORY_ROOT, "README.md"), "utf8"));
   assert.equal(syncFrontDoors(root, false).status, "current");
+  // The messaging source is required: deleting it is refused by name (harness check fails), never passed in silence.
+  rmSync(join(root, "docs/brand/messaging.json"));
+  const missing = syncFrontDoors(root, false);
+  assert.equal(missing.status, "refused");
+  assert.ok(missing.problems.length === 1 && missing.problems[0]!.startsWith("messaging_source_missing: "), missing.problems.join("\n"));
 });

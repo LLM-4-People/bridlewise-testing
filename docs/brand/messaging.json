@@ -7,23 +7,6 @@
   "status": "Developer preview. Not production-ready, not audited, not for sensitive code.",
   "license": "AGPL-3.0",
   "description": "Where Bridlewise, a free, local-first cockpit for AI coding runs, is built and verified. Every public claim links to the check that backs it, and a claim whose check fails is retracted automatically. Developer preview: not production-ready, not for sensitive code.",
-  "topics": [
-    "ai-coding",
-    "coding-agents",
-    "agent-harness",
-    "local-first",
-    "developer-tools",
-    "governance",
-    "audit-trail",
-    "verification",
-    "typescript",
-    "nodejs",
-    "svelte",
-    "sqlite",
-    "landlock",
-    "llm",
-    "agpl"
-  ],
   "about": {
     "word": "bridle-wise",
     "partOfSpeech": "adjective",

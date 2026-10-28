@@ -10,8 +10,10 @@ The project's public words, in two sources that every generated surface reads.
 
 - `messaging.json` holds the name, the
   promise, the summary, what this repository is, the developer-preview status line, the licence, the
-  repository description and topics, and the name's own story (a cited
+  site's description (every page's meta description), and the name's own story (a cited
   dictionary entry). Its format is checked by `engine/src/workflow/messaging.ts`.
+  It is required: a tree that carries the brand generator and not this file
+  fails `harness check` by name (`messaging_source_missing`).
   The repository's and the site's addresses are not in it: `package.json`
   `repository.url` declares them once.
 - `claims.json` is the claims register. Every public claim belongs to one of
@@ -31,8 +33,6 @@ these two files:
   invalid source (a cited proof the tree does not hold, a decision that is not
   a record, a status line without "developer preview");
 - the org profile;
-- the repository metadata (the forge's repository settings read the same
-  reader, `engine/src/workflow/messaging.ts`);
 - the release-note header;
 - the claims page.
 

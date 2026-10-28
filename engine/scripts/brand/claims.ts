@@ -18,6 +18,7 @@
  * The register is validated whole: a malformed claim refuses the read (typed),
  * never a partial register.
  */
+import { CLAIMS_PATH, evidencePath } from "../../src/workflow/messaging.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -25,7 +26,7 @@ import { InputError } from "../../src/kernel/errors.ts";
 import { parseFrontMatter, readEntries } from "../../src/workflow/failure-owners.ts";
 import { DECISIONS_DIRECTORY } from "../verification/tracker-entries.ts";
 
-export const CLAIMS_PATH = "docs/brand/claims.json";
+export { CLAIMS_PATH };
 export const CLAIMS_SCHEMA = "bridlewise-claims/v1";
 
 const CLAIM_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
@@ -84,7 +85,7 @@ export function claimViolations(document: unknown, exists: (path: string) => boo
     if (kind === "not-claimed" && (typeof claim.reason !== "string" || claim.reason.trim().length === 0)) problems.push(`${id}: a not-claimed entry states its reason`);
     if (claim.evidence !== undefined) {
       if (typeof claim.evidence !== "string" || !EVIDENCE.test(claim.evidence)) problems.push(`${id}: evidence must be a repository path or an https URL`);
-      else if (!claim.evidence.startsWith("https://") && !exists(claim.evidence.split("#")[0]!)) problems.push(`${id}: evidence ${claim.evidence} does not exist`);
+      else if (evidencePath(claim.evidence) !== null && !exists(evidencePath(claim.evidence)!)) problems.push(`${id}: evidence ${claim.evidence} does not exist`);
     }
   });
   return problems;

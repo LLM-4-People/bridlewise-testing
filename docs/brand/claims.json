@@ -13,7 +13,7 @@
     {
       "id": "typed-refusals",
       "kind": "holds-when-green",
-      "text": "A refusal is typed: it names the rule it applies and what to do next",
+      "text": "Calling harness with no subcommand is refused with a typed error, no_harness_subcommand, that lists every available verb",
       "checks": [
         "testing.ci"
       ],
