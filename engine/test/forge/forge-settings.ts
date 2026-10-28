@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { readIntake, readRoles } from "../../src/workflow/community/sources.ts";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
-import { FORGE_CONFIG_SCHEMA, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
+import { FORGE_CONFIG_SCHEMA, trunkRepository, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
 import type { ForgeFileSources } from "../../src/workflow/forge/generated-files.ts";
 
 export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
@@ -48,6 +48,9 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
   contentPolicy: { maxFileMegabytes: 10, forbiddenExtensions: [".pem", ".key", ".env"], forbiddenPaths: ["**/secrets/**", "**/tokens/**"] },
   retired: [{ kind: "ruleset", repository: "bridlewise-testing", name: "protect-release-tags" }],
 });
+
+/** The trunk's name in {@link SETTINGS}: a test names the fixture's trunk only through it. */
+export const TRUNK = trunkRepository(SETTINGS).name;
 
 /** The repository's own community sources (the one table of categories, types and teams). */
 const TOP = trackedTop(join(import.meta.dirname, "..", ".."));

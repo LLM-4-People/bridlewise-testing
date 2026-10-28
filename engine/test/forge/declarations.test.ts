@@ -13,7 +13,7 @@ import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
 import { join } from "node:path";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
-import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES, TRUNK } from "./forge-settings.ts";
 
 function find(objects: readonly ForgeObject[], kind: string, key: string): ForgeObject {
   const found = objects.find((entry) => entry.kind === kind && entry.key === key);
@@ -37,12 +37,12 @@ test("the declarations: every object once, in apply order, with the plan's unava
   assert.equal((writableBody(security, security.desired) as Record<string, unknown>).secret_scanning_validity_checks, undefined);
   // Every governed repository gets its settings; the archive never does; only public ones get fork approval and immutable releases.
   const settingsScopes = objects.filter((entry) => entry.kind === "repository-settings").map((entry) => entry.key);
-  assert.deepEqual(settingsScopes, ["bridlewise-testing", ".github", "bridlewise-evidence", "bridlewise-coordination"]);
+  assert.deepEqual(settingsScopes, [TRUNK, ".github", "bridlewise-evidence", "bridlewise-coordination"]);
   assert.ok(!objects.some((entry) => entry.kind === "actions-fork-approval" && entry.key === "bridlewise-coordination"));
-  assert.equal((find(objects, "repository-settings", "bridlewise-testing").desired as Record<string, unknown>).has_discussions, true);
+  assert.equal((find(objects, "repository-settings", TRUNK).desired as Record<string, unknown>).has_discussions, true);
   assert.equal((find(objects, "repository-settings", ".github").desired as Record<string, unknown>).has_discussions, false);
   // The allowed actions come from the workflows: third parties only, as owner/repo@*.
-  assert.deepEqual((find(objects, "actions-selected", "bridlewise-testing").desired as { patterns_allowed: string[] }).patterns_allowed, ["ossf/scorecard-action@*"]);
+  assert.deepEqual((find(objects, "actions-selected", TRUNK).desired as { patterns_allowed: string[] }).patterns_allowed, ["ossf/scorecard-action@*"]);
   // References: the rulesets name Apps by role, the rotation environment the maintainer by login.
   assert.deepEqual(referencesOf(find(objects, "ruleset", "product").desired), [{ $ref: "app", name: "publisher" }]);
   assert.deepEqual(referencesOf(find(objects, "ruleset", "agent-branches").desired), [{ $ref: "app", name: "agent" }]);

@@ -36,6 +36,7 @@ import { emptyKeepOutFacts } from "../support/keep-out-facts.ts";
 import { requireHost } from "../support/host-requirement.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
+import { configuredRepositoryIdentity } from "../../src/workflow/forge/repository-identity.ts";
 import { memoryStore } from "./projection-store.ts";
 
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
@@ -280,7 +281,7 @@ test("the input is read from the source COMMIT, never the working tree", () => {
 });
 
 test("this repository's own HEAD projects: every tracker item is an issue, every lane a label", () => {
-  const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, "https://github.com/LLM-4-People/bridlewise-testing");
+  const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, configuredRepositoryIdentity().webUrl);
   const { projection } = computeProjection(read, CONFINEMENT);
   assert.equal(projection.objects.filter((object) => object.class === "issue").length, read.items.length);
   assert.ok(read.items.length > 0);

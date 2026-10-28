@@ -75,6 +75,7 @@ export const ROADMAP_FEED_PROGRAM: ConfinedModule = Object.freeze({
   modules: Object.freeze([
     "workflow/forge/projector/roadmap-feed.ts",
     "workflow/tracker-status.ts",
+    "workflow/forge/repository-reference.ts",
     "kernel/product-identity.ts",
     "kernel/ordered.ts",
   ].map((path) => join(SOURCE_ROOT, path))),

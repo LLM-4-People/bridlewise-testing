@@ -28,11 +28,14 @@
  * `built` (done), `partly built` (partial), `designed` (pending) or
  * `standing` (a rule that binds all work and is never "done").
  *
- * PURE: no import, no I/O, no clock. The roadmap page
+ * PURE: no I/O, no clock, and one import, the pure `repo:` reference
+ * (forge/repository-reference.ts). The roadmap page
  * (scripts/floor/roadmap-status.ts), the roadmap data feed and the GitHub
  * projector's sealed realm (src/workflow/forge/projector/) all read states
  * from this one function.
  */
+
+import { repositoryReferenceUrl } from "./forge/repository-reference.ts";
 
 export const ROADMAP_STATES = Object.freeze(["shipped", "claimed", "in progress", "planned", "blocked", "not planned"] as const);
 export type RoadmapState = typeof ROADMAP_STATES[number];
@@ -79,15 +82,17 @@ export function decisionProgress(decision: StatusDecision): DecisionProgress {
  * What proves `item`'s close, in words, or `null` when nothing linked does:
  * a decision it carries out that is built, its tests (whose existence the
  * item format judges), its `evidence:` record when a tracked manifest records
- * it, or evidence that is this repository's own pull request, run or release.
+ * it, or evidence that is this repository's own pull request, run or release
+ * (`repo:pull/130`, `repo:actions/runs/<id>`, `repo:releases/tag/<tag>`).
  * A documentation anchor or any other URL proves nothing.
  */
 function closeProof(item: StatusItem, facts: StatusFacts): string | null {
   const built = item.decisions.filter((id) => facts.decisions.some((decision) => decision.id === id && decisionProgress(decision) === "built"));
   if (built.length > 0) return `decision ${built.join(", ")} built`;
   if (item.tests.length > 0) return `tests ${item.tests.join(", ")}`;
-  const evidence = item.evidence;
-  if (evidence === null) return null;
+  if (item.evidence === null) return null;
+  // A `repo:<path>` reference names this repository's address through its identity; an absolute URL (a past spelling) is read as written.
+  const evidence = repositoryReferenceUrl(item.evidence, facts.repositoryUrl) ?? item.evidence;
   if (evidence.startsWith("evidence:") && facts.recordedEvidence.has(evidence.slice("evidence:".length))) return `evidence ${evidence} recorded`;
   const prefix = `${facts.repositoryUrl}/`;
   if (!evidence.startsWith(prefix)) return null;

@@ -5751,7 +5751,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-tracker-status", path: "src/workflow/tracker-status.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 9, namesSha256: "498e953994b156614453f7f1dc3563755d217f86f6ede3d8c4b74244f21dcc1a" },
-      dependencies: [],
+      dependencies: ["src/workflow/forge/repository-reference.ts"],
     }),
     moduleContract({
       id: "src-workflow-community-categories", path: "src/workflow/community/categories.ts", realm: "runtime", layer: "infrastructure",
@@ -5812,7 +5812,12 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     moduleContract({
       id: "src-workflow-forge-repository-identity", path: "src/workflow/forge/repository-identity.ts", realm: "runtime", layer: "infrastructure",
       owner: "verification-workflow", publicApi: { exportCount: 5, namesSha256: "d5a2627a9f545ebdbf4e0e1b555fb111ddb818a0a4d4a6000ef7cb40d846a599" },
-      dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/forge-config.ts"],
+      dependencies: ["node:fs","node:path","src/git/tree-reader.ts","src/kernel/integrity.ts","src/workflow/forge/codes.ts","src/workflow/forge/configured-forge.ts","src/workflow/forge/forge-config.ts","src/workflow/forge/repository-reference.ts"],
+    }),
+    moduleContract({
+      id: "src-workflow-forge-repository-reference", path: "src/workflow/forge/repository-reference.ts", realm: "runtime", layer: "infrastructure",
+      owner: "verification-workflow", publicApi: { exportCount: 2, namesSha256: "ec795eb50635a5d126391a446f9a0aadd6b7eee04c5d648b76832247ce1b1bcc" },
+      dependencies: [],
     }),
   ],
 });

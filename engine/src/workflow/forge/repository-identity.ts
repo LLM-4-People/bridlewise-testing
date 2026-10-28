@@ -19,6 +19,7 @@ import { deepFreeze } from "../../kernel/integrity.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
 import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import { repositoryReferenceUrl } from "./repository-reference.ts";
 
 export type RepositoryIdentity = Readonly<{
   /** The organisation (`LLM-4-People`). */
@@ -119,7 +120,7 @@ function identityLinkTarget(label: string, identity: RepositoryIdentity): string
   const [kind, ...rest] = label.split(":");
   const path = rest.join(":");
   if (kind === "site") return `${identity.pagesUrl}${path}`;
-  return path === "" ? identity.webUrl : `${identity.webUrl}/${path}`;
+  return repositoryReferenceUrl(label, identity.webUrl)!;
 }
 
 /**
