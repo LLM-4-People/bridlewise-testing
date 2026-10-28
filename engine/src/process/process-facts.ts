@@ -37,17 +37,22 @@ export function procfsPath(...segments: readonly string[]): string {
 }
 
 /**
- * One procfs document's text, or `undefined` when it cannot be read (the
- * process exited, is not ours, or there is no procfs): a fact about the
- * system is never an exception.
+ * One kernel document's text (a procfs or cgroupfs file), or `undefined`
+ * when it cannot be read (the process exited, is not ours, or the filesystem
+ * or controller is absent): a fact about the system is never an exception.
  */
-export function procfsDocument(...segments: readonly string[]): string | undefined {
+function kernelDocument(path: string): string | undefined {
   try {
-    return readFileSync(procfsPath(...segments), "utf8");
+    return readFileSync(path, "utf8");
   } catch {
-    // The process exited, or is not ours to read: it contributes no facts.
+    // The process exited, is not ours to read, or the controller is absent: it contributes no facts.
     return undefined;
   }
+}
+
+/** One procfs document's text, or `undefined` when it cannot be read. */
+export function procfsDocument(...segments: readonly string[]): string | undefined {
+  return kernelDocument(procfsPath(...segments));
 }
 
 /** THIS process's cgroup v2 path (the unified `0::` line of `/proc/self/cgroup`), or `undefined` when it cannot be read. */
@@ -68,14 +73,9 @@ const CGROUP_V2_ROOT = "/sys/fs/cgroup";
  */
 export function ownCgroupMemoryEvents(): Readonly<Record<string, number>> | undefined {
   const path = ownCgroupPath();
-  if (path === undefined) return undefined;
-  let events: string;
-  try {
-    events = readFileSync(join(CGROUP_V2_ROOT, path, "memory.events"), "utf8");
-  } catch {
-    // No memory controller here: there is no count to compare, and none is invented.
-    return undefined;
-  }
+  // No cgroup or no memory controller here: there is no count to compare, and none is invented.
+  const events = path === undefined ? undefined : kernelDocument(join(CGROUP_V2_ROOT, path, "memory.events"));
+  if (events === undefined) return undefined;
   return Object.freeze(Object.fromEntries(events.split("\n").filter((line) => line.includes(" ")).map((line) => {
     const [name, count] = line.split(" ");
     return [name!, Number(count)];

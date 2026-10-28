@@ -325,8 +325,8 @@ export function readTestCpuClasses(): TestCpuClasses | { readonly missing: strin
   if (!parsed.success) {
     return {
       missing:
-        `testCpuClasses under ${CONFIG_SITE} must carry defaultCeilingMs (a test's CPU-work ceiling) and classes ` +
-        `(named ceilings, each for the test files it lists): ${parsed.error.issues[0]?.message ?? "invalid"}`,
+        `testCpuClasses under ${CONFIG_SITE} must carry defaultCeilingMs (a test's CPU-work ceiling), headroomFactor and classes ` +
+        `(each the CPU work measured for the test files it lists; its ceiling is that times the headroom): ${parsed.error.issues[0]?.message ?? "invalid"}`,
     };
   }
   return parsed.data;
