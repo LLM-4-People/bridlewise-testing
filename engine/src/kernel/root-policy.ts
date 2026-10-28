@@ -2179,6 +2179,27 @@ const ROOT_POLICY_VALUE = {
      * (`scripts/verification/ratchet-baselines.ts` attaches the scan to each
      * id and refuses an id without one) — never hand-edited, never grown.
      */
+    /**
+     * WHAT A COMMIT ADDS (scripts/verification/added-content.ts): no added line names
+     * a host's home (`/home/<name>/`, `/Users/<name>/`, `C:\\Users\\<name>\\`, and, at the
+     * local hook, the running user's own home and account name), no text blob exceeds
+     * the bound (raw output belongs in the evidence store), and no `.ts` file stops
+     * being TypeScript. The exemptions are declared and reviewed here, synthetic only:
+     * the placeholder account names fixtures and docs use, and the vendored text that
+     * is larger than the bound by nature.
+     */
+    addedContent: {
+      maximumTextBlobBytes: 1048576,
+      syntheticHomeNames: ["alice", "bob", "example", "jdoe", "me", "other-user", "runner", "u", "user", "widgets", "x"],
+      oversizedTextExemptions: ["engine/traceability/sources/path-policy/unicode-17.0.0/NormalizationTest.txt"],
+      // `.ts` files that are not whole TypeScript BY NATURE: excerpts of an upstream source (the official
+      // fragment manifest pins them) and the fixture that exists to be a syntax error.
+      notTypeScriptExemptions: [
+        "engine/test/fixtures/eval-projects/ts-broken-syntax/index.ts",
+        "engine/traceability/sources/s2/mcp-jsonrpc.ts",
+        "engine/traceability/sources/s2/mcp-tools.ts",
+      ],
+    },
     ratchetBaselines: {
       "inline-literal-defaults": "engine/test/prevention/inline-literal-defaults-baseline.json",
       "web-unhandled-catch": "tests/prevention/unhandled-catch-baseline.json",

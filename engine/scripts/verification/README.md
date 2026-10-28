@@ -7,6 +7,7 @@ source.
 
 ## What each file does
 
+- `added-content.ts` — WHAT A COMMIT ADDS never names a host's home (`/home/<name>/`, `/Users/<name>/`, `C:\\Users\\<name>\\`, and at the local hook the running user's own home and account name), is never a raw text dump over the declared bound, and never turns a `.ts` file into non-TypeScript; the reviewed exemptions live in `ROOT_POLICY.verification.addedContent`, and no refusal echoes what it found. One judge, asked by the `commit-msg` door, the required `commit-records` workflow (`--range`) and `--tree` (the retroactive run over a whole tree).
 - `architecture.ts` — verifies the architecture manifest against the source
   tree (modules, layers, effects, drift).
 - `catch-blocks.ts` — the ONE catch classifier both repositories' catch

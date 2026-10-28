@@ -746,6 +746,19 @@ test("DRIVEN: an --amend that drops a Test-deleted: trailer is REPORTED by post-
   }
 });
 
+test("DRIVEN: a commit adding a host's home path is refused by the shipped hook, naming file and line, never the path", () => {
+  const root = compileFixtureRepository("pass");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "baseline");
+  // Built from parts: no committed line of this test has the shape it plants.
+  writeFile(root, "docs/notes.md", `ran from ${["", "home", "mkeller7", "checkout"].join("/")}\n`);
+  execFileSync("git", ["add", "--", "docs/notes.md"], { cwd: root, stdio: "pipe" });
+  const refused = commit(root, "a note");
+  assert.notEqual(refused.status, 0, "a home path reached a commit");
+  assert.ok(refused.stderr.includes("docs/notes.md:1: an added line names a /home/<name>/ path (added_content_home_path)"), refused.stderr);
+  assert.doesNotMatch(refused.stderr, /mkeller7/u, "the refusal echoed the account");
+});
+
 test("DRIVEN: the required commit-records check refuses, over a branch's commits, what a skipped hook let through — and a merge that brings in a named deletion needs no new trailer", () => {
   const root = testDeletionFixture();
   assert.ok(existsSync(join(root, ".git")), "the fixture is its own repository");
