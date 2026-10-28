@@ -179,3 +179,20 @@ test("isEntryPoint: the program by real path (a relative or symlinked invocation
   assert.equal(run(link), "true", "a symlinked invocation is the program");
   assert.equal(run(importer), "false", "an imported module is not the program");
 });
+
+test("isEntryPointAmong: whether the program is one of a set of files, compared as isEntryPoint compares (a relative or symlinked invocation too); a program outside the set is not", () => {
+  const dir = createTempDir("entry-point-among-");
+  const owner = JSON.stringify(pathToFileURL(join(ENGINE_ROOT, "src", "runtime", "entry-point.ts")).href);
+  const program = join(dir, "program.mjs");
+  const other = join(dir, "other.mjs");
+  const ask = (set: readonly string[]): string => `import { isEntryPointAmong } from ${owner};\nprocess.stdout.write(String(isEntryPointAmong(${JSON.stringify(set)})));\n`;
+  writeFileSync(program, ask([join(dir, "elsewhere.mjs"), program]));
+  writeFileSync(other, ask([program]));
+  const link = join(dir, "linked.mjs");
+  symlinkSync(program, link);
+  const run = (script: string): string => spawnSync(process.execPath, [script], { cwd: dir, encoding: "utf8" }).stdout;
+  assert.equal(run(program), "true");
+  assert.equal(run("./program.mjs"), "true", "a relative invocation is the program");
+  assert.equal(run(link), "true", "a symlinked invocation is the program");
+  assert.equal(run(other), "false", "a program outside the set is not one of them");
+});

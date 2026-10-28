@@ -44,11 +44,11 @@ import {
 import { readConfigCustomization, readNumberCustomization, writeConfigCustomization } from "../config-binding.ts";
 import {
   DEFAULT_ENGINE_SUITE_WATCHDOG,
-  DEFAULT_TEST_RUNTIME_BUDGET_MS,
   DEFAULT_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY,
   DEFAULT_FULL_SUITE_PARALLEL_CONCURRENCY,
+  classCeilingMs,
 } from "../../../workflow/workflow-config.ts";
 
 /**
@@ -82,17 +82,6 @@ function asPercent(fraction: number): string {
 }
 
 const ROWS = [
-  {
-    id: "runtimeBudgetMs",
-    configPath: "testExecution.runtimeBudgetMs",
-    name: "How long one test may run before it fails",
-    description:
-      "Every test gets this many milliseconds to settle; a test that never does is killed and FAILS instead of stalling the whole suite. Lower = a stuck test ends sooner; higher = a slow but legitimate test still finishes. Takes effect on the next test run.",
-    default: DEFAULT_TEST_RUNTIME_BUDGET_MS,
-    min: 1,
-    max: 600_000,
-    unit: "milliseconds",
-  },
   {
     id: "serialPhaseConcurrency",
     configPath: "testExecution.serialPhaseConcurrency",
@@ -390,6 +379,18 @@ export function registerTestExecutionExposure(): void {
     },
   });
   registerSignal({
+    id: "testExecution.testCpuHeadroom",
+    module: "testExecution",
+    name: "Headroom over a measured CPU class",
+    description:
+      "A CPU class records the most CPU work one of its tests was measured to do; its ceiling is that measurement times this factor, because CPU work still varies with the runner's processor. Shown read-only.",
+    type: "string",
+    value: () => {
+      const factor = readBudgetNumber("testExecution.testCpuClasses.headroomFactor");
+      return factor === undefined ? NOT_DECLARED : `a class's ceiling is ${String(factor)} times the CPU work it was measured to do`;
+    },
+  });
+  registerSignal({
     id: "testExecution.testCpuClasses",
     module: "testExecution",
     name: "Test files with their own CPU-work ceiling",
@@ -398,10 +399,12 @@ export function registerTestExecutionExposure(): void {
     type: "string",
     value: () => {
       const classes = readConfigCustomization("testExecution.testCpuClasses.classes");
-      if (!Array.isArray(classes)) return NOT_DECLARED;
+      const headroom = readBudgetNumber("testExecution.testCpuClasses.headroomFactor");
+      if (!Array.isArray(classes) || headroom === undefined) return NOT_DECLARED;
       if (classes.length === 0) return "no class: every test file has the default ceiling";
-      return (classes as { name: string; ceilingMs: number; files: string[] }[])
-        .map((one) => `${one.name} (${one.ceilingMs / 1000} s): ${one.files.join(", ")}`).join("; ");
+      // The ceiling is DERIVED by the one owner the judgement asks.
+      return (classes as { name: string; measuredCpuMs: number; files: string[] }[])
+        .map((one) => `${one.name} (measured ${one.measuredCpuMs / 1000} s, ceiling ${classCeilingMs({ headroomFactor: headroom }, one) / 1000} s): ${one.files.join(", ")}`).join("; ");
     },
   });
   registerSignal({
