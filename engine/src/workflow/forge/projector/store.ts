@@ -10,8 +10,8 @@
  * link, a dependency, a state change) are the store's job, so the apply
  * algorithm (`apply.ts`) is one algorithm for every class.
  *
- * The GitHub store is written on the forge port's client (GH-1,
- * src/workflow/forge/port.ts `ForgeClient`); the tests run the same algorithm
+ * The GitHub store (`github-store.ts`) is written on the forge port's client
+ * (src/workflow/forge/port.ts `ForgeClient`); the algorithm's own tests run
  * on an in-memory store.
  */
 import type { Fields, ProjectionClass, WritePhase } from "./model.ts";

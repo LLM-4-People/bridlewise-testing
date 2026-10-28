@@ -27,7 +27,7 @@ import { walk } from "../../scripts/verification/source-walk.ts";
 import { readSourceView, sourceViewOf } from "../../scripts/verification/source-view.ts";
 import { isProcessAlive, isProcessGroupAlive, ownedAnnouncement, ownedChild, parseProcessIdentityRecord, processesListeningOn, processIdentity, processIdentityRecord, readSpawnRecord, terminate, writeSpawnRecord } from "../../src/process/process-facts.ts";
 import { readSupervisorReceipt } from "../../src/process/supervised-run.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { stopDevGroup } from "../../../scripts/dev-processes.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -242,7 +242,7 @@ test("ONE OWNERSHIP RULE: a spawn record with no start time owns nothing (the re
 
 test("THE SUPERVISOR ANNOUNCES ITS COMMAND'S IDENTITY: the start time it reads while the command is its unreaped child is the command's own", () => {
   const facts = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "process", "process-facts.ts")).href;
-  const ran = spawnSync(testProcessSupervisorBinary(), ["30000", "1000", process.execPath, "--input-type=module", "-e", `const { processIdentity } = await import(${JSON.stringify(facts)}); console.log(JSON.stringify(processIdentity()));`],
+  const ran = spawnSync(ensureTestProcessSupervisor(), ["30000", "1000", process.execPath, "--input-type=module", "-e", `const { processIdentity } = await import(${JSON.stringify(facts)}); console.log(JSON.stringify(processIdentity()));`],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe", "pipe"], timeout: 50_000 });
   const own = JSON.parse(ran.stdout.trim()) as { pid: number; startTime: number };
   assert.deepEqual(readSupervisorReceipt(ran.output[3] ?? "").announcedCommand, own, ran.stderr);

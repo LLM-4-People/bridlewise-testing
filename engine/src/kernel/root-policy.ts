@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "26f23a96010549f666bf47ffd15f9f69a8b41e496467deaa538d9e7ad49191fd",
+      sourceSha256: "78bb635c2726290b2e6fd233e047299e910816228aecc49bb8c4e7755ed15572",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1633,10 +1633,10 @@ const ROOT_POLICY_VALUE = {
     metrics: ["overhead", "false-positive", "false-negative", "coverage", "conflict-and-cycle"],
     moduleArchitecture: {
       manifest: "src/architecture-manifest.ts",
-      graph: "exact-registered-edges-no-cycles-and-inward-layer-direction",
-      publicApi: "exact-declared-export-name-hash",
+      graph: "derived-edges-no-cycles-and-inward-layer-direction",
+      publicApi: "derived-from-source-never-committed",
       effects: "registered-owner-and-execution-boundary-only",
-      compositionRoots: "per-realm-versioned-arrays-owned-by-src/architecture-manifest.ts",
+      compositionRoots: "derived-from-the-module-entries-in-src/architecture-modules.ts",
       primaryAnalyzer: "babel-typed-pure-architecture-analysis",
       independentOracle: "separate-lexical-scanner-plus-typescript-no-emit-pipeline",
       analyzerDisagreement: "fail-closed",
@@ -2276,7 +2276,7 @@ const ROOT_POLICY_VALUE = {
       },
       dispositionRegistry: {
         manifestPath: "traceability/test-surface-dispositions.json",
-        schemaVersion: schemaId("test-surface-dispositions", 1),
+        schemaVersion: schemaId("test-surface-dispositions", 2),
         allowedDispositions: [
           "canonical-node-test",
           "qualified-external-oracle",
@@ -2284,7 +2284,10 @@ const ROOT_POLICY_VALUE = {
           "non-test-fixture",
           "unsupported-blocking",
         ],
-        everyRecognizableSourceRequiresExactEntry: true,
+        // A qualified Node test source is canonical WITHOUT an entry; only the
+        // exceptions are recorded (#221: adding a test rewrites nothing).
+        everyRecognizableSourceRequiresExactEntry: false,
+        qualifiedNodeSourceDefault: "canonical-node-test",
         benchmarkLocationImpliesDisposition: false,
         pythonImplicitExecutionAllowed: false,
         unqualifiedDisposition: "block-and-report-exact-source-and-disposition",
@@ -2626,6 +2629,25 @@ const ROOT_POLICY_VALUE = {
     },
   },
   workflow: {
+    /**
+     * THE PROJECT'S CONTRIBUTOR IDENTITY FOR AGENT COMMITS
+     * (scripts/verification/sign-off.ts): every commit an agent makes —
+     * author, committer and every `Signed-off-by` — is this identity, never a
+     * person's own. An agent commit is told apart from a human's by its marks
+     * (any of its identities is this one, or uses this address's domain) and,
+     * server-side, by the pull request's author (`agentAccounts`, the GitHub
+     * logins and Apps that open the lanes' pull requests). A human outside
+     * contributor keeps the ordinary DCO: their own name and address, signed
+     * off as their committer.
+     */
+    commitIdentity: {
+      agent: { name: "bridlewise.llm4people.dev", email: "hello@bridlewise.llm4people.dev" },
+      agentAccounts: ["amberflag48"],
+      // The git config key the harness sets in every checkout it makes for an agent (a workspace's own
+      // worktree config, a candidate's local config), beside the agent identity: the commit-msg hook
+      // refuses a commit there whose identities are not all the agent's (scripts/verification/sign-off.ts).
+      agentCheckoutKey: "bridlewise.agentCheckout",
+    },
     /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs
      * (src/shared/flake-reproduction.ts; written by `harness flake

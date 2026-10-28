@@ -36,20 +36,17 @@
  * `git commit -v` scissors line. The key is matched exactly (`Lesson`),
  * because `git log --grep` is case-sensitive.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { basename } from "node:path";
 
 import { pendingCommitParents } from "../../src/git/repository-ownership.ts";
 
 import { parseFrontMatter } from "../../src/workflow/failure-owners.ts";
+import { gitText as git, messageTrailerValues, trailerValuesOf } from "./commit-trailers.ts";
 import { DECISIONS_DIRECTORY, decisionViolations, lessonId, lessonViolations, LESSONS_DIRECTORY } from "./tracker-entries.ts";
 
 /** The trailer key a commit acting on a lesson carries (exact case: `git log --grep` finds it). */
 export const LESSON_TRAILER = "Lesson";
-
-function git(root: string, args: readonly string[], input?: string): string {
-  return execFileSync("git", args, { cwd: root, encoding: "utf8", ...(input === undefined ? {} : { input }) });
-}
 
 function statusOf(root: string, spec: string): string | undefined {
   const shown = spawnSync("git", ["show", spec], { cwd: root, encoding: "utf8" });
@@ -61,12 +58,9 @@ function lessonPaths(listing: string): readonly string[] {
   return listing.split("\0").filter((path) => path.startsWith(`${LESSONS_DIRECTORY}/`) && path.endsWith(".md"));
 }
 
-/** The `Lesson` values of git's parsed trailer lines (`Key: value`, one per line; the key exact). */
+/** The `Lesson` values of git's parsed trailer lines. */
 function lessonValues(parsed: string): readonly string[] {
-  return parsed.split("\n").flatMap((line) => {
-    const colon = line.indexOf(":");
-    return colon > 0 && line.slice(0, colon).trim() === LESSON_TRAILER ? [line.slice(colon + 1).trim()] : [];
-  });
+  return trailerValuesOf(parsed, LESSON_TRAILER);
 }
 
 /** The `Lesson:` trailer values the commits `first..merged` carry (exact key, as {@link lessonTrailers}). */
@@ -111,7 +105,7 @@ export function lessonsActedByCommit(root: string, commit: string): readonly str
 
 /** The `Lesson:` trailer values of a raw commit message, as git parses them. */
 export function lessonTrailers(root: string, message: string): readonly string[] {
-  return lessonValues(git(root, ["interpret-trailers", "--parse"], message));
+  return messageTrailerValues(root, message, LESSON_TRAILER);
 }
 
 function missing(acted: readonly string[], root: string, message: string): readonly string[] {

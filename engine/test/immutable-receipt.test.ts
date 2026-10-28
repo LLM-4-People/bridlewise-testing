@@ -6,7 +6,7 @@ import { join } from "node:path";
 import nodeTest, { type TestContext } from "node:test";
 
 import { runWorkerWithEvidence } from "../scripts/tooling/run-tests.ts";
-import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../scripts/tooling/candidate-manifest.ts";
+import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../scripts/verification/candidate-manifest.ts";
 import { createTestInventory, createTestInventoryEntry, testInventoryIdentity } from "../scripts/test-inventory.ts";
 import {
   beginRecordedExecution,
@@ -48,7 +48,7 @@ import { createCanonicalNodeTestInventoryFixture } from "./support/test-inventor
 import { createTempDir } from "./support/temp-dir.ts";
 import { superviseCommand, type SupervisedCommand } from "../src/process/supervised-run.ts";
 import { isProcessIdentityLive, parseProcessIdentityRecord } from "../src/process/process-facts.ts";
-import { testProcessSupervisorBinary } from "../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../guardian/build.ts";
 import { commandTerminalFacts, failureDigest } from "../src/shared/run-history.ts";
 
 const TEMPORARY_PATHS = new Set<string>();
@@ -695,7 +695,7 @@ for (const control of ["clean-pass", "clean-failed", "straggler"] as const) {
     delete environment.HARNESS_MUTATION_RUN;
     delete environment.HARNESS_RUN_INVOCATION;
     const outer = await superviseCommand({
-      supervisor: testProcessSupervisorBinary(), command: process.execPath, args: [launcher],
+      supervisor: ensureTestProcessSupervisor(), command: process.execPath, args: [launcher],
       env: environment, hardCeilingMs: 60_000, killGraceMs: 1_000,
       onStdout: (chunk) => { output.push(chunk.toString()); }, onStderr: (chunk) => { output.push(chunk.toString()); },
     });

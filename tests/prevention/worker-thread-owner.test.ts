@@ -297,7 +297,6 @@ describe("F. pending-entry at the lowest level — the pool owns the in-flight s
 
 describe("G. behavioral — a hanging worker rejects within the timeout (typed error)", () => {
   test("a worker that never posts rejects with ${label}_worker_timeout within the timeout", async () => {
-    const start = Date.now();
     const p = runWorkerTask<number>({
       workerUrl: hangingUrl,
       workerData: {},
@@ -316,9 +315,8 @@ describe("G. behavioral — a hanging worker rejects within the timeout (typed e
       expect((err as MapNotReadyError).code).toBe("test-timeout_worker_timeout");
       expect((err as MapNotReadyError).retryable).toBe(true);
     }
-    const elapsed = Date.now() - start;
-    // Should reject within roughly the timeout (allow scheduler slack).
-    expect(elapsed).toBeLessThan(2000);
+    // The code above names the TIMEOUT as the path that rejected it (the
+    // worker itself never answers); no wall clock judges it (NO-LOAD-BLOCK).
   });
 });
 

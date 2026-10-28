@@ -129,19 +129,109 @@ test("fields the plan does not allow are recorded and never written", async () =
   const fake = fakeGithub();
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
   fake.collection(`/orgs/${ORG}/code-security/configurations`, []);
-  fake.route("POST", /\/code-security\/configurations\/\d+\/attach$/u, () => ({ status: 202, body: {} }));
-  fake.route("PUT", /\/code-security\/configurations\/\d+\/defaults$/u, () => ({ status: 200, body: {} }));
   const security = object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled", secret_scanning_validity_checks: "enabled" }, { kind: "org" }, ["secret_scanning_validity_checks"]);
+  // Its attachment is its own object: the declared repositories only (the organisation holds others), selected by id.
+  fake.objects.set(`/repos/${ORG}/${REPO}`, { name: REPO });
+  fake.objects.set(`/repos/${ORG}/not-governed`, { name: "not-governed" });
+  const attachment = object("security-configuration-repositories", "baseline", { repositories: [REPO], default_for_new_repos: "none" }, { kind: "org" });
   const context = contextOf(fake);
-  const plan = await forgePlan(context, [security], []);
+  const plan = await forgePlan(context, [security, attachment], []);
   assert.deepEqual(entry(plan, "security-configuration", "baseline").unavailableOnPlan, ["secret_scanning_validity_checks"]);
-  const outcome = await forgeApply(context, [security], []);
+  const outcome = await forgeApply(context, [security, attachment], []);
   assert.equal(outcome.verification.drift.length, 0);
   assert.equal(outcome.verified, true);
   const sent = fake.requests.find((request) => request.method === "POST" && request.path.endsWith("/code-security/configurations"));
   assert.deepEqual(sent?.body, { name: "baseline", secret_scanning: "enabled" });
-  assert.ok(fake.requests.some((request) => request.path.endsWith("/attach") && JSON.stringify(request.body) === JSON.stringify({ scope: "all" })));
-  assert.ok(fake.requests.some((request) => request.path.endsWith("/defaults") && JSON.stringify(request.body) === JSON.stringify({ default_for_new_repos: "all" })));
+  const repositoryId = (await contextOf(fake).client.rest<{ id: number }>({ method: "GET", path: `/repos/${ORG}/${REPO}` })).data.id;
+  assert.ok(fake.requests.some((request) => request.path.endsWith("/attach") && JSON.stringify(request.body) === JSON.stringify({ scope: "selected", selected_repository_ids: [repositoryId] })), "the declared repository, by id");
+  assert.ok(!fake.requests.some((request) => request.path.endsWith("/attach") && (request.body as { scope?: string }).scope === "all"), "never every repository");
+  assert.ok(fake.requests.some((request) => request.path.endsWith("/defaults") && JSON.stringify(request.body) === JSON.stringify({ default_for_new_repos: "none" })));
+  // A repository attached by hand is drift, and detaching it is a loosening the plan names.
+  const notGoverned = (await contextOf(fake).client.rest<{ id: number }>({ method: "GET", path: `/repos/${ORG}/not-governed` })).data.id;
+  const configurationId = (fake.objects.get(`/orgs/${ORG}/code-security/configurations`) as { id: number; name: string }[]).find((item) => item.name === "baseline")!.id;
+  await contextOf(fake).client.rest({ method: "POST", path: `/orgs/${ORG}/code-security/configurations/${String(configurationId)}/attach`, body: { scope: "selected", selected_repository_ids: [notGoverned] } });
+  const drifted = entry(await forgePlan(contextOf(fake), [security, attachment], []), "security-configuration-repositories", "baseline");
+  assert.equal(drifted.action, "update");
+  assert.deepEqual(drifted.loosening, [`repositories ["${REPO}","not-governed"] -> ["${REPO}"]`]);
+  // The detach is applied only with its acknowledgement, and leaves the declared repositories alone.
+  await assert.rejects(forgeApply(contextOf(fake), [security, attachment], []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
+  await forgeApply(contextOf(fake), [security, attachment], [], new Set(["security-configuration-repositories:org:baseline"]));
+  assert.ok(fake.requests.some((request) => request.method === "DELETE" && request.path === `/orgs/${ORG}/code-security/configurations/detach` && JSON.stringify(request.body) === JSON.stringify({ selected_repository_ids: [notGoverned] })), "the hand-attached repository is detached by id");
+  assert.equal(entry(await forgePlan(contextOf(fake), [security, attachment], []), "security-configuration-repositories", "baseline").action, "unchanged", "only the declared repository is attached");
+  // A FAILED attach (a feature GitHub cannot enable there) is never a success: the plan refuses it loudly, naming it.
+  fake.objects.set(`/repos/${ORG}/failing`, { name: "failing" });
+  fake.failSecurityAttach(ORG, "failing");
+  const withFailing = object("security-configuration-repositories", "baseline", { repositories: [REPO, "failing"].sort(), default_for_new_repos: "none" }, { kind: "org" });
+  const failedOutcome = await forgeApply(contextOf(fake), [security, withFailing], []);
+  assert.equal(failedOutcome.verified, false, "a failed attach does not verify");
+  const refused = entry(await forgePlan(contextOf(fake), [security, withFailing], []), "security-configuration-repositories", "baseline");
+  assert.equal(refused.code, "forge_security_attach_failed");
+  assert.match(refused.message ?? "", /failing/u);
+});
+
+test("an issue field's update sends each existing option's id (an option sent without it is a new option, and every issue's value would be wiped); options compare without ids", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  fake.collection(`/orgs/${ORG}/issue-fields`, [{ id: 7, name: "Severity", data_type: "single_select", visibility: "organization_members_only", description: "How bad it is (P0 worst)", options: [{ id: 71, name: "P0", color: "gray", priority: 1 }, { id: 72, name: "P1", color: "orange", priority: 2 }] }], "id");
+  const declared = object("issue-field", "Severity", { name: "Severity", data_type: "single_select", visibility: "organization_members_only", description: "How bad it is (P0 worst)", options: [{ name: "P0", color: "red", priority: 1 }, { name: "P1", color: "orange", priority: 2 }, { name: "P2", color: "yellow", priority: 3 }] }, { kind: "org" });
+  const context = contextOf(fake);
+  const planned = entry(await forgePlan(context, [declared], []), "issue-field", "Severity");
+  assert.equal(planned.action, "update");
+  await forgeApply(context, [declared], []);
+  const patch = fake.requests.find((request) => request.method === "PATCH" && request.path === `/orgs/${ORG}/issue-fields/7`);
+  assert.deepEqual((patch?.body as { options: unknown[] }).options, [{ id: 71, name: "P0", color: "red", priority: 1 }, { id: 72, name: "P1", color: "orange", priority: 2 }, { name: "P2", color: "yellow", priority: 3 }]);
+  assert.equal((patch?.body as Record<string, unknown>).data_type, undefined, "the data type is never sent on an update");
+});
+
+test("a team's members are data: a member added in the UI is drift that apply removes, and declaring a new member is a loosening", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  fake.collection(`/orgs/${ORG}/teams`, [{ name: "reviewers", privacy: "closed", description: "The reviewer role" }], "name");
+  const context = contextOf(fake);
+  // Someone added in the UI (or the creator GitHub adds to a team made through the API).
+  await context.client.rest({ method: "PUT", path: `/orgs/${ORG}/teams/reviewers/memberships/somebody`, body: { role: "member" } });
+  const declared = object("team", "reviewers", { name: "reviewers", privacy: "closed", description: "The reviewer role", members: [] }, { kind: "org" });
+  const drift = entry(await forgePlan(context, [declared], []), "team", "reviewers");
+  assert.equal(drift.action, "update");
+  assert.equal(drift.loosening, undefined, "removing a member is never a loosening");
+  await forgeApply(context, [declared], []);
+  assert.equal(entry(await forgePlan(context, [declared], []), "team", "reviewers").action, "unchanged", "the member was removed");
+  assert.ok(fake.requests.some((request) => request.method === "DELETE" && request.path === `/orgs/${ORG}/teams/reviewers/memberships/somebody`));
+  // Declaring a member grants access: a loosening, applied only with its acknowledgement.
+  const widened = object("team", "reviewers", { name: "reviewers", privacy: "closed", description: "The reviewer role", members: ["newcomer"] }, { kind: "org" });
+  assert.deepEqual(entry(await forgePlan(context, [widened], []), "team", "reviewers").loosening, ['members [] -> ["newcomer"]']);
+});
+
+test("a security configuration's two features read back as GitHub answers them (advanced_security only, the per-feature fields null): the declared features match, and a change of either is drift", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  const declared = { name: "baseline", code_security: "disabled", secret_protection: "enabled", secret_scanning: "enabled" };
+  // GitHub's read: advanced_security "secret_protection" (Secret Protection on, Code Security off); code_security and secret_protection null.
+  fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "secret_protection", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  const object_ = object("security-configuration", "baseline", declared, { kind: "org" });
+  assert.equal(entry(await forgePlan(contextOf(fake), [object_], []), "security-configuration", "baseline").action, "unchanged");
+  // GitHub reading both features enabled: Code Security differs from the declaration.
+  const both = fakeGithub();
+  both.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  both.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "enabled", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  assert.deepEqual(entry(await forgePlan(contextOf(both), [object_], []), "security-configuration", "baseline").differences, ["/code_security"]);
+  // Every direction is drift, for each feature. A feature GitHub reads OFF while declared ON is a tightening to apply; one
+  // read ON while declared OFF is drift too (and turning it off would be the loosening, judged by the strictness order).
+  for (const [advanced, declaredFeatures, differing] of [
+    ["disabled", { code_security: "disabled", secret_protection: "enabled" }, ["/secret_protection"]],
+    ["secret_protection", { code_security: "disabled", secret_protection: "disabled" }, ["/secret_protection"]],
+    ["code_security", { code_security: "disabled", secret_protection: "enabled" }, ["/code_security", "/secret_protection"]],
+    ["disabled", { code_security: "enabled", secret_protection: "disabled" }, ["/code_security"]],
+  ] as const) {
+    const live = fakeGithub();
+    live.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    live.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: advanced, code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+    const planned = entry(await forgePlan(contextOf(live), [object("security-configuration", "baseline", { ...declared, ...declaredFeatures }, { kind: "org" })], []), "security-configuration", "baseline");
+    assert.equal(planned.action, "update", `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    assert.deepEqual([...(planned.differences ?? [])].sort(), differing, `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    // Declared on, read off: a tightening, never a loosening.
+    if (advanced === "disabled" && declaredFeatures.secret_protection === "enabled") assert.equal(planned.loosening, undefined, "turning Secret Protection on is a tightening");
+  }
 });
 
 /** A fake GitHub that answers every kind the declarations use, statefully. */
@@ -155,8 +245,6 @@ function wholeGithub(): FakeGithub {
   fake.collection(`/orgs/${ORG}/issue-types`, [{ name: "Task", color: "yellow", is_enabled: true, description: "" }]);
   fake.collection(`/orgs/${ORG}/issue-fields`, []);
   fake.collection(`/orgs/${ORG}/code-security/configurations`, []);
-  fake.route("POST", /\/code-security\/configurations\/\d+\/(attach)$/u, () => ({ status: 202, body: {} }));
-  fake.route("PUT", /\/code-security\/configurations\/\d+\/defaults$/u, () => ({ status: 200, body: {} }));
   const propertyValues = new Map<string, Record<string, unknown>[]>();
   fake.route("GET", /^\/repos\/[^/]+\/([^/]+)\/properties\/values$/u, (_request, match) => ({ status: 200, body: propertyValues.get(match[1]!) ?? [] }));
   fake.route("PATCH", /^\/repos\/[^/]+\/([^/]+)\/properties\/values$/u, (request, match) => {
@@ -185,7 +273,7 @@ function wholeGithub(): FakeGithub {
   fake.route("PUT", /^\/repos\/[^/]+\/[^/]+\/environments\/([^/]+)$/u, (request, match) => {
     const body = request.body as { reviewers?: { type: string; id: number }[] } & Record<string, unknown>;
     const stored = { name: match[1]!, deployment_branch_policy: body.deployment_branch_policy, can_admins_bypass: body.can_admins_bypass,
-      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
+      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", prevent_self_review: body.prevent_self_review === true, reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
     fake.objects.set(request.path, stored);
     return { status: 200, body: stored };
   });
@@ -197,7 +285,10 @@ function wholeGithub(): FakeGithub {
     fake.collection(`${base}/autolinks`, [], "id");
   }
   // The Project, through GraphQL.
-  const project = { id: "PVT_1", title: "", public: false, created: false, fields: [{ id: "F_status", name: "Status", dataType: "SINGLE_SELECT", options: [{ name: "Todo" }] }] as { id: string; name: string; dataType: string; options?: { name: string }[] }[] };
+  // A new project carries GitHub's own default fields (as GitHub creates them): the forge declares none of them but Status.
+  const builtIn = [["Title", "TITLE"], ["Assignees", "ASSIGNEES"], ["Labels", "LABELS"], ["Linked pull requests", "LINKED_PULL_REQUESTS"], ["Milestone", "MILESTONE"], ["Repository", "REPOSITORY"], ["Reviewers", "REVIEWERS"], ["Parent issue", "PARENT_ISSUE"], ["Sub-issues progress", "SUB_ISSUES_PROGRESS"]]
+    .map(([name, dataType], index) => ({ id: `F_builtin_${String(index)}`, name: name!, dataType: dataType! }));
+  const project = { id: "PVT_1", title: "", public: false, created: false, fields: [...builtIn, { id: "F_status", name: "Status", dataType: "SINGLE_SELECT", options: [{ name: "Todo" }] }] as { id: string; name: string; dataType: string; options?: { name: string }[] }[] };
   fake.route("POST", /^\/graphql$/u, (request) => {
     const { query, variables } = request.body as { query: string; variables: Record<string, unknown> };
     if (query.includes("projectsV2(")) return { status: 200, body: { data: { organization: { id: "O_1", projectsV2: { nodes: project.created ? [{ id: project.id, title: project.title, public: project.public, fields: { nodes: project.fields } }] : [] } } } } };

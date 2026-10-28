@@ -16,7 +16,7 @@
  * prints ONE JSON line, the last: `{ allCurrent, status, changed }`. A tree
  * without the decisions folder (a product-only tree) is converged by absence.
  */
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -63,7 +63,6 @@ export function syncDecisionIndex(repositoryRoot: string, write: boolean): Decis
   if (!write) return Object.freeze({ allCurrent: false, status: "stale", changed });
   for (const relative of changed) {
     const target = join(repositoryRoot, relative);
-    mkdirSync(dirname(target), { recursive: true });
     const written = atomicWriteFile(target, outputs.get(relative)!);
     if (!written.success) throw new HarnessError(`Failed to write ${relative}: ${written.reason ?? "unknown error"}`, "decision_index_write_failed");
   }

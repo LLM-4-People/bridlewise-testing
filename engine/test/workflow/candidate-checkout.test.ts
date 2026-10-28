@@ -85,9 +85,13 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     for (const subcommand of ["sync", "diff"]) {
       assert.equal(cli(source.engineRoot, [subcommand, "--target", join(scratch, "never-created")]).json["error"], "candidate_target_missing", subcommand);
     }
-    // The candidate carries the source's git identity in its OWN config.
-    const identityOf = (root: string, scope: readonly string[]) => spawnSync("git", ["config", ...scope, "--get", "user.email"], { cwd: root, encoding: "utf8" }).stdout.trim();
-    assert.equal(identityOf(target, ["--local"]), identityOf(source.root, []), "the candidate did not take the source's git identity");
+    // A candidate is an agent's checkout: its OWN config carries the project's agent identity (the one declared
+    // source, never the source's or the host's) and the agent-checkout marker the commit-msg hook reads.
+    const configOf = (root: string, key: string) => spawnSync("git", ["config", "--local", "--get", key], { cwd: root, encoding: "utf8" }).stdout.trim();
+    const { agent, agentCheckoutKey } = ROOT_POLICY.workflow.commitIdentity;
+    assert.equal(configOf(target, "user.name"), agent.name, "the candidate does not commit as the agent identity");
+    assert.equal(configOf(target, "user.email"), agent.email, "the candidate does not commit as the agent identity");
+    assert.equal(configOf(target, agentCheckoutKey), "true", "the candidate is not marked an agent's checkout");
 
     // A2. A slip that drops the protected staged blob refuses every later
     // command until the one repair (the engine CLI's `harness index repair`)

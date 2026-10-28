@@ -23,27 +23,6 @@ The block layer: the capability units the cockpit renders — each block is a se
 - `synthesis.ts` — THE SYNTHESIS ENGINE — first blocks.
 - `tools.ts` — Tools block — which tools are on for this user, and the switch that governs them.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/blocks/`.
-
-- `anatomy.ts` is consumed by `server/routes/registry.ts`.
-- `arm.ts` is consumed by `server/routes/registry.ts`.
-- `breaker.ts` is consumed by `server/routes/registry.ts`, `server/run/run-executor.ts`.
-- `checks.ts` is consumed by `server/routes/registry.ts`.
-- `client-telemetry.ts` is consumed by `server/observability/metrics-bridge.ts`, `server/routes/registry.ts`.
-- `compose.ts` is consumed by `server/routes/registry.ts`, `server/routes/run.ts`.
-- `coverage.ts` is consumed by `server/routes/registry.ts`.
-- `custody.ts` is consumed by `server/routes/registry.ts`.
-- `define.ts` is consumed by `server/blocks/anatomy.ts`, `server/blocks/arm.ts`, `server/blocks/breaker.ts`, `server/blocks/checks.ts`, `server/blocks/client-telemetry.ts`, `server/blocks/compose.ts` and 13 more.
-- `editor.ts` is consumed by `server/routes/registry.ts`.
-- `intelligence.ts` is consumed by `server/routes/intelligence.ts`, `server/routes/registry.ts`.
-- `provenance.ts` is consumed by `server/routes/registry.ts`.
-- `settings.ts` is consumed by `server/routes/registry.ts`.
-- `spectrum.ts` is consumed by `server/routes/registry.ts`.
-- `synthesis.ts` is consumed by `server/routes/registry.ts`.
-- `tools.ts` is consumed by `server/routes/registry.ts`.
-
-<!-- /consumers:generated -->

@@ -3,11 +3,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { buildCandidateManifest, CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../../scripts/tooling/candidate-manifest.ts";
+import { buildCandidateManifest, CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../../scripts/verification/candidate-manifest.ts";
 import { analyzeStaticSource, verifyS1Structure } from "../../scripts/tooling/s1-verification.ts";
 import { buildTestInventory, discoverTestNames, recoverTestInventoryTransaction, testInventoryEntryIdentity, testInventoryIdentity, writeTestInventoryTransaction } from "../../scripts/test-inventory.ts";
 import { createTestReceipt, createTestResultReceipt, validateTestReceipt } from "../../scripts/tooling/test-receipt.ts";
-import { artifactAdmissionViolations, buildArtifactAdmissionManifest } from "../../scripts/tooling/verification/artifact-admission.ts";
+import { artifactAdmissionViolations, artifactRecordOf, buildArtifactAdmissionManifest } from "../../scripts/tooling/verification/artifact-admission.ts";
 import { createTestSurfaceDispositionManifest } from "../../scripts/verification/test-surface.ts";
 import { canonicalHash, canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
@@ -443,11 +443,13 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
       entry.path === finalReviewPath)!.relations.dependencyLinks,
     reviewPolicy.requiredReports.slice(0, -1));
     writeFileSync(join(admissionRoot, reviewPolicy.reviewedInputs[0]), "changed after review\n");
+    // The review status is derived from the tree (the record commits only what the tree cannot say): a reviewed input
+    // that changed after its review makes the review pending again, which the admission refuses.
     assert.ok(artifactAdmissionViolations({
       root: admissionRoot,
-      manifest: completeReviewManifest,
+      manifest: artifactRecordOf(completeReviewManifest),
       paths: completeReviewManifest.entries.map((entry) => entry.path),
-    }).some((violation) => violation.startsWith("artifact-independent-review-status-drift:")));
+    }).some((violation) => violation.startsWith("artifact-independent-review-pending:")));
 
     const transactionRoot = createOwnedTemporaryDirectory("inventory-transaction-");
     mkdirSync(join(transactionRoot, "test"), { recursive: true });

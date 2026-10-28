@@ -278,8 +278,13 @@ function judgeFonts(args: { input: { stacks: Readonly<Record<string, string>>; f
       return range.getClientRects().length > 0;
     });
     if (rendered) judge(getComputedStyle(el), kit.describe(el));
+    // A control the browser draws text in: its value, placeholder or label (a text field, a date, a file's name, a
+    // button). Judged by EXCLUSION: only the input types HTML gives no text at all — hidden, a checkbox, a radio
+    // button, a slider, a colour well — are passed, so a type added later is judged by default. A picture button
+    // is judged: when its picture is unavailable, HTML renders it as a button labelled with its alt text.
     const control = el as Partial<HTMLInputElement>;
-    if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && `${control.value ?? ""}${control.placeholder ?? ""}`.trim().length > 0 && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its value)`);
+    const drawsText = el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && !/^(?:hidden|checkbox|radio|range|color)$/u.test(control.type ?? "text"));
+    if (drawsText && el.getClientRects().length > 0) judge(getComputedStyle(el), `${kit.describe(el)} (its text)`);
     for (const pseudo of ["::before", "::after"]) {
       const style = getComputedStyle(el, pseudo);
       if (style.display === "none" || ["none", "normal", '""', "''"].includes(style.content)) continue;
@@ -649,6 +654,7 @@ export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string; why: s
   { id: "real-time-loops", limit: "work driven by the browser's own task queues in wall time — a MessageChannel or postMessage loop, a chain on network or idle callbacks the clock does not fake — is judged only as far as it got by each judgement", why: "the page clock fakes timers, intervals and animation frames, not the task queues; running those forward needs the browser's virtual time, which cannot be handed back to real time (the capture walk needs real time between views)" },
   { id: "infinite-animations", limit: "an infinite CSS or Web animation is judged where it stands at each judgement, not at every point of its cycle, except its colours: every colour its keyframes name is judged against the tokens", why: "it has no end to finish to; its keyframes are the only place its colours can all be read" },
   { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement), and every colour its keyframes name is judged against the tokens; a value between two keyframes is not judged", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
+  { id: "forced-states-churn", limit: "an element a page adds while the states are being forced, after the forcing pass's last look for new elements (or in a shadow root or frame it adds), is judged without them", why: "a page that keeps replacing its nodes would otherwise keep the pass going; reading the tree again would drop the states already forced, so the pass reads it once and looks twice more in the scopes it read" },
   { id: "forced-states-together", limit: "hover, active and focus are forced on every element at once (focus only where an element can take it), not one element at a time", why: "one forced pass shows any rule those states turn on; combinations that cannot occur together may also be judged" },
   { id: "hostile-pages", limit: "a page written to hide from the judgement — one that takes a removed frame's setters, or stops the Content-Security-Policy violation event before the judge's listener — can evade it", why: "the judge's threat model is our own pages making mistakes; it records in the page, where such a page can interfere" },
 ];

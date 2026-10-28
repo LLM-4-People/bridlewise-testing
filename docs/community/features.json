@@ -10,7 +10,14 @@
     },
     {
       "id": "issueops",
-      "text": "Bot commands in issues and pull requests (`/status`, `/accept`, `/decline`, `/duplicate`, `/reproduce`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands.",
+      "text": "Bot commands in issues and pull requests (`/help`, `/status`, `/accept`, `/decline`, `/duplicate`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands.",
+      "status": {
+        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/105"
+      }
+    },
+    {
+      "id": "reproduce",
+      "text": "`/reproduce` runs the test a Flake report names on a hosted runner with no secrets, and posts the receipt.",
       "status": {
         "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/105"
       }
