@@ -98,14 +98,12 @@
  * climbed to 1.33/cpu (load average 18 at peak) — cache thrashing,
  * memory-bandwidth contention and scheduling pressure add real work to the
  * same instructions. So the suite budget bounds the WORK the suite asks of
- * the machine, per test file, and every reading is judged against a baseline
- * scaled by the EMPIRICAL AMBIENT-INFLATION ADJUSTMENT (see
- * `ambientInflationFraction`): sustained ambient load inflates the CPU figure
- * measurably, the adjustment expands the allowance by exactly the measured
- * envelope, and nothing anywhere waits for a quiet box. The wall clock stays
- * recorded and REPORTED — never judged. A real regression adds instructions
- * beyond the ambient-adjusted line and is caught at ANY ambient; a busy box
- * is adjusted for, never excluded. One judged run over the cap fails that run
+ * the machine, per test file, in CALIBRATED units (the run's CPU divided by a
+ * fixed benchmark's CPU at the same moments: run-cpu.ts), which saturation
+ * moves far less than raw CPU. The load legs are recorded beside every
+ * reading as signals and never scale a cap (the ambient envelope is deleted:
+ * NO-LOAD-BLOCK, audit A-08); nothing anywhere waits for a quiet box. The
+ * wall clock stays recorded and REPORTED — never judged. One judged run over the cap fails that run
  * (the 3-consecutive ratchet that once absorbed a box loading AFTER the run's
  * start-sample is deleted: UR-24-BUDGETS, round 12).
  *
@@ -241,138 +239,13 @@ export const COLLECT_TAIL_SHARE_MAX = 0.08;
  */
 export const COLD_MODULE_CACHE_FRACTION = 0.5;
 
-/**
- * THE EMPIRICAL AMBIENT-INFLATION ADJUSTMENT — how much of a run's recorded
- * CPU cost the box's sustained ambient load explains, as a fraction of the
- * baseline. Declared in the config (slope + cap) beside the budget it
- * modifies; derived from the ledger's own recorded pairs, never fitted by
- * taste.
- *
- * ── WHY THE 5-MINUTE LEG, AND NOT THE 1-MINUTE LEG THE THRESHOLD USED ─────
- *
- * The 1-minute leg is sampled BEFORE the run starts and decays within
- * minutes, so it measures the minute BEFORE launch, not the run: a prior
- * suite's load reads high on an idle box (the ghost — the 2026-09-04
- * 04:11-04:15 cohort recorded 1.32-1.94/cpu while reading the quiet center,
- * 1595-1605 ms/file), and load that arrives after the sample reads low on
- * a busy one. Regressing the ledger's own 55 recorded rows of
- * cpuMsPerTestFile against the 1-minute leg gives r = 0.172 — no
- * relationship. The whole 1736-1936 inflation cohort of that day sat at
- * recorded-QUIET 1-minute ambients (0.069-0.148/cpu). A covariate that
- * blind cannot adjust anything.
- *
- * The 5-minute leg is the one the ghost cannot inflate: one 80s suite at
- * load ~10 on 12 cores leaves the 5-minute average at ~0.2/cpu, so a
- * back-to-back cadence — the ordinary shape of a budget-watch round —
- * records at most ~0.3-0.35/cpu while the box is actually quiet. Real
- * sustained load (the acceptance hogs, stacked gates, a busy afternoon)
- * sits on the 5-minute leg honestly. The 2026-09-04 12:18-12:23 cohort —
- * four runs recorded at amb5 0.557-1.263 — is the calibration pair set:
- * against their quiet same-sha neighbour (1661.5) they read +2.0% to
- * +5.5% CPU, monotonically ordered by nothing but noisy in aggregate, mean
- * ≈ +3.9%. The sibling measurement (eight burners on twelve cores, the
- * whole run, 2026-09-03) read +2.6% CPU at a 1-minute ambient of ~0.67/cpu
- * — the 5-minute leg of a burner pair that has run long enough to register
- * lands at the same figure. The slope 0.05/cpu is the envelope through the
- * reliable pairs: it covers the burner anchor (+2.6% at amb5 ≈ 0.5-0.67,
- * allowance +2.5-3.4%) and the cohort's worst pair (+5.5% at amb5 1.092,
- * allowance +5.5%) with margin, and it covers nothing the record does not
- * show. A busy row feeds the rolling window at its ADJUSTED reading
- * (raw / (1 + adjustment)), so the window stays a quiet-equivalent centre
- * — the 12:18-12:23 cohort's adjusted readings (1594-1703) land inside the
- * quiet band (1550-1660) the same day recorded.
- *
- * ── THE CAP, AND THE RESIDUAL IT DELIBERATELY LEAVES OUT ────────────────
- *
- * The cap 0.12 bounds the adjustment: the gate may never loosen by more
- * than 12% for ambient reasons. It is anchored on the 2026-09-03
- * stacked-saturation measurement (eight stacked saturations took a
- * byte-unchanged tree 1509.1 → 1625.6, +7.7%, at sustained 5-minute
- * ambients around 1.0-1.5/cpu) plus the same-tree spread that rides on
- * top: everything the reliable record shows at ANY sustained ambient
- * (7.7% + 2.6% = 10.3%) sits inside the capped line (12% + 2.6% =
- * 14.9%). The 2026-09-01 incident (+21% CPU on an unchanged tree at
- * recorded 1-minute ambients 0.88-1.66/cpu, load average 18 at peak) is
- * deliberately BEYOND the envelope: covering it would require an allowance
- * 4× the reliable cohort's worst realized inflation at the same recorded
- * ambient, emptying the teeth exactly where stacked gates make regressions
- * likely. Such a reading FAILS its run, printed with its ambient and the
- * capped arithmetic — the gate refusing to loosen itself into blindness is
- * the honest verdict at an ambient its measured envelope cannot speak to. The teeth scale
- * with ambient and hold at every one: a regression beyond the
- * ambient-adjusted line fails at ANY ambient, which is what the
- * under-load acceptance arms pin.
- *
- * ── NO READING IS EVER EXCLUDED FOR BUSYNESS ────────────────────────────
- *
- * This mechanism REPLACES the quiet-ambient deferral the threshold used to
- * carry (a would-be red recorded at a busy ambient printed PROVISIONAL —
- * re-run when the box is quiet — failing nothing and counting toward no
- * streak). That design demanded a quiet box this machine does not have:
- * rounds stalled waiting for an ambient that never arrives, and a red
- * deferred is a red not delivered. Ambient is now a recorded covariate
- * every verdict consumes, never a gate: a clean run at a busy ambient
- * judges CLEAN (the adjustment does its work), a regressed run at a busy
- * ambient judges REGRESSED (the teeth hold under load), and both
- * arithmetic on the gate line.
- *
- * ABSENCE, NEVER ZERO-AND-NOT-AN-ADJUSTMENT: a row with no recorded 5-minute
- * leg (a legacy entry, an unreadable loadavg) takes NO adjustment — the
- * lean every marker in the ledger takes, and the safe one here, because a
- * missing covariate must never loosen a line. A negative or non-finite
- * reading adjusts nothing either.
+/*
+ * THE AMBIENT-INFLATION ENVELOPE IS GONE (NO-LOAD-BLOCK, audit A-08). The
+ * cap used to be scaled by the run's recorded 5-minute loadavg (a slope and a
+ * cap), so saturation past the envelope failed a clean tree and a busy host
+ * moved the line. The judged figure is calibrated CPU work; the load legs are
+ * recorded beside every reading as SIGNALS, never folded into a verdict.
  */
-export interface AmbientInflationDeclaration {
-  /**
-   * CPU inflation per unit of recorded 5-minute ambient load per CPU — the
-   * measured envelope through the reliable pairs (see the block above for
-   * the derivation). 0.05/cpu: +2.5% at amb5 0.5, +5% at amb5 1.0.
-   */
-  readonly ambientInflationSlopePerCpu: number;
-  /**
-   * The bound on the whole adjustment, as a fraction of the baseline. The
-   * gate never loosens by more than this for ambient reasons, so the teeth
-   * hold at every ambient.
-   */
-  readonly ambientInflationCapFraction: number;
-}
-
-/**
- * THE AMBIENT ALLOWANCE, SAID NUMERICALLY IN EVERY VERDICT. The user removed
- * it on 2026-10-07 (UD-AUDIT-NO-FORGIVENESS); it is still applied here until
- * AMBIENT-ALLOWANCE-REMOVE lands (the web writer's first item after the
- * engine merge, D-17, UR-24-BUDGETS). Until then every verdict says the
- * allowance in force and what it added, so no pass reads as a strict one.
- */
-function ambientAllowanceStatement(budget: AmbientInflationDeclaration, inflation: number): string {
-  return ` [ambient allowance in force until AMBIENT-ALLOWANCE-REMOVE: +${(budget.ambientInflationSlopePerCpu * 100).toFixed(1)}% per unit of 5-minute load per CPU, ` +
-    `capped at +${(budget.ambientInflationCapFraction * 100).toFixed(1)}%; this verdict: +${(inflation * 100).toFixed(1)}%]`;
-}
-
-/**
- * The ambient-inflation adjustment for one recorded 5-minute ambient load
- * per CPU: `min(cap, slope × ambient)`, and 0 for an absent, negative or
- * non-finite reading. Pure, total, and the ONE spelling — the one-run cap,
- * the rolling feed filter, the gate messages and the disclosures all call
- * this, so the arithmetic cannot drift between the places a reading is
- * judged.
- */
-export function ambientInflationFraction(
-  ambientLoad5PerCpu: number | null | undefined,
-  declaration: Readonly<Pick<AmbientInflationDeclaration, "ambientInflationSlopePerCpu" | "ambientInflationCapFraction">>,
-): number {
-  if (
-    typeof ambientLoad5PerCpu !== "number" ||
-    !Number.isFinite(ambientLoad5PerCpu) ||
-    ambientLoad5PerCpu <= 0
-  ) {
-    return 0;
-  }
-  return Math.min(
-    declaration.ambientInflationCapFraction,
-    ambientLoad5PerCpu * declaration.ambientInflationSlopePerCpu,
-  );
-}
 
 export interface CollectCost {
   readonly file: string;
@@ -868,8 +741,8 @@ export type JudgedRunRecord = {
   /**
    * THE PRE-LAUNCH SNAPSHOT'S LONGER LEGS — the 5- and 15-minute averages
    * from the SAME run-start `loadavg()` read, per CPU. The 5-MINUTE leg is
-   * the covariate the ambient-inflation adjustment consumes
-   * (`ambientInflationFraction`): it is the leg a single prior suite's
+   * the leg the calibrated metric's validity bound reads
+   * (`validThroughLoad5PerCpu`): it is the leg a single prior suite's
    * ghost cannot inflate (one 80s suite leaves it at ~0.2/cpu while the
    * 1-minute leg reads 0.8-1.9), so a recorded amb5 is sustained load,
    * not the previous run's echo. The 15-minute leg stays recorded as the
@@ -898,7 +771,7 @@ export type JudgedRunRecord = {
    * judged (`webPerformanceBudgets.ledgerField`): each budget's value, null
    * when the profile did not measure it. Absent when no profile was judged.
    * The workspace's ledger judge reads a breach's value and the target's
-   * slotted ones from here (the ONE budget judgement).
+   * from here (the ONE budget judgement).
    */
   readonly performanceMeasurements?: Readonly<Record<string, number | null>>;
   /**
@@ -929,12 +802,6 @@ export type JudgedRunRecord = {
   readonly failureLocations?: Readonly<Record<string, string>>;
   /** The checkout whose run this row is, when it was imported from a candidate (`importJudgedRuns`). */
   readonly importedFrom?: string;
-  /**
-   * Whether the measurement held the host's one instrument lock (src/process/instrument-lock.ts).
-   * Absent on rows recorded before the slot existed; an `unslotted` row never
-   * feeds a budget's baseline.
-   */
-  readonly heavySlot?: "held" | "unslotted";
   /** True when the run measured a tracked-dirty (mid-edit) tree. */
   readonly provisionalFailures?: boolean;
   /**
@@ -997,8 +864,7 @@ export interface RunCostInputs {
  *
  * THE MECHANISM: the cap is the declared FLOOR. A judged run feeds the
  * rolling window only when its own CPU outcome passed — its reading at or
- * below the cap in force at its moment (ambient-adjusted at its own recorded
- * 5-minute leg while the allowance stands, AMBIENT-ALLOWANCE-REMOVE), over the
+ * below the cap in force at its moment, over the
  * same population, not a deliberate mutation run, not a row carrying the
  * budget gate's own failure — so the window's median never rises above the
  * floor and the baseline IS the floor. GROWTH IS NOT ABSORBED: a suite that
@@ -1063,14 +929,6 @@ export interface RollingCpuBudget {
    * measuring tool derives the floor from. The baseline itself is the floor.
    */
   readonly baselineWindowRuns: number;
-  /**
-   * The ambient-inflation envelope the gate and the feed both consume —
-   * the recorded 5-minute ambient leg's measured CPU-inflation slope, and
-   * the cap that bounds the whole adjustment so the teeth hold at every
-   * ambient. Derivation at `ambientInflationFraction`.
-   */
-  readonly ambientInflationSlopePerCpu: number;
-  readonly ambientInflationCapFraction: number;
   /**
    * THE METRIC'S DECLARED VALIDITY BOUNDS — the run's own witnesses that it
    * was measured under the conditions the metric was calibrated through.
@@ -1165,9 +1023,9 @@ export function measureBudgetFloor(
  * drift; a malformed count is invalid, never the permissive direction), and
  * carries none of the budget gate's own failures (it ran under a budget
  * state the verdict could not trust) — the population arm aside
- * ({@link BUDGET_POPULATION_ARM}: the failure a re-measurement clears). Its reading is AMBIENT-ADJUSTED — the
- * one envelope, `ambientInflationFraction`: raw / (1 + adjustment), so a
- * busy row reads what a quiet one would. Oldest first.
+ * ({@link BUDGET_POPULATION_ARM}: the failure a re-measurement clears),
+ * whatever ran beside it. Its reading is the calibrated work as recorded.
+ * Oldest first.
  *
  * A deliberate mutation-verification run measured a tree the operator
  * deliberately broke: its reading is evidence about the planted defect,
@@ -1197,7 +1055,7 @@ function disqualifiesReading(failure: string, budgetFailureIdentities: readonly 
   return !(before.endsWith("::") || before.endsWith(" > "));
 }
 
-/** The eligible rows and their ambient-adjusted readings, in ledger order (see {@link eligibleBudgetReadings}). */
+/** The eligible rows and their readings, in ledger order (see {@link eligibleBudgetReadings}). */
 function eligibleBudgetRows(
   budget: RollingCpuBudget,
   priorRuns: readonly JudgedRunRecord[],
@@ -1213,16 +1071,16 @@ function eligibleBudgetRows(
     if (r.metric !== budget.metric) return [];
     const reading = r.workUnitsPerTestFile;
     if (reading === undefined || !Number.isFinite(reading) || reading <= 0) return [];
-    // Only a reading taken inside the host's one instrument lock feeds a baseline: an unslotted row, or a legacy row with no stamp, may have shared the cores (D-17, design M-B).
-    if (r.mutation === true || r.heavySlot !== "held") return [];
+    // Every reading counts, whatever ran beside it: the work metric is valid at any load (NO-LOAD-BLOCK, audit A-12); a mutation run measured other code.
+    if (r.mutation === true) return [];
     const populationDrift = Math.abs(r.testModuleCount - currentTestModuleCount) / currentTestModuleCount;
     if (!(populationDrift <= budget.maxPopulationDriftFraction)) return [];
     if ((r.failures ?? []).some((f) => disqualifiesReading(f, budgetFailureIdentities))) return [];
-    return [{ row: r, reading: reading / (1 + ambientInflationFraction(r.ambientLoad5PerCpu, budget)) }];
+    return [{ row: r, reading }];
   });
 }
 
-/** The eligible readings (the measuring tool's window, D-17): in the lock, the population in force, no disqualifying failure. */
+/** The eligible readings (the measuring tool's window, D-17): the metric and the population in force, no disqualifying failure. */
 function eligibleBudgetReadings(
   budget: RollingCpuBudget,
   priorRuns: readonly JudgedRunRecord[],
@@ -1258,8 +1116,7 @@ function withinAllowance(reading: number, reference: number, budget: RollingCpuB
  * that failed): an eligible row ({@link eligibleBudgetReadings}, shared with
  * the measuring tool) feeds ONLY IF ITS OWN CPU OUTCOME PASSED — the outcome
  * it recorded, when it recorded one, AND its reading within the cap in force
- * at its moment (the baseline then; the reading is already ambient-adjusted,
- * as the cap was). A run over the cap fed the old fold whenever it lay within
+ * at its moment (the baseline then). A run over the cap fed the old fold whenever it lay within
  * the spread of the baseline (seven failing +2.5% runs lifted the cap until
  * the eighth passed: the deleted streak at length 7). The spread has no role
  * here; with the floor as the lower bound, the baseline therefore never rises
@@ -1334,40 +1191,24 @@ function baselineCore(d: BaselineDerivation): string {
  * movement is visible the moment it happens: which baseline is in force,
  * from what evidence, at what floor. A baseline that moved and said nothing
  * would be the silent climb the rolling design exists to prevent. The
- * window's readings are AMBIENT-ADJUSTED (each at its own recorded 5-minute
- * leg), so the sentence says so — an operator must not read the numbers as
- * raw costs.
+ * window's readings are calibrated work as recorded (no load adjustment:
+ * NO-LOAD-BLOCK, audit A-08).
  */
 export function baselineLine(d: BaselineDerivation): string {
   return (
     `[runtime-budget] baseline: ${d.baselineUnitsPerTestFile.toFixed(3)} calibration units/file — ` +
-    `${baselineCore(d)}; window readings are ambient-adjusted (each at its own recorded 5-minute load)`
+    `${baselineCore(d)}`
   );
 }
 
 /**
  * The note every cpu-gate outcome carries, pass included: an operator
- * reading any verdict line can see WHICH baseline judged the run, HOW it
- * was derived — the K, the window's readings, the median, the floor — and
- * the ambient adjustment THIS run earned, with the arithmetic that made
- * the line: a red the reader can act on without re-running anything.
+ * reading any verdict line can see WHICH baseline judged the run and HOW it
+ * was derived — the K, the window's readings, the median, the floor: a red
+ * the reader can act on without re-running anything.
  */
-export function baselineNote(
-  d: BaselineDerivation,
-  ambientInflation: number,
-  ambientLoad5PerCpu: number | null | undefined,
-): string {
-  const adjustmentLeg =
-    ambientInflation > 0
-      ? ` The ambient adjustment this run earned: 5-minute load ` +
-        `${typeof ambientLoad5PerCpu === "number" ? ambientLoad5PerCpu.toFixed(3) : "?"}/cpu × the ` +
-        `declared envelope = +${(ambientInflation * 100).toFixed(1)}% — every line above scales by it.`
-      : ` No ambient adjustment was earned (the 5-minute load leg recorded ` +
-        `${typeof ambientLoad5PerCpu === "number" ? ambientLoad5PerCpu.toFixed(3) : "no"} /cpu).`;
-  return (
-    ` Judged against the rolling baseline ${d.baselineUnitsPerTestFile.toFixed(3)} calibration units/file — ` +
-    `${baselineCore(d)}.${adjustmentLeg}`
-  );
+export function baselineNote(d: BaselineDerivation): string {
+  return ` Judged against the rolling baseline ${d.baselineUnitsPerTestFile.toFixed(3)} calibration units/file — ${baselineCore(d)}.`;
 }
 
 /**
@@ -1565,23 +1406,17 @@ function rollingCpuGate(
     maxPopulationDriftFraction: budget.maxPopulationDriftFraction,
     calibrationDriftMaxFraction: budget.calibrationDriftMaxFraction,
     validThroughLoad5PerCpu: budget.validThroughLoad5PerCpu,
-    ambientInflationSlopePerCpu: budget.ambientInflationSlopePerCpu,
-    ambientInflationCapFraction: budget.ambientInflationCapFraction,
   };
   const outcome = cpuGate(v, effective, inputs.suiteLabel);
   return {
     ...outcome,
-    message: `${outcome.message}${baselineNote(
-      derivation,
-      ambientInflationFraction(v.load5PerCpuAtStart, budget),
-      v.load5PerCpuAtStart,
-    )}`,
+    message: `${outcome.message}${baselineNote(derivation)}`,
   };
 }
 
 /** The rows that may count toward an accumulation window: same metric, same
- *  population, in the instrument lock, not a mutation run, no disqualifying
- *  gate failure. Legacy-unit rows never count. */
+ *  population, not a mutation run, no disqualifying gate failure, whatever
+ *  ran beside it. Legacy-unit rows never count. */
 function accumulatingRows(
   budget: AccumulatingCpuBudget,
   priorRuns: readonly JudgedRunRecord[],
@@ -1590,7 +1425,7 @@ function accumulatingRows(
 ): readonly JudgedRunRecord[] {
   return priorRuns.filter((r) => {
     if (r.metric !== budget.metric || r.workUnitsPerTestFile === undefined) return false;
-    if (r.mutation === true || r.heavySlot !== "held") return false;
+    if (r.mutation === true) return false;
     const drift = Math.abs(r.testModuleCount - currentTestModuleCount) / currentTestModuleCount;
     if (!(drift <= budget.maxPopulationDriftFraction)) return false;
     return !(r.failures ?? []).some((f) => disqualifiesReading(f, budgetFailureIdentities));
@@ -1660,19 +1495,15 @@ function accumulatingCpuGate(
  * forgiveness). A run over the cap FAILS that run: there is no streak, no
  * "recorded, not red" band and no re-run.
  */
-function cpuCap(
-  reading: number,
-  ambientLoad5PerCpu: number | null,
-  budget: DeclaredCpuBudget,
-): Readonly<{ pass: boolean; cap: number }> {
-  const cap = budget.unitsPerTestFile * (1 + ambientInflationFraction(ambientLoad5PerCpu, budget));
+function cpuCap(reading: number, budget: DeclaredCpuBudget): Readonly<{ pass: boolean; cap: number }> {
+  const cap = budget.unitsPerTestFile;
   return { pass: reading <= cap, cap };
 }
 
 /**
  * ── ONE JUDGED RUN IS THE VERDICT ──
  *
- * A run beyond the cap in force (its ambient adjustment stated) fails, in
+ * A run beyond the cap in force fails, in
  * that run. The gate once forgave an over-cap run inside a "same-tree spread"
  * band and waited for three consecutive runs beyond it; both are deleted
  * (UR-24-BUDGETS, UD-AUDIT-NO-FORGIVENESS): a cap a single run may not cross
@@ -1689,15 +1520,9 @@ function cpuGate(
   if ("missing" in budget) return { gate, kind: "not-judged", message: budget.missing };
   const refusal = metricValidityRefusal(v, budget, suiteLabel);
   if (refusal !== null) return { gate, kind: "not-judged", message: refusal };
-  const { pass, cap } = cpuCap(v.workUnitsPerTestFile, v.load5PerCpuAtStart, budget);
-  const inflation = ambientInflationFraction(v.load5PerCpuAtStart, budget);
-  const arithmetic =
-    inflation > 0
-      ? ` = baseline ${budget.unitsPerTestFile.toFixed(3)} × ${(1 + inflation).toFixed(3)} ambient ` +
-        `adjustment (5-minute load ${recordedFixed(v.load5PerCpuAtStart, 3)}/cpu × the declared envelope)`
-      : ` (no ambient adjustment earned: 5-minute load ` +
-        `${recordedFixed(v.load5PerCpuAtStart, 3)}/cpu)`;
-  const allowance = ambientAllowanceStatement(budget, inflation);
+  const { pass, cap } = cpuCap(v.workUnitsPerTestFile, budget);
+  // The load legs are SIGNALS beside the reading, never a term of the cap (audit A-08).
+  const arithmetic = ` (5-minute load ${recordedFixed(v.load5PerCpuAtStart, 3)}/cpu: recorded, not judged)`;
   const rawLeg =
     `raw CPU ${v.rawCpuMsPerTestFile.toFixed(1)} ms/file (provenance, not judged), ` +
     `calibration unit ${v.calibrationMs.toFixed(1)} ms/chunk, drift ` +
@@ -1708,13 +1533,13 @@ function cpuGate(
       kind: "pass",
       message:
         `${v.workUnitsPerTestFile.toFixed(3)} calibration units/file within ${cap.toFixed(3)} ` +
-        `(metric ${v.workMetric}; ${rawLeg})${arithmetic}${allowance}`,
+        `(metric ${v.workMetric}; ${rawLeg})${arithmetic}`,
     };
   }
   const failMessage =
     `The ${suiteLabel} suite cost ${v.workUnitsPerTestFile.toFixed(3)} calibration units per ` +
     `test file in THIS run — over the ${cap.toFixed(3)} cap in force (metric ${v.workMetric}; ` +
-    `${rawLeg})${arithmetic}${allowance}. One judged run over the cap is the verdict: no ` +
+    `${rawLeg})${arithmetic}. One judged run over the cap is the verdict: no ` +
     `streak, no band, no re-run.\n\n` +
     `That run (${ageOf(v.summaryTimestamp)}): ${(v.runCpuMs / 1000).toFixed(1)}s of CPU across ` +
     `${String(v.testModuleCount)} test files, wall clock ` +
@@ -1823,14 +1648,6 @@ export interface DeclaredCpuBudget {
   readonly calibrationDriftMaxFraction: number;
   /** The recorded 5-minute load (per CPU) the metric's residual was measured through. */
   readonly validThroughLoad5PerCpu: number;
-  /**
-   * The ambient-inflation envelope — see `ambientInflationFraction`. The cap
-   * scales by the adjustment the run's recorded 5-minute ambient leg earns,
-   * stated numerically on every verdict (AMBIENT-ALLOWANCE-REMOVE owns its
-   * removal).
-   */
-  readonly ambientInflationSlopePerCpu: number;
-  readonly ambientInflationCapFraction: number;
 }
 
 export type PopulationVerdict =
@@ -2184,9 +2001,8 @@ export function judgeSuiteCpu(
     const conditionNote =
       ` A cap is derived ONLY from samples sharing ONE headSha (this run: ` +
       `${judgedRecord.headSha ?? "unrecorded"}; ${String(sameSha)} of the counted samples ` +
-      `share it), each judged at its own recorded ambient (the derivation the rolling ` +
-      `baseline performs — entries feed at their ambient-adjusted readings, never excluded ` +
-      `for busyness): the ledger has already measured a same-day cross-condition spread ` +
+      `share it), every reading as recorded, whatever ran beside it (the derivation the rolling ` +
+      `baseline performs — never excluded for busyness): the ledger has already measured a same-day cross-condition spread ` +
       `of ~60% on one tree, and a spread derived across commits or conditions encodes ` +
       `that confound as permanent slack.`;
     if (have < need) {
@@ -2239,25 +2055,13 @@ export function judgeSuiteCpu(
     return { outcome: { gate, kind: "not-judged", message: drift.why }, judgedRecord };
   }
 
-  const { pass, cap } = cpuCap(
-    evidence.workUnitsPerTestFile,
-    evidence.ambientLoad5PerCpu,
-    declaration,
-  );
+  const { pass, cap } = cpuCap(evidence.workUnitsPerTestFile, declaration);
   const wallNote =
     evidence.wallClockMs !== null
       ? ` Wall clock ${(evidence.wallClockMs / 1000).toFixed(2)}s (reported, not judged).`
       : "";
-  const inflation = ambientInflationFraction(evidence.ambientLoad5PerCpu, declaration);
-  const arithmetic =
-    inflation > 0
-      ? ` = baseline ${declaration.unitsPerTestFile.toFixed(3)} × ${(1 + inflation).toFixed(3)} ` +
-        `ambient adjustment (5-minute load ` +
-        `${evidence.ambientLoad5PerCpu !== null ? evidence.ambientLoad5PerCpu.toFixed(3) : "?"}/cpu × ` +
-        `the declared envelope)`
-      : ` (no ambient adjustment earned: 5-minute load ` +
-        `${evidence.ambientLoad5PerCpu !== null ? evidence.ambientLoad5PerCpu.toFixed(3) : "not recorded"}/cpu)`;
-  const allowance = ambientAllowanceStatement(declaration, inflation);
+  // The load legs are SIGNALS beside the reading, never a term of the cap (audit A-08).
+  const arithmetic = ` (5-minute load ${evidence.ambientLoad5PerCpu !== null ? evidence.ambientLoad5PerCpu.toFixed(3) : "not recorded"}/cpu: recorded, not judged)`;
   if (pass) {
     return {
       outcome: {
@@ -2266,7 +2070,7 @@ export function judgeSuiteCpu(
         message:
           `${judgedRecord.workUnitsPerTestFile!.toFixed(3)} calibration units/file within ` +
           `${cap.toFixed(3)}` +
-          `${arithmetic}${allowance}.${wallNote}`,
+          `${arithmetic}.${wallNote}`,
       },
       judgedRecord,
     };
@@ -2279,7 +2083,7 @@ export function judgeSuiteCpu(
         `The ${suiteLabel} suite cost ${judgedRecord.workUnitsPerTestFile!.toFixed(3)} ` +
         `calibration units per test file in THIS run — over the ${cap.toFixed(3)} cap in force ` +
         `(metric ${judgedRecord.metric}; raw ${judgedRecord.cpuMsPerTestFile.toFixed(1)} ms/file, ` +
-        `provenance)${arithmetic}${allowance}. ` +
+        `provenance)${arithmetic}. ` +
         `One judged run over the cap is the verdict: no streak, no band, no re-run.\n\n` +
         `THIS RUN: ${((evidence.rawCpuMsPerTestFile ?? 0) * evidence.testFileCount / 1000).toFixed(1)}s of CPU across ` +
         `${String(judgedRecord.testModuleCount)} test files.${wallNote}\n\n` +
