@@ -21,6 +21,7 @@ import {
 } from "../scripts/tooling/test-execution.ts";
 import {
   createTestReceipt,
+  testResultFailureStatements,
   testResultLedgerRows,
   testResultQualification,
   createTestResultReceipt,
@@ -41,6 +42,7 @@ import {
   type ReceiptFaultStage,
 } from "../src/filesystem/immutable-receipt.ts";
 import { HarnessError, InputError } from "../src/kernel/errors.ts";
+import { extractTestResultError } from "../src/workflow/test-result-collector.ts";
 import { withCurrentNodeRuntimeForFilesystemMechanismTest } from "../src/filesystem/durable-filesystem-internal.ts";
 import { canonicalHash, canonicalJson, sha256 } from "../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
@@ -616,6 +618,29 @@ mechanismTest("a NAMED skip is judged by its identity like a failure: it leaves 
   assert.ok(failuresOf(0, undefined).some((outcome) => outcome.gate === "engine-test-skipped"), "an unnamed skip stays an independent refusal");
   assert.throws(() => failuresOf(0, []), /test result accounting is invalid/u, "a census that names fewer skips than ran is refused");
   assert.throws(() => failuresOf(0, [skipped, { ...skipped, identity: `${skipped.identity}-2` }]), /test result accounting is invalid/u, "a census that names more skips than ran is refused");
+});
+
+mechanismTest("a run's failure statements say what each failure said: its error and every cause, outermost first; a failure without one says so", () => {
+  const fixture = receiptFixture();
+  const first = fixture.inventory.tests[0]!;
+  const second = createTestInventoryEntry(first.sourceId, first.sourceHash, "second case");
+  const inventory = createTestInventory(fixture.inventory.scope, [first, second]);
+  const receipt = createTestReceipt(fixture.candidate, inventory, inventory.tests.map((entry) => entry.id), [],
+    { discovered: 2, passed: 0, failed: 2, skipped: 0, todo: 0, cancelled: 0 }, []);
+  const envelope = Object.assign(new Error("test failed", { cause: new TypeError("the worker answered violations: [\"recorded-execution-stderr-nonempty\"]") }), { name: "ERR_TEST_FAILURE" });
+  const result = parseTestResultReceiptValue(createTestResultReceipt(receipt, failedRunnerSummary(receipt), fixture.candidate, [first.name, second.name], [], [
+    { identity: first.name, file: first.sourceId, line: null, column: null, error: extractTestResultError(envelope) },
+    { identity: second.name, file: second.sourceId, line: null, column: null, error: null },
+  ]));
+  const repeated = parseTestResultReceiptValue(createTestResultReceipt(receipt, failedRunnerSummary(receipt), fixture.candidate, [first.name, second.name], [], [
+    { identity: first.name, file: first.sourceId, line: null, column: null, error: extractTestResultError(new Error("the same words", { cause: new TypeError("the same words") })) },
+    { identity: second.name, file: second.sourceId, line: null, column: null, error: null },
+  ]));
+  assert.equal(testResultFailureStatements(repeated)[first.name], "Error: the same words", "a cause that only repeats its message is said once");
+  assert.deepEqual(testResultFailureStatements(result), {
+    [first.name]: 'ERR_TEST_FAILURE: test failed\n  caused by TypeError: the worker answered violations: ["recorded-execution-stderr-nonempty"]',
+    [second.name]: "no error was recorded",
+  });
 });
 
 mechanismTest("current qualification preserves execution overflow beside a valid owned-failure receipt", async () => {

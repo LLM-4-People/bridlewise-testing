@@ -17,7 +17,7 @@ import {
   type ExecutionAuthority,
   type ExecutionOperation,
 } from "./test-execution.ts";
-import { computeTestResultReceiptDeterministicHash, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
+import { computeTestResultReceiptDeterministicHash, testResultFailureStatements, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
 import { enforceTestRunLock } from "./test-run-lock.ts";
 import { HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
@@ -306,6 +306,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
           status: receipt.result.status,
           exitCode: execution.exitCode,
           failures: receipt.result.diagnostic === null ? [] : receipt.result.diagnostic.failures,
+          failureStatements: testResultFailureStatements(receipt),
           reasons: receipt.result.diagnostic === null ? [] : receipt.result.diagnostic.reasons,
           testCount: receipt.testReceipt.counts.discovered,
           passCount: receipt.testReceipt.counts.passed,

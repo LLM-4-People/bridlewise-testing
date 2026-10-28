@@ -236,16 +236,7 @@ jobs:
       # local reproduction.
       - name: Report the engine suite's failures
         if: always()
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            const path = "engine/.bridlewise/state/test-results/latest-summary.json";
-            if (!fs.existsSync(path)) { console.log("no summary: the runner recorded no result"); process.exit(0); }
-            const s = JSON.parse(fs.readFileSync(path, "utf8"));
-            const lines = [`## Engine suite: ${s.status}`, "", `${s.passCount} passed, ${s.failCount} failed of ${s.testCount}`, ""];
-            for (const failure of s.failures) lines.push(`- ${failure}`);
-            if (s.reasons.length > 0) lines.push("", "### Reasons", "", ...s.reasons.map((reason) => `- ${reason}`));
-            const text = lines.join("\n") + "\n";
-            process.stdout.write(text);
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
-          '
+        # The report is the tests' own text: the script wraps the log copy so
+        # no line of it runs as a workflow command, and caps it below the step
+        # summary's limit (engine/scripts/tooling/test-run-report.ts).
+        run: node engine/scripts/tooling/test-run-report.ts
