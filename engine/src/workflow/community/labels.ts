@@ -16,7 +16,7 @@
 import { z } from "zod";
 
 import { schemaId } from "../../kernel/product-identity.ts";
-import { readCommunitySource } from "./sources.ts";
+import { parseCommunitySource, readCommunitySource } from "./sources.ts";
 
 export const LABELS_PATH = "docs/community/labels.json";
 
@@ -35,4 +35,9 @@ export type DeclaredLabel = z.infer<typeof LABEL>;
 /** The declared labels, validated (`community_source_invalid` otherwise). */
 export function readLabels(repositoryRoot: string): readonly DeclaredLabel[] {
   return readCommunitySource(repositoryRoot, LABELS_PATH, LABELS).labels;
+}
+
+/** The declared labels in `text`, the file's content at some commit (the projector's source commit), validated the same way. */
+export function parseLabels(text: string): readonly DeclaredLabel[] {
+  return parseCommunitySource(text, LABELS_PATH, LABELS).labels;
 }

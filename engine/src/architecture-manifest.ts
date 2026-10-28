@@ -5584,7 +5584,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-community-sources", path: "src/workflow/community/sources.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 21, namesSha256: "ac23e5cdddd346ac4f240725028962d9988e7824c29b97909ff105bfbacb368f" },
+      owner: "verification-workflow", publicApi: { exportCount: 22, namesSha256: "81a3cf92a98f641a992c5f6a73d4a7a63f7695626d7050d153f65c0bcf20ada0" },
       dependencies: ["node:fs","node:path","src/kernel/errors.ts","src/kernel/product-identity.ts","zod"],
     }),
     moduleContract({
@@ -5769,7 +5769,7 @@ export const ARCHITECTURE_MANIFEST: ArchitectureManifest = deepFreeze({
     }),
     moduleContract({
       id: "src-workflow-community-labels", path: "src/workflow/community/labels.ts", realm: "runtime", layer: "infrastructure",
-      owner: "verification-workflow", publicApi: { exportCount: 3, namesSha256: "ff0f1e1c7985012f2fdeefcefd2b79087a74694a5e31d85ee2a0217203a50719" },
+      owner: "verification-workflow", publicApi: { exportCount: 4, namesSha256: "8b705aefd579bd636260849fea2226774eff5f2faa57109699c29af272ba9e8a" },
       dependencies: ["src/kernel/product-identity.ts","src/workflow/community/sources.ts","zod"],
     }),
     moduleContract({

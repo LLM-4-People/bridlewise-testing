@@ -48,7 +48,8 @@ folder owns what they are told and who may do what.
   one declaration of every label but the forge's `area:` ones (community,
   Dependabot, lanes, the forge's markers), each with its colour and
   description; `readLabels` validates it for `harness check` and for the
-  forge, whose `harness forge apply` is the one writer and `plan`/`audit` the
+  forge, and `parseLabels` reads it from a commit's text (the projector's
+  source commit) through the same parser (`parseCommunitySource`), whose `harness forge apply` is the one writer and `plan`/`audit` the
   one drift report.
 - `community-cli.ts` — THE `harness community` DOOR (`categories`), on the
   `forge` configuration's trunk with the token in `GH_TOKEN`; drift exits 1.
