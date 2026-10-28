@@ -152,4 +152,3 @@ export function enforceTestRunLock(
   }
   return holdInstrumentLock({ config, harnessRoot: ENGINE_ROOT, runner, testFileCount: options.testFileCount, cpu: SUBPROCESS_BOUNDS });
 }
-
