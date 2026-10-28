@@ -17,7 +17,7 @@ import { PromotionError, promotionExitCode, type PromotionAnswer, type Promotion
 import { resolvePromotionContext } from "../../../src/workflow/promotion/context.ts";
 import { promotionRefs, type ApplyRun } from "../../../src/workflow/promotion/promotion-run.ts";
 import { holdPromotion, releaseHold, rollbackPromotion } from "../../../src/workflow/promotion/rollback.ts";
-import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { apply, landing, refused } from "./apply-support.ts";
 import { FIXTURE_ENGINE, FIXTURE_GENERATED, PROFILE_NAME, SOURCE, TARGET, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -27,7 +27,7 @@ const REFS = promotionRefs(PROFILE_NAME);
 function runOf(fixture: PromotionFixture): ApplyRun {
   return {
     git: configuredWorktreeGitPort(fixture.document),
-    runner: { supervisor: testProcessSupervisorBinary(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } },
+    runner: { supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } },
     generatedOutputs: () => FIXTURE_GENERATED,
     buildOutputs: () => [],
     engineRelative: FIXTURE_ENGINE,

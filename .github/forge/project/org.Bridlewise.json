@@ -7,7 +7,7 @@
   "unavailableOnPlan": [],
   "desired": {
     "title": "Bridlewise",
-    "public": true,
+    "public": false,
     "status": [
       "Intake",
       "Ready",

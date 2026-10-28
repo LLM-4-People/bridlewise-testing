@@ -8,7 +8,7 @@
   "desired": {
     "name": "CPU headroom",
     "data_type": "number",
-    "visibility": "all",
+    "visibility": "organization_members_only",
     "description": "CPU budget headroom, percent"
   }
 }

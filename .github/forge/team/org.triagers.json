@@ -8,6 +8,7 @@
   "desired": {
     "name": "triagers",
     "privacy": "closed",
-    "description": "The triager role (docs/community/roles.json)"
+    "description": "The triager role (docs/community/roles.json)",
+    "members": []
   }
 }

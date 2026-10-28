@@ -1,0 +1,19 @@
+{
+  "kind": "environment",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "github-pages",
+  "unavailableOnPlan": [],
+  "desired": {
+    "deployment_branch_policy": {
+      "protected_branches": false,
+      "custom_branch_policies": true
+    },
+    "can_admins_bypass": false,
+    "branch_policies": [
+      "main"
+    ]
+  }
+}

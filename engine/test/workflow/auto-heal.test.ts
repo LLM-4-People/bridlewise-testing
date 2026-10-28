@@ -23,7 +23,7 @@ import { createRepositoryLocalTemporaryDirectory, createRepositoryWorkingCopy, e
 import { createTempDir } from "../support/temp-dir.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { supervisedCommandOutcome } from "../../src/shared/run-history.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { checkRequiredFixtureRoots } from "../../scripts/verification/required-fixture-roots.ts";
 
 const MANIFEST_REL_PATH = ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath;
@@ -76,7 +76,7 @@ test("auto-heal: actual maintenance CLI preserves a no-op success without a test
       delete environment.HARNESS_MUTATION_RUN;
       delete environment.HARNESS_RUN_INVOCATION;
       const command = await superviseCommand({
-        supervisor: testProcessSupervisorBinary(), command: process.execPath,
+        supervisor: ensureTestProcessSupervisor(), command: process.execPath,
         args: ["scripts/tooling/run-tests.ts", ...(operation === "suite" ? [] : ["--auto-add-dispositions"])],
         cwd: copy.engineRoot, env: environment, hardCeilingMs: 60_000, killGraceMs: 500,
         onStdout: (chunk) => { stdout.push(chunk.toString()); },

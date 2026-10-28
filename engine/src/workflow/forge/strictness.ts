@@ -48,6 +48,29 @@ const levels = (...ordered: readonly string[]): Order => (next, now) => {
   const was = ordered.indexOf(String(now));
   return at !== -1 && was !== -1 && at >= was;
 };
+/**
+ * A required check is still required when one of the same context is: a
+ * check bound to an App is at least as strict as the same context unbound
+ * (fewer reporters satisfy it), but another App, or dropping the binding, is
+ * not.
+ */
+const checkCovered = (next: readonly unknown[], check: unknown): boolean => {
+  const want = check as Readonly<{ context?: unknown; integration_id?: unknown }>;
+  return next.some((candidate) => {
+    const have = candidate as Readonly<{ context?: unknown; integration_id?: unknown }>;
+    return have.context === want.context && (want.integration_id === undefined || same(have.integration_id, want.integration_id));
+  });
+};
+/** Every check `now` requires is still required, by {@link checkCovered}. */
+const CHECKS_KEPT: Order = (next, now) => entries(now).every((check) => checkCovered(entries(next), check));
+/** A dismissal restriction: an unrestricted one (`enabled: false`) restricts nothing; an enabled one must stay enabled, its allowed actors only shrinking. */
+const DISMISSAL_RESTRICTION: Order = (next, now) => {
+  const was = now as Readonly<{ enabled?: unknown; allowed_actors?: unknown }> | undefined;
+  if (was?.enabled !== true) return true;
+  const will = next as Readonly<{ enabled?: unknown; allowed_actors?: unknown }> | undefined;
+  return will?.enabled === true && SUBSET_IS_STRICT(will.allowed_actors, was.allowed_actors);
+};
+
 /** A value set where none was: joining is never a loosening; changing a set value is unproven (it may leave what governed it). */
 const SET_ONCE: Order = (next, now) => now === undefined || now === null || same(next, now);
 /** Security-configuration features: `enabled` is strict; every other value is the same "off". */
@@ -65,7 +88,9 @@ const RULE_PARAMETERS: Readonly<Record<string, Order>> = Object.freeze({
   automatic_copilot_code_review_enabled: NEUTRAL,
   strict_required_status_checks_policy: TRUE_IS_STRICT,
   do_not_enforce_on_create: FALSE_IS_STRICT,
-  required_status_checks: SUPERSET_IS_STRICT,
+  required_status_checks: CHECKS_KEPT,
+  require_extra_approval_for_unattributed_changes: TRUE_IS_STRICT,
+  dismissal_restriction: DISMISSAL_RESTRICTION,
   update_allows_fetch_and_merge: FALSE_IS_STRICT,
   required_deployment_environments: SUPERSET_IS_STRICT,
   workflows: SUPERSET_IS_STRICT,
@@ -95,7 +120,7 @@ function ruleLoosening(next: Rule, now: Rule): readonly string[] {
   if (type === "required_status_checks") {
     // Name the checks a reviewer must look at (a dropped context, or one whose app binding changed), not only the list.
     for (const check of entries(have.required_status_checks) as readonly Readonly<{ context?: unknown }>[]) {
-      if (!contains(entries(want.required_status_checks), check)) reasons.push(`drops required check ${canonicalJson(check)}`);
+      if (!checkCovered(entries(want.required_status_checks), check)) reasons.push(`drops required check ${canonicalJson(check)}`);
     }
   }
   return reasons;
@@ -178,11 +203,14 @@ const KIND_FIELDS: Readonly<Record<ForgeObjectKind, "neutral" | "ruleset" | Read
   "issue-field": "neutral",
   "project": "neutral",
   "autolink": "neutral",
-  "team": "neutral",
+  // A member added is access granted: membership may only shrink without an acknowledgement.
+  "team": { name: NEUTRAL, privacy: NEUTRAL, description: NEUTRAL, members: SUBSET_IS_STRICT },
   "ruleset": "ruleset",
   "org-ruleset": "ruleset",
-  // A repository's `kind` decides which org rulesets govern it: setting one where none was only joins; changing one is unproven. So is any change to the property's schema.
-  "custom-property": {},
+  // A repository's `kind` decides which org rulesets govern it: setting one where none was only joins; changing one is unproven.
+  // The property's allowed values are a SET: a reorder changes nothing, dropping a value narrows what a repository may be, and a
+  // new value widens it (a loosening). Any other change to the schema must be equal.
+  "custom-property": { allowed_values: SUBSET_IS_STRICT },
   "custom-property-values": { kind: SET_ONCE },
   "team-repository": { permission: levels("admin", "maintain", "push", "triage", "pull") },
   "org-settings": {
@@ -200,6 +228,8 @@ const KIND_FIELDS: Readonly<Record<ForgeObjectKind, "neutral" | "ruleset" | Read
     secret_scanning_validity_checks: FEATURE, secret_scanning_generic_secrets: FEATURE, secret_scanning_delegated_bypass: FEATURE,
     secret_scanning_delegated_alert_dismissal: FEATURE, private_vulnerability_reporting: FEATURE,
   },
+  // Detaching a repository from its security configuration loosens it; the default for new repositories governs no declared repository.
+  "security-configuration-repositories": { repositories: SUPERSET_IS_STRICT, default_for_new_repos: NEUTRAL },
   "repository-settings": {
     // The feature switches decide how work flows, not what is protected.
     // Merge commits only (#486): allowing squash or rebase breaks verify's first-parent rule, so it loosens.

@@ -8,7 +8,7 @@ import { isPlainObject } from "../shared/type-guards.ts";
 import { resolveResponsesTransportConfig, type ResponsesTransportConfigInput } from "../shared/llm/config.ts";
 import { DEFAULT_PRIVACY_POLICY, redactionReplacement, type PrivacyPolicy } from "./privacy-policy.ts";
 import { applyRedactions, redactMessagesTogether, type DetectionOptions } from "./redaction-engine.ts";
-import { isSensitiveKeyName } from "./secret-signals.ts";
+import { isSensitiveHeaderName, isSensitiveKeyName } from "./secret-signals.ts";
 import { responseObservationSlot, responseObservationLocation, isResponseObservationResource } from "./responses-redaction.ts";
 import { rememberableDeclaredValue } from "./secret-intelligence.ts";
 import { isResponseUsageValue, parseResponseResource, projectResponse, type ResponseProjection, type ResponseStatus } from "../shared/llm/responses.ts";
@@ -51,9 +51,13 @@ function observe(value: unknown, options: ResponseEnvelopeOptions, envelope: boo
   const native = options.kind !== "error" && envelope && resource?.object === "response" && Array.isArray(resource.output) ? projectResponse(parseResponseResource(resource), status as ResponseStatus) : undefined;
   const locationOf = (location: StringValueLocation): StringValueLocation => responseObservationLocation(location, envelope);
   const slot = (location: StringValueLocation) => envelope && (!["response", "evidence"].includes(String(location.path[0])) || options.kind === "error") ? "text" : responseObservationSlot(locationOf(location));
-  const headerTelemetry = (item: unknown, location: StringValueLocation) => envelope && location.path.length === 2 && location.path[0] === "headers" && typeof item === "string" && isRateLimitHeaderValue(String(location.path[1]), item);
+  // A header's value is judged by THE ONE header rule (an allowlist: a URL-valued header such as a signed
+  // Location, Link or Referer is sensitive); every other key by the key-name rule.
+  const header = (location: StringValueLocation) => envelope && location.path.length === 2 && location.path[0] === "headers";
+  const headerTelemetry = (item: unknown, location: StringValueLocation) => header(location) && typeof item === "string" && isRateLimitHeaderValue(String(location.path[1]), item);
   const numeric = (item: unknown, location: StringValueLocation) => headerTelemetry(item, location) || options.kind !== "error" && isNativeUsage(item, locationOf(location));
-  const sensitive = (item: unknown, location: StringValueLocation) => typeof location.path.at(-1) === "string" && isSensitiveKeyName(String(location.path.at(-1))) && !numeric(item, location);
+  const sensitive = (item: unknown, location: StringValueLocation) => typeof location.path.at(-1) === "string"
+    && (header(location) ? isSensitiveHeaderName(String(location.path.at(-1))) : isSensitiveKeyName(String(location.path.at(-1)))) && !numeric(item, location);
   const eventType = record && typeof record.type === "string" ? record.type : undefined;
   const progress = !isResponseObservationResource(record) && eventType !== undefined && (Object.hasOwn(record!, "sequence_number") || eventType.startsWith("response.") || eventType === "error") &&
     !["response.completed", "response.failed", "response.incomplete", "response.cancelled"].includes(eventType);
