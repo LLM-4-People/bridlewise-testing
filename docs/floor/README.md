@@ -58,7 +58,7 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
   "schemaVersion": "bridlewise-floor-atlas/v1",
   "generatedAt": "2026-10-19T00:00:00Z",
   "source": {
-    "repository": "LLM-4-People/bridlewise",
+    "repository": "{{ site.product_repository }}",
     "commit": "<sha>",
     "inventoryHash": "<sha256>",
     "dispositionHash": "<sha256>"
@@ -119,13 +119,13 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
   "schemaVersion": "bridlewise-floor-status/v1",
   "generatedAt": "2026-10-19T00:00:00Z",
   "source": {
-    "repository": "LLM-4-People/bridlewise",
+    "repository": "{{ site.product_repository }}",
     "ref": "refs/heads/main",
     "commit": "<sha>",
     "committedAt": "2026-10-19T00:00:00Z"
   },
   "product": {
-    "repository": "LLM-4-People/bridlewise",
+    "repository": "{{ site.product_repository }}",
     "ref": "refs/heads/product",
     "commit": "<sha>",
     "committedAt": "2026-10-19T00:00:00Z"
@@ -160,7 +160,7 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
     "reason": null,
     "runs": [
       {
-        "repository": "LLM-4-People/bridlewise",
+        "repository": "{{ site.product_repository }}",
         "workflow": "ci.yml",
         "runId": 123,
         "status": "completed",
