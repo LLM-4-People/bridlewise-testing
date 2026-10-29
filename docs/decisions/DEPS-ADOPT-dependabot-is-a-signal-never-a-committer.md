@@ -52,6 +52,20 @@ would break the identity and sign-off rule in force (GH-IDENTITY).
   always refuses:** the guardian has no confined-install mode yet (a
   confined checkout is writable and never executable, and its network can
   only be refused, not scoped to the registry).
+- **The decided design (coordinator, 2026-10-29), built by P0 after #634:**
+  - **A three-run confined install:**
+    - fetch: `npm ci --ignore-scripts`, with only npm's own code running,
+      the network, and `node_modules` plus a private cache writable;
+    - scripts: `npm rebuild`, with no network, and `node_modules`
+      executable but not writable;
+    - bundle: the bundle build, with only `engine/dist` writable and no
+      network.
+  - **A receipt** written by the confined install: the lockfile's digest,
+    every installed package's integrity, and the digest of the
+    `dist/bundle.js` the bundle run produced.
+  - **The hooks and `harness sync` never load newly adopted packages on the
+    host to judge the bundle.** They verify that the committed bundle and
+    lockfile match that receipt, without executing the new packages.
 - **Action pins have one owner.** An Actions bump moves the pin in the
   external-surface registry, and the workflows that use the action are
   rewritten from it.
