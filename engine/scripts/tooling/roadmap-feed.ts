@@ -22,9 +22,8 @@ import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { computeRoadmapFeed, roadmapFeedInput } from "../../src/workflow/forge/projector/projection.ts";
-import { DEFAULT_PROJECTION_CPU_SECONDS, DEFAULT_PROJECTION_MEMORY_BYTES, DEFAULT_ROADMAP_ETA_MINIMUM_WEEKS } from "../../src/workflow/workflow-config.ts";
-import { keyHomeLocation, openStoreRegistry } from "../../src/filesystem/self-protection/key-home.ts";
-import { engineConfigDocumentPath } from "../../src/kernel/config.ts";
+import { hostConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { DEFAULT_ROADMAP_ETA_MINIMUM_WEEKS } from "../../src/workflow/workflow-config.ts";
 
 function run(argv: readonly string[]): number {
   const { values } = parseArgs({ args: [...argv], options: { at: { type: "string" }, "repository-url": { type: "string" }, out: { type: "string" }, "minimum-weeks": { type: "string" } } });
@@ -34,9 +33,8 @@ function run(argv: readonly string[]): number {
   if (!Number.isInteger(minimumWeeks) || minimumWeeks < 1) throw new InputError("--minimum-weeks must be a whole number of at least 1", "input_error");
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
   const repositoryRoot = dirname(engineRoot);
-  // Computed confined by the guardian: this engine's, with the host's own keep-out facts (its key home's registry, its config document).
-  const confinement = { harnessRoot: resolve(engineRoot), keepOut: { hostPaths: [engineConfigDocumentPath()], registry: openStoreRegistry(keyHomeLocation()) }, cpuSeconds: DEFAULT_PROJECTION_CPU_SECONDS, memoryBytes: DEFAULT_PROJECTION_MEMORY_BYTES };
-  const { feed } = computeRoadmapFeed(roadmapFeedInput(configuredGitRepository({}, repositoryRoot), values.at, values["repository-url"], minimumWeeks), confinement);
+  // Computed confined by the guardian: this engine's, with the host's own keep-out facts.
+  const { feed } = computeRoadmapFeed(roadmapFeedInput(configuredGitRepository({}, repositoryRoot), values.at, values["repository-url"], minimumWeeks), hostConfinement(engineRoot));
   const text = `${JSON.stringify(feed)}\n`;
   if (values.out === undefined) {
     process.stdout.write(text);

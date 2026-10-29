@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { buildCandidateManifest, candidateTestIdentity } from "./candidate-manifest.ts";
+import { buildCandidateManifest, candidateTestIdentity } from "../verification/candidate-manifest.ts";
 import {
   createInventoryTestAccountant,
   executeInventoryTestRun,
