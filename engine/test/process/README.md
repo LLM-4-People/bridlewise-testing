@@ -10,6 +10,7 @@ The `engine/test/process/` folder of the development surface.
 - `launcher-watch.test.ts` — a run never outlives its launcher: `watchLauncher` fires once a real launcher (a shell waiting on the watched process, as `npm run` waits) exits, with its pid, and never while it lives; a recorded command is stopped with SIGTERM when its `stop` signal aborts (also before the start), and an unaborted one runs as before.
 - `network-under-test.test.ts` — a test run dials nothing but this machine, at the socket: the platform fetch, `http.request` and `net.connect` to a public address (by address and by name) are refused in a guarded process, loopback is reached, only a consented live host passes, and both runners that arm the checkout write door install the guard.
 - `supervised-run.test.ts` — the one test-run supervisor, over the real native primitive: a detached grandchild never survives a supervised command, its fd-3 report is passed through, a stop reaches the command before the kill, the engine worker's recorded launch runs supervised, and a malformed receipt is refused.
+- `worker-bootstrap.test.ts` — a bootstrapped worker thread of a parent started on eval input with `--input-type` (both forms) starts, runs its entry and is still held by the prelude's fault policy: node hands the thread that option, which a file entry refuses.
 
 ## Where it lives and what consumes it
 
