@@ -48,7 +48,7 @@ function repositoryIdentityFile(identity: RepositoryIdentity): string {
   return jsonText({
     schemaVersion: schemaId("forge-repository-identity", 1),
     generator: "harness sync (engine/src/workflow/forge/generated-files.ts, from repository-identity.ts); never edit by hand",
-    owner: identity.owner, name: identity.name, fullName: identity.fullName, webUrl: identity.webUrl, pagesUrl: identity.pagesUrl, pagesBasePath: identity.pagesBasePath,
+    owner: identity.owner, name: identity.name, fullName: identity.fullName, webUrl: identity.webUrl, pagesUrl: identity.pagesUrl, pagesBasePath: identity.pagesBasePath, docsUrl: identity.docsUrl,
     organisationRepositories: identity.organisationRepositories,
     product: identity.product,
     preview: identity.preview ?? null,

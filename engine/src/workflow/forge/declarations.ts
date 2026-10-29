@@ -24,7 +24,7 @@ import { teamsOf } from "../community/sources.ts";
 import type { DeclaredLabel } from "../community/labels.ts";
 import { ForgeError } from "./codes.ts";
 import { FORGE_REPOSITORY_KINDS, trunkRepository, type ForgeRepository, type ForgeSettings } from "./forge-config.ts";
-import { scopeName, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
+import { rulesetWithGithubDefaults, scopeName, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
 import { TRACKER_ITEM_TYPES, type TrackerItemType } from "../failure-owners.ts";
 
 /** GitHub's issue-type colours. */
@@ -95,7 +95,9 @@ const app = (role: string): ForgeReference => ({ $ref: "app", name: role });
 
 function object(kind: ForgeObjectKind, scope: ForgeScope, key: string, desired: unknown, unavailableOnPlan: readonly string[] = []): ForgeObject {
   const safeKey = key.replace(/[^A-Za-z0-9._-]+/gu, "_");
-  return deepFreeze({ kind, scope, key, file: `${kind}/${scopeName(scope)}.${safeKey}.json`, desired, unavailableOnPlan });
+  // A ruleset is declared in GitHub's own stored shape: every default GitHub omits, explicit (the read fills the same ones).
+  const shaped = kind === "ruleset" || kind === "org-ruleset" ? rulesetWithGithubDefaults(desired) : desired;
+  return deepFreeze({ kind, scope, key, file: `${kind}/${scopeName(scope)}.${safeKey}.json`, desired: shaped, unavailableOnPlan });
 }
 
 export type DeclarationSources = Readonly<{

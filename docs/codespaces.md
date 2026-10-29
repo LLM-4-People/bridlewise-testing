@@ -17,7 +17,7 @@ native build tools the guardian needs, both lockfiles installed, and ports
 
 [Open in GitHub Codespaces](https://codespaces.new/{{ site.product_repository }}?quickstart=1)
 
-The badge opens a new Codespace from `main`. Codespaces is a GitHub-hosted
+The link opens a new Codespace from `main`. Codespaces is a GitHub-hosted
 development environment, not a hosted demo of Bridlewise. The cockpit still
 runs on loopback inside that workspace. Prompts and the repository context you
 send to a model provider leave the machine by design; the local server and the
