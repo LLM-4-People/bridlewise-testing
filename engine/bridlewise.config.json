@@ -878,7 +878,8 @@
         "tests/helpers/flake-shim-orchestration-run-id.ts",
         "engine/test/support/flake-shim-cpu-frequency-scaling.ts",
         "engine/test/support/flake-shim-preempt-after-ready.ts",
-        "engine/test/support/flake-shim-concurrent-owner-sweep.ts"
+        "engine/test/support/flake-shim-concurrent-owner-sweep.ts",
+        "tests/helpers/flake-shim-loaded-runner.ts"
       ]
     },
     "webSuiteWatchdog": {
