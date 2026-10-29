@@ -1,583 +1,220 @@
-/* Development-floor pages. These rules reuse the product logbook tokens. */
+/* ==========================================================================
+   THE FLOOR'S COMPONENTS — the development floor's generated pages (status,
+   atlas, evidence), in the one design system.
 
-.callout-warning {
-  margin: 28px 0;
-  padding: 18px 20px;
-  border-left: 3px solid var(--warn);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 8%, var(--surface)), var(--surface) 70%);
+   Same contract as style.css: only the owner's tokens (generated into
+   assets/css/tokens.css), no custom property, no theme block, no colour or
+   duration literal. A dashboard here is a ledger: a heavy rule where it
+   starts, hairlines between entries, mono for every measured value, and a
+   state written as a word in its state ink, never a coloured pill alone.
+   ========================================================================== */
+
+/* A generated region: it holds its own states (loading, empty, error, ready). */
+.floor-status,
+.atlas {
+  margin-block: var(--sp-5);
+}
+
+/* ── A snapshot's facts: a definition grid on hairlines ─────────────────── */
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  margin: var(--sp-5) 0 var(--sp-6);
+  border-top: var(--rule-w) solid var(--ink-1);
+}
+
+.status-grid > div {
+  padding: var(--sp-4) var(--sp-4) var(--sp-4) 0;
+  border-bottom: var(--hairline-w) solid var(--line-1);
+}
+
+.status-grid dt {
+  margin-bottom: var(--sp-1);
   color: var(--ink-2);
+  font-size: var(--f-micro-size);
+  font-weight: var(--f-micro-weight);
 }
 
-.callout-warning p {
+.status-grid dd {
   margin: 0;
-}
-
-.callout-warning a {
-  color: var(--beam);
-}
-
-.floor .floor-hero {
-  padding-block: 42px 28px;
-  border-bottom: 1px solid var(--line);
-}
-
-.floor .floor-kicker,
-.floor .floor-label,
-.floor .floor-stat-label,
-.floor .atlas-meta,
-.floor .status-grid dt {
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.floor .floor-title {
-  max-width: 900px;
-  margin: 10px 0 14px;
-  font-size: clamp(2.1rem, 5vw, 4.2rem);
-  line-height: 0.98;
-  letter-spacing: -0.045em;
-}
-
-.floor .floor-lede {
-  max-width: 760px;
-  color: var(--ink-2);
-  font-size: clamp(1rem, 1.5vw, 1.18rem);
-  line-height: 1.65;
-}
-
-.floor .floor-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 24px;
-}
-
-.floor .floor-section {
-  padding-block: 38px;
-  border-bottom: 1px solid var(--line);
-}
-
-.floor .floor-section:last-child {
-  border-bottom: 0;
-}
-
-.floor .floor-section-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.floor .floor-section-head h2 {
-  margin: 0;
-  font-size: clamp(1.5rem, 3vw, 2.2rem);
-  letter-spacing: -0.03em;
-}
-
-.floor .floor-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.floor .floor-card {
-  grid-column: span 4;
-  padding: 20px;
-  border: 1px solid var(--line);
-  background: var(--surface-1);
-}
-
-.floor .floor-card--wide {
-  grid-column: span 8;
-}
-
-.floor .floor-card h3 {
-  margin: 8px 0 8px;
-  font-size: 1.15rem;
-  letter-spacing: -0.02em;
-}
-
-.floor .floor-card p {
-  margin: 0 0 12px;
-  color: var(--ink-2);
-  line-height: 1.6;
-}
-
-.floor .floor-card a {
-  color: var(--beam);
-}
-
-.floor .floor-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  margin: 18px 0 0;
-  border: 1px solid var(--line);
-  background: var(--line);
-}
-
-.floor .floor-stat {
-  padding: 18px;
-  background: var(--surface-1);
-}
-
-.floor .floor-stat strong {
-  display: block;
-  margin-top: 7px;
-  font-family: var(--mono);
-  font-size: clamp(1.5rem, 3vw, 2.2rem);
-  font-weight: 500;
-  letter-spacing: -0.04em;
-}
-
-.floor .floor-stat span {
-  display: block;
-  margin-top: 5px;
-  color: var(--ink-3);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.floor .floor-flow {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 1px;
-  margin: 20px 0;
-  border: 1px solid var(--line);
-  background: var(--line);
-  counter-reset: floor-step;
-}
-
-.floor .floor-flow-step {
-  min-height: 148px;
-  padding: 16px;
-  background: var(--surface-1);
-  counter-increment: floor-step;
-}
-
-.floor .floor-flow-step::before {
-  content: "0" counter(floor-step);
-  color: var(--beam);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-}
-
-.floor .floor-flow-step h3 {
-  margin: 10px 0 7px;
-  font-size: 0.98rem;
-}
-
-.floor .floor-flow-step p {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.floor .floor-rule {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  gap: 16px;
-  padding-block: 13px;
-  border-top: 1px solid var(--line);
-  color: var(--ink-2);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.floor .floor-rule strong {
-  color: var(--ink);
-}
-
-.floor .status-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  margin: 20px 0;
-  border: 1px solid var(--line);
-  background: var(--line);
-}
-
-.floor .status-grid > div {
-  padding: 16px;
-  background: var(--surface-1);
-}
-
-.floor .status-grid dt {
-  margin-bottom: 6px;
-}
-
-.floor .status-grid dd {
-  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--face-mono);
+  font-size: var(--f-data-size);
   overflow-wrap: anywhere;
-  color: var(--ink);
-  font-family: var(--mono);
-  font-size: 13px;
 }
 
-.floor .floor-table-wrap {
+/* ── Generated tables: the ledger table, denser ─────────────────────────── */
+
+.floor-table-wrap {
+  max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--line);
 }
 
-.floor .status-table,
-.floor .atlas-table {
+.status-table,
+.atlas-table {
+  display: table;
   width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+  margin: var(--sp-4) 0;
+  font-size: var(--f-micro-size);
 }
 
-.floor .status-table th,
-.floor .status-table td,
-.floor .atlas-table th,
-.floor .atlas-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  vertical-align: top;
+.status-table th,
+.status-table td,
+.atlas-table th,
+.atlas-table td {
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
 }
 
-.floor .status-table th,
-.floor .atlas-table th {
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
+.status-table td,
+.atlas-table td {
+  color: var(--ink-1);
+  overflow-wrap: anywhere;
 }
 
-.floor .status-table tr:last-child td,
-.floor .atlas-table tr:last-child td {
-  border-bottom: 0;
-}
+/* ── The atlas: its filters, then its count ─────────────────────────────── */
 
-.floor .status-table td,
-.floor .atlas-table td {
-  color: var(--ink-2);
-}
-
-.floor .atlas-controls {
+.atlas-controls {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  margin: 18px 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: var(--sp-3);
+  margin: var(--sp-5) 0;
 }
 
-.floor .atlas-controls p {
+.atlas-controls p {
   margin: 0;
 }
 
-.floor .atlas-controls label {
+.atlas-controls label {
   display: block;
-  margin-bottom: 5px;
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin-bottom: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+  font-weight: var(--f-micro-weight);
 }
 
-.floor .atlas-controls input,
-.floor .atlas-controls select,
-.floor .atlas-controls button {
+.atlas-controls input,
+.atlas-controls select,
+.atlas-controls button {
   width: 100%;
-  min-height: 36px;
-  padding: 7px 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: 3px;
-  background: var(--surface-2);
-  color: var(--ink);
+  min-height: var(--hit-min);
+  padding: 0 var(--sp-3);
+  border: var(--hairline-w) solid var(--ink-2);
+  border-radius: var(--radius-card);
+  background: var(--ground-2);
+  color: var(--ink-1);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--f-micro-size);
 }
 
-.floor .atlas-controls button {
+.atlas-controls button {
   cursor: pointer;
 }
 
-.floor .atlas-meta {
-  margin: 8px 0 0;
-  letter-spacing: 0.04em;
-  text-transform: none;
+.atlas-controls button:hover {
+  background: var(--layer-hover);
 }
 
-.floor .atlas-count {
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.floor .floor-pill {
-  display: inline-block;
-  padding: 2px 6px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
+.atlas-meta,
+.atlas-count,
+.floor-empty {
+  margin: var(--sp-2) 0 0;
   color: var(--ink-2);
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: var(--f-micro-size);
+}
+
+.atlas-count {
+  font-family: var(--face-mono);
+}
+
+/* ── A state, written by the page script (floor.js) ─────────────────────── */
+
+.floor-pill {
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-nano-size);
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.floor .floor-pill[data-state="pass"],
-.floor .floor-pill[data-state="success"] {
-  border-color: rgba(95, 199, 142, 0.5);
-  color: #8be0b0;
+.floor-pill[data-state="pass"],
+.floor-pill[data-state="success"],
+.floor-pill[data-state="ready"] {
+  color: var(--ok);
 }
 
-.floor .floor-pill[data-state="fail"],
-.floor .floor-pill[data-state="failure"] {
-  border-color: rgba(217, 118, 94, 0.55);
-  color: #f3a18d;
+.floor-pill[data-state="fail"],
+.floor-pill[data-state="failure"],
+.floor-pill[data-state="blocked"] {
+  color: var(--alarm);
 }
 
-.floor .floor-pill[data-state="unknown"],
-.floor .floor-pill[data-state="not-run"] {
-  border-color: rgba(217, 168, 78, 0.55);
-  color: #e7c27a;
+.floor-pill[data-state="unknown"],
+.floor-pill[data-state="not-run"] {
+  color: var(--warn);
 }
 
-.floor .floor-pill[data-state="ready"] {
-  border-color: rgba(95, 199, 142, 0.5);
-  color: #8be0b0;
-}
-
-.floor .floor-pill[data-state="blocked"] {
-  border-color: rgba(217, 118, 94, 0.55);
-  color: #f3a18d;
-}
-
-.floor .floor-empty {
-  color: var(--ink-3);
-  font-size: 13px;
-}
-
-@media (max-width: 1080px) {
-  .floor .floor-card,
-  .floor .floor-card--wide { grid-column: span 6; }
-  .floor .floor-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .floor .atlas-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-@media (max-width: 720px) {
-  .floor .floor-card,
-  .floor .floor-card--wide { grid-column: span 12; }
-  .floor .floor-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .floor .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .floor .floor-flow { grid-template-columns: 1fr; }
-  .floor .floor-rule { grid-template-columns: 1fr; gap: 4px; }
-  .floor .atlas-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@media (max-width: 460px) {
-  .floor .floor-stat-grid,
-  .floor .status-grid,
-  .floor .atlas-controls { grid-template-columns: 1fr; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .floor * { scroll-behavior: auto; }
-}
-
-body.floor {
-  overflow-x: hidden;
-}
-
-.floor .floor-table-wrap {
-  max-width: 100%;
-}
-
-.floor .atlas-table td {
-  overflow-wrap: anywhere;
-  word-break: normal;
-}
-
-.floor main table {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: auto;
-  border-collapse: collapse;
-}
-
-:root {
-  --floor-space-1: 4px;
-  --floor-space-2: 8px;
-  --floor-space-3: 12px;
-  --floor-space-4: 16px;
-  --floor-space-5: 24px;
-  --floor-space-6: 32px;
-  --floor-text-xs: 10px;
-  --floor-text-sm: 13px;
-  --floor-text-md: 15px;
-  --floor-leading: 1.5;
-  --floor-radius-sm: var(--radius-sm);
-  --floor-radius-pill: 999px;
-  --floor-border: 1px solid var(--line);
-  --floor-border-strong: 1px solid var(--line-strong);
-}
-
-/* ==========================================================================
-   Shared content layer
-   --------------------------------------------------------------------------
-   Every page in the assembled site loads this file from the one shell
-   (scripts/floor/site.mjs). The palette stays in style.css; the tokens above
-   name only layout, type, spacing, radius and border rhythm. Element defaults
-   use :where() so component classes can override them without specificity
-   fights. Keep this section page-agnostic: a new Markdown page gets these
-   rules without adding CSS.
-   ========================================================================== */
-
-main#main :where(p, ul, ol, dl, blockquote, figure, pre, table) {
-  margin-top: 0;
-  margin-bottom: var(--floor-space-5);
-}
-
-main#main :where(ul, ol) :where(ul, ol) {
-  margin-bottom: 0;
-}
-
-main#main :where(table) {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-  line-height: var(--floor-leading);
-}
-
-main#main :where(th, td) {
-  padding: 10px 12px;
-  border-bottom: var(--floor-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-main#main :where(th) {
-  border-bottom: var(--floor-border-strong);
-  background: var(--surface);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-main#main :where(tbody tr:hover) {
-  background: var(--beam-soft);
-}
-
-main#main :where(dl) {
-  display: grid;
-  grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr);
-  gap: var(--floor-space-2) var(--floor-space-4);
-}
-
-main#main :where(dt) {
-  color: var(--ink);
-  font-family: var(--mono);
-  font-size: var(--floor-text-sm);
-}
-
-main#main :where(dd) {
-  margin: 0;
+/* A floor page's opening paragraph (the claims page's promise among them). */
+.floor-lede {
+  max-width: var(--page-measure);
   color: var(--ink-2);
-}
-
-main#main :where(blockquote) {
-  padding: var(--floor-space-3) var(--floor-space-4);
-  border-left: 3px solid var(--beam);
-  background: var(--surface);
-  color: var(--ink-2);
-}
-
-main#main :where(blockquote) :where(p:last-child) {
-  margin-bottom: 0;
-}
-
-main#main :where(pre) {
-  max-width: 100%;
-  overflow-x: auto;
-  padding: var(--floor-space-3) var(--floor-space-4);
-  border: var(--floor-border);
-  border-radius: var(--floor-radius-sm);
-  background: var(--code-bg);
-}
-
-main#main :where(:not(pre) > code) {
-  overflow-wrap: anywhere;
-}
-
-main#main :where(img) {
-  max-width: 100%;
-  height: auto;
-}
-
-main#main :where(figure) {
-  margin-inline: 0;
-}
-
-main#main :where(figcaption) {
-  margin-top: var(--floor-space-2);
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: var(--floor-text-xs);
-}
-
-main#main :where(.task-list) {
-  padding-left: 0;
-  list-style: none;
-}
-
-main#main :where(.task-list-item) {
-  margin-bottom: var(--floor-space-1);
-}
-
-main#main :where(.task-list-item-checkbox) {
-  margin-right: var(--floor-space-2);
-}
-
-main#main .atlas,
-main#main .floor-status {
-  display: grid;
-  gap: var(--floor-space-4);
-  margin-bottom: var(--floor-space-5);
-}
-
-@media (max-width: 720px) {
-  main#main :where(table) {
-    display: block;
-    max-width: 100%;
-    overflow-x: auto;
-  }
-
-  main#main :where(dl) {
-    grid-template-columns: 1fr;
-    gap: var(--floor-space-1);
-  }
-
-  main#main :where(dd) {
-    margin-bottom: var(--floor-space-3);
-  }
+  font-size: var(--f-lede-size);
+  line-height: var(--f-page-lh);
 }
 
 /* The claims page (engine/scripts/brand/render.ts): every claim with its verdict.
    A retracted claim is struck through until its check passes again. DESIGN owns this layer. */
-.floor-claims { max-width: 1180px; }
-.floor-claims-table td { vertical-align: top; }
-.floor-claims .floor-facts { font-family: var(--mono); font-size: 0.82rem; color: var(--ink-3); }
-.floor-claims .floor-gap { color: var(--warn); }
-.floor-claim { font-weight: 600; width: 38%; }
-.floor-claims-table tr[data-verdict="retracted"] .floor-claim { text-decoration: line-through; text-decoration-color: var(--alarm); }
-.floor-state { padding: 1px 6px; border: 1px solid currentColor; border-radius: var(--radius-sm); }
-.floor-state[data-status="holds"], .floor-state[data-status="pass"] { color: var(--ok); }
-.floor-state[data-status="retracted"], .floor-state[data-status="fail"] { color: var(--alarm); }
-.floor-state[data-status="designed"], .floor-state[data-status="not-run"], .floor-state[data-status="unchecked"], .floor-state[data-status="unknown"] { color: var(--warn); }
-.floor-state[data-status="not-claimed"] { color: var(--ink-3); }
+.floor-claims {
+  max-width: var(--page-max);
+}
+
+.floor-claims-table td {
+  vertical-align: top;
+}
+
+.floor-claims .floor-facts {
+  font-family: var(--face-mono);
+  font-size: var(--f-data-size);
+  color: var(--ink-2);
+}
+
+.floor-claims .floor-gap {
+  color: var(--warn);
+}
+
+.floor-claim {
+  font-weight: 600;
+  width: 38%;
+}
+
+.floor-claims-table tr[data-verdict="retracted"] .floor-claim {
+  text-decoration: line-through;
+  text-decoration-color: var(--alarm);
+}
+
+.floor-state {
+  padding: 1px var(--sp-2);
+  border: var(--hairline-w) solid currentColor;
+  border-radius: var(--radius-card);
+}
+
+.floor-state[data-status="holds"],
+.floor-state[data-status="pass"] {
+  color: var(--ok);
+}
+
+.floor-state[data-status="retracted"],
+.floor-state[data-status="fail"] {
+  color: var(--alarm);
+}
+
+.floor-state[data-status="designed"],
+.floor-state[data-status="not-run"],
+.floor-state[data-status="unchecked"],
+.floor-state[data-status="unknown"] {
+  color: var(--warn);
+}
+
+.floor-state[data-status="not-claimed"] {
+  color: var(--ink-2);
+}

@@ -56,6 +56,7 @@ The `engine/test/support/` folder of the development surface.
 - `test-git-identity.ts` — `TEST_GIT_IDENTITY` and `testGitIdentityEnvironment()`: the ONE git identity every fixture of both suites commits as (a leaf the web helpers import too).
 - `test-inventory-fixture.ts` — the `test-inventory-fixture` module.
 - `test-key-home.ts` — `armTestKeyHome()`: the run's private key home (the runners arm it; production never picks one by detecting a test).
+- `throwaway-repository.ts` — `markThrowawayRepository()`: the fixture helper's marker (in the repository's own `.git/config`, never committed) that lets a test's throwaway repository name its own root and this harness's guard; the commit door refuses it in a project, a workspace or a candidate.
 - `timeline.ts` — the `timeline` module.
 - `websocket-server.ts` — a REAL WebSocket server (RFC 6455 over `node:http` upgrade) on 127.0.0.1: records handshakes, text messages and the close codes a client sends; sends frames and drops connections, so the MCP websocket transport runs through the platform WebSocket.
 

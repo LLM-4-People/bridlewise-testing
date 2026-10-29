@@ -4,6 +4,7 @@ import {
   latestByWorkflow,
   listReleases,
   readFailureCode,
+  workflowJobs,
   workflowRuns,
 } from "../../engine/src/workflow/forge/repository-reads.ts";
 import { repoInfo } from "./files.mjs";
@@ -116,6 +117,15 @@ function securityCheck(id, label, result, required) {
   };
 }
 
+/** Why a run's jobs could not be reported, by the read's typed failure — each cause in its own words. */
+const JOBS_NOTES = Object.freeze({
+  authentication: () => "The build token could not read this run's jobs.",
+  oversized: (maxPages) => `This run has more jobs than ${String(maxPages)} page(s) of 100 hold (forge.request.maxPages); none is reported rather than a partial list.`,
+  unavailable: () => "The API did not answer for this run's jobs.",
+  timeout: () => "The API did not answer for this run's jobs.",
+  "api-error": () => "The API did not answer for this run's jobs.",
+});
+
 function settled(result, code = "api-error") {
   if (result.status === "fulfilled") return { ok: true, value: result.value };
   return { ok: false, code: readFailureCode(result.reason) === "authentication" ? "authentication" : code };
@@ -158,6 +168,21 @@ export async function buildStatus({
   const latest = runs.ok ? latestByWorkflow(runs.value) : new Map();
 
   const checks = REQUIRED.map((definition) => checkFromRun(definition, latest.get(definition.workflow), source.commit));
+  // Each job's own conclusion, for every workflow run at the source commit, so a claim can be bound to the
+  // job that proves it (a workflow passing says nothing about which of its jobs ran what). A run at another
+  // commit, or offline, has no jobs to report; a read that fails says so, never an empty list.
+  await Promise.all(checks.map(async (check) => {
+    const run = latest.get(REQUIRED.find((definition) => definition.id === check.id).workflow);
+    if (offline || run === undefined || run.headSha !== source.commit) {
+      check.jobs = null;
+      return;
+    }
+    const [answer] = await Promise.allSettled([workflowJobs(client, REPOSITORY, run.id, maxPages)]);
+    check.jobs = answer.status === "fulfilled"
+      ? answer.value.map((job) => ({ name: job.name, status: job.status, conclusion: job.conclusion, url: job.url })).sort((left, right) => String(left.name).localeCompare(String(right.name)))
+      : null;
+    if (answer.status === "rejected") check.jobsNote = JOBS_NOTES[readFailureCode(answer.reason)](maxPages);
+  }));
   checks.push(
     securityCheck("code_scanning", "Code scanning", codeScanning, true),
     securityCheck("dependabot", "Dependabot", dependencies, true),
@@ -219,3 +244,11 @@ export async function buildStatus({
     counts: counts ?? null,
   };
 }
+
+/**
+ * The workflow checks this status reports, each by its id and its workflow's
+ * name, derived from its own definition: the one vocabulary a claim in
+ * `docs/brand/claims.json` may bind (the register's validator refuses any
+ * other id, so no claim can wait on a check that is never reported).
+ */
+export const STATUS_CHECKS = Object.freeze(REQUIRED.map(({ id, workflow }) => Object.freeze({ id, workflow })));

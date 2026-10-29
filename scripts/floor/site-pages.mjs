@@ -250,12 +250,35 @@ export function legacyAliases(plan) {
   return [...aliases].filter(([alias]) => !plan.byPermalink.has(alias)).sort(([a], [b]) => a.localeCompare(b));
 }
 
+const LANDING_MAPS = new WeakMap();
+
+/**
+ * THE LANDING MAP of a plan, the one answer to "where does an old site path
+ * land now": every {@link legacyAliases} pair (the `.md` spellings, the
+ * trackers' former home and {@link MOVED_PAGES}), frozen and computed once
+ * per plan. The trunk's redirect pages and the organisation's redirect site
+ * (`buildRedirectSite`) both read it, so an old link lands in ONE hop.
+ */
+export function landingMap(plan) {
+  let map = LANDING_MAPS.get(plan);
+  if (map === undefined) {
+    map = Object.freeze(new Map(legacyAliases(plan)));
+    LANDING_MAPS.set(plan, map);
+  }
+  return map;
+}
+
+/** Where the old site path `oldPath` lands now ({@link landingMap}): its alias's page, or the same path. */
+export function landingPath(oldPath, plan) {
+  return landingMap(plan).get(oldPath) ?? oldPath;
+}
+
 /**
  * The `_config.yml` keys the builder writes from the repository's one
  * declaration (`repository.mjs`) and the deployment: the builder refuses a
  * source config that declares one (a second owner of that value).
  */
-export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "product_repository", "product_repository_url", "product_site_url", "preview_repository_url", "versions_url", "release_version"]);
+export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "product_repository", "product_repository_url", "docs_url", "preview_repository_url", "versions_url", "release_version"]);
 
 /**
  * The record collections under `docs/`: data and dated records the site
