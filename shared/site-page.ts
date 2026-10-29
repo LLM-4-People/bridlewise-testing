@@ -91,4 +91,14 @@ export const SERVED_HTML = /\.(?:x?html?)$/iu;
 export const SITE_THEME_SELECTORS = Object.freeze({ logbook: ":root", carbon: ':root[data-theme="carbon"]' } as const);
 
 /** Where the site serves the vendored font files, under its base path. */
+/**
+ * How the site's faces load: the site preloads its upright faces
+ * (scripts/floor/site-design.mjs), so a face is ready at the first paint on
+ * any reasonable connection, and one that is not leaves the fallback for that
+ * view instead of moving the page when it lands (the load under stress judges
+ * this). The cockpit loads its faces without a preload and keeps the owner's
+ * policy.
+ */
+export const SITE_FONT_DISPLAY = "optional";
+
 export const SITE_FONT_PATH = "assets/fonts";
