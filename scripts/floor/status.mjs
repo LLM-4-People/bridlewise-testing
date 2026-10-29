@@ -23,11 +23,6 @@ const REQUIRED = [
   { id: "pages", label: "Pages", workflow: "Docs site", required: false },
 ];
 
-/** The workflows the status reads, by name (the names GitHub reports and `on.workflow_run` matches). */
-export const STATUS_WORKFLOWS = Object.freeze(REQUIRED.map((definition) => definition.workflow));
-/** The site's own workflow (`.github/workflows/pages.yml`). */
-export const SITE_WORKFLOW = REQUIRED.find((definition) => definition.id === "pages").workflow;
-
 /**
  * THE RUNS THAT REPORT MAIN'S COMMIT: a status workflow's run on `main`
  * itself (a push, a schedule, a dispatch). The merge queue's run at the same
@@ -272,3 +267,14 @@ export async function buildStatus({
     counts: counts ?? null,
   };
 }
+
+/**
+ * The workflow checks this status reports, each by its id and its workflow's
+ * name, derived from its own definition: the one vocabulary a claim in
+ * `docs/brand/claims.json` may bind (the register's validator refuses any
+ * other id, so no claim can wait on a check that is never reported).
+ */
+export const STATUS_CHECKS = Object.freeze(REQUIRED.map(({ id, workflow }) => Object.freeze({ id, workflow })));
+
+/** The site's own workflow (`.github/workflows/pages.yml`), as {@link STATUS_CHECKS} names it. */
+export const SITE_WORKFLOW = STATUS_CHECKS.find((check) => check.id === "pages").workflow;

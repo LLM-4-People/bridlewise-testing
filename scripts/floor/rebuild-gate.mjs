@@ -38,10 +38,10 @@ import { environmentCredential } from "../../engine/src/workflow/forge/credentia
 import { branchTip, workflowRuns } from "../../engine/src/workflow/forge/repository-reads.ts";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { DEFAULT_BRANCH, REPOSITORY } from "./repository.mjs";
-import { MAIN_RUN_BRANCHES, STATUS_WORKFLOWS, SITE_WORKFLOW, reportsMain } from "./status.mjs";
+import { MAIN_RUN_BRANCHES, SITE_WORKFLOW, STATUS_CHECKS, reportsMain } from "./status.mjs";
 
-/** The workflows whose completion rebuilds the site: every one the floor status reads, but the site's own. */
-export const REBUILD_WORKFLOWS = Object.freeze(STATUS_WORKFLOWS.filter((workflow) => workflow !== SITE_WORKFLOW));
+/** The workflows whose completion rebuilds the site: every check the floor status reports ({@link STATUS_CHECKS}), but the site's own. */
+export const REBUILD_WORKFLOWS = Object.freeze(STATUS_CHECKS.map((check) => check.workflow).filter((workflow) => workflow !== SITE_WORKFLOW));
 
 /**
  * THE RUNS WHOSE COMPLETION REBUILDS, the one definition: a rebuild workflow's

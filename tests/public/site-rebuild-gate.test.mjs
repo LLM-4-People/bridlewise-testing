@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { REBUILD_TRIGGER, REBUILD_WORKFLOWS, rebuildDecision } from "../../scripts/floor/rebuild-gate.mjs";
-import { SITE_WORKFLOW, STATUS_WORKFLOWS } from "../../scripts/floor/status.mjs";
+import { SITE_WORKFLOW, STATUS_CHECKS } from "../../scripts/floor/status.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const WORKFLOW = join(ROOT, ".github/workflows/pages.yml");
@@ -75,7 +75,7 @@ test("a run that is not a status run at main's tip, or a main GitHub does not na
 test("the workflow rebuilds on every workflow the status reads but its own, and builds what the gate chose", () => {
   const workflow = parse(readFileSync(WORKFLOW, "utf8"));
   assert.equal(workflow.name, SITE_WORKFLOW, "the status names the site's workflow as GitHub does");
-  assert.deepEqual([...REBUILD_WORKFLOWS].sort(), STATUS_WORKFLOWS.filter((name) => name !== SITE_WORKFLOW).sort());
+  assert.deepEqual([...REBUILD_WORKFLOWS].sort(), STATUS_CHECKS.map((check) => check.workflow).filter((name) => name !== SITE_WORKFLOW).sort());
   // The trigger IS the gate's definition: every run the gate counts fires it, and it fires on nothing the gate ignores.
   assert.deepEqual(workflow.on.workflow_run, { workflows: [...REBUILD_TRIGGER.workflows], types: ["completed"], branches: [...REBUILD_TRIGGER.branches] });
   assert.ok("push" in workflow.on && "pull_request" in workflow.on, "the push build stays");

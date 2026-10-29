@@ -12,6 +12,10 @@
  *   objects nobody declared are listed too (`unmanaged`; drift for the
  *   exclusive kinds: rulesets and autolinks), and the declared retired ones
  *   (`retire`).
+ *   A ruleset that would newly require a status check refuses that check
+ *   until it has reported on the repository's default branch (its latest
+ *   commit's check runs and statuses): `forge_required_check_unreported`.
+ *   A required check nobody runs would block every pull request.
  * - APPLY sends exactly that plan, in declaration order, and only a whole
  *   plan (a refused entry refuses the apply: `forge_plan_incomplete`); then
  *   it plans again and answers the verification: nothing left to change.
@@ -30,7 +34,7 @@ import { FORGE_LOG_CATEGORY } from "./github.ts";
 import { EXCLUSIVE_KINDS, KIND_ADAPTERS, ORG_POLICY_RULES, organisationPolicy, type LiveContext, type LiveObject, type OrgPolicySource } from "./live-state.ts";
 import { looseningOf, movedPremisesUnmet } from "./strictness.ts";
 
-export type PlanAction = "create" | "update" | "unchanged" | "refused" | "unmanaged" | "retire";
+export type PlanAction = "create" | "update" | "unchanged" | "refused" | "unmanaged" | "retire" | "pending";
 
 export type PlanEntry = Readonly<{
   kind: ForgeObjectKind;
@@ -48,6 +52,11 @@ export type PlanEntry = Readonly<{
   loosening?: readonly string[];
   /** The loosening only moves rules the org baseline (declared, and verified after it is applied) carries for this repository. */
   moved?: boolean;
+  /**
+   * Declared fields GitHub cannot take YET, with why (`pending` when nothing else differs; beside an `update` otherwise).
+   * A convergence still under way: never written early, never drift, never a failure.
+   */
+  pending?: readonly string[];
 }>;
 
 export type ForgePlan = Readonly<{
@@ -161,18 +170,31 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
     const body = verdict.body;
     try {
       const found = await KIND_ADAPTERS[object.kind].read(context, object);
+      // A required check is added only once it has reported on main: one nobody runs blocks every pull request.
+      const unreported = await unreportedRequiredChecks(context, objects, object, body, found);
+      if (unreported.length > 0) {
+        planned.push({ object, entry: deepFreeze({ ...base, action: "refused", code: "forge_required_check_unreported", message: `It would require ${unreported.map((check) => `"${check}"`).join(", ")}, which never reported on the default branch's latest commit: a required check that never reports blocks every pull request.` }) });
+        continue;
+      }
       if (found === undefined) {
         planned.push({ object, entry: deepFreeze({ ...base, action: "create" }), body });
         continue;
       }
-      const differing = differences(body, found.live);
-      const loosening = differing.length === 0 ? [] : looseningOf(object.kind, body, found.live);
+      // A field GitHub cannot take yet (a certificate still being issued) is left out of the write, and reported pending.
+      const notYet = KIND_ADAPTERS[object.kind].pending?.(body, found.live) ?? {};
+      const writable = Object.keys(notYet).length === 0 || typeof body !== "object" || body === null
+        ? body
+        : Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([field]) => notYet[field] === undefined));
+      const pending = Object.entries(notYet).filter(([field]) => differences((body as Record<string, unknown>)[field], (found.live as Record<string, unknown>)[field]).length > 0).map(([field, why]) => `${field}: ${why}`);
+      const differing = differences(writable, found.live);
+      const loosening = differing.length === 0 ? [] : looseningOf(object.kind, writable, found.live);
       const moved = loosening.length > 0 && object.kind === "ruleset" && object.scope.kind === "repo"
         && movedPremisesUnmet(loosening, found.live, declaredBaseline, declaredKindOf(objects, object.scope.repository)).length === 0;
-      planned.push({ object, body, found, entry: deepFreeze({
-        ...base, action: differing.length === 0 ? "unchanged" : "update",
+      planned.push({ object, body: writable, found, entry: deepFreeze({
+        ...base, action: differing.length > 0 ? "update" : pending.length > 0 ? "pending" : "unchanged",
         ...(differing.length === 0 ? {} : { differences: differing }),
         ...(loosening.length === 0 ? {} : { loosening, moved }),
+        ...(pending.length === 0 ? {} : { pending }),
       }) });
     } catch (error) {
       const refusal = objectRefusal(error);
@@ -205,6 +227,62 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
     }
   }
   return { planned, extra, retiredFound };
+}
+
+/** A required status check: its context and, when declared, the App (integration) that must report it. */
+type RequiredCheck = Readonly<{ context: string; integrationId: number | undefined }>;
+
+/** The required status checks a ruleset body holds (none for another kind). */
+function requiredChecks(body: unknown): readonly RequiredCheck[] {
+  const rules = (body as { rules?: unknown } | undefined)?.rules;
+  if (!Array.isArray(rules)) return [];
+  return rules.flatMap((rule: { type?: unknown; parameters?: { required_status_checks?: unknown } }) => {
+    if (rule.type !== "required_status_checks" || !Array.isArray(rule.parameters?.required_status_checks)) return [];
+    return (rule.parameters.required_status_checks as { context?: unknown; integration_id?: unknown }[]).flatMap((check) => typeof check.context === "string"
+      ? [{ context: check.context, integrationId: typeof check.integration_id === "number" ? check.integration_id : undefined }]
+      : []);
+  });
+}
+
+const checkKey = (check: RequiredCheck): string => `${check.context}\u0000${String(check.integrationId ?? "")}`;
+
+/** The repository a ruleset's checks report on: its own, or for the org baseline the trunk (the repository whose declared `kind` is `trunk`). */
+function reportingRepository(objects: readonly ForgeObject[], object: ForgeObject): string | undefined {
+  if (object.scope.kind === "repo") return object.scope.repository;
+  const trunk = objects.find((candidate) => candidate.kind === "custom-property-values" && candidate.scope.kind === "repo" && (candidate.desired as { kind?: unknown }).kind === "trunk");
+  return trunk?.scope.kind === "repo" ? trunk.scope.repository : undefined;
+}
+
+/**
+ * THE SEQUENCING BARRIER OF A REQUIRED CHECK: the contexts `object` would
+ * newly require (declared, not live) that have never reported on its
+ * repository's default branch, judged by that branch's latest commit's
+ * check runs and commit statuses, read from GitHub now. A check declared
+ * with an integration is matched by name AND App id (a check run from that
+ * App); one without by name. A check already required live, or one that
+ * has reported, passes.
+ */
+async function unreportedRequiredChecks(context: LiveContext, objects: readonly ForgeObject[], object: ForgeObject, body: unknown, found: LiveObject | undefined): Promise<readonly string[]> {
+  if (object.kind !== "ruleset" && object.kind !== "org-ruleset") return [];
+  const live = new Set(requiredChecks(found?.live).map(checkKey));
+  const added = requiredChecks(body).filter((check) => !live.has(checkKey(check)));
+  if (added.length === 0) return [];
+  const repository = reportingRepository(objects, object);
+  if (repository === undefined) throw new ForgeError("forge_declaration_invalid", `${object.kind} ${object.key} requires checks, and no repository is declared the trunk to judge where they report.`, { key: object.key });
+  const path = `/repos/${encodeURIComponent(context.organization)}/${encodeURIComponent(repository)}`;
+  const branch = (await context.client.rest<{ default_branch?: unknown }>({ method: "GET", path })).data?.default_branch;
+  if (typeof branch !== "string" || branch === "") throw new ForgeError("github_response_invalid", `GET ${path}: the repository answers no default branch.`, { path });
+  const head = `${path}/commits/${branch}`;
+  type CheckRun = Readonly<{ name?: unknown; app?: Readonly<{ id?: unknown }> | null }>;
+  const runs = await context.client.paginate<CheckRun>({ path: `${head}/check-runs`, query: { filter: "latest" } }, { maxPages: context.maxPages, perPage: 100, items: (data) => (data as { check_runs?: readonly CheckRun[] }).check_runs ?? [] });
+  const statuses = await context.client.paginate<{ context?: unknown }>({ path: `${head}/statuses` }, { maxPages: context.maxPages, perPage: 100 });
+  // A check declared with an integration is met only by a check run of that name FROM that App (a same-named check or a
+  // commit status from anyone else does not count: a status carries no App id to match). One declared without an
+  // integration is met by any check run or status of that name.
+  const reported = (check: RequiredCheck): boolean => check.integrationId === undefined
+    ? runs.some((run) => run.name === check.context) || statuses.some((status) => status.context === check.context)
+    : runs.some((run) => run.name === check.context && run.app?.id === check.integrationId);
+  return added.filter((check) => !reported(check)).map((check) => check.integrationId === undefined ? check.context : `${check.context} (integration ${String(check.integrationId)})`);
 }
 
 /** The id a loosening is acknowledged by: `<kind>:<scope>:<key>`. */
@@ -253,9 +331,10 @@ async function liveMovePremisesUnmet(context: LiveContext, objects: readonly For
 }
 
 function summarize(entries: readonly PlanEntry[]): ForgePlan {
-  const counts = { create: 0, update: 0, unchanged: 0, refused: 0, unmanaged: 0, retire: 0 };
+  const counts = { create: 0, update: 0, unchanged: 0, refused: 0, unmanaged: 0, retire: 0, pending: 0 };
   for (const entry of entries) counts[entry.action] += 1;
-  const drift = entries.filter((entry) => entry.action !== "unchanged" && (entry.action !== "unmanaged" || EXCLUSIVE_KINDS.has(entry.kind)));
+  // A pending entry is a convergence under way (a certificate being issued): reported, never drift.
+  const drift = entries.filter((entry) => entry.action !== "unchanged" && entry.action !== "pending" && (entry.action !== "unmanaged" || EXCLUSIVE_KINDS.has(entry.kind)));
   return deepFreeze({ entries, counts, complete: counts.refused === 0, drift });
 }
 

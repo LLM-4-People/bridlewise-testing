@@ -43,6 +43,7 @@ A push to `main` builds the site at once, while that commit's checks are still r
 - While a status workflow's run at the tip is still going, the gate does nothing. That run's own completion runs the gate again, so nothing polls or sleeps.
 - When every run at the tip has finished, only the completion that finished last rebuilds. A tie goes to the later finish, then the higher run id.
 - A run at another commit, or a fork's run, rebuilds nothing.
+- Only main's own runs count: a push, a schedule or a dispatch on `main`. The merge queue's runs sit at the same commit, because main's tip is the queue's commit, but their completion fires nothing on `main`. The status, the trigger (`REBUILD_TRIGGER`, which `pages.yml`'s `on.workflow_run` must equal) and the gate all use one definition, `reportsMain` in `scripts/floor/status.mjs`.
 
 So a burst of completions builds once, and no main build is cancelled. The status reads the runs at the source commit only; the newest run of any branch proves nothing about it.
 
