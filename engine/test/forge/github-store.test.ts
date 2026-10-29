@@ -199,7 +199,7 @@ test("label names are case-insensitive as on GitHub: an existing `Lane:Floor` is
 test("the store's edges: a list past maxPages is refused typed, a pull request is no issue, an unchanged parent or dependency sends nothing, an unknown field is refused", async () => {
   const bounded = github({}, 1);
   for (let index = 0; index < 101; index += 1) bounded.issues.open({ title: `a person's ${String(index)}`, body: "" });
-  await assert.rejects(bounded.store.read(PROJECTION_CLASSES), (error: unknown) => isForgeError(error, "forge_request_invalid"));
+  await assert.rejects(bounded.store.read(PROJECTION_CLASSES), (error: unknown) => isForgeError(error, "forge_list_oversized"));
   const { fake, issues, store, issue } = github();
   const first = await run(project(), store);
   // A pull request opened by the projector's own App, carrying a marker, is still no issue of the projection.
