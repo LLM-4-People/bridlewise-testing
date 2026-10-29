@@ -16,6 +16,7 @@
 import { z } from "zod";
 
 import { schemaId } from "../../kernel/product-identity.ts";
+import type { TreeReader } from "../../git/tree-reader.ts";
 import { readCommunitySource } from "./sources.ts";
 
 export const LABELS_PATH = "docs/community/labels.json";
@@ -32,7 +33,7 @@ const LABELS = z.strictObject({
 
 export type DeclaredLabel = z.infer<typeof LABEL>;
 
-/** The declared labels, validated (`community_source_invalid` otherwise). */
-export function readLabels(repositoryRoot: string): readonly DeclaredLabel[] {
-  return readCommunitySource(repositoryRoot, LABELS_PATH, LABELS).labels;
+/** The declared labels, validated (`community_source_invalid` otherwise), from a repository root's working tree or a commit's tree. */
+export function readLabels(source: string | TreeReader): readonly DeclaredLabel[] {
+  return readCommunitySource(source, LABELS_PATH, LABELS).labels;
 }

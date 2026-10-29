@@ -9,7 +9,7 @@
  *
  * D is a list of OBJECTS, each one GitHub object the projector owns: its
  * CLASS (`PROJECTION_CLASSES`, also the order classes are written in), its
- * KEY (a label's name, an item's id: never a GitHub number; the store maps
+ * KEY (a milestone's or an item's id: never a GitHub number; the store maps
  * keys to numbers by the projector's marker), and its GIT-OWNED FIELDS (the
  * only fields the projector writes, compares and verifies; every other field
  * of the object is GitHub-owned and never touched). Each field belongs to a
@@ -20,10 +20,16 @@
 import { schemaId } from "../../../kernel/product-identity.ts";
 
 export const PROJECTION_SCHEMA = schemaId("projection", 1);
-export const PROJECTION_INPUT_SCHEMA = schemaId("projection-input", 1);
+export const PROJECTION_INPUT_SCHEMA = schemaId("projection-input", 2);
 
-/** The projected classes, in write order (a label and a milestone exist before an issue carries them). */
-export const PROJECTION_CLASSES = Object.freeze(["label", "milestone", "issue"] as const);
+/**
+ * The projected classes, in write order (a milestone exists before an issue
+ * carries it). Labels are not one: every label is declared once in
+ * `docs/community/labels.json` and applied by `harness forge apply`; an issue
+ * only CARRIES its lane's label, which the store refuses to write unless it
+ * already exists (`projection_label_missing`, never created on the way).
+ */
+export const PROJECTION_CLASSES = Object.freeze(["milestone", "issue"] as const);
 export type ProjectionClass = typeof PROJECTION_CLASSES[number];
 
 export type Json = null | boolean | number | string | readonly Json[] | { readonly [field: string]: Json };
@@ -52,7 +58,6 @@ export type WritePhase = typeof WRITE_PHASES[number];
 
 /** Every class's git-owned fields and the phase each is written in (a field not named here is GitHub-owned). */
 export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<string, WritePhase>>>> = Object.freeze({
-  label: Object.freeze({ color: "create", description: "create" }),
   milestone: Object.freeze({ title: "create", description: "create", state: "state" }),
   issue: Object.freeze({
     title: "create",
@@ -73,19 +78,17 @@ export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<stri
 /**
  * The git-owned fields NO record holds: the projector computes them (an
  * issue's generated block and its pin, a milestone's computed description and
- * state) or takes them from code (a lane label's colour and description). An
+ * state). An
  * edit of one on GitHub has no record change to propose: it is re-projected,
  * whatever the foreign-edit mode.
  */
 export const PROJECTOR_OWNED_FIELDS: Readonly<Record<ProjectionClass, readonly string[]>> = Object.freeze({
-  label: Object.freeze(["color", "description"]),
   milestone: Object.freeze(["description", "state"]),
   issue: Object.freeze(["block", "pinned"]),
 });
 
 /** What GitHub holds for a just-created object before its `link` and `state` writes: a field D gives this value needs no write. */
 export const BORN_FIELDS: Readonly<Record<ProjectionClass, Fields>> = Object.freeze({
-  label: Object.freeze({}),
   milestone: Object.freeze({ state: "open" }),
   issue: Object.freeze({ parent: null, blockedBy: Object.freeze([]), state: "open", stateReason: null, pinned: false }),
 });
@@ -109,8 +112,6 @@ export type InputItem = Readonly<{
   path: string;
 }>;
 
-/** A lane's GitHub label. */
-export type InputLane = Readonly<{ lane: string; color: string; description: string }>;
 
 /**
  * Everything D is computed from — read from the two trees (the source at S,
@@ -124,7 +125,6 @@ export type ProjectionInput = Readonly<{
   /** `https://github.com/<owner>/<repository>`: the base of every permalink. */
   repositoryUrl: string;
   items: readonly InputItem[];
-  lanes: readonly InputLane[];
   /** The decision records' progress facts (an item's state reads them, src/workflow/tracker-status.ts). */
   decisions: readonly Readonly<{ id: string; status: string; implementation: string }>[];
   /** The evidence paths recorded in tracked manifests at S (a close's proof, src/workflow/tracker-status.ts). */
