@@ -2971,10 +2971,6 @@
       "reason": "#563"
     },
     {
-      "key": "process-member-unmodeled:filesystem/checkout-write-door.ts",
-      "reason": "#563"
-    },
-    {
       "key": "process-member-unmodeled:filesystem/file-lock.ts",
       "reason": "#563"
     },
@@ -3003,10 +2999,6 @@
       "reason": "#563"
     },
     {
-      "key": "process-member-unmodeled:scripts/tooling/coverage.ts",
-      "reason": "#563"
-    },
-    {
       "key": "process-member-unmodeled:scripts/tooling/inventory-test-run.ts",
       "reason": "#563"
     },
@@ -3032,10 +3024,6 @@
     },
     {
       "key": "process-member-unmodeled:workflow/promotion/release-cli.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "process-member-unmodeled:workflow/promotion/trigger.ts",
       "reason": "#563"
     },
     {
