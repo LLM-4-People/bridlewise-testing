@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { repositoryToplevel } from "../git/repository-ownership.ts";
-import { HarnessError, InputError } from "../kernel/errors.ts";
+import { HarnessError, INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { boundedEnding, spawnBoundedSync, type SubprocessBounds } from "../process/subprocess-bounds.ts";
 import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, SUBPROCESS_BOUNDS } from "./workflow-config.ts";
@@ -114,7 +114,7 @@ export function runScriptSubprocess(
     throw new InputError(
       `the harness does not contain ${scriptRelativePath} (resolved against ${root}); ` +
         `the file is part of the engine package and the harness root must be that package`,
-      "input_error",
+      INPUT_ERROR_CODE,
     );
   }
   // NO-LOAD-BLOCK L2 (audit A-18): bounded in CPU WORK, never by a wall
@@ -162,7 +162,7 @@ export function runScriptSubprocess(
     const said = subprocessFailureSummary(lines);
     throw new InputError(
       `subprocess ${scriptRelativePath} ended without a status payload: ${ending}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
-      "input_error",
+      INPUT_ERROR_CODE,
     );
   }
   stdout = stdout.trim();
