@@ -10,7 +10,14 @@
     },
     {
       "id": "issueops",
-      "text": "Bot commands in issues and pull requests (`/help`, `/status`, `/accept`, `/decline`, `/duplicate`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands.",
+      "text": "The publisher App answers each command comment once, and a triage command (`/accept`, `/decline`, `/duplicate`) opens a pull request adding the issue's record.",
+      "status": {
+        "live": "2026-10-29: /accept P3 M4 on #693 was answered by the publisher App (community run 40806102086), which opened the record pull request #694"
+      }
+    },
+    {
+      "id": "record-landing",
+      "text": "A record a triage command added lands like any pull request, and its issue then follows the record: adopted as its face, and closed when the record closes.",
       "status": {
         "planned": 105
       }

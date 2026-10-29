@@ -35,11 +35,12 @@ nothing about either tree).
   perf profile; a slot run; a flake reproduction): its door passes
   `wholeInstrumentTestFileCount`, and a kind config does not name is refused.
   The vitest door counts the files vitest itself selects (its own CLI parser
-  and specification search), a `vitest list` included: no verb is exempt
-  (a setup step that lists the suite, `web-module-cache`, is declared
-  `holdsInstrumentLock`: the checkout runner takes the lock before it starts,
-  its wait counting toward no timeout, once per tree, and a read-only create
-  skips it, so a create waits behind a validate and never fails for it). The
+  and specification search), a `vitest list` included: no verb is exempt.
+  (Checkout setup once had a heavy step, the web module cache warm-up that
+  listed the suite, admitted by the checkout runner under the lock. It was
+  removed on 2026-10-29 with the mechanism that admitted it: an optimisation
+  judged by a 600 s wall ceiling with a timed retry, it refused flake
+  reproductions on a loaded host, #652.) The
   engine runner and the web runner count their own arguments
   (`namedTestFileCount`); a web run that miscounts itself light is still
   caught by the vitest door, which re-runs it inside the supervising door.

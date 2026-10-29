@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { HarnessError } from "../../src/kernel/errors.ts";
 import { emitYaml } from "../../src/text/yaml-emit.ts";
 import { fillTemplate, syncCommunityFiles, TEMPLATED_FILES } from "../../src/workflow/community/health-files.ts";
+import { commandTable } from "../../src/workflow/community/commands.ts";
 import { FEATURES_PATH, INTAKE_PATH, readIntake, readRoles, ROLES_PATH, roleForPermission, teamsOf } from "../../src/workflow/community/sources.ts";
 import { communityFilesStep } from "../../src/workflow/harness-commands.ts";
 import { withTempDir } from "../support/temp-dir.ts";
@@ -245,6 +246,12 @@ test("the pages state live facts only: a planned category, type or feature is li
     assert.doesNotMatch(contributing(), /signed off by GitHub\./u, "a planned feature's sentence is not stated");
     assert.ok(readFileSync(join(root, "SUPPORT.md"), "utf8").includes(`signed off by GitHub. Planned; tracked in ${configuredRepositoryIdentity().issuesUrl}/1.`), "the tracking link is generated from the issue number and the repository identity");
     assert.doesNotMatch(readFileSync(join(root, "GOVERNANCE.md"), "utf8"), /team `/u, "the teams are planned, so no role names one");
+    // The bot commands: the table /help answers, from the one registry, stated only while the commands are live.
+    const table = commandTable(readRoles(root));
+    assert.ok(contributing().includes(table), "live: CONTRIBUTING carries the registry's command table");
+    edit(root, FEATURES_PATH, (json) => { const list = json.features as Record<string, unknown>[]; list.find((feature) => feature.id === "issueops")!.status = { planned: 1 }; });
+    syncCommunityFiles(root, true);
+    assert.ok(!contributing().includes(table) && contributing().includes("The bot commands are [planned](SUPPORT.md#planned)."), "planned: no command table, a link to the planned list");
   });
 });
 

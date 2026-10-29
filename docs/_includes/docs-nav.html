@@ -1,0 +1,15 @@
+{%- comment -%}
+  The documentation's own navigation, beside every reading page: the
+  sections of the one navigation source (_data/navigation.yml), the current
+  page marked.
+{%- endcomment -%}
+<nav class="docs-nav" aria-label="Documentation">
+  {%- for section in site.data.navigation.sections %}
+  <p class="docs-nav-heading">{{ section.title }}</p>
+  <ul>
+    {%- for link in section.links %}
+    <li><a href="{{ link.path | relative_url }}"{% if page.url == link.path %} aria-current="page"{% elsif link.path != "/" and page.url contains link.path %} aria-current="true"{% endif %}>{{ link.title }}</a></li>
+    {%- endfor %}
+  </ul>
+  {%- endfor %}
+</nav>
