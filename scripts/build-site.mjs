@@ -6,7 +6,7 @@
  *   node scripts/build-site.mjs source   --out .site --baseurl <base>/v/<version> --release <version>
  *   (Jekyll: .site → _site)
  *   node scripts/build-site.mjs finish   --site _site --baseurl <base> [--versions <dir>]
- *   node scripts/build-site.mjs redirect --out <dir>
+ *   node scripts/build-site.mjs redirect --out <dir>   (the organisation site's tree for the old base)
  *
  * `--versions <dir>` is the folder of released docs snapshots
  * (`<dir>/<version>/index.html`, each a verified release asset); both steps
@@ -48,8 +48,8 @@ async function run({ verb, options }) {
     const result = finishSite({ site: options["--site"], baseurl: options["--baseurl"], versionsDir });
     return `site: clean (${result.pages} page(s), ${result.links} internal link(s), ${result.designPages} design-judged page(s), ${result.versions.length} released version(s))`;
   }
-  const result = buildRedirectSite({ out: options["--out"] });
-  return `redirect site: ${result.from}/ → ${result.to} (${result.files.length} file(s) in ${result.out})`;
+  const result = buildRedirectSite({ root: process.cwd(), out: options["--out"] });
+  return `redirect site: ${result.from} → ${result.to} (${result.files.length} file(s) in ${result.out})`;
 }
 
 try {

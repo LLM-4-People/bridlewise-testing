@@ -36,6 +36,8 @@ All published pages use `layout: default`, `title`, `description`, and `permalin
 
 A release snapshot is built at release time with `source --baseurl <base>/v/<version> --release <version>` (whole, floor data included), then Jekyll, and attached to the release; the Pages build only merges it.
 
+`redirect --out <dir>` writes the organisation site's tree (`<owner>.github.io`), which answers the site's old address (`LEGACY_SITE_URL` in `scripts/floor/repository.mjs`, derived from the repository identity) once the repository is renamed. Each old pretty path gets a page that sends it in one hop, even without scripts, to where the plan's landing map (`landingPath`: the moved pages, the trackers' former home, the `.md` spellings) puts it on the current site, with that exact URL as its `rel=canonical`. A `404.html` runs the same map for every other path, and a `.nojekyll` makes Pages serve the tree as written. It refuses while the current site is the old URL or lies under it, because a redirect would loop; the comparison is of whole URLs.
+
 ### The rebuild when the checks finish
 
 A push to `main` builds the site at once, while that commit's checks are still running, so that build's claims and status are judged early. When a workflow the status reads (CI, CodeQL, Docs links, Secret scan) completes, the Docs site workflow runs again. `scripts/floor/rebuild-gate.mjs` decides whether that completion rebuilds `main`'s tip, using only trusted data: the tip as GitHub reports it and the completed run's id, never the run's head, which a fork's pull request controls.
