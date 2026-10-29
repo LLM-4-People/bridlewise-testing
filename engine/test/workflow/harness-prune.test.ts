@@ -83,7 +83,7 @@ test("the front-door generator's modules are derived or refused, never guessed: 
   assert.throws(() => frontDoorGeneratorModules(root, [generator]), (error: unknown) => (error as { code?: string }).code === "front_door_generator_import_unfollowed", "a computed import from the generator refuses");
 });
 
-test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", () => {
+test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", async () => {
   const copy = createRepositoryWorkingCopy("harness-prune-", { include: engineGeneratorPopulation });
   const nodeOptions = process.env["NODE_OPTIONS"];
   try {
@@ -96,18 +96,18 @@ test("harness regenerate: a deleted test is refused with the typed code and the 
     const warner = join(createTempDir("harness-prune-warning-"), "warn-last.mjs");
     writeFileSync(warner, "process.on('exit', () => process.stderr.write('(node:1) Warning: planted after the refusal\\n'));\n");
     process.env["NODE_OPTIONS"] = `${nodeOptions ?? ""} --import=${warner}`.trim();
-    assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true }), (error: unknown) => {
+    await assert.rejects(harnessRegenerate(copy.engineRoot, { write: true }), (error: unknown) => {
       const { code, message } = error as { code?: string; message?: string };
       assert.equal(code, "test_surface_prune_refused", String(message));
       assert.match(String(message), new RegExp(`--prune ${DELETED.replaceAll(".", "\\.")}`, "u"));
       return true;
     });
     const present = "test/shared-suite/best-effort.test.ts";
-    assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED, present] }),
+    await assert.rejects(harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED, present] }),
       (error: unknown) => (error as { code?: string }).code === "test_surface_prune_not_deleted");
     // The named prune goes through the dispositions; the pinned non-canonical set then asks to be restated by hand
     // (the conservation identity: a pin a generator can rewrite refuses nothing).
-    assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED] }), /the pinned non-canonical test-source set moved/u);
+    await assert.rejects(harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED] }), /the pinned non-canonical test-source set moved/u);
     const manifest = readFileSync(join(copy.engineRoot, "traceability", "test-surface-dispositions.json"), "utf8");
     assert.equal(manifest.includes(`"${DELETED}"`), false, "the named deletion left the manifest");
   } finally {

@@ -24,6 +24,7 @@
 
 import type { SubprocessBounds } from "../process/subprocess-bounds.ts";
 import type { ConfigDocument } from "../kernel/config-contracts.ts";
+import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { InputError } from "../kernel/errors.ts";
 import { statePath } from "../kernel/product-identity.ts";
 
@@ -89,36 +90,56 @@ export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 // ── the harness's subprocess bounds (src/process/subprocess-bounds.ts): NO-LOAD-BLOCK L2 ──
 //
 // Every script subprocess (`runScriptSubprocess`), `harness check`'s tsc and
-// the commit guard's compile legs run under these, and nothing else bounds
-// them: the typecheck's own 120 s wall limit (`harness.typecheckTimeoutMs`)
-// is gone with the step timeouts below.
+// the commit guard's compile legs run through the one bounded run
+// (`runCpuBounded`, src/process/supervised-run.ts) under these, and nothing
+// else bounds them; an admitted run's own process gets the same kernel CPU
+// limit (the instrument lock's per-run caps). The typecheck's own 120 s wall
+// limit (`harness.typecheckTimeoutMs`) is gone with the step timeouts below.
 //
 // `harness sync`'s steps, the dispositions' auto-add, the inventory and the
 // generators each ran under a WALL timeout of their own (120 s to 420 s), and
 // a loaded host killed them: sync's step 5/5 (`harness check`, 240 s) died
 // "without a status payload" and blocked merges (audit row A-18). A busy host
 // makes a step WAIT for a core; it does not make it do more work. So a step
-// is bounded in CPU WORK, and wall time only ends a hang:
+// is bounded by its WORK, and wall time only ends a hang:
 //
-// - the CPU-time limit applies to each process of the step (`ulimit -t`, the
-//   kernel's RLIMIT_CPU: SIGXCPU when it is spent). It is many times the
-//   heaviest step's measured work, so it ends a runaway, never a slow host.
-// - the hang backstop is the one wall bound left: very large, and a step that
-//   reaches it is reported HUNG, with how it ended, never retried here.
-/** CPU seconds each process of a script subprocess may use (RLIMIT_CPU's soft limit: SIGXCPU). */
-const SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS = 1_800;
-/** CPU seconds past the soft limit at which the kernel kills a process that ignored SIGXCPU (the hard limit, which no child can raise). */
-const SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS = 60;
-/** Wall time after which a script subprocess is hung, not slow. */
-const SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS = 7_200_000;
-/** The harness's subprocess bounds, as one value (the mechanism is src/process/subprocess-bounds.ts). */
-export const SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
-  cpuLimitSeconds: SCRIPT_SUBPROCESS_CPU_LIMIT_SECONDS,
-  cpuKillGraceSeconds: SCRIPT_SUBPROCESS_CPU_KILL_GRACE_SECONDS,
-  hangBackstopMs: SCRIPT_SUBPROCESS_HANG_BACKSTOP_MS,
+// - its process group's CPU time, many times the heaviest step's measured
+//   work, so it ends a runaway, never a slow host; the kernel's RLIMIT_CPU
+//   backs it per process, just past it (`kernelCpuLimit`);
+// - a STALL: no output and no CPU work at all for the stall window (by
+//   default 30 minutes) of the time it could run: its wait for a busy host's
+//   core is never counted, so a step waiting on nothing is stopped and a
+//   starved one never is;
+// - the hang backstop, the one wall bound left: very large, and a step that
+//   reaches it is reported HUNG, with how it ended, never retried here;
+// - the output it may print (`harness check`'s payload is ~75 KB).
+/** The defaults of `harness.subprocessBounds`, each a documented setting (src/kernel/config-contracts.ts; the settings room's harness rows). */
+const DEFAULT_SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
+  cpuBudgetMs: 1_800_000,
+  stallMs: 1_800_000,
+  hangBackstopMs: 7_200_000,
+  pollMs: 1_000,
+  killGraceMs: 5_000,
+  outputBytes: 256 * 1024 * 1024,
 });
-/** The most output a script subprocess may print before it is cut off (`harness check`'s payload is ~75 KB). */
-export const SCRIPT_SUBPROCESS_OUTPUT_BYTES = 256 * 1024 * 1024;
+
+/** The harness's subprocess bounds as `document` configures them (`harness.subprocessBounds`; `{}` answers the defaults). */
+export function subprocessBounds(document: Pick<ConfigDocument, "harness">): SubprocessBounds {
+  const configured = document.harness?.subprocessBounds;
+  return Object.freeze({
+    cpuBudgetMs: configured?.cpuBudgetMs ?? DEFAULT_SUBPROCESS_BOUNDS.cpuBudgetMs,
+    stallMs: configured?.stallMs ?? DEFAULT_SUBPROCESS_BOUNDS.stallMs,
+    hangBackstopMs: configured?.hangBackstopMs ?? DEFAULT_SUBPROCESS_BOUNDS.hangBackstopMs,
+    pollMs: configured?.pollMs ?? DEFAULT_SUBPROCESS_BOUNDS.pollMs,
+    killGraceMs: configured?.killGraceMs ?? DEFAULT_SUBPROCESS_BOUNDS.killGraceMs,
+    outputBytes: configured?.outputBytes ?? DEFAULT_SUBPROCESS_BOUNDS.outputBytes,
+  });
+}
+
+/** The harness's subprocess bounds from the pinned config document: what every harness subprocess, the commit guard's compile legs and an admitted run's own process run under. */
+export function configuredSubprocessBounds(): SubprocessBounds {
+  return subprocessBounds(loadPinnedConfigSnapshot().document);
+}
 /**
  * How long one CPU-calibration child (`src/shared/run-cpu.ts`: the fixed
  * benchmark a run takes at start and end to turn CPU time into work units)

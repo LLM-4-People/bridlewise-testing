@@ -21,7 +21,7 @@ import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
-import { SUBPROCESS_BOUNDS } from "./workflow-config.ts";
+import { configuredSubprocessBounds } from "./workflow-config.ts";
 import { superviseCommand } from "../process/supervised-run.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
@@ -70,8 +70,8 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
   // to write), and only there `caps`: a test's own caps.
   if (options.caps !== undefined && options.lockPath === undefined) throw new InputError("a run's caps are the config's; only a test's own registry (lockPath) takes caps of its own", INPUT_ERROR_CODE);
   const lock = options.lockPath !== undefined
-    ? admitInstrumentRun(options.lockPath, runner, options.caps ?? declaredInstrumentLock(config.instrumentLock).perRun, SUBPROCESS_BOUNDS)
-    : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: SUBPROCESS_BOUNDS });
+    ? admitInstrumentRun(options.lockPath, runner, options.caps ?? declaredInstrumentLock(config.instrumentLock).perRun, configuredSubprocessBounds())
+    : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: configuredSubprocessBounds() });
   return withinInstrumentHold(lock, async () => {
     const run = await superviseCommand({
       supervisor: ensureTestProcessSupervisor(),
