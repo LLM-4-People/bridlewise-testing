@@ -73,6 +73,13 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
   const source = createRepositoryWorkingCopy("candidate-cli-source-");
   const scratch = createRepositoryLocalTemporaryDirectory("candidate-cli-target-");
   try {
+    // The source's build outputs, built by the one builder from the source's own tree: the copy carries
+    // only what the host checkout happens to hold, and a fresh checkout holds no bundle (the copy-back
+    // arms below then all answered `candidate_output_missing`, red on a clean checkout of main).
+    const built = spawnSync(process.execPath, [join(source.engineRoot, "scripts", "build-bundle.ts")], {
+      cwd: source.engineRoot, encoding: "utf8", timeout: 600_000, maxBuffer: 1 << 26,
+    });
+    assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
     // A. Parents that do not exist yet. The source stages a modification
     // HEAD does not hold first: `create` records it as protected.
     const readme = join(source.engineRoot, "README.md");
@@ -155,9 +162,8 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     assert.equal(incomplete.json["error"], "candidate_output_missing");
     assert.equal(ownedFingerprint(source.root), before, "a refused copy-back wrote the source");
 
-    // The build outputs, as a setup would have built them.
+    // The build outputs, as a setup would have built them (every one: the source built them above).
     for (const path of buildOutputPaths()) {
-      if (!existsSync(join(source.root, path))) continue;
       mkdirSync(dirname(join(target, path)), { recursive: true });
       copyFileSync(join(source.root, path), join(target, path));
     }
