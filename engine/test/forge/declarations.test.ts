@@ -15,7 +15,7 @@ import { TRACKER_ITEM_TYPES } from "../../src/workflow/failure-owners.ts";
 import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
 import { join } from "node:path";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
-import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES, TRUNK } from "./forge-settings.ts";
 
 function find(objects: readonly ForgeObject[], kind: string, key: string): ForgeObject {
   const found = objects.find((entry) => entry.kind === kind && entry.key === key);
@@ -39,9 +39,11 @@ test("the declarations: every object once, in apply order, with the plan's unava
   assert.equal((writableBody(security, security.desired) as Record<string, unknown>).secret_scanning_validity_checks, undefined);
   // Every governed repository gets its settings; the archive never does; only public ones get fork approval and immutable releases.
   const settingsScopes = objects.filter((entry) => entry.kind === "repository-settings").map((entry) => entry.key);
-  assert.deepEqual(settingsScopes, ["bridlewise-testing", ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
+  assert.deepEqual(settingsScopes, [TRUNK, ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
   // The proving ground (P1.11): its main's queue and signatures, merge commits only, and merged branches deleted; nothing else a governed repository gets.
-  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true, allow_update_branch: false });
+  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true, allow_update_branch: false, web_commit_signoff_required: true });
+  // Commit sign-off (DCO for web commits) is declared on EVERY repository, as the organisation enforces it.
+  for (const settings of objects.filter((entry) => entry.kind === "repository-settings")) assert.equal((settings.desired as Record<string, unknown>).web_commit_signoff_required, true, settings.key);
   const proving = find(objects, "ruleset", "proving-main");
   assert.deepEqual(proving.scope, { kind: "repo", repository: "forge-proving-ground" });
   assert.deepEqual((proving.desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "required_signatures"]);
@@ -53,10 +55,10 @@ test("the declarations: every object once, in apply order, with the plan's unava
     reviewers: [{ type: "User", id: { $ref: "user", name: "amberflag48" } }], prevent_self_review: false,
   });
   assert.ok(!objects.some((entry) => entry.kind === "actions-fork-approval" && entry.key === "bridlewise-coordination"));
-  assert.equal((find(objects, "repository-settings", "bridlewise-testing").desired as Record<string, unknown>).has_discussions, true);
+  assert.equal((find(objects, "repository-settings", TRUNK).desired as Record<string, unknown>).has_discussions, true);
   assert.equal((find(objects, "repository-settings", ".github").desired as Record<string, unknown>).has_discussions, false);
   // The allowed actions come from the workflows: third parties only, as owner/repo@*.
-  assert.deepEqual((find(objects, "actions-selected", "bridlewise-testing").desired as { patterns_allowed: string[] }).patterns_allowed, ["ossf/scorecard-action@*"]);
+  assert.deepEqual((find(objects, "actions-selected", TRUNK).desired as { patterns_allowed: string[] }).patterns_allowed, ["ossf/scorecard-action@*"]);
   // References: the rulesets name Apps by role, the rotation environment the maintainer by login.
   assert.deepEqual(referencesOf(find(objects, "ruleset", "product").desired), [{ $ref: "app", name: "publisher" }]);
   assert.deepEqual(referencesOf(find(objects, "ruleset", "agent-branches").desired), [{ $ref: "app", name: "agent" }]);
@@ -208,7 +210,7 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   assert.equal(configuration("bridlewise-baseline-private").private_vulnerability_reporting, "disabled");
   for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "disabled", `${key}: Code Security is off; CodeQL runs as our own workflow`);
   // Attached to the governed repositories only, by visibility, and default for no new repository.
-  assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", "bridlewise-testing"], default_for_new_repos: "none" });
+  assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", TRUNK].sort(), default_for_new_repos: "none" });
   assert.deepEqual(attachment("bridlewise-baseline-private"), { repositories: ["bridlewise-coordination"], default_for_new_repos: "none" });
   // With the add-on, the private configuration carries secret scanning too.
   const withAddOn = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection: true } } });

@@ -33,6 +33,8 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   apiUrl: httpsOrigin,
   /** The web origin (`https://github.com`): App creation and installation pages. */
   webUrl: httpsOrigin,
+  /** The domain of the forge's project Pages sites (`github.io`): a project's site is `<owner, lower-cased>.<pagesDomain>/<name>/`. */
+  pagesDomain: z.string().regex(/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u),
   /** The uploads origin (`https://uploads.github.com`): release assets are uploaded there as raw bodies. */
   uploadsUrl: httpsOrigin,
   /**
@@ -81,6 +83,13 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
    * The repository topology: every Bridlewise repository with its `kind`
    * and visibility. Exactly one `trunk`. A `provingGround` repository gets
    * every App installed (the V-tests, runbook P1.11) until it is archived.
+   * Exactly one repository is the `product` one: where the product is
+   * published (the `bridlewise` repository until the P1.10 rename, the trunk
+   * after it). At most one is the public `preview` repository: the product as
+   * published before the rename, kept with its releases (`bridlewise`, then
+   * `bridlewise-preview`). Both are identities of their own
+   * (`productIdentity`, `previewIdentity`), and prose names them only through
+   * generated references (`[text][product:<path>]`, `[text][preview:<path>]`).
    */
   repositories: z.array(z.strictObject({
     name: z.string().regex(NAME),
@@ -89,10 +98,16 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     provingGround: z.boolean().optional(),
     /** A branch the repository protects from deletion and force-pushes by its own ruleset (`protect-<branch>`; the notes repository's working branch). */
     protectedBranch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/u).optional(),
+    /** Where the product is published (exactly one repository). */
+    product: z.literal(true).optional(),
+    /** The public preview repository: the product as published before the rename (at most one). */
+    preview: z.literal(true).optional(),
   })).min(1).superRefine((repositories, context) => {
     const names = repositories.map((repository) => repository.name.toLowerCase());
     if (new Set(names).size !== names.length) context.addIssue({ code: "custom", message: "repository names must be unique" });
     if (repositories.filter((repository) => repository.kind === "trunk").length !== 1) context.addIssue({ code: "custom", message: "exactly one repository is the trunk" });
+    if (repositories.filter((repository) => repository.product === true).length !== 1) context.addIssue({ code: "custom", message: "exactly one repository is the product's (product: true)" });
+    if (repositories.filter((repository) => repository.preview === true).length > 1) context.addIssue({ code: "custom", message: "at most one repository is the preview (preview: true)" });
   }),
   /**
    * How a run of the maintainer's `gh` is bounded: never by the wall clock

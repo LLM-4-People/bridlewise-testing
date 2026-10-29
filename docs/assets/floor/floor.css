@@ -154,6 +154,14 @@
   color: var(--warn);
 }
 
+/* A floor page's opening paragraph (the claims page's promise among them). */
+.floor-lede {
+  max-width: var(--page-measure);
+  color: var(--ink-2);
+  font-size: var(--f-lede-size);
+  line-height: var(--f-page-lh);
+}
+
 /* The claims page (engine/scripts/brand/render.ts): every claim with its verdict.
    A retracted claim is struck through until its check passes again. DESIGN owns this layer. */
 .floor-claims {

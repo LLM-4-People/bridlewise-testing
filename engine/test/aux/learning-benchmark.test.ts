@@ -30,6 +30,7 @@ import {
   checkCoverage,
 } from "../../_experiments/auto-learning/index.ts";
 import { ErrorCollector } from "../../_experiments/auto-learning/collector.ts";
+import { cpuWorkOf } from "../../src/shared/run-cpu.ts";
 
 // ---------------------------------------------------------------------------
 // SECTION 1: 15 rounds, plateau <10%, 0 FPs, 0 LLM (EXP389 targets)
@@ -218,14 +219,13 @@ test("learning-benchmark 10× HARDER: 30 rounds, plateau stays bounded, 0 FPs, 0
 test("learning-benchmark perf: per-round latency < 200ms, memory bounded", () => {
   const memBefore = process.memoryUsage().rss;
   const config = loadLearningConfig({ ...loadLearningConfig(), exp389Rounds: 15 } as never);
-  const t0 = process.hrtime.bigint();
-  const report = runHarderSimulation({ config, rounds: 15 });
-  const t1 = process.hrtime.bigint();
+  // CPU work, never wall time (NO-LOAD-BLOCK): a loaded host makes this wait, never work more.
+  let report!: ReturnType<typeof runHarderSimulation>;
+  const totalMs = cpuWorkOf(() => { report = runHarderSimulation({ config, rounds: 15 }); });
   const memAfter = process.memoryUsage().rss;
-  const totalMs = Number(t1 - t0) / 1e6;
   const perRoundMs = totalMs / report.rounds.length;
   const memDeltaMb = (memAfter - memBefore) / 1024 / 1024;
-  console.log(`    perf: ${report.rounds.length} rounds in ${totalMs.toFixed(1)}ms (${perRoundMs.toFixed(2)}ms/round), RSS delta ${memDeltaMb.toFixed(2)}MB, ${report.totalRulesAdmitted} rules`);
+  console.log(`    perf: ${report.rounds.length} rounds in ${totalMs.toFixed(1)}ms of CPU work (${perRoundMs.toFixed(2)}ms/round), RSS delta ${memDeltaMb.toFixed(2)}MB, ${report.totalRulesAdmitted} rules`);
   assert.ok(perRoundMs < 500, `per-round latency < 500ms (got ${perRoundMs.toFixed(2)}ms)`);
   assert.ok(memDeltaMb < 200, `RSS delta < 200MB (got ${memDeltaMb.toFixed(2)}MB)`);
 });
