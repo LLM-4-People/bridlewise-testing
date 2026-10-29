@@ -1177,7 +1177,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     ledger: z.enum(SUITE_LEDGER_NAMES).optional(),
     requires: z.array(workspaceCommandName).min(1).max(8).optional(),
     // `holdsInstrumentLock` — declared only on a SETUP command that is a heavy
-    // instrument (the web module cache warm-up collects the whole suite): the
+    // instrument (one that runs or lists a whole suite): the
     // runner admits it as a heavy run under its per-run caps before the
     // command starts (at once: it never waits for another run), runs it once
     // per tree, and a READ-ONLY workspace's create does not run it (a verifier

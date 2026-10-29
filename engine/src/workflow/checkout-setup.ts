@@ -229,8 +229,8 @@ export async function runCheckoutCommand(
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /**
- * A SETUP COMMAND THAT IS A HEAVY INSTRUMENT (`holdsInstrumentLock`: the web
- * module cache warm-up collects the whole suite). It runs ONCE PER TREE: the
+ * A SETUP COMMAND THAT IS A HEAVY INSTRUMENT (`holdsInstrumentLock`: one
+ * that runs or lists a whole suite). It runs ONCE PER TREE: the
  * tree it ran for is recorded beside the checkout's gate logs (outside the
  * checkout, removed with it), and the same tree is not run again. Otherwise
  * THIS RUNNER admits it as a heavy run first — at once, never waiting for
