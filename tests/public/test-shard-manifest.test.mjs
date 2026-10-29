@@ -238,7 +238,7 @@ test("a test file declares its own exclusion only in its leading comment block; 
     ["malformed: no colon", `// ${tag} needs a WSL host\nexport {};\n`],
     ["malformed: no evidence", `// ${tag}: no evidence named\nexport {};\n`],
   ]) {
-    assert.throws(() => read(text), /mentions @shard-exclude outside a well-formed .* line of its leading comment block/u, why);
+    assert.throws(() => read(text), { message: 'exclusion: tests/unit/x.test.ts mentions @shard-exclude outside a well-formed "@shard-exclude: <reason> (evidence: <evidence>)" line of its leading comment block' }, why);
   }
   assert.throws(() => read(`// ${tag}: one (evidence: a)\n// ${tag}: two (evidence: b)\nexport {};\n`), /more than one @shard-exclude line/u);
 });
