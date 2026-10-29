@@ -254,16 +254,17 @@ const TRACKER_ITEM_STATES = Object.freeze(["open", "closed"] as const);
 const TRACKER_ITEM_RESOLUTIONS = Object.freeze(["completed", "not-planned", "duplicate"] as const);
 const TRACKER_ITEM_SEVERITIES = Object.freeze(["P0", "P1", "P2", "P3"] as const);
 /**
- * The board's lanes, in board order: each one's section heading (the open
- * rows of a lane; every closed row is under `DONE_HEADING`) and the
- * GitHub label its items carry (`lane:<lane>`, this colour and description;
- * the projector writes the label, src/workflow/forge/projector/).
+ * The board's lanes, in board order, each with its section heading (the open
+ * rows of a lane; every closed row is under `DONE_HEADING`). An item of a lane
+ * carries the GitHub label `lane:<lane>`, declared (its colour and
+ * description) only in `docs/community/labels.json`; the projector puts it on
+ * the item's issue and never creates it (src/workflow/forge/projector/).
  */
 export const TRACKER_LANES = Object.freeze({
-  floor: Object.freeze({ heading: "Open", color: "1d76db", description: "Tracker lane: the public floor's open work" }),
-  roadmap: Object.freeze({ heading: "Roadmap", color: "0e8a16", description: "Tracker lane: a roadmap workstream, exit criterion or scope statement" }),
-  "flaky-burn-down": Object.freeze({ heading: "Flaky burn-down owners", color: "d93f0b", description: "Tracker lane: owns an entry of a flaky burn-down list" }),
-  "private-web": Object.freeze({ heading: "Private web lanes (retained as ordinary work)", color: "c5def5", description: "Tracker lane: a private web workstream kept as ordinary work" }),
+  floor: Object.freeze({ heading: "Open" }),
+  roadmap: Object.freeze({ heading: "Roadmap" }),
+  "flaky-burn-down": Object.freeze({ heading: "Flaky burn-down owners" }),
+  "private-web": Object.freeze({ heading: "Private web lanes (retained as ordinary work)" }),
 } as const);
 const DONE_HEADING = "Done";
 

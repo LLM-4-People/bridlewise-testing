@@ -702,16 +702,6 @@ echo "=== test 43 (hostile): signals with any value but \"refused\" -> exit 2 ==
 sed '1a "signals": "scoped",' "$WORK/spec.json" > "$WORK/spec-signals-bad.json"
 run_cap "$BIN" apply --spec "$WORK/spec-signals-bad.json" --exec "$TP" socket inet || true
 assert_exit "signals: \"scoped\" -> exit 2" "2"
-echo "=== test 44: memory_bytes — an allocation past RLIMIT_AS fails; one under it succeeds ==="
-sed '1a "memory_bytes": 134217728,' "$WORK/spec.json" > "$WORK/spec-mem.json"
-run_cap "$BIN" apply --spec "$WORK/spec-mem.json" --exec "$TP" alloc 512 || true
-if [[ "$OUT" == *"ENOMEM"* ]]; then pass "memory_bytes: 512 MiB past a 128 MiB ceiling -> ENOMEM"; else fail "memory_bytes: the allocation was not refused (out=$OUT, rc=$RC)"; fi
-run_cap "$BIN" apply --spec "$WORK/spec-mem.json" --exec "$TP" alloc 16 || true
-if [[ "$OUT" == *"OK"* ]]; then pass "memory_bytes: 16 MiB under the ceiling -> OK"; else fail "memory_bytes: a small allocation failed (out=$OUT)"; fi
-echo "=== test 45 (hostile): memory_bytes out of range -> exit 2 ==="
-sed '1a "memory_bytes": 1024,' "$WORK/spec.json" > "$WORK/spec-mem-bad.json"
-run_cap "$BIN" apply --spec "$WORK/spec-mem-bad.json" --exec "$TP" socket inet || true
-assert_exit "memory_bytes: 1024 -> exit 2" "2"
 
 if [ -n "$UNSHARE" ]; then
   ALIAS="$WORK/alias"; mkdir -p "$ALIAS"

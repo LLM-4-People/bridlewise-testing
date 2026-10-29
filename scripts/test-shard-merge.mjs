@@ -29,7 +29,7 @@ import {
   manifestHash as hashManifest,
   normalizeFile,
   readJson,
-  readManifest as readSourceManifest,
+  readShardPopulation,
   requireGreenReport,
 } from "./test-shard-manifest.mjs";
 
@@ -259,7 +259,7 @@ export function mergeShardReports({
   expectedShards,
   headSha,
   planPath = undefined,
-  manifestSourcePath = undefined,
+  weightsPath = undefined,
   runnerClass = undefined,
   requireTiming = true,
   outPath,
@@ -296,22 +296,24 @@ export function mergeShardReports({
   if (plan.manifestHash !== computedManifestHash) {
     fail("plan: manifest hash does not match the supplied manifest");
   }
-  if (manifestSourcePath == null) {
+  if (weightsPath == null) {
     fail(
-      "manifest source: --manifest-source is required to re-derive the shard assignment. " +
+      "population: --weights is required to re-derive the shard assignment. " +
         "Without the measured file list and weights the plan's own claim about its shards " +
         "is the only account of who ran what.",
     );
   }
-  const manifestSource = readSourceManifest(repositoryRoot, manifestSourcePath);
+  // The population re-derived from THIS tree (the include binding, each file's own exclusion) and the
+  // measured weights: the same inputs the plan was made from.
+  const manifestSource = readShardPopulation(repositoryRoot, weightsPath);
   if (manifestSource.hash !== computedManifestHash) {
-    fail("manifest source: hash does not match the supplied manifest");
+    fail("population: hash does not match the supplied manifest");
   }
   if (plan.manifestHash !== manifestSource.hash) {
-    fail("manifest source: hash does not match the plan");
+    fail("population: hash does not match the plan");
   }
   if (manifestSource.files.length !== manifest.length) {
-    fail("manifest source: supported file count does not match the supplied manifest");
+    fail("population: supported file count does not match the supplied manifest");
   }
   // THE PLAN IS A CLAIM ABOUT THE ASSIGNMENT, NOT THE ASSIGNMENT. `readPlan`
   // only proves the plan's hash describes the plan's own bytes: a hand-written
@@ -444,7 +446,7 @@ function parseArgs(argv) {
     root: process.cwd(),
     manifestPath: null,
     planPath: null,
-    manifestSourcePath: null,
+    weightsPath: null,
     shardPaths: [],
     expectedShards: null,
     headSha: process.env.GITHUB_SHA ?? null,
@@ -457,7 +459,7 @@ function parseArgs(argv) {
     if (arg === "--root") options.root = argv[++index];
     else if (arg === "--manifest") options.manifestPath = argv[++index];
     else if (arg === "--plan") options.planPath = argv[++index];
-    else if (arg === "--manifest-source") options.manifestSourcePath = argv[++index];
+    else if (arg === "--weights") options.weightsPath = argv[++index];
     else if (arg === "--shard") options.shardPaths.push(argv[++index]);
     else if (arg === "--expected-shards") options.expectedShards = Number(argv[++index]);
     else if (arg === "--head") options.headSha = argv[++index];
@@ -467,7 +469,7 @@ function parseArgs(argv) {
     else fail(`unknown argument: ${arg}`);
   }
   if (!options.manifestPath) fail("--manifest is required");
-  if (!options.manifestSourcePath) fail("--manifest-source is required");
+  if (!options.weightsPath) fail("--weights is required");
   if (!options.planPath) fail("--plan is required");
   if (!options.outPath) fail("--out is required");
   return options;

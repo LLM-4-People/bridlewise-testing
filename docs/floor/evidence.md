@@ -67,7 +67,7 @@ What it does not prove: that any test passed, that the count is coverage, or tha
 Run the 521-file supported set in one process; the sharded workflow runs the same set across shards.
 
 ```bash
-FILES=$(node -e "process.stdout.write(require('./tests/test-shards.json').files.map(f => f.path).join(' '))")
+FILES=$(node scripts/test-shard-manifest.mjs supported | tr '\n' ' ')
 ./node_modules/.bin/vitest run $FILES
 ```
 

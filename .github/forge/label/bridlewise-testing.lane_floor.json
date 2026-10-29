@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "lane:floor",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "lane:floor",
+    "color": "1d76db",
+    "description": "Tracker lane: the public floor's open work"
+  }
+}

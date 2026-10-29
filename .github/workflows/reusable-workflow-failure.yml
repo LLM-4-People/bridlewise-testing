@@ -52,10 +52,13 @@ jobs:
           fi
           title="Workflow failure: ${RUN_NAME} on ${target}"
 
-          gh label create ci-failure \
-            --color B60205 \
-            --description "Automated report for a failed workflow" \
-            >/dev/null 2>&1 || true
+          # ci-failure is declared in docs/community/labels.json and written by
+          # the forge alone (harness forge apply): this report only uses it, and
+          # a missing label is a loud failure here, never a label made on the fly.
+          if ! gh api "repos/${GH_REPO}/labels/ci-failure" --silent; then
+            echo "::error::the declared ci-failure label is missing on ${GH_REPO}: run harness forge apply" >&2
+            exit 1
+          fi
 
           existing="$(gh issue list \
             --state open \

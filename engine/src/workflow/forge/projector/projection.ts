@@ -3,7 +3,11 @@
  *
  * {@link projectionInput} reads everything D is computed from out of the
  * source commit S (the tracker items, through the tracker's one parser,
- * src/workflow/failure-owners.ts; the lanes' labels) — nothing else: no
+ * src/workflow/failure-owners.ts), each lane's label checked against the
+ * labels declared at S (`docs/community/labels.json`, read through its owner's
+ * `readLabels` from S's tree; the projector creates no label, so an item whose lane label
+ * is not declared is refused `projection_label_undeclared` before anything is
+ * computed) — nothing else: no
  * working tree, no clock, no GitHub state. {@link computeProjection} hands it
  * to `project()` in two confined processes (`confined.ts`, the answers
  * compared), then fills each marker's digest and digests D. The same S and L
@@ -12,10 +16,11 @@
 import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../../kernel/integrity.ts";
 import { commitTreeReader, gitOutput, isAncestor, resolveRevision, type GitRepository, type TreeReader } from "../../../git/tree-reader.ts";
-import { decisionRecords, itemStatusFacts, openBoardRows, ownersOf, TRACKER_LANES, trackerItemsOf, treeEntries } from "../../failure-owners.ts";
+import { decisionRecords, itemStatusFacts, openBoardRows, ownersOf, trackerItemsOf, treeEntries, type TrackerItem } from "../../failure-owners.ts";
+import { LABELS_PATH, readLabels } from "../../community/labels.ts";
 import { mainHealth } from "./main-runs.ts";
 import { DECISION_INDEX, TRACKER_BOARD } from "../../../kernel/verification-paths.ts";
-import { DIGEST_PLACEHOLDER, PROJECTION_INPUT_SCHEMA, PROJECTION_SCHEMA, type ProjectedObject, type Projection, type ProjectionInput } from "./model.ts";
+import { DIGEST_PLACEHOLDER, laneLabel, PROJECTION_INPUT_SCHEMA, PROJECTION_SCHEMA, type ProjectedObject, type Projection, type ProjectionInput } from "./model.ts";
 import { confinedCall, PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "./confined.ts";
 import { parseEvidenceManifest } from "../../evidence-store.ts";
 import { ROOT_POLICY } from "../../../kernel/root-policy.ts";
@@ -31,6 +36,7 @@ export function projectionInput(repository: GitRepository, source: string, ledge
   const prefix = `${TRACKER_BOARD.items}/`;
   const tree = commitTreeReader(repository, commit);
   const items = trackerItemsOf(tree);
+  requireDeclaredLaneLabels(tree, items);
   return deepFreeze({
     schema: PROJECTION_INPUT_SCHEMA,
     source: commit,
@@ -40,11 +46,25 @@ export function projectionInput(repository: GitRepository, source: string, ledge
       id: item.id, type: item.type, title: item.title, state: item.state, resolution: item.resolution, lane: item.lane, milestone: item.milestone,
       parent: item.parent, blockedBy: item.blockedBy, decisions: item.decisions, tests: item.tests, evidence: item.evidence, body: item.body, path: `${prefix}${item.id}.md`,
     })),
-    lanes: Object.entries(TRACKER_LANES).map(([lane, { color, description }]) => ({ lane, color, description })),
     decisions: decisionRecords(treeEntries(tree, DECISION_INDEX.path.slice(0, DECISION_INDEX.path.lastIndexOf("/")))).map(({ id, status, implementation }) => ({ id, status, implementation })),
     recordedEvidence: recordedEvidenceAt(tree),
     mainRuns: ledgerCommit === null ? [] : mainRunsAt(repository, ledgerCommit, tree, repositoryUrl),
   });
+}
+
+/**
+ * Every lane label the items at S carry is declared in S's
+ * `docs/community/labels.json` (GitHub compares label names without case):
+ * the forge applies that file and the projector creates no label, so an
+ * undeclared one is refused here, naming each item and label
+ * (`projection_label_undeclared`), and a commit without the file is refused
+ * too (`projection_labels_missing`).
+ */
+function requireDeclaredLaneLabels(tree: TreeReader, items: readonly TrackerItem[]): void {
+  if (tree.text(LABELS_PATH) === null) throw new HarnessError(`projection_labels_missing: ${LABELS_PATH} is not in the source commit, so no lane label is declared`, "projection_labels_missing");
+  const declared = new Set(readLabels(tree).map((label) => label.name.toLowerCase()));
+  const undeclared = items.filter((item) => item.lane !== null && !declared.has(laneLabel(item.lane).toLowerCase())).map((item) => `${item.id} (${laneLabel(item.lane!)})`);
+  if (undeclared.length > 0) throw new HarnessError(`projection_label_undeclared: ${undeclared.join(", ")}: declare the label in ${LABELS_PATH} (the projector creates none)`, "projection_label_undeclared");
 }
 
 /**

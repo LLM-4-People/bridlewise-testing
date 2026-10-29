@@ -5,7 +5,13 @@
  *
  *   - no file but node's own binary and libraries is readable, none writable;
  *   - no socket of any family, no io_uring (the network is refused);
- *   - a CPU-time ceiling, judged by CPU work, and an address-space ceiling;
+ *   - a CPU-time ceiling, judged by CPU work;
+ *   - memory: the call is ADMITTED in the run registry at once, under the
+ *     per-run cgroup caps, or BORROWS the admitted run it is inside
+ *     (src/process/instrument-lock.ts `admitInstrumentRun`, the one
+ *     memory-bounds owner). The program is born in that run's scope, under
+ *     its `MemoryMax`, and a program the kernel's OOM killer ends there is
+ *     `projection_memory_exhausted`;
  *   - no signal to any process (the guardian's seccomp signal refusal);
  *   - no environment;
  *   - the program and its input arrive on stdin; the one answer leaves on stdout.
@@ -33,11 +39,15 @@ import { fileURLToPath } from "node:url";
 
 import { engineConfigDocumentPath } from "../../../kernel/config.ts";
 import { HarnessError } from "../../../kernel/errors.ts";
+import { deepFreeze } from "../../../kernel/integrity.ts";
 import { identityOverlapIndex, resolveLocation } from "../../../filesystem/path-identity.ts";
+import { admitInstrumentRun, instrumentLockPath, type PerRunCaps } from "../../../process/instrument-lock.ts";
+import { readTestExecutionConfig } from "../../test-result-collector.ts";
+import { SUBPROCESS_BOUNDS } from "../../workflow-config.ts";
 import { runConfinedNode } from "../../../filesystem/self-protection/confined-run.ts";
 import type { KeepOutFacts } from "../../../filesystem/self-protection/keep-out.ts";
 import { keyHomeLocation, openStoreRegistry } from "../../../filesystem/self-protection/key-home.ts";
-import { DEFAULT_PROJECTION_CPU_SECONDS, DEFAULT_PROJECTION_MEMORY_BYTES } from "../../workflow-config.ts";
+import { DEFAULT_PROJECTION_CPU_SECONDS } from "../../workflow-config.ts";
 import { debugLog } from "../../../shared/debug/debug-system.ts";
 
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -58,31 +68,40 @@ export type ConfinedModule = Readonly<{
   exportName: string;
 }>;
 
-/** Where and how bounded a confined call runs: the harness (its guardian), the host's keep-out facts, the CPU and address-space ceilings. */
+/** Where and how bounded a confined call runs: the harness (its guardian), the host's keep-out facts, the CPU ceiling, and the run it is admitted in (its registry's lock and the per-run caps). */
 export type ProjectorConfinement = Readonly<{
   harnessRoot: string;
   keepOut: Omit<KeepOutFacts, "harnessRoot">;
   cpuSeconds: number;
-  memoryBytes: number;
+  run: Readonly<{ lockPath: string; perRun: PerRunCaps }>;
 }>;
 
 /** The engine's source and the repository's `shared/` (the one Markdown parser lives there): the roots of the harness's own confined programs. */
 const HARNESS_PROGRAM_ROOTS = Object.freeze([SOURCE_ROOT, resolve(SOURCE_ROOT, "..", "..", "shared")]);
 
+/**
+ * The confinement of THIS checkout's harness at `harnessRoot`: the host's
+ * keep-out facts, the CPU ceiling, and the run registry its config declares
+ * (`testExecution.instrumentLock`; refused typed when undeclared: no confined
+ * call runs outside the per-run caps).
+ */
+export function configuredConfinement(harnessRoot: string, keepOut: ProjectorConfinement["keepOut"], cpuSeconds: number): ProjectorConfinement {
+  const instrumentLock = readTestExecutionConfig(harnessRoot).instrumentLock;
+  if (instrumentLock === undefined) {
+    throw new HarnessError("testExecution.instrumentLock is not declared in bridlewise.config.json: a confined projection runs only under the per-run caps of an admitted run", "instrument_lock_undeclared");
+  }
+  return deepFreeze({ harnessRoot, keepOut, cpuSeconds, run: { lockPath: instrumentLockPath(instrumentLock, harnessRoot), perRun: instrumentLock.perRun } });
+}
 
 /**
  * THE HOST'S CONFINEMENT of a projection run outside a test: the engine at
  * `engineRoot`, the host's own keep-out facts (its configuration document and
- * every store its key home registers) and the default CPU and memory bounds.
+ * every store its key home registers), the default CPU ceiling, and the
+ * per-run caps of the run it is admitted in ({@link configuredConfinement}).
  * The roadmap feed and the live proving scenarios both compute through it.
  */
 export function hostConfinement(engineRoot: string): ProjectorConfinement {
-  return Object.freeze({
-    harnessRoot: resolve(engineRoot),
-    keepOut: { hostPaths: [engineConfigDocumentPath()], registry: openStoreRegistry(keyHomeLocation()) },
-    cpuSeconds: DEFAULT_PROJECTION_CPU_SECONDS,
-    memoryBytes: DEFAULT_PROJECTION_MEMORY_BYTES,
-  });
+  return configuredConfinement(resolve(engineRoot), { hostPaths: [engineConfigDocumentPath()], registry: openStoreRegistry(keyHomeLocation()) }, DEFAULT_PROJECTION_CPU_SECONDS);
 }
 
 /** The projection's program: `project.ts`'s `projectText`, and the pure modules it imports. */
@@ -154,7 +173,25 @@ function linkProgram(module: ConfinedModule, input: string): string {
 
 /** `module.exportName(input)` computed in its confined process; its text answer, or a typed refusal. */
 export function confinedCall(module: ConfinedModule, input: string, confinement: ProjectorConfinement): string {
-  const result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program: linkProgram(module, input), cpuSeconds: confinement.cpuSeconds, memoryBytes: confinement.memoryBytes });
+  const program = linkProgram(module, input);
+  // The one runner door: admitted at once under the per-run caps (or borrowing the run this process is inside); the program is born in its scope.
+  // A run cut at its memory cap is the admission owner's own refusal at release (`run_memory_cap_exceeded`, read from the scope's memory.events).
+  const hold = admitInstrumentRun(confinement.run.lockPath, `projection: ${module.exportName}`, confinement.run.perRun, SUBPROCESS_BOUNDS);
+  let result: ReturnType<typeof runConfinedNode>;
+  try {
+    try {
+      result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program, cpuSeconds: confinement.cpuSeconds });
+    } catch (error) {
+      hold.release(error);
+      throw error;
+    }
+    // Released with the program's own ending, which a memory refusal carries.
+    hold.release(result.status === "ok" ? undefined : `the confined ${module.exportName} ended ${result.status === "refused" ? `refused (${result.code})` : `with status ${String(result.exitCode)}${result.signal === null ? "" : ` by ${result.signal}`}`}`);
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "run_memory_cap_exceeded") throw error;
+    debugLog("forge", "warn", `confined ${module.exportName} refused: projection_memory_exhausted`, () => ({ entry: module.entry }));
+    throw new HarnessError(`projection_memory_exhausted: the admitted run's memory cap ended it (${(error as Error).message})`, "projection_memory_exhausted");
+  }
   if (result.status === "ok") return result.stdout;
   const fail = (code: string, message: string): never => {
     debugLog("forge", "warn", `confined ${module.exportName} refused: ${code}: ${message}`, () => ({ entry: module.entry }));
@@ -162,8 +199,6 @@ export function confinedCall(module: ConfinedModule, input: string, confinement:
   };
   if (result.status === "refused") return fail("projection_confinement_refused", `${result.code}: ${result.message}`);
   if (result.signal === "SIGKILL" || result.signal === "SIGXCPU") return fail("projection_cpu_exhausted", `the program spent its ${String(confinement.cpuSeconds)} CPU seconds and the kernel ended it (${result.signal})`);
-  // An allocation the address-space ceiling refused: node reports it and ends (an abort, or a caught allocation failure).
-  if (result.signal === "SIGABRT" || /out of memory|allocation failed|\bENOMEM\b/iu.test(result.stderr)) return fail("projection_memory_exhausted", `the program reached its ${String(confinement.memoryBytes)}-byte address-space ceiling`);
   // The line that names the failure: the boundary's EACCES/EPERM, else the error node printed, else its last word.
   const lines = result.stderr.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
   const reason = lines.find((line) => /\b(?:EACCES|EPERM)\b/u.test(line)) ?? lines.find((line) => /(?:^projection_|Error\b)/u.test(line)) ?? lines.at(-1) ?? "";

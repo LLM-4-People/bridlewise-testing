@@ -197,7 +197,7 @@ export const SUITE_WORK_METRIC = "calibrated-work/v1" as const;
  * Null is a real answer: a budget with no measurement behind it must refuse
  * to judge, never judge a zero.
  */
-export function readThreadCpuMs(): number | null {
+function readThreadCpuMs(): number | null {
   if (typeof process.threadCpuUsage !== "function") return null;
   const { user, system } = process.threadCpuUsage();
   return (user + system) / 1000;

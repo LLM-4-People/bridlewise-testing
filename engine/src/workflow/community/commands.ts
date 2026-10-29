@@ -38,10 +38,10 @@ export const COMMANDS = Object.freeze({
     minimumRole: "triager",
     on: ["issue"],
     usage: "/accept <P0-P3> <milestone> [<parent-id>]",
-    summary: "adopt this intake issue: the harness opens a pull request adding its record; when that lands, the issue becomes the record's face",
+    summary: "adopt this intake issue: the harness opens a pull request adding its record",
   },
-  decline: { minimumRole: "triager", on: ["issue"], usage: "/decline <reason>", summary: "record the intake as not planned, with the reason; the issue closes when that record lands" },
-  duplicate: { minimumRole: "triager", on: ["issue"], usage: "/duplicate #<n>", summary: "record the intake as a duplicate of #n; the issue closes when that record lands" },
+  decline: { minimumRole: "triager", on: ["issue"], usage: "/decline <reason>", summary: "record the intake as not planned, with the reason, through a pull request" },
+  duplicate: { minimumRole: "triager", on: ["issue"], usage: "/duplicate #<n>", summary: "record the intake as a duplicate of #n, through a pull request" },
   explain: { minimumRole: "contributor", on: ["pull_request"], usage: "/explain", summary: "the door's explanation of this pull request's verdict: the failing gate, its evidence and its owning record" },
 } as const satisfies Readonly<Record<string, CommandSpec>>);
 
