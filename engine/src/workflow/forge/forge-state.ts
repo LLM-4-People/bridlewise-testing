@@ -117,3 +117,53 @@ export function differences(desired: unknown, live: unknown, path: readonly (str
 export function jsonText(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
+
+/**
+ * GITHUB'S RULESET DEFAULTS: the rule parameters GitHub stores and answers
+ * NOTHING for when they hold their default (measured on the live org,
+ * 2026-10-29; a rule whose parameters all hold theirs comes back with no
+ * `parameters` at all). Each is filled at its default on both sides by
+ * {@link rulesetWithGithubDefaults}, so an omitted default reads as declared
+ * and a non-default value GitHub answers is still a difference.
+ */
+const RULE_PARAMETER_DEFAULTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = deepFreeze({
+  pull_request: { dismissal_restriction: { enabled: false, allowed_actors: [] } },
+  update: { update_allows_fetch_and_merge: false },
+  max_file_size: { ignored_file_paths: [] },
+  file_path_restriction: { ignored_file_paths: [] },
+});
+/** The source GitHub answers for a repository-property condition that names none (an organisation's custom property). */
+const REPOSITORY_PROPERTY_SOURCE = "custom";
+
+/**
+ * THE ONE RULESET NORMALISER, for a declared ruleset and a ruleset GitHub
+ * answers alike: every omitted rule parameter at GitHub's default
+ * ({@link RULE_PARAMETER_DEFAULTS}), a repository-property condition's
+ * omitted `source` as `custom`, and `conditions: null` (a repository
+ * ruleset with none) as absent.
+ */
+export function rulesetWithGithubDefaults<T>(ruleset: T): T {
+  if (typeof ruleset !== "object" || ruleset === null || Array.isArray(ruleset)) return ruleset;
+  const withSource = (entries: unknown): unknown => Array.isArray(entries)
+    ? entries.map((entry) => typeof entry === "object" && entry !== null && !("source" in entry) ? { ...(entry as object), source: REPOSITORY_PROPERTY_SOURCE } : entry)
+    : entries;
+  const conditionsOf = (conditions: Record<string, unknown>): Record<string, unknown> => {
+    const property = conditions.repository_property as Record<string, unknown> | undefined;
+    return property === undefined ? conditions : { ...conditions, repository_property: { ...property, include: withSource(property.include), exclude: withSource(property.exclude) } };
+  };
+  const ruleOf = (rule: unknown): unknown => {
+    const typed = rule as Readonly<{ type?: unknown; parameters?: Record<string, unknown> }>;
+    const defaults = RULE_PARAMETER_DEFAULTS[String(typed.type)];
+    if (defaults === undefined) return rule;
+    // GitHub answers a rule whose parameters all hold their defaults with no `parameters` at all (`{"type":"update"}`).
+    const parameters = typed.parameters ?? {};
+    // A parameter the rule names keeps its value and place; an omitted one is appended at GitHub's default.
+    return { ...typed, parameters: { ...parameters, ...Object.fromEntries(Object.entries(defaults).filter(([name]) => !(name in parameters))) } };
+  };
+  // Each field keeps its place: a null `conditions` is dropped, the rest normalised where they stand.
+  return Object.fromEntries(Object.entries(ruleset as Record<string, unknown>).flatMap(([field, value]) => {
+    if (field === "conditions") return value === null ? [] : [[field, typeof value === "object" ? conditionsOf(value as Record<string, unknown>) : value]];
+    if (field === "rules") return [[field, Array.isArray(value) ? value.map(ruleOf) : value]];
+    return [[field, value]];
+  })) as T;
+}

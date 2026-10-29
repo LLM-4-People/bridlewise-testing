@@ -16,7 +16,7 @@ import { forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
 import { forgeFileSources, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
-import type { ForgeObject } from "../../src/workflow/forge/forge-state.ts";
+import { rulesetWithGithubDefaults, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { maintainerCli } from "../../src/workflow/forge/maintainer-cli.ts";
 import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
@@ -746,5 +746,86 @@ test("a 409 on a security configuration is judged by the attachment states read 
     fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => { if (rollingOut) status = "updating"; return { status: 409, body: { message: "Another enablement event is in progress" } }; });
     const objects = [object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" })];
     await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, rollingOut ? "forge_security_enablement_in_progress" : "github_conflict"), String(rollingOut));
+  }
+});
+
+test("a ruleset GitHub answers with its defaults omitted reads as declared; a real non-default value for each normalised field still shows as a difference", async () => {
+  // As declared: GitHub's stored shape, every omitted default explicit (the declarations run the same normaliser).
+  const baseline = rulesetWithGithubDefaults({
+    name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+    conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }, repository_property: { include: [{ name: "kind", property_values: ["trunk"] }], exclude: [] } },
+    rules: [{ type: "pull_request", parameters: { allowed_merge_methods: ["merge"], required_approving_review_count: 0, required_reviewers: [] } }],
+  });
+  const ledger = rulesetWithGithubDefaults({ name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "update", parameters: {} }] });
+  const policy = rulesetWithGithubDefaults({ name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], rules: [
+    { type: "max_file_size", parameters: { max_file_size: 10 } }, { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**"] } },
+  ] });
+  assert.deepEqual((baseline.conditions.repository_property.include[0] as Record<string, unknown>).source, "custom", "declared explicitly");
+  // GitHub's answers (2026-10-29, live): nothing for a disabled dismissal restriction or a false update_allows_fetch_and_merge, the
+  // property's source named, ignored_file_paths added as [], and conditions null on a repository ruleset that has none.
+  const githubAnswer = (overrides: Readonly<{ dismissal?: unknown; source?: string; fetchAndMerge?: boolean; ignored?: readonly string[] }> = {}) => ({
+    baseline: { id: 1, source_type: "Organization", name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }, repository_property: { include: [{ name: "kind", source: overrides.source ?? "custom", property_values: ["trunk"] }], exclude: [] } },
+      rules: [{ type: "pull_request", parameters: { allowed_merge_methods: ["merge"], required_approving_review_count: 0, required_reviewers: [], ...(overrides.dismissal === undefined ? {} : { dismissal_restriction: overrides.dismissal }) } }] },
+    ledger: { id: 2, source_type: "Repository", name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], conditions: null,
+      rules: [overrides.fetchAndMerge === undefined ? { type: "update" } : { type: "update", parameters: { update_allows_fetch_and_merge: overrides.fetchAndMerge } }] },
+    policy: { id: 3, source_type: "Repository", name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], conditions: null, rules: [
+      { type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: overrides.ignored ?? [] } },
+      { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**"], ignored_file_paths: [] } },
+    ] },
+  });
+  const planOf = async (answer: ReturnType<typeof githubAnswer>) => {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/rulesets`, [answer.baseline], "id", { source_type: "Organization" });
+    fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [answer.ledger, answer.policy], "id", { source_type: "Repository" });
+    return forgePlan(contextOf(fake), [
+      object("org-ruleset", "baseline", baseline, { kind: "org" }),
+      object("ruleset", "ledger", ledger),
+      object("ruleset", "content-policy", policy),
+    ], []);
+  };
+  const asGithubAnswers = await planOf(githubAnswer());
+  for (const [kind, key] of [["org-ruleset", "baseline"], ["ruleset", "ledger"], ["ruleset", "content-policy"]] as const) {
+    const planned = entry(asGithubAnswers, kind, key);
+    assert.equal(planned.action, "unchanged", `${key}: ${JSON.stringify(planned.differences)} ${JSON.stringify(planned.loosening)}`);
+  }
+  // A REAL difference still shows, field by field.
+  for (const [overrides, kind, key] of [
+    [{ dismissal: { enabled: true, allowed_actors: [{ actor_id: 9, actor_type: "Team" }] } }, "org-ruleset", "baseline"],
+    [{ source: "system" }, "org-ruleset", "baseline"],
+    [{ fetchAndMerge: true }, "ruleset", "ledger"],
+    [{ ignored: ["docs/**"] }, "ruleset", "content-policy"],
+  ] as const) {
+    const planned = entry(await planOf(githubAnswer(overrides)), kind, key);
+    assert.equal(planned.action, "update", JSON.stringify(overrides));
+  }
+});
+
+test("a DECLARED non-default value survives the ruleset normaliser and plans an update against GitHub's default, never overwritten by it", async () => {
+  const restricted = { enabled: true, allowed_actors: [{ actor_id: 9, actor_type: "Team" }] };
+  const declared = rulesetWithGithubDefaults({
+    name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+    rules: [{ type: "pull_request", parameters: { required_approving_review_count: 0, dismissal_restriction: restricted } }],
+  });
+  const policy = rulesetWithGithubDefaults({ name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], rules: [
+    { type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: ["docs/**"] } },
+  ] });
+  const ledger = rulesetWithGithubDefaults({ name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "update", parameters: { update_allows_fetch_and_merge: true } }] });
+  // The declaration keeps what it names.
+  assert.deepEqual(declared.rules[0]!.parameters.dismissal_restriction, restricted);
+  assert.deepEqual(policy.rules[0]!.parameters.ignored_file_paths, ["docs/**"]);
+  assert.equal(ledger.rules[0]!.parameters.update_allows_fetch_and_merge, true);
+  // GitHub holding the defaults (each omitted, as it answers them): every one plans an update toward the declared value.
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  fake.collection(`/orgs/${ORG}/rulesets`, [{ id: 1, source_type: "Organization", name: "baseline", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "pull_request", parameters: { required_approving_review_count: 0 } }] }], "id", { source_type: "Organization" });
+  fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [
+    { id: 2, source_type: "Repository", name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], conditions: null, rules: [{ type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: [] } }] },
+    { id: 3, source_type: "Repository", name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], conditions: null, rules: [{ type: "update" }] },
+  ], "id", { source_type: "Repository" });
+  const plan = await forgePlan(contextOf(fake), [object("org-ruleset", "baseline", declared, { kind: "org" }), object("ruleset", "content-policy", policy), object("ruleset", "ledger", ledger)], []);
+  for (const [kind, key] of [["org-ruleset", "baseline"], ["ruleset", "content-policy"], ["ruleset", "ledger"]] as const) {
+    assert.equal(entry(plan, kind, key).action, "update", key);
   }
 });

@@ -79,9 +79,9 @@ test("the declarations: every object once, in apply order, with the plan's unava
   const pushRulesets = objects.filter((entry) => entry.kind === "ruleset" && (entry.desired as { target: string }).target === "push");
   assert.deepEqual(pushRulesets.map((entry) => `${scopeName(entry.scope)}:${entry.key}`), ["bridlewise-coordination:content-policy"]);
   assert.deepEqual((pushRulesets[0]!.desired as { rules: unknown[] }).rules, [
-    { type: "max_file_size", parameters: { max_file_size: 10 } },
+    { type: "max_file_size", parameters: { ignored_file_paths: [], max_file_size: 10 } },
     { type: "file_extension_restriction", parameters: { restricted_file_extensions: ["*.pem", "*.key", "*.env"] } },
-    { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**", "**/tokens/**"] } },
+    { type: "file_path_restriction", parameters: { ignored_file_paths: [], restricted_file_paths: ["**/secrets/**", "**/tokens/**"] } },
   ]);
 });
 
@@ -100,7 +100,8 @@ function specifiedBaseline(stage: "p0" | "door"): unknown {
   return {
     name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
     conditions: {
-      repository_property: { include: [{ name: "kind", property_values: door ? ["trunk", "notes", "evidence", "meta"] : ["trunk"] }], exclude: [] },
+      // GitHub's stored shape: a custom property's condition names its source (GitHub answers it even when a write omits it).
+      repository_property: { include: [{ name: "kind", source: "custom", property_values: door ? ["trunk", "notes", "evidence", "meta"] : ["trunk"] }], exclude: [] },
       ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
     },
     rules: [
