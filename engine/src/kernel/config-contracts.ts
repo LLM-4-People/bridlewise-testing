@@ -170,6 +170,21 @@ export const REPOSITORY_RELATIVE_PATH_SCHEMA = z.string().min(1).max(1024)
 export const WORKSPACE_COMMAND_NAME_SCHEMA = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u);
 
 /**
+ * THE PROMOTION PROFILE NAME RULE, the one owner: a lower-case letter, then
+ * up to 62 lower-case letters, digits and hyphens. A name is also a folder
+ * (the profile's private directory) and a file name, so the rule is what
+ * keeps it ONE path segment: no `/`, no `..`, never absolute. The profile's
+ * own `name` (`workflow/promotion/profile.ts`, which derives `isProfileName`
+ * and the trigger's header check from it) and `promotion.release.profile`
+ * here both name a profile by this one schema; it lives in the kernel beside
+ * the other shared schemas because `profile.ts` imports from here.
+ */
+export const PROMOTION_PROFILE_NAME_SCHEMA = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u);
+
+/** The profile-name rule, spelled for a refusal. */
+export const PROMOTION_PROFILE_NAME_RULE = "a lower-case letter, then up to 62 lower-case letters, digits or hyphens";
+
+/**
  * Whether provider-interaction payload capture is on when the config file
  * does not say. On: the ledger exists to answer "what did the provider
  * actually send and receive?", the payloads are redacted before write, and
@@ -1417,18 +1432,25 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // cache passes through). The cache is otherwise unbounded and measured
     // growing ~950k entries/day (1.97M entries / 20 GB two days after a full
     // clear), ~11.5k of them per run being never-reusable temp-path compiles.
-    // An entry survives a prune iff its mtime is within `maxEntryAgeDays`
-    // AND among the newest `maxEntries` of its cache subdirectory; the prune
-    // runs opportunistically at suite start BEFORE the run's start-stamp
-    // (so the warmth instrument cannot be fabricated by it) and stops at
-    // `timeBudgetMs`, trimming a large backlog over several runs rather
-    // than stalling one. OPTIONAL WITH NO DEFAULT on purpose: a missing
-    // policy object means no pruning plus a printed note naming this key —
-    // a bound nobody chose is not a bound.
+    // THE SHARED V8 COMPILE CACHE'S BOUND (engine/scripts/tooling/
+    // compile-cache.ts): the process that enables the cache prunes it, at most
+    // once per `intervalMinutes`, before anything is compiled — every entry
+    // unused for `maxEntryAgeHours`, then least-recently-used until the cache
+    // holds at most `maxBytes`, never an entry used within `inUseMinutes`
+    // (last use is the later of mtime and atime). Pruning an entry a process
+    // still reads costs that process a recompile, never a wrong result (a
+    // missing cache entry is a cache miss), so the in-use window protects the
+    // live runs' work, not correctness. INCREMENTAL, never timed
+    // (NO-LOAD-BLOCK): one prune deletes at most `maxDeletionsPerPrune`, and
+    // when that left work the next enabler continues at once. OPTIONAL WITH NO DEFAULT on
+    // purpose: a missing policy means no pruning plus a printed note naming
+    // this key — a bound nobody chose is not a bound.
     compileCachePruning: z.strictObject({
-      maxEntryAgeDays: z.number().positive().max(365),
-      maxEntries: z.number().int().positive().max(50_000_000),
-      timeBudgetMs: z.number().int().positive().max(600_000),
+      maxBytes: z.number().int().positive(),
+      maxEntryAgeHours: z.number().positive().max(8_760),
+      inUseMinutes: z.number().int().positive().max(525_600),
+      intervalMinutes: z.number().int().positive().max(10_080),
+      maxDeletionsPerPrune: z.number().int().positive().max(10_000_000),
     }).optional(),
     integrationSuiteCpuBudget: z.union([
       accumulatingCpuBudgetSchema,
@@ -1638,7 +1660,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   const promotionConfigSchema = z.strictObject({
     profileDirectory: repositoryRelativePath,
     release: z.strictObject({
-      profile: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+      profile: PROMOTION_PROFILE_NAME_SCHEMA,
       train: z.enum(RELEASE_TRAIN_MODES),
       minIntervalHours: z.number().int().min(0).max(8760),
       tagPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}$/u),

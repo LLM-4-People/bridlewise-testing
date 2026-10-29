@@ -691,12 +691,6 @@ test("Private receipt observer diagnostics cannot expose the handle or held cred
 });
 
 async function observerTurn(): Promise<void> { await new Promise<void>(resolve => setImmediate(resolve)); }
-/** Real loopback I/O takes more than one turn: take turns (bounded by wall time) until `condition` holds; answers whether it did. */
-async function until(condition: () => boolean, withinMs = 3000): Promise<boolean> {
-  const deadline = performance.now() + withinMs;
-  while (!condition() && performance.now() < deadline) await observerTurn();
-  return condition();
-}
 /**
  * A body whose read FAILS after the status and headers arrived: one byte is
  * sent (so the status line and headers reach the client), then the stream
@@ -819,13 +813,16 @@ for (const observer of ["logger", "metrics"] as const) for (const timing of ["sy
 test("Pending optional observers invoke immediately without holding native results, and late rejection is contained", async t => {
   for (const observer of ["logger", "metrics"] as const) {
     const sink = createCollectingSink(); configureDebugSystem({ ...DEBUG_CONFIG_DEFAULTS, sinks: { enabledSinks: ["collecting"] } }, [sink]); t.after(resetDebugSystem);
-    const gate = Promise.withResolvers<void>(); let invoked = false, settled = false;
-    const callback = () => { invoked = true; return gate.promise; };
+    const gate = Promise.withResolvers<void>(), invoked = Promise.withResolvers<void>();
+    const callback = () => { invoked.resolve(); return gate.promise; };
     const c = client(async () => responseJsonResponse({ content: "done", usage: billedUsage }), observer === "logger" ? { logger: { log: callback } } : {});
-    const outcome = c.create(request, observer === "metrics" ? { metricsSink: callback } : {}).then(value => { settled = true; return value; });
+    const outcome = c.create(request, observer === "metrics" ? { metricsSink: callback } : {});
     try {
-      assert.equal(await until(() => invoked), true); assert.equal(await until(() => settled), true, "optional observers cannot hold the operation");
-      assert.equal((await outcome).content, "done"); assert.equal(c.getQueue().active, 0); assert.equal(c.getStats().totalTokens.total, 10);
+      // Events, never a wall deadline (NO-LOAD-BLOCK): the observer was invoked, and the
+      // operation settles while it is still pending (an observer that held it is a hang,
+      // which the suite's hang backstop names).
+      await invoked.promise;
+      assert.equal((await outcome).content, "done", "optional observers cannot hold the operation"); assert.equal(c.getQueue().active, 0); assert.equal(c.getStats().totalTokens.total, 10);
     } finally { gate.reject(new NetworkError("private-late-observer")); await outcome.catch(() => undefined); }
     await observerTurn();
     assert.equal(getDebugSignals().bestEffortFailures, 1); assert.equal(JSON.stringify(sink.events).includes("private-late-observer"), false);
@@ -856,7 +853,7 @@ test("Private abort reasons remain safe across pre-call, body reads, retry sleep
     const controller = new AbortController(), entered = Promise.withResolvers<void>(), gate = Promise.withResolvers<void>();
     const secret = "private-phase-reason", reason = new NetworkError(secret, { copied: secret });
     // `signal` is the CLIENT's retained lifetime (from the receipt); the upstream's own request signal is not the client's.
-    const state = new ResponseStreamState(); let calls = 0, signal: AbortSignal | null | undefined, settled = false;
+    const state = new ResponseStreamState(); let calls = 0, signal: AbortSignal | null | undefined;
     const c = client(async () => {
       calls++;
       if (phase === "backoff") return json({ error: { message: "unavailable" } }, 503);
@@ -874,10 +871,11 @@ test("Private abort reasons remain safe across pre-call, body reads, retry sleep
     };
     const pending = phase === "sse" ? (async () => { for await (const _ of c.stream(request, options)) {} })()
       : phase === "resume" ? (async () => { for await (const _ of c.resume(state, {}, options)) {} })() : c.create(request, options);
-    const outcome = pending.then(() => { settled = true; return undefined; }, error => { settled = true; return error; });
+    const outcome = pending.then(() => undefined, error => error);
     if (phase !== "pre") { await entered.promise; controller.abort(reason); }
     try {
-      assert.equal(await until(() => settled), true, `${phase} must settle before any callback recovery`);
+      // The settlement is the event awaited, before the gate recovers any callback
+      // (never a wall deadline: a held operation is a hang, named by the hang backstop).
       const error = await outcome; assert.ok(error instanceof LLMError); assert.equal(error.code, "llm_cancelled"); assert.notEqual(error, reason);
       assert.equal(JSON.stringify({ ...error, message: error.message }).includes(secret), false); assert.deepEqual(error.safeDetails, {});
       assert.equal(controller.signal.reason, reason); if (signal) assert.equal(signal.reason, reason);
@@ -891,16 +889,17 @@ test("Private abort reasons remain safe across pre-call, body reads, retry sleep
 test("Public display waits for terminal context while private progress and receipt remain available", async () => {
   const secret = "terminal44private", events = responseEvents({ chunks: ["copied ", secret] });
   const final = events.at(-1)! as { response: Record<string, unknown> }; final.response.metadata = { password: secret };
-  let reached = false; const chunks: import("../../src/shared/llm/client.ts").StreamChunk[] = [];
+  const reached = Promise.withResolvers<void>(); const chunks: import("../../src/shared/llm/client.ts").StreamChunk[] = [];
   let wire!: ReadableStreamDefaultController<Uint8Array>, receipts = 0;
   const encoder = new TextEncoder(), encode = (values: readonly unknown[]) => encoder.encode(values.map(value => `data: ${JSON.stringify(value)}\n\n`).join(""));
   const c = client(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { wire = controller; controller.enqueue(encode(events.slice(0, -1))); } }),
     { headers: { "content-type": "text/event-stream", "x-request-id": secret, "x-ratelimit-remaining-tokens": "4" } }));
   const running = (async () => { for await (const chunk of c.stream(request, { onResponseReceipt() { receipts++; } })) {
-    chunks.push(chunk); if (chunk.type === "response_event" && chunk.event.type === "response.output_item.done") reached = true;
+    chunks.push(chunk); if (chunk.type === "response_event" && chunk.event.type === "response.output_item.done") reached.resolve();
   } })().then(() => ({ error: undefined }), (error: unknown) => ({ error }));
   try {
-    assert.equal(await until(() => reached), true, "private progress must arrive before releasing terminal bytes"); assert.equal(receipts, 1);
+    await reached.promise; // private progress arrives before the terminal bytes are released
+    assert.equal(receipts, 1);
     assert.equal(chunks.some(chunk => ["headers", "content", "refusal", "reasoning", "model"].includes(chunk.type)), false);
     // Private progress arrives before the terminal bytes; a piece is held back only while its end could still grow into
     // this client's held key ("…te" of "terminal44private" may begin "test-http-secret-value"), so its chunking is not a contract.

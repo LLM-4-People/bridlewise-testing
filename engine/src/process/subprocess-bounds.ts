@@ -23,7 +23,7 @@
  * {@link boundedEnding} says how a run that left no answer ended: its exit
  * status, the signal, and which bound fired. Never just "failed".
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncOptions, type SpawnSyncOptionsWithBufferEncoding, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 
 import { ownCpuTimeLimit } from "./process-facts.ts";
 
@@ -36,12 +36,32 @@ export type SubprocessBounds = Readonly<{ cpuLimitSeconds: number; cpuKillGraceS
  * process the backstop ends. A host refusing the limit refuses the run (the
  * shell exits non-zero before the command starts), never a run unbounded.
  */
+/** The shell every bounded run is started through: it sets the CPU limit, then becomes the command. */
+const CPU_LIMIT_SHELL = "/bin/sh";
+
 export function cpuLimitedInvocation(command: string, args: readonly string[], bounds: SubprocessBounds): Readonly<{ command: string; args: readonly string[] }> {
   return {
-    command: "/bin/sh",
+    command: CPU_LIMIT_SHELL,
     args: ["-c", 'ulimit -S -t "$1" && ulimit -H -t "$2" && shift 2 && exec "$@"', "sh",
       String(bounds.cpuLimitSeconds), String(bounds.cpuLimitSeconds + bounds.cpuKillGraceSeconds), command, ...args],
   };
+}
+
+/** What a bounded run may be given: everything but a wall timeout or kill signal of its own (the bounds set those). */
+type BoundedOptions<T extends SpawnSyncOptions> = Omit<T, "timeout" | "killSignal">;
+
+/**
+ * THE ONE BOUNDED SYNCHRONOUS RUN: `command args…` under `bounds`' CPU limit
+ * ({@link cpuLimitedInvocation}), with the hang backstop as its only wall
+ * bound (SIGKILL at it). A caller cannot add a wall timeout of its own. How
+ * a run that failed ended is {@link boundedEnding}'s to say.
+ */
+export function spawnBoundedSync(command: string, args: readonly string[], bounds: SubprocessBounds, options: BoundedOptions<SpawnSyncOptionsWithStringEncoding>): SpawnSyncReturns<string>;
+export function spawnBoundedSync(command: string, args: readonly string[], bounds: SubprocessBounds, options?: BoundedOptions<SpawnSyncOptionsWithBufferEncoding>): SpawnSyncReturns<Buffer>;
+export function spawnBoundedSync(command: string, args: readonly string[], bounds: SubprocessBounds, options: BoundedOptions<SpawnSyncOptions> = {}): SpawnSyncReturns<string | Buffer> {
+  // The executable is the one static shell (a sink the architecture judge models), never a computed name.
+  const invocation = cpuLimitedInvocation(command, args, bounds);
+  return spawnSync(CPU_LIMIT_SHELL, [...invocation.args], { ...options, timeout: bounds.hangBackstopMs, killSignal: "SIGKILL" });
 }
 
 /**

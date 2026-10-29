@@ -35,6 +35,15 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   webUrl: httpsOrigin,
   /** The domain of the forge's project Pages sites (`github.io`): a repository with no `site` of its own is served at `<owner, lower-cased>.<pagesDomain>/<name>/`. */
   pagesDomain: z.string().regex(/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u),
+  /** The uploads origin (`https://uploads.github.com`): release assets are uploaded there as raw bodies. */
+  uploadsUrl: httpsOrigin,
+  /**
+   * The origins a release-asset download may be redirected to. GitHub answers
+   * an asset's bytes with a redirect to a signed URL on its asset hosts. The
+   * client asks that location itself, without the API credential, and only
+   * when its origin is listed here.
+   */
+  assetOrigins: z.array(httpsOrigin).min(1).max(8),
   /** The `User-Agent` every request carries (GitHub requires one). */
   userAgent: z.string().min(1).max(128).regex(/^[\x21-\x7e]+$/u),
   /** Each request's bounds. */
@@ -45,6 +54,28 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     etagCacheEntries: z.number().int().min(1).max(100_000),
     /** The most pages one list read follows (a longer list is refused, never truncated). */
     maxPages: z.number().int().min(1).max(1_000),
+    /**
+     * A release asset's transfer (an upload or a download). It is bounded by
+     * size and by a PROGRESS FLOOR, never by a total wall time: every window
+     * of `progressWindowMs` must move `minBytesPerWindow` bytes (or bring the
+     * far end's answer), so a drip or silence ends (`forge_asset_stalled`),
+     * and a large asset on a loaded host that keeps moving is never cut.
+     */
+    assets: z.strictObject({
+      /** The largest asset uploaded or downloaded (GitHub's own limit is 2 GiB). */
+      maxBytes: z.number().int().min(1_024).max(2_147_483_648),
+      /** The length of one progress window. */
+      progressWindowMs: z.number().int().min(1_000).max(600_000),
+      /** The fewest bytes a window must move. */
+      minBytesPerWindow: z.number().int().min(1).max(1_073_741_824),
+      /**
+       * An upload's last phase: once every byte is handed to the socket, no
+       * byte count observes the kernel's buffers draining or GitHub storing
+       * the asset. GitHub must answer within this declared silence bound
+       * (`forge_asset_unanswered`), which the floor never judges.
+       */
+      answerSilenceMs: z.number().int().min(1_000).max(3_600_000),
+    }),
   }),
   /** An installation token is minted again this long before it expires. */
   tokenRenewBeforeMs: z.number().int().min(0).max(3_000_000),
@@ -238,6 +269,14 @@ export function repositoriesOfKinds(settings: ForgeSettings, kinds: readonly For
 export function forgeEndpoint(settings: ForgeSettings): ForgeEndpoint {
   return deepFreeze({
     apiUrl: settings.apiUrl.replace(/\/$/u, ""),
+    uploadsUrl: settings.uploadsUrl.replace(/\/$/u, ""),
+    assets: {
+      origins: settings.assetOrigins.map((origin) => origin.replace(/\/$/u, "")),
+      maxBytes: settings.request.assets.maxBytes,
+      progressWindowMs: settings.request.assets.progressWindowMs,
+      minBytesPerWindow: settings.request.assets.minBytesPerWindow,
+      answerSilenceMs: settings.request.assets.answerSilenceMs,
+    },
     allowPrivateAddress: false,
     timeoutMs: settings.request.timeoutMs,
     maxResponseBytes: settings.request.maxResponseBytes,

@@ -1459,9 +1459,11 @@ describe("exposure is declared and reachable", () => {
     const filed: Record<string, string> = {
       "testExecution.concurrency": UNION_VALUE_SPACE,
       "testExecution.parallelConcurrency": HOST_DERIVED_DEFAULT,
-      "testExecution.compileCachePruning.maxEntryAgeDays": DEFAULTLESS_BOUND,
-      "testExecution.compileCachePruning.maxEntries": DEFAULTLESS_BOUND,
-      "testExecution.compileCachePruning.timeBudgetMs": DEFAULTLESS_BOUND,
+      "testExecution.compileCachePruning.maxBytes": DEFAULTLESS_BOUND,
+      "testExecution.compileCachePruning.maxEntryAgeHours": DEFAULTLESS_BOUND,
+      "testExecution.compileCachePruning.inUseMinutes": DEFAULTLESS_BOUND,
+      "testExecution.compileCachePruning.intervalMinutes": DEFAULTLESS_BOUND,
+      "testExecution.compileCachePruning.maxDeletionsPerPrune": DEFAULTLESS_BOUND,
       "evaluation.maxOutputTokens":
         "the wiring gap: the matrix generator accepts an output-token knob, but no production path forwards the document's evaluation.maxOutputTokens into it (the evaluation CLI builds its matrix config without the field — engine/src/evaluation/cli.ts:173-174), so a settings row would read as saved and do nothing",
       "testExecution.webUiSuiteCpuBudget":

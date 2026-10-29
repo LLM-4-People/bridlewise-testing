@@ -22,6 +22,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { TRACKER_ITEM_TYPES } from "../../src/workflow/failure-owners.ts";
+import { FORGE_ISSUE_TYPES } from "../../src/workflow/forge/declarations.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { applyProjection, planProjection, projectionFailure } from "../../src/workflow/forge/projector/apply.ts";
@@ -472,4 +474,14 @@ test("writes go by phase before class: a milestone's state is written after ever
   const order = receipt.writes.map((write) => `${write.phase}:${write.class}`);
   const milestoneState = order.indexOf("state:milestone");
   assert.ok(milestoneState > order.lastIndexOf("create:issue"), `the milestone's state (a later class's earlier write would be first by class) comes after every issue create: ${order.join(" ")}`);
+});
+
+test("every issue type the projection writes is one the forge declares: each tracker item type, and MAIN-RED's", () => {
+  const declared = new Set(FORGE_ISSUE_TYPES.map((type) => type.name));
+  const items = TRACKER_ITEM_TYPES.map((type, index) => item(`TYPE-${String(index)}`, type === "Milestone" ? { type, state: null, lane: null } : { type }));
+  const red = [{ workflow: "door", commit: "a".repeat(40), conclusion: "failure" as const, runUrl: "https://github.com/owner/repo/actions/runs/1", failedTests: [{ path: "tests/a.test.ts", message: "boom", owners: [] }] }];
+  const { projection } = computeProjection({ ...input(items), mainRuns: red }, CONFINEMENT);
+  const written = [...new Set(projection.objects.filter((object) => object.class === "issue").map((object) => String(object.fields.type)))].sort();
+  assert.ok(written.includes("Bug") && TRACKER_ITEM_TYPES.every((type) => written.includes(type)), `the projection wrote every type: ${written.join(", ")}`);
+  assert.deepEqual(written.filter((type) => !declared.has(type)), [], "an issue type GitHub has no declaration for is a write the forge cannot keep: declare it in FORGE_ISSUE_TYPES (declarations.ts)");
 });
