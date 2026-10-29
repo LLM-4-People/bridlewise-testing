@@ -159,6 +159,42 @@ export function itemMarker(id: string, digest: string): string {
   return `${MARKER_OPEN}${id}${MARKER_DIGEST}${digest}${MARKER_CLOSE}`;
 }
 
+/** The projector's END of an item's generated region: `<!-- bridlewise:end=<key> -->`, always the last line of the body it writes. */
+const END_OPEN = "<!-- bridlewise:end=";
+function itemEndMarker(key: string): string {
+  return `${END_OPEN}${key}${MARKER_CLOSE}`;
+}
+
+/** What the projector writes between the text above its region (a reporter's, kept exactly) and the region. */
+const REGION_SEPARATOR = "\n\n";
+
+/** An issue body as the projector writes it: `above` exactly (when any), then the generated region, closed by its end marker. */
+export function regionBody(above: string, block: string, key: string): string {
+  return `${above === "" ? "" : `${above}${REGION_SEPARATOR}`}${block}\n${itemEndMarker(key)}`;
+}
+
+/**
+ * The projector's own region of `body`, found STRUCTURALLY, never by parsing
+ * the text above it: the body must END with an end marker (its key), the
+ * region begins at the LAST marker of that key before it, and the text
+ * above is everything before, with the projector's separator. Anything the
+ * text above holds (a marker of any key, a fake end marker) is the text
+ * above's. `null` when the body has no such region (none written yet, or
+ * text written after the projector's end): the caller keeps the whole body.
+ */
+export function generatedRegion(body: string): Readonly<{ key: string; above: string; block: string }> | null {
+  if (!body.endsWith(MARKER_CLOSE)) return null;
+  const endAt = body.lastIndexOf(END_OPEN);
+  if (endAt <= 0 || body[endAt - 1] !== "\n") return null;
+  const key = body.slice(endAt + END_OPEN.length, body.length - MARKER_CLOSE.length);
+  if (key === "" || /\s/u.test(key)) return null;
+  const begin = body.lastIndexOf(`${MARKER_OPEN}${key}${MARKER_DIGEST}`, endAt);
+  if (begin < 0) return null;
+  const before = body.slice(0, begin);
+  if (before !== "" && !before.endsWith(REGION_SEPARATOR)) return null;
+  return { key, above: before === "" ? "" : before.slice(0, -REGION_SEPARATOR.length), block: body.slice(begin, endAt - 1) };
+}
+
 /** Where the first well-formed {@link itemMarker} in `text` begins and the key it names, or `null` when there is none. */
 export function findItemMarker(text: string): Readonly<{ index: number; key: string }> | null {
   for (let index = text.indexOf(MARKER_OPEN); index >= 0; index = text.indexOf(MARKER_OPEN, index + 1)) {

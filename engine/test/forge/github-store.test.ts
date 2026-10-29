@@ -229,6 +229,50 @@ test("a record's gh names its face: the person's issue is adopted, its text kept
   assert.ok(reported.body!.startsWith("Steps:\n1. Save.\n2. It breaks.\n\n<!-- bridlewise:item=ISSUE-7 "), "a rewrite keeps the reporter's text once");
 });
 
+test("the reporter's text is never parsed for markers: a planted marker of another key, of the same key, or a fake end marker leaves it intact, the region is appended, and a second run writes nothing", async () => {
+  const digest = "0".repeat(64);
+  for (const planted of [
+    `Steps.\n<!-- bridlewise:item=OTHER digest=${digest} -->\nStill my text.`,
+    `Steps.\n<!-- bridlewise:item=ISSUE-7 digest=${digest} -->\nStill my text.`,
+    "Steps.\n<!-- bridlewise:end=ISSUE-7 -->\nStill my text.",
+  ]) {
+    const { issues, store } = github();
+    const reported = issues.open({ title: "Planted", body: planted });
+    const record = item("ISSUE-7", { gh: `issue-${String(reported.number)}` });
+    const first = await run(project([record]), store);
+    assert.equal(first.verified, true, JSON.stringify({ planted, refusals: first.refusals, unverified: first.unverified }));
+    assert.ok(reported.body!.startsWith(`${planted}\n\n<!-- bridlewise:item=ISSUE-7 `), `the reporter's text is kept exactly: ${planted}`);
+    assert.ok(reported.body!.endsWith("\n<!-- bridlewise:end=ISSUE-7 -->"), "the projector's region ends the body");
+    const second = await run(project([record]), store, first);
+    assert.deepEqual([second.writes, second.verified], [[], true], planted);
+    // A record change rewrites only the projector's own region: the planted text is still the reporter's, intact.
+    const changed = await run(project([{ ...record, body: "A sharper outcome." }]), store, second);
+    assert.equal(changed.verified, true, JSON.stringify(changed.refusals));
+    assert.ok(reported.body!.startsWith(`${planted}\n\n<!-- bridlewise:item=ISSUE-7 `), `still intact after a rewrite: ${planted}`);
+    assert.match(reported.body!, /A sharper outcome\./u);
+  }
+});
+
+test("the reporter edits their text after adoption: their edit is kept, the region is not written over it, and the run reports the foreign edit typed", async () => {
+  const { issues, store } = github();
+  const reported = issues.open({ title: "It breaks", body: "Original report." });
+  const record = item("ISSUE-7", { gh: `issue-${String(reported.number)}` });
+  const first = await run(project([record]), store);
+  assert.equal(first.verified, true);
+  // The reporter rewrites their text (and leaves the projector's region where it was).
+  reported.body = reported.body!.replace("Original report.", "Edited report, with more.");
+  const edited = await run(project([{ ...record, body: "A changed record." }]), store, first, "auto");
+  assert.ok(reported.body.startsWith("Edited report, with more.\n\n"), "the reporter's edit is kept");
+  assert.doesNotMatch(reported.body, /A changed record\./u, "the region is not written over an edited reporter text");
+  assert.deepEqual(edited.foreignEdits.map((entry) => `${entry.key}:${entry.fields.join(",")}:${entry.action}`), ["ISSUE-7:above:reported"]);
+  assert.equal(projectionFailure(edited)?.code, "projection_drift");
+  // Text written after the projector's end: the whole body is the reporter's; nothing is truncated or written over it.
+  reported.body = `${reported.body}\n\nA note after the generated block.`;
+  const after = await run(project([{ ...record, body: "A changed record." }]), store, edited, "auto");
+  assert.ok(reported.body.endsWith("A note after the generated block."), "nothing is truncated");
+  assert.equal(projectionFailure(after)?.code, "projection_drift");
+});
+
 test("an adoption is refused typed when the record names no issue, a pull request, an issue another record holds, or an item that has the projector's own issue", async () => {
   // Refused at the store's read, before the plan: nothing is written.
   const refusedWith = async (setup: (fake: ReturnType<typeof github>) => Projection, code: string): Promise<void> => {

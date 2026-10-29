@@ -14,30 +14,34 @@
  *     refused typed (`projection_store_duplicate_milestone`). A person's
  *     milestone is GitHub's own, whatever its title, and never written;
  *   - `issue` — an issue THE PROJECTOR OPENED (its author is the publisher
- *     App's bot) whose body carries the projector's marker (`itemMarker`),
- *     keyed by the marker's id. Anyone can open an issue and copy a marker
- *     into it; such an issue is never read as the projector's, so it can
- *     neither take over an item nor halt a run. Only that marker and what
- *     follows it is the git-owned `block`; a reporter's text above it is
- *     GitHub-owned and kept on every write. An issue without the marker is
- *     not the projector's and is not read. Its `parent` is the sub-issue
- *     link, its `blockedBy` the issue dependencies, its `pinned` the
- *     repository's pinned issues; another person's issue in a relation is
- *     spelled `#<number>`, which no key ever is, so it always differs from D.
- *     An ADOPTED issue (D's `adopt`: the issue a record's `gh` names, opened by
- *     anyone) is that item's issue because the record at S says so: it is read
- *     by its number, whatever its author, and its marker block is written
- *     below the reporter's text, which is kept. A number that names no issue
- *     is `projection_store_adopt_missing`, a pull request
- *     `projection_store_adopt_pull_request`, and an item that also has an
- *     issue of the projector's own, or an issue another item already holds,
- *     `projection_store_adopt_conflict` — never two faces for one record.
+ *     App's bot), or one it ADOPTED (D's `adopt`: the issue a record's `gh`
+ *     names, opened by anyone, trusted because the record at S says so).
+ *     Its body is the text above (GitHub-owned, kept EXACTLY) and the
+ *     projector's REGION: its marker (`itemMarker`) through its end marker,
+ *     which always ends the body (`regionBody`). The region is found
+ *     structurally (`generatedRegion`: the end marker that ends the body, the
+ *     last marker of its key before it), never by parsing the text above, so a
+ *     marker of any key or a fake end marker a reporter plants is their text.
+ *     Only the region is the git-owned `block`. An adopted issue's text above
+ *     is the reporter's: its digest is recorded at adoption, and an edit of it
+ *     since (or text written past the projector's end) holds the region and is
+ *     reported, never written over or truncated. Anyone can open an issue and
+ *     copy a marker into it; an issue neither opened nor adopted by the
+ *     projector is never read as its own. Its `parent` is the sub-issue link,
+ *     its `blockedBy` the issue dependencies, its `pinned` the repository's
+ *     pinned issues; another person's issue in a relation is spelled
+ *     `#<number>`, which no key ever is, so it always differs from D.
  *     Its `labels` are names the projector never creates or claims: every
  *     label is declared in `docs/community/labels.json` and applied by
  *     `harness forge apply`. GitHub would create a missing label it is asked
  *     to put on an issue, so the store refuses that write typed
  *     (`projection_label_missing`) and sends each name as GitHub spells it
- *     (its names are case-insensitive).
+ *     (its names are case-insensitive). An adoption is refused typed when the
+ *     number names no issue (`projection_store_adopt_missing`), a pull request
+ *     (`projection_store_adopt_pull_request`), an issue two records name, or
+ *     an item that also has the projector's own issue
+ *     (`projection_store_adopt_conflict`). Locking an issue stops comments,
+ *     not ownership: a locked issue is adopted like any other.
  *
  * The relations and the pin are read in one paginated GraphQL query; every
  * other read is a conditional REST list (an unchanged page costs no rate
@@ -48,7 +52,7 @@ import { compareUtf8Bytes } from "../../../kernel/ordered.ts";
 import type { ForgeClient } from "../port.ts";
 import { FORGE_APPS } from "../app-registry.ts";
 import { repositoryPath } from "../repository-reads.ts";
-import { FIELD_PHASES, findItemMarker, type Fields, type Json, type ProjectionClass } from "./model.ts";
+import { FIELD_PHASES, findItemMarker, generatedRegion, regionBody, type Fields, type Json, type ProjectionClass } from "./model.ts";
 import type { Adoptions, LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
 
 export type GithubStoreOptions = Readonly<{
@@ -87,7 +91,7 @@ type RelationNode = Readonly<{ number: number; isPinned: boolean; parent: Readon
 type RelationsPage = Readonly<{ repository: Readonly<{ issues: Readonly<{ pageInfo: Readonly<{ hasNextPage: boolean; endCursor: string | null }>; nodes: readonly RelationNode[] }> }> | null }>;
 
 /** What the store knows of one projected issue between its reads and writes. */
-type IssueFacts = { number: number; id: number; nodeId: string; body: string; parent: number | null; blockedBy: number[] };
+type IssueFacts = { number: number; id: number; nodeId: string; body: string; above: string; parent: number | null; blockedBy: number[] };
 
 function refuse(code: string, message: string): never {
   throw new HarnessError(`${code}: ${message}`, code);
@@ -149,8 +153,11 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
       // A pull request is no issue; an issue the projector did not open is never its own, marker or not (an adopted one is read below, by its number).
       if (issue.pull_request !== undefined || issue.user?.login !== PROJECTOR_LOGIN || adoptedNumbers.has(issue.number)) return [];
       const body = issue.body ?? "";
+      // The projector's own region, found structurally; a body without one (edited after its end) keeps all its text above.
+      const region = generatedRegion(body);
+      if (region !== null) return [{ issue, key: region.key, block: region.block, above: region.above, adopted: false }];
       const marker = findItemMarker(body);
-      return marker === null ? [] : [{ issue, body, key: marker.key, block: body.slice(marker.index) }];
+      return marker === null ? [] : [{ issue, key: marker.key, block: "", above: body, adopted: false }];
     });
     const byNumber = new Map(all.map((issue) => [issue.number, issue]));
     for (const [key, number] of [...adoptions].sort(([left], [right]) => compareUtf8Bytes(left, right))) {
@@ -161,19 +168,20 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
       if (own !== undefined) refuse("projection_store_adopt_conflict", `${key} has the projector's own issue #${String(own.issue.number)} and its record names #${String(number)}: one record, one face`);
       const holder = [...adoptions].find(([other, value]) => value === number && other !== key);
       if (holder !== undefined) refuse("projection_store_adopt_conflict", `#${String(number)} is named by the records of both ${key} and ${holder[0]}`);
+      // The reporter's text is never parsed for markers: only the projector's own region (ending the body, of this key) is
+      // its block; before the first one, and after any text written past the projector's end, the whole body is the reporter's.
       const body = issue.body ?? "";
-      const marker = findItemMarker(body);
-      // The adopted issue's block is what follows the marker once written; before that it carries none.
-      marked.push({ issue, body, key, block: marker === null ? "" : body.slice(marker.index) });
+      const region = generatedRegion(body);
+      marked.push(region !== null && region.key === key ? { issue, key, block: region.block, above: region.above, adopted: true } : { issue, key, block: "", above: body, adopted: true });
     }
-    for (const { issue, key } of marked) {
+    for (const { issue, key, above } of marked) {
       if (keyOfNumber.has(issue.number)) continue;
       if (issues.has(key)) refuse("projection_store_duplicate_marker", `#${String(issues.get(key)!.number)} and #${String(issue.number)} both carry ${key}'s marker`);
       keyOfNumber.set(issue.number, key);
-      issues.set(key, { number: issue.number, id: issue.id, nodeId: issue.node_id, body: issue.body ?? "", parent: null, blockedBy: [] });
+      issues.set(key, { number: issue.number, id: issue.id, nodeId: issue.node_id, body: issue.body ?? "", above, parent: null, blockedBy: [] });
     }
     const related = await relations();
-    return marked.map(({ issue, key, block }) => {
+    return marked.map(({ issue, key, block, above, adopted }) => {
       const relation = related.get(issue.number);
       const facts = issues.get(key)!;
       facts.parent = relation?.parent?.number ?? null;
@@ -191,7 +199,8 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
         stateReason: closed ? issue.state_reason : null,
         pinned: relation?.isPinned ?? false,
       };
-      return { class: "issue", key, owned: true, fields };
+      // An adopted issue's text above is the reporter's: the apply algorithm keeps its digest and never writes over an edit of it.
+      return adopted ? { class: "issue", key, owned: true, fields, above } : { class: "issue", key, owned: true, fields };
     });
   }
 
@@ -223,14 +232,12 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   }
 
   /** The REST body of an issue's own fields (`title`, `block`, `type`, `labels`, `milestone`, `state`, `stateReason`). */
-  function issueBody(key: string, fields: Fields, previousBody: string): Record<string, unknown> {
+  function issueBody(key: string, fields: Fields, above: string): Record<string, unknown> {
     const body: Record<string, unknown> = {};
     if ("title" in fields) body.title = fields.title;
     if ("block" in fields) {
-      // The reporter's text above the marker is GitHub-owned: it is kept (an adopted issue's whole text, before its first block).
-      const marker = findItemMarker(previousBody);
-      const above = marker === null ? (previousBody === "" ? "" : `${previousBody.replace(/\s+$/u, "")}\n\n`) : previousBody.slice(0, marker.index);
-      body.body = `${above}${String(fields.block)}`;
+      // The text above the projector's region is GitHub-owned and kept EXACTLY (as read); only the region is rewritten.
+      body.body = regionBody(above, String(fields.block), key);
     }
     if ("type" in fields) body.type = fields.type;
     if ("labels" in fields) body.labels = existingLabels(fields.labels!, key);
@@ -247,12 +254,12 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     }
     if (write.kind === "create") {
       const created = await client.rest<RestIssue>({ method: "POST", path: `${base}/issues`, body: issueBody(write.key, write.fields, "") });
-      issues.set(write.key, { number: created.data.number, id: created.data.id, nodeId: created.data.node_id, body: created.data.body ?? "", parent: null, blockedBy: [] });
+      issues.set(write.key, { number: created.data.number, id: created.data.id, nodeId: created.data.node_id, body: created.data.body ?? "", above: "", parent: null, blockedBy: [] });
       keyOfNumber.set(created.data.number, write.key);
       return;
     }
     const facts = issueFacts(write.key);
-    const own = issueBody(write.key, write.fields, facts.body);
+    const own = issueBody(write.key, write.fields, facts.above);
     if (Object.keys(own).length > 0) {
       const updated = await client.rest<RestIssue>({ method: "PATCH", path: `${base}/issues/${String(facts.number)}`, body: own });
       facts.body = updated.data.body ?? facts.body;

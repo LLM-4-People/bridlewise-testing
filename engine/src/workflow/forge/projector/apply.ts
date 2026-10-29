@@ -108,6 +108,8 @@ export type ApplyOptions = Readonly<{
 }>;
 
 const id = (object: Readonly<{ class: ProjectionClass; key: string }>): string => `${object.class}/${object.key}`;
+/** The receipt's name for an adopted issue's text above its region (the reporter's): no projected field is called this. */
+const ABOVE = "above";
 const same = (left: Json | undefined, right: Json | undefined): boolean => left !== undefined && right !== undefined && canonicalJson(left) === canonicalJson(right);
 
 /** The digest of one field's value (an absent field reads as null). */
@@ -207,6 +209,15 @@ export async function applyProjection(projection: Projection, store: ProjectionS
       auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "deleted", mode: options.foreignEdit, action });
       continue;
     }
+    // An adopted issue's text above is the reporter's: edited since the digest the previous run recorded, the region is not
+    // written over it — reported, never truncated, whatever the mode (it is no record's field to restore or propose).
+    const aboveRecorded = baseline?.[ABOVE];
+    const aboveEdited = current.above !== undefined && aboveRecorded !== undefined && valueDigest(current.above) !== aboveRecorded;
+    if (aboveEdited) {
+      foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: [ABOVE], mode: options.foreignEdit, action: "reported" });
+      heldFields.set(id(object), new Set(["block"]));
+      auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: [ABOVE], mode: options.foreignEdit, action: "reported" });
+    }
     const edited = Object.keys(object.fields).filter((field) => {
       if (same(current.fields[field], object.fields[field])) return false;
       const recorded = baseline?.[field];
@@ -224,7 +235,7 @@ export async function applyProjection(projection: Projection, store: ProjectionS
     if (recorded.length === 0) continue;
     foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: recorded, mode: options.foreignEdit, action });
     if (options.foreignEdit === "approval") proposals.push({ class: object.class, key: object.key, change: "edited", fields: Object.fromEntries(recorded.map((field) => [field, current.fields[field] ?? null])) });
-    if (options.foreignEdit !== "auto") heldFields.set(id(object), new Set(recorded));
+    if (options.foreignEdit !== "auto") heldFields.set(id(object), new Set([...(heldFields.get(id(object)) ?? []), ...recorded]));
     auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: recorded, mode: options.foreignEdit, action });
   }
   const planned = planProjection(projection, live);
@@ -272,10 +283,14 @@ export async function applyProjection(projection: Projection, store: ProjectionS
     if (heldObjects.has(id(object))) return [[id(object), recorded ?? {}]];
     // Never seen on GitHub (a write still pending): nothing is recorded, so the next run creates it rather than judging it deleted.
     if (seen === undefined && recorded === undefined) return [];
-    return [[id(object), Object.fromEntries(Object.keys(object.fields).map((field) => {
+    const fields = Object.keys(object.fields).map((field): [string, string] => {
       const keep = heldFields.get(id(object))?.has(field) === true ? recorded?.[field] : undefined;
       return [field, keep ?? valueDigest(seen?.fields[field])];
-    }))]];
+    });
+    // An adopted issue's text above: its digest as first captured, kept while an edit of it is held, else as observed.
+    const held = heldFields.get(id(object))?.has("block") === true && recorded?.[ABOVE] !== undefined;
+    const above: [string, string][] = seen?.above === undefined ? [] : [[ABOVE, held ? recorded![ABOVE]! : valueDigest(seen.above)]];
+    return [[id(object), Object.fromEntries([...fields, ...above])]];
   }));
   const receipt: ProjectionReceipt = deepFreeze({
     schema: PROJECTION_RECEIPT_SCHEMA,

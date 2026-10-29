@@ -27,6 +27,12 @@ export type LiveObject = Readonly<{
    * person's issue is GitHub's own.
    */
   owned: boolean;
+  /**
+   * An ADOPTED issue only: the text above the projector's region, the
+   * reporter's, exactly. The apply algorithm records its digest and never
+   * writes the region over an edit of it (a foreign edit, reported).
+   */
+  above?: string;
 }>;
 
 /** One write: create an object with its `create` fields, set some fields of an existing one, or post a notice on it (an issue comment: `fields.text`). */
