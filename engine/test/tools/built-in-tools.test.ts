@@ -196,13 +196,25 @@ test("exec-cmd: result is frozen", async () => {
   assert.ok(Object.isFrozen(result));
 });
 
-test("exec-cmd: git command is allowed", async () => {
-  const tool = createExecuteCommandTool();
-  const result = await tool.execute(
-    { toolId: "execute_command", arguments: { command: "git", args: ["--version"] } },
-    defaultContext,
-  );
-  assert.equal(result.isError, false);
+test("exec-cmd: git is refused, typed, in every spelling the door can be handed — its needs go through the git tools", async () => {
+  // Even a list that names them: the door judges what the command reaches, not only its name.
+  const tool = createExecuteCommandTool({ allowedCommands: ["git", "/usr/bin/git", "env", "sh", "find", "rg", "fd", "sort"] });
+  for (const [command, args, code] of [
+    ["git", ["commit", "-m", "x"], "tool_command_reaches_git"],
+    ["/usr/bin/git", ["commit", "-m", "x"], "tool_command_reaches_git"],
+    ["env", ["git", "commit", "-m", "x"], "tool_command_launches_programs"],
+    ["sh", ["-c", "git commit -m x"], "tool_command_launches_programs"],
+    ["find", [".", "-exec", "git", "commit", "-m", "x", ";"], "tool_command_argument_launches_program"],
+    ["rg", ["--pre=git", "x"], "tool_command_argument_launches_program"],
+    ["fd", ["-Hx", "git", "commit"], "tool_command_argument_launches_program"],
+    ["sort", ["--compress-program=git", "a"], "tool_command_argument_launches_program"],
+  ] as const) {
+    await assert.rejects(
+      tool.execute({ toolId: "execute_command", arguments: { command, args: [...args] } }, defaultContext),
+      (error: unknown) => (error as { code?: string }).code === code,
+      `${command} ${args.join(" ")}`,
+    );
+  }
 });
 
 test("exec-cmd: CONF-5 custom allowedCommands permit only configured commands", async () => {
@@ -212,10 +224,10 @@ test("exec-cmd: CONF-5 custom allowedCommands permit only configured commands", 
     defaultContext,
   );
   assert.equal(ok.isError, false);
-  // git is NOT in the custom list → rejected even though it is in the default list
+  // ls is NOT in the custom list → rejected even though it is in the default list
   await assert.rejects(
     tool.execute(
-      { toolId: "execute_command", arguments: { command: "git", args: ["--version"] } },
+      { toolId: "execute_command", arguments: { command: "ls", args: ["-a"] } },
       defaultContext,
     ),
   );
@@ -240,7 +252,7 @@ test("exec-cmd: CONF-5 createBuiltInToolAdapters passes allowedCommands through"
   assert.equal(ok.isError, false);
   await assert.rejects(
     adapters.executeCommand.execute(
-      { toolId: "execute_command", arguments: { command: "git" } },
+      { toolId: "execute_command", arguments: { command: "ls" } },
       defaultContext,
     ),
   );

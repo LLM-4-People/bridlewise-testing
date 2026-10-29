@@ -7,6 +7,7 @@ import { deepFreeze, generateId } from "../kernel/integrity.ts";
 import { bestEffort } from "../shared/best-effort.ts";
 import { guarded } from "../process/fault-policy.ts";
 import type { ToolAdapter, ToolAdapterContext, ToolAdapterInput, ToolAdapterResult } from "./tool-adapter.ts";
+import { commandReachRefusal } from "./command-reach.ts";
 // THE ADAPTER IDENTIFIERS AND THE TIMEOUT RULE LIVE WITH THE MANIFEST, and
 // this module consumes them. The direction is deliberate: the manifest is
 // data and must stay reachable without dragging a subprocess along with it,
@@ -56,7 +57,7 @@ const MAX_ARGS = 64;
 const MAX_ARG_LENGTH = 4_096;
 
 const DEFAULT_ALLOWED_COMMANDS = deepFreeze([
-  "node", "npm", "npx", "git", "ls", "cat", "echo", "pwd", "wc",
+  "node", "npm", "npx", "ls", "cat", "echo", "pwd", "wc",
   "head", "tail", "grep", "find", "rg", "fd", "sort", "uniq", "diff",
   "tsc", "eslint", "prettier", "python3", "python", "pip", "pip3",
   "cargo", "go", "rustc", "gcc", "make", "cmake", "jq", "sha256sum",
@@ -338,6 +339,8 @@ export function createExecuteCommandTool(options: ExecuteCommandOptions = {}): E
         );
       }
       assertNoShellMetachars(command, "command");
+      // What the command can REACH, not only its name (src/tools/command-reach.ts): git by any spelling, a
+      // program launcher, or an argument that launches a program — each refused, typed, before it runs.
       const cmdArgs = Array.isArray(args.args) ? args.args : [];
       if (cmdArgs.length > MAX_ARGS) {
         throw new InputError("Too many arguments", "tool_arguments_oversized");
@@ -347,6 +350,8 @@ export function createExecuteCommandTool(options: ExecuteCommandOptions = {}): E
           throw new InputError("Each argument must be a string within length limits", "tool_argument_invalid");
         }
       }
+      const reach = commandReachRefusal(command, cmdArgs as readonly string[], commandEnvironment().PATH);
+      if (reach !== null) throw new SecurityError(reach.message, reach.code);
       const cwd = typeof args.cwd === "string" && args.cwd.length > 0 ? args.cwd : context.repositoryRoot;
       if (Buffer.byteLength(cwd, "utf8") > MAX_CWD_BYTES) {
         throw new InputError("cwd exceeds maximum length", "tool_argument_oversized");
@@ -362,6 +367,11 @@ export function createExecuteCommandTool(options: ExecuteCommandOptions = {}): E
       return runCommand(command, cmdArgs, cwd, context, input.toolId, timeoutMs);
     },
   });
+}
+
+/** The child's environment: a PROJECTION, never this process's whole environment (see runCommand). */
+function commandEnvironment(): Record<string, string | undefined> {
+  return { ...projectEnvironment(process.env, COMMAND_ENVIRONMENT) };
 }
 
 function runCommand(
@@ -434,7 +444,7 @@ function runCommand(
         // A PROJECTION, never this process's whole environment: the model
         // picks the command, and `{ ...process.env }` handed it every key and
         // token the harness holds (cfg-audit P13, cred-audit F21).
-        env: { ...projectEnvironment(process.env, COMMAND_ENVIRONMENT) },
+        env: commandEnvironment(),
       });
     } catch (error) {
       resolved = true;

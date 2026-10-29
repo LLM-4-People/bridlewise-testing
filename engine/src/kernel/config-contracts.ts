@@ -44,6 +44,7 @@ import { ROOT_POLICY } from "./root-policy.ts";
 import { MCP_SERVER_ID_MAX_CHARACTERS, MCP_SERVER_ID_PATTERN } from "../mcp/tool-name.ts";
 import { relativePathViolationKinds } from "../filesystem/path-boundary.ts";
 import { AGENT_TYPE_IDS } from "../agents/agent-type-registry.ts";
+import { allowedCommandNameRefusal } from "./command-names.ts";
 import { HISTORY_KEPT, SUITE_LEDGER_NAMES } from "../shared/run-history.ts";
 import { MEMORY_SEARCH_ENGINE_KINDS } from "../memory/memory-types.ts";
 import { INTELLIGENCE_SETTING_NAMES } from "../intelligence/intelligence-config.ts";
@@ -881,6 +882,12 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
       const cmds = new Set(config.allowedCommands);
       if (cmds.size !== config.allowedCommands.length) {
         ctx.addIssue({ code: "custom", message: "allowed commands must be unique", path: ["allowedCommands"] });
+      }
+      // A name no list may hold: git (its needs go through the harness's git tools) and a program launcher
+      // (allowing one allows every program). The same judgement the execute_command doors ask.
+      for (const [index, command] of config.allowedCommands.entries()) {
+        const refusal = allowedCommandNameRefusal(command);
+        if (refusal !== null) ctx.addIssue({ code: "custom", message: `${refusal.message} (${refusal.code})`, path: ["allowedCommands", index] });
       }
     }
   });

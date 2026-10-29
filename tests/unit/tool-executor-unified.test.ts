@@ -187,12 +187,12 @@ describe("unified executor — execute_command", () => {
   });
 
   test("rejects a command not in the allowed list", async () => {
-    // `sudo` is neither allowed nor a file-mutation primitive, so this is the
+    // `whoami` is neither allowed, nor a file-mutation primitive, nor a program launcher, so this is the
     // allowlist's own refusal rather than the mutation gate's. `rm` used to be
     // the subject and now answers with the more specific reason below, which
     // is a stronger message, not a weaker one — so the two gates are asserted
     // apart instead of one assertion being loosened to cover both.
-    const res = await executeToolCall("execute_command", { command: "sudo" }, ctx);
+    const res = await executeToolCall("execute_command", { command: "whoami" }, ctx);
     expect(res.success).toBe(false);
     expect(res.output).toContain("not in the allowed list");
   });
@@ -212,18 +212,20 @@ describe("unified executor — execute_command", () => {
 
   // the allowed list is now config-driven. Commands NOT
   // in the config's `tools.allowedCommands` are rejected with a typed error.
-  // `rm`, `dd`, `sudo`, `chmod` are definitively not in the config's list.
+  // `rm`, `dd`, `sudo`, `chmod` are definitively not in the config's list; `sudo` runs any program, so the
+  // reach gate (engine/src/tools/command-reach.ts) owns its refusal.
   test("rejects commands not in the config's allowed list (config-driven)", async () => {
     // Each command is checked against the gate that OWNS it, so a refusal
     // arriving for the wrong reason still fails. Asserting only `success ===
     // false` would let either gate cover for the other's absence.
     const { SHELL_FILE_MUTATION_COMMANDS } = await import("../../server/tools/tool-executor.ts");
+    const { PROGRAM_LAUNCHERS } = await import("../../engine/src/kernel/command-names.ts");
     let checked = 0;
     for (const cmd of ["rm", "dd", "sudo", "chmod", "shutdown", "mkfs"]) {
       const res = await executeToolCall("execute_command", { command: cmd, args: ["x"] }, ctx);
       expect(res.success, `command '${cmd}' should be rejected (not in config allowedCommands)`).toBe(false);
       expect(res.output, `'${cmd}' was refused for the wrong reason`).toContain(
-        SHELL_FILE_MUTATION_COMMANDS.has(cmd) ? "write set" : "not in the allowed list",
+        SHELL_FILE_MUTATION_COMMANDS.has(cmd) ? "write set" : PROGRAM_LAUNCHERS.has(cmd) ? "(tool_command_launches_programs)" : "not in the allowed list",
       );
       checked += 1;
     }
