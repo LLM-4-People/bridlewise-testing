@@ -46,6 +46,7 @@ type TestEvent = Readonly<{
     todo?: unknown;
     success?: unknown;
     nesting?: unknown;
+    message?: unknown;
     duration_ms?: unknown;
     details?: Readonly<{
       duration_ms?: unknown;
@@ -110,6 +111,13 @@ export type InventoryTestAccounting = Readonly<{
    * canonical-JSON encodable for fixture consumers.
    */
   fileDurations: readonly TestFileDuration[];
+  /**
+   * Each test's CPU work as its own process judged it (the `cpu-work N ms`
+   * diagnostic engine-test-bounds.ts reports after the test), named
+   * `<file>::<name>` like a failure, sorted by identity. Empty for a run
+   * that does not judge CPU (coverage).
+   */
+  testCpu: readonly Readonly<{ identity: string; cpuMs: number }>[];
   runnerSummaryObserved: boolean;
   runnerSuccessful: boolean;
   passed: boolean;
@@ -577,6 +585,10 @@ export function createInventoryTestAccountant(
   let allSummariesSuccessful = true;
   let allSummariesHaveCounts = true;
   const fileDurationsMs = new Map<string, number>();
+  // A test's CPU diagnostic follows its terminal event and names no test,
+  // only its file and line: the terminal event names the test at that place.
+  const identityAtPlace = new Map<string, string>();
+  const testCpuMs = new Map<string, number>();
   const aggregateSummaryCounts = { tests: 0, failed: 0, passed: 0, cancelled: 0, skipped: 0, todo: 0 };
 
   const observe = (event: TestEvent): void => {
@@ -628,6 +640,15 @@ export function createInventoryTestAccountant(
           fileDurationsMs.set(summarySourceId, durationMs);
         }
       }
+    }
+    if ((event.type === "test:pass" || event.type === "test:fail") && inventoryId && data?.file && data.name) {
+      const fileId = sourceIdForFile(root, data.file);
+      if (fileId !== undefined) identityAtPlace.set(`${data.file}:${String(data.line)}`, `${fileId}::${data.name}`);
+    }
+    if (event.type === "test:diagnostic" && data?.file && typeof data.message === "string") {
+      const reading = /^cpu-work (\d+) ms;/u.exec(data.message);
+      const identity = identityAtPlace.get(`${data.file}:${String(data.line)}`);
+      if (reading !== null && identity !== undefined) testCpuMs.set(identity, Number(reading[1]));
     }
     if (event.type === "test:enqueue" && inventoryId) {
       const state = lifecycle.get(inventoryId);
@@ -844,6 +865,9 @@ export function createInventoryTestAccountant(
       fileDurations: [...fileDurationsMs.entries()]
         .map(([file, durationMs]) => ({ file, durationMs }))
         .toSorted((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0),
+      testCpu: [...testCpuMs.entries()]
+        .map(([identity, cpuMs]) => ({ identity, cpuMs }))
+        .toSorted((left, right) => left.identity < right.identity ? -1 : left.identity > right.identity ? 1 : 0),
       runnerSummaryObserved: summaryEvents === 1,
       runnerSuccessful: normalizedRunnerSummary.successful,
       passed,
