@@ -76,8 +76,9 @@ export function bootstrappedWorker(entry: URL | string, role: WorkerThreadRole, 
 // The entry is imported WITHOUT a top-level await: the entry's own graph may
 // import this module again (the server's hub re-exports `bootstrappedWorker`),
 // and a module awaiting inside an import cycle never settles. An entry that
-// fails to load is reported and ends the thread with exit 70, which its owner
-// sees as any thread that stopped before it was ready.
+// fails to load is reported and the thread's exit code set to 70 (never a
+// hard exit: nothing else of the thread is running, so it ends with that
+// code), which its owner sees as any thread that stopped before it was ready.
 const boot = isMainThread ? undefined : (workerData as Readonly<Record<string, unknown>> | null | undefined)?.[WORKER_BOOT_KEY];
 if (boot !== undefined) {
   const record = boot as Partial<WorkerBoot>;
@@ -88,6 +89,6 @@ if (boot !== undefined) {
   const entry = record.entry;
   void import(entry).then(undefined, (error: unknown) => {
     reportAlwaysOn("process", `a worker thread's entry failed to load: ${describeFaultLine(error)}`, { entry, role: record.role });
-    process.exit(PROCESS_FAULT_EXIT_CODE);
+    process.exitCode = PROCESS_FAULT_EXIT_CODE;
   });
 }
