@@ -299,26 +299,40 @@ const FORK_APPROVAL_STRICTNESS: Readonly<Record<string, number>> = { first_time_
  * THE ORGANISATION'S POLICY OVER REPOSITORY SETTINGS: each repository field
  * an organisation setting binds, with whether a declared value is allowed
  * under the organisation's value (`allows`, judged only when the organisation
- * answers one) and whether GitHub then refuses ANY repository write of the
- * field, even the same value (`locks`: commit sign-off, 422 "Commit signoff
- * is enforced by the organization and cannot be disabled").
+ * answers one; `"unknown"` for a value of either side the forge does not know,
+ * which is refused, never read permissively) and whether GitHub then refuses
+ * ANY repository write of the field, even the same value (`locks`: commit
+ * sign-off, 422 "Commit signoff is enforced by the organization and cannot be
+ * disabled").
  */
 export type OrgPolicyRule = Readonly<{
   kind: ForgeObjectKind;
   field: string;
   source: OrgPolicySource;
   orgField: string;
-  allows: (declared: unknown, org: unknown) => boolean;
+  allows: (declared: unknown, org: unknown, answer: Readonly<Record<string, unknown>>, repository: string) => boolean | "unknown";
   locks?: (org: unknown) => boolean;
 }>;
 export const ORG_POLICY_RULES: readonly OrgPolicyRule[] = Object.freeze([
   { kind: "repository-settings", field: "web_commit_signoff_required", source: "organization", orgField: "web_commit_signoff_required", allows: (declared, org) => org !== true || declared === true, locks: (org) => org === true },
-  { kind: "actions-permissions", field: "enabled", source: "actions-permissions", orgField: "enabled_repositories", allows: (declared, org) => org !== "none" || declared !== true },
-  { kind: "actions-permissions", field: "allowed_actions", source: "actions-permissions", orgField: "allowed_actions", allows: (declared, org) => (ACTIONS_BREADTH[String(declared)] ?? Infinity) <= (ACTIONS_BREADTH[String(org)] ?? Infinity) },
+  // Actions on for a repository the organisation does not enable them for: none, or `selected` without it.
+  { kind: "actions-permissions", field: "enabled", source: "actions-permissions", orgField: "enabled_repositories", allows: (declared, org, answer, repository) => {
+    if (declared !== true || org === "all") return true;
+    if (org === "none") return false;
+    if (org !== "selected" || !Array.isArray(answer.selected_repositories)) return "unknown";
+    return answer.selected_repositories.includes(repository);
+  } },
+  { kind: "actions-permissions", field: "allowed_actions", source: "actions-permissions", orgField: "allowed_actions", allows: (declared, org) => {
+    const [mine, theirs] = [ACTIONS_BREADTH[String(declared)], ACTIONS_BREADTH[String(org)]];
+    return mine === undefined || theirs === undefined ? "unknown" : mine <= theirs;
+  } },
   { kind: "actions-permissions", field: "sha_pinning_required", source: "actions-permissions", orgField: "sha_pinning_required", allows: (declared, org) => org !== true || declared === true },
   { kind: "actions-workflow", field: "default_workflow_permissions", source: "actions-workflow", orgField: "default_workflow_permissions", allows: (declared, org) => org !== "read" || declared === "read" },
   { kind: "actions-workflow", field: "can_approve_pull_request_reviews", source: "actions-workflow", orgField: "can_approve_pull_request_reviews", allows: (declared, org) => org !== false || declared === false },
-  { kind: "actions-fork-approval", field: "approval_policy", source: "fork-approval", orgField: "approval_policy", allows: (declared, org) => (FORK_APPROVAL_STRICTNESS[String(declared)] ?? -1) >= (FORK_APPROVAL_STRICTNESS[String(org)] ?? Infinity) },
+  { kind: "actions-fork-approval", field: "approval_policy", source: "fork-approval", orgField: "approval_policy", allows: (declared, org) => {
+    const [mine, theirs] = [FORK_APPROVAL_STRICTNESS[String(declared)], FORK_APPROVAL_STRICTNESS[String(org)]];
+    return mine === undefined || theirs === undefined ? "unknown" : mine >= theirs;
+  } },
   { kind: "immutable-releases", field: "enabled", source: "immutable-releases", orgField: "enforced_repositories", allows: (declared, org) => org !== "all" || declared === true },
 ] satisfies readonly OrgPolicyRule[]);
 
@@ -326,7 +340,12 @@ export const ORG_POLICY_RULES: readonly OrgPolicyRule[] = Object.freeze([
 export async function organisationPolicy(context: LiveContext, kinds: ReadonlySet<ForgeObjectKind>): Promise<ReadonlyMap<OrgPolicySource, Readonly<Record<string, unknown>>>> {
   const sources = [...new Set(ORG_POLICY_RULES.filter((rule) => kinds.has(rule.kind)).map((rule) => rule.source))];
   const answers = await Promise.all(sources.map(async (source) => [source, await getOrAbsent<Record<string, unknown>>(context, `${orgPath(context)}${ORG_POLICY_PATHS[source]}`)] as const));
-  return new Map(answers.flatMap(([source, answer]) => answer === undefined ? [] : [[source, answer] as const]));
+  return new Map(await Promise.all(answers.flatMap(([source, answer]) => answer === undefined ? [] : [(async () => {
+    // Actions enabled for SELECTED repositories only: the selection, by name, beside the answer.
+    if (source !== "actions-permissions" || answer.enabled_repositories !== "selected") return [source, answer] as const;
+    const selected = await list<{ name?: unknown }>(context, `${orgPath(context)}/actions/permissions/repositories`, (data) => (data as { repositories?: { name?: unknown }[] }).repositories ?? []);
+    return [source, { ...answer, selected_repositories: selected.flatMap((repository) => typeof repository.name === "string" ? [repository.name] : []) }] as const;
+  })()])));
 }
 
 /** The attachment statuses that mean GitHub is still rolling the configuration out (it refuses another change meanwhile). */

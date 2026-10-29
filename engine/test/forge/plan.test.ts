@@ -111,7 +111,7 @@ test("one object's refusal is that object's (plan, permission); a budget refusal
     object("immutable-releases", REPO, { enabled: true }),
   ];
   fake.objects.set(`/repos/${ORG}/${REPO}/actions/permissions/workflow`, { default_workflow_permissions: "read" });
-  fake.refuseNext({ path: /^\/repos\/.*\/actions\/permissions$/u }, { status: 403, message: "Upgrade to GitHub Pro or make this repository public to enable this feature." });
+  fake.refuseNext({ path: new RegExp(`^/repos/${ORG}/${REPO}/actions/permissions$`, "u") }, { status: 403, message: "Upgrade to GitHub Pro or make this repository public to enable this feature." });
   // The allowed-actions list answers 409 until "selected" is on (measured live): it reads as not declared yet, a create.
   objects.push(object("actions-selected", REPO, { github_owned_allowed: true, verified_allowed: false, patterns_allowed: [] }));
   fake.refuseNext({ path: /\/actions\/permissions\/selected-actions$/u }, { status: 409, message: "Selected actions are not enabled for this repository." });
@@ -659,6 +659,8 @@ test("a repository setting the organisation enforces: a contradicting declaratio
 test("every organisation policy over a declared repository setting is judged at plan time: a weaker repository value is refused, an equal or stricter one passes", async () => {
   const cases: readonly (readonly [string, ForgeObject["kind"], Record<string, unknown>, string, Record<string, unknown>, boolean])[] = [
     ["Actions off", "actions-permissions", { enabled: true }, "actions/permissions", { enabled_repositories: "none" }, true],
+    ["an allowed-actions value the forge does not know", "actions-permissions", { allowed_actions: "selected" }, "actions/permissions", { allowed_actions: "enterprise_only" }, true],
+    ["a fork-approval value the forge does not know", "actions-fork-approval", { approval_policy: "first_time_contributors" }, "actions/permissions/fork-pr-contributor-approval", { approval_policy: "new_policy" }, true],
     ["all actions under selected", "actions-permissions", { allowed_actions: "all" }, "actions/permissions", { allowed_actions: "selected" }, true],
     ["selected actions under all", "actions-permissions", { allowed_actions: "selected" }, "actions/permissions", { allowed_actions: "all" }, false],
     ["no SHA pinning under pinning", "actions-permissions", { sha_pinning_required: false }, "actions/permissions", { sha_pinning_required: true }, true],
@@ -677,6 +679,35 @@ test("every organisation policy over a declared repository setting is judged at 
     fake.objects.set(`/orgs/${ORG}/${orgPath}`, orgAnswer);
     const planned = entry(await forgePlan(contextOf(fake), [object(kind, REPO, desired)], []), kind, REPO);
     assert.equal(planned.code === "forge_org_policy_contradicted", refusedExpected, `${name}: ${planned.action} ${planned.code ?? ""}`);
+  }
+  // Actions enabled for SELECTED repositories only: a repository outside the selection with Actions declared on is refused.
+  for (const [selection, refusedExpected] of [[[REPO, "other"], false], [["other"], true]] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.objects.set(`/orgs/${ORG}/actions/permissions`, { enabled_repositories: "selected", allowed_actions: "all" });
+    fake.objects.set(`/orgs/${ORG}/actions/permissions/repositories`, { total_count: selection.length, repositories: selection.map((name) => ({ name })) });
+    const planned = entry(await forgePlan(contextOf(fake), [object("actions-permissions", REPO, { enabled: true })], []), "actions-permissions", REPO);
+    assert.equal(planned.code === "forge_org_policy_contradicted", refusedExpected, selection.join(","));
+  }
+});
+
+test("only an enablement still in progress is deferred: any other write error (a 422, a 409 whose states read settled) surfaces at once, and no later object is written", async () => {
+  for (const failure of ["422", "409 settled"] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", secret_scanning: "disabled" }], "id");
+    fake.route("GET", /^\/orgs\/[^/]+\/code-security\/configurations\/31\/repositories$/u, () => ({ status: 200, body: [{ status: "enforced", repository: { id: 7, name: REPO } }] }));
+    fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => (failure === "422"
+      ? { status: 422, body: { message: "Validation Failed" } }
+      : { status: 409, body: { message: "Conflict" } }));
+    const later: string[] = [];
+    fake.route("PUT", /\/immutable-releases$/u, () => { later.push("written"); return undefined; });
+    const objects = [
+      object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" }),
+      object("immutable-releases", REPO, { enabled: true }),
+    ];
+    await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, failure === "422" ? "github_validation_failed" : "github_conflict"), failure);
+    assert.deepEqual(later, [], `${failure}: surfaced at once, never deferred past a later write`);
   }
 });
 

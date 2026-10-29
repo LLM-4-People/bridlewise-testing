@@ -125,7 +125,9 @@ function orgPolicyVerdict(object: ForgeObject, body: unknown, policies: readonly
     for (const policy of policies) {
       const org = policy.get(rule.source)?.[rule.orgField];
       if (org === undefined) continue;
-      if (!rule.allows(declared[rule.field], org)) contradicted.push(`${rule.field} ${JSON.stringify(declared[rule.field])} (the organisation's ${rule.orgField} is ${JSON.stringify(org)})`);
+      const allowed = rule.allows(declared[rule.field], org, policy.get(rule.source)!, object.scope.repository);
+      if (allowed === "unknown") contradicted.push(`${rule.field} ${JSON.stringify(declared[rule.field])} under the organisation's ${rule.orgField} ${JSON.stringify(org)}, a combination the forge does not know`);
+      else if (!allowed) contradicted.push(`${rule.field} ${JSON.stringify(declared[rule.field])} (the organisation's ${rule.orgField} is ${JSON.stringify(org)})`);
       if (rule.locks?.(org) === true) locked.add(rule.field);
     }
   }
