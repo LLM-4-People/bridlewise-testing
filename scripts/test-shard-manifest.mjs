@@ -32,6 +32,7 @@ import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "no
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { isEntryPoint } from "../engine/src/runtime/entry-point.ts";
 import { TEST_INCLUDE } from "../tests/test-include.ts";
+import { readSourceView } from "../engine/scripts/verification/source-view.ts";
 
 export const WEIGHTS_SCHEMA = "bridlewise-test-shard-weights/v1";
 /** The weights file, repository-relative: written only by `measure`. */
@@ -137,7 +138,8 @@ export function manifestHash(files) {
 }
 
 /** A test file's own exclusion line; any other mention of the tag is a malformed declaration. */
-const EXCLUSION_LINE = /^[ \t]*(?:\/\/|\*)[ \t]*@shard-exclude:[ \t]*(\S.*?)[ \t]+\(evidence:[ \t]*(\S.*?)\)[ \t]*$/gmu;
+/** One line of a leading comment that declares the exclusion (a `//` line, or a line of a block comment). */
+const EXCLUSION_LINE = /^[ \t]*(?:\/\/|\/\*+|\*)?[ \t]*@shard-exclude:[ \t]*(\S.*?)[ \t]+\(evidence:[ \t]*(\S.*?)\)[ \t]*(?:\*\/)?[ \t]*$/u;
 const EXCLUSION_MENTION = /@shard-exclude\b/gu;
 
 /** Every file the runner's include binding selects in the tree at `root`, repository-relative and sorted. */
@@ -149,17 +151,35 @@ export function selectedTestFiles(root) {
 }
 
 /**
- * The exclusion a test file declares in its own text, or null. Exactly one
- * well-formed `@shard-exclude:` line, with a reason and its evidence; a second
- * line, or a mention that is not a well-formed line, is refused (a typo must
- * never silently make a file supported, nor two reasons one).
+ * The exclusion a test file declares, or null — read through the one source
+ * reader (`engine/scripts/verification/source-view.ts`): its comments and its
+ * code, never its raw text. The declaration is accepted ONLY as one line of the
+ * file's LEADING comment block (the comments before its first statement):
+ *
+ *   // @shard-exclude: <why it cannot be judged here> (evidence: <where that is recorded>)
+ *
+ * Any other mention — a later comment, a string or template, a second tag, a
+ * malformed line — is refused, so a misplaced tag is loud, never silently
+ * honoured (a template string quoting the tag once took a file out of every
+ * shard) and never silently ignored.
  */
-export function declaredExclusion(text, path) {
-  const lines = [...text.matchAll(EXCLUSION_LINE)];
-  const mentions = [...text.matchAll(EXCLUSION_MENTION)].length;
-  if (mentions !== lines.length) fail(`exclusion: ${path} mentions @shard-exclude outside a well-formed "@shard-exclude: <reason> (evidence: <evidence>)" line`);
-  if (lines.length > 1) fail(`exclusion: ${path} declares more than one @shard-exclude line`);
-  return lines.length === 0 ? null : { path, reason: lines[0][1], evidence: lines[0][2] };
+export function declaredExclusion(view, path) {
+  const code = view.code();
+  const first = code.search(/\S/u);
+  const firstStatementLine = first === -1 ? Number.POSITIVE_INFINITY : view.lineAt(first);
+  const comments = view.prose();
+  const declarations = comments
+    .filter((comment) => comment.line < firstStatementLine)
+    .flatMap((comment) => comment.text.split("\n"))
+    .map((line) => EXCLUSION_LINE.exec(line))
+    .filter((match) => match !== null);
+  const mentions = comments.reduce((count, comment) => count + [...comment.text.matchAll(EXCLUSION_MENTION)].length, 0) +
+    view.matches(EXCLUSION_MENTION, "codeWithStringsAndTemplates").length;
+  if (mentions !== declarations.length) {
+    fail(`exclusion: ${path} mentions @shard-exclude outside a well-formed "@shard-exclude: <reason> (evidence: <evidence>)" line of its leading comment block`);
+  }
+  if (declarations.length > 1) fail(`exclusion: ${path} declares more than one @shard-exclude line`);
+  return declarations.length === 0 ? null : { path, reason: declarations[0][1], evidence: declarations[0][2] };
 }
 
 function readWeights(root, weightsPath) {
@@ -189,7 +209,7 @@ export function readShardPopulation(root, weightsPath = resolve(root, WEIGHTS_PA
   const repositoryRoot = resolve(root);
   const selected = selectedTestFiles(repositoryRoot);
   const excluded = selected.flatMap((path) => {
-    const exclusion = declaredExclusion(readFileSync(resolve(repositoryRoot, path), "utf8"), path);
+    const exclusion = declaredExclusion(readSourceView(resolve(repositoryRoot, path)), path);
     return exclusion === null ? [] : [exclusion];
   });
   const excludedPaths = new Set(excluded.map((entry) => entry.path));

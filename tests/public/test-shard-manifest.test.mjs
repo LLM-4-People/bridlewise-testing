@@ -22,6 +22,7 @@ import {
   wrapShardReport,
 } from "../../scripts/test-shard-manifest.mjs";
 import { mergeShardReports } from "../../scripts/test-shard-merge.mjs";
+import { sourceViewOf } from "../../engine/scripts/verification/source-view.ts";
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -223,19 +224,23 @@ test("a zero weight is refused by the owner, not read as a measured weight", () 
   }
 });
 
-test("a test file declares its own exclusion in one well-formed header line; a malformed or repeated one is refused, never read as supported", () => {
+test("a test file declares its own exclusion only in its leading comment block; anywhere else, malformed or repeated, it is refused — never honoured, never ignored", () => {
   const tag = "@shard" + "-exclude";
-  assert.deepEqual(
-    declaredExclusion(`// ${tag}: needs a WSL host (evidence: docs/floor/roadmap.md#snapshot)\nexport {};\n`, "tests/unit/x.test.ts"),
-    { path: "tests/unit/x.test.ts", reason: "needs a WSL host", evidence: "docs/floor/roadmap.md#snapshot" },
-  );
-  assert.equal(declaredExclusion("export {};\n", "tests/unit/x.test.ts"), null);
-  assert.throws(() => declaredExclusion(`// ${tag} needs a WSL host\n`, "tests/unit/x.test.ts"), /mentions @shard-exclude outside a well-formed/u);
-  assert.throws(() => declaredExclusion(`// ${tag}: no evidence named\n`, "tests/unit/x.test.ts"), /outside a well-formed/u);
-  assert.throws(
-    () => declaredExclusion(`// ${tag}: one (evidence: a)\n// ${tag}: two (evidence: b)\n`, "tests/unit/x.test.ts"),
-    /more than one @shard-exclude line/u,
-  );
+  const read = (text) => declaredExclusion(sourceViewOf(text, "tests/unit/x.test.ts"), "tests/unit/x.test.ts");
+  const declared = { path: "tests/unit/x.test.ts", reason: "needs a WSL host", evidence: "docs/floor/roadmap.md#snapshot" };
+  assert.deepEqual(read(`// ${tag}: needs a WSL host (evidence: docs/floor/roadmap.md#snapshot)\nexport {};\n`), declared);
+  assert.deepEqual(read(`// @vitest-environment node\n/**\n * ${tag}: needs a WSL host (evidence: docs/floor/roadmap.md#snapshot)\n */\nexport {};\n`), declared, "a line of a leading block comment");
+  assert.equal(read("export {};\n"), null);
+  for (const [why, text] of [
+    ["inside a template string", `export {};\nconst fixture = \`// ${tag}: quoted (evidence: x)\`;\n`],
+    ["inside a string", `export const s = "// ${tag}: quoted (evidence: x)";\n`],
+    ["in a comment after the first statement", `export {};\n// ${tag}: too late (evidence: x)\n`],
+    ["malformed: no colon", `// ${tag} needs a WSL host\nexport {};\n`],
+    ["malformed: no evidence", `// ${tag}: no evidence named\nexport {};\n`],
+  ]) {
+    assert.throws(() => read(text), /mentions @shard-exclude outside a well-formed .* line of its leading comment block/u, why);
+  }
+  assert.throws(() => read(`// ${tag}: one (evidence: a)\n// ${tag}: two (evidence: b)\nexport {};\n`), /more than one @shard-exclude line/u);
 });
 
 test("the population is derived from the tree: a new file is supported and planned at the median weight, a deleted file's weight is ignored", () => {
