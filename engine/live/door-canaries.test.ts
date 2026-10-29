@@ -65,3 +65,11 @@ test("the shard manifest's listing (scripts/testing/test-listing.mjs) runs vites
   const listed = await listThroughTheDoor(project);
   assert.deepEqual(JSON.parse(listed.stdout), [{ file: "EROFS" }], listed.stdout);
 });
+
+test("an inherited run-scratch variable is refused outside a confined run: a launcher cannot name its own writable scratch (round 2, #12, #13)", () => {
+  // A folder outside the checkout the launcher would have had bound writable on the variable's word.
+  const named = createTempDir("door-canary-inherited-scratch-");
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", join(ENGINE, "scripts", "tooling", "test-guards.ts"), CANARY], { cwd: ENGINE, encoding: "utf8", env: { ...RUNNER_ENV, BRIDLEWISE_TEST_SCRATCH: named } });
+  assert.notEqual(run.status, 0, `the run started on an inherited scratch:\n${run.stdout.slice(-800)}`);
+  assert.match(`${run.stdout}${run.stderr}`, /test_run_scratch_unconfined/u);
+});

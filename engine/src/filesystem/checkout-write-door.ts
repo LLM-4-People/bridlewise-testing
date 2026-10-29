@@ -101,7 +101,7 @@
  * primitive that must commit with a raw `rename` (the journaled multi-file
  * commit) asks the door first.
  */
-import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
+import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -534,7 +534,37 @@ export function assertCheckoutWriteAllowed(path: string): void {
  */
 export function enclosingTestRunScratch(): string | undefined {
   const scratch = process.env[POLICY.scratchEnvironmentVariable];
-  return scratch === undefined || scratch.length === 0 ? undefined : scratch;
+  if (scratch === undefined || scratch.length === 0) return undefined;
+  // PROVEN, never taken on the variable's word: a launcher that inherited it (a stale export, a phase environment)
+  // would hand the supervisor any folder outside the checkout as the run's writable scratch, and a hand-set one would
+  // let vitest start outside the door. Only a process the kernel already confines (its own tree read-only) has one.
+  if (!kernelConfinesThisProcess()) {
+    throw new SecurityError(
+      `${POLICY.scratchEnvironmentVariable} is set (${scratch}) but this process is in no confined test run: its own tree ` +
+      `(${OWN_TREE}) is writable. Unset it; a run's scratch is made by the one test-execution door (runTestCommand), never inherited`,
+      TEST_RUN_SCRATCH_UNCONFINED_CODE,
+    );
+  }
+  return scratch;
+}
+
+/** The refusal of a scratch variable outside a confined run (see `enclosingTestRunScratch`). */
+export const TEST_RUN_SCRATCH_UNCONFINED_CODE = "test_run_scratch_unconfined";
+
+/** This module's own tree (the engine folder): read-only to a confined run, whatever checkout it is. */
+const OWN_TREE = fileURLToPath(new URL("../..", import.meta.url));
+
+/** Whether the kernel refuses a write to this module's own tree as a read-only filesystem: the confinement's own proof. */
+function kernelConfinesThisProcess(): boolean {
+  try {
+    accessSync(OWN_TREE, constants.W_OK);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EROFS") return true;
+    if (code === "EACCES" || code === "EPERM") return false;
+    throw error;
+  }
 }
 
 export type TestRunScratch = Readonly<{

@@ -37,16 +37,18 @@
  * refused the same way (L-2026-09-29-targeted-runs-need-a-private-key-home).
  */
 
-import { globSync, statSync } from "node:fs";
+import { globSync, lstatSync, realpathSync, statSync } from "node:fs";
 
 import { InputError } from "../../src/kernel/errors.ts";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { testRunSuiteOf } from "../../src/filesystem/checkout-write-door.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { repositoryToplevel } from "../../src/git/repository-ownership.ts";
+import { gitOutput, type GitRepository } from "../../src/git/tree-reader.ts";
+import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { runTestCommand, superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
@@ -161,6 +163,17 @@ export async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // A live run is unconfined, so its files are the REVIEWED live set only: each committed (through the hooks, where the
+  // pinned live set is checked), byte-for-byte its committed content, and of one name (never a hard link of a hermetic
+  // test). An untracked copy, an edited file or a link is refused here, before anything runs (review of #634, #14).
+  if (suite === "live") {
+    const unreviewed = unreviewedLiveFiles(configuredGitRepository({}, ENGINE_ROOT), door.files);
+    if (unreviewed.length > 0) {
+      process.stderr.write(`[test-guards] REFUSED (test_live_suite_unreviewed: a live run is unconfined and runs only the committed live set; commit the file first:\n${unreviewed.map((line) => `  ${line}`).join("\n")})\n`);
+      process.exitCode = 1;
+      return;
+    }
+  }
   const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: door.files.length });
   // UNDER THE NATIVE SUPERVISOR (adopted into the run this door admitted): a
   // door killed outright leaves its `node --test` stopped with every process
@@ -206,4 +219,24 @@ export async function main(): Promise<void> {
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
   await main();
+}
+
+/**
+ * The live files of `files` that are NOT the reviewed live set, each with why: not committed at HEAD, not its
+ * committed content, or a file of more than one name (a hard link aliasing another test). Empty when every file is the
+ * committed one.
+ */
+export function unreviewedLiveFiles(repository: GitRepository, files: readonly string[]): readonly string[] {
+  const top = gitOutput(repository, ["rev-parse", "--show-toplevel"]).stdout.toString("utf8").trim();
+  return files.flatMap((file) => {
+    const path = realpathSync(file);
+    const named = relative(top, path).split(sep).join("/");
+    if (lstatSync(path).nlink > 1) return [`${named}: has more than one name (a hard link)`];
+    // `<mode> blob <oid>\t<path>` when HEAD holds it (the path from the top, taken literally), nothing when it does not.
+    const entry = gitOutput(repository, ["--literal-pathspecs", "ls-tree", "--full-tree", "HEAD", "--", named]).stdout.toString("utf8");
+    const committed = /^\d+ blob ([0-9a-f]+)\t/u.exec(entry)?.[1];
+    if (committed === undefined) return [`${named}: not committed`];
+    const present = gitOutput(repository, ["hash-object", "--", path]).stdout.toString("utf8").trim();
+    return present === committed ? [] : [`${named}: differs from its committed content`];
+  });
 }

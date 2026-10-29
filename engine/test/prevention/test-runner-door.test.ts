@@ -42,12 +42,14 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
-import { doorNodeArgs, doorRun } from "../../scripts/tooling/test-guards.ts";
+import { doorNodeArgs, doorRun, unreviewedLiveFiles } from "../../scripts/tooling/test-guards.ts";
+import { configuredGitRepository } from "../../src/git/worktree-port.ts";
+import { createRepoWithCommit, withGitAdapter } from "../support/git-fixtures.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
@@ -289,4 +291,27 @@ test("the LIVE door runs only the live suite, unconfined: a run mixing a hermeti
     assert.equal(loaded.status, 1, flag);
     assert.ok(String(loaded.stderr).includes("test_live_suite_code_flag"), `${flag}: ${String(loaded.stderr)}`);
   }
+});
+
+test("the live door runs only the reviewed live set: an untracked copy, an edited file and a hard link are each refused, the committed file admitted (planted; review of #634, #14)", () => {
+  withGitAdapter((git, _runtime, root) => {
+    const repository = createRepoWithCommit(git, root, "live-set", { readmeContent: "committed live test" });
+    const committed = join(repository, "README.md");
+    const handle = configuredGitRepository({}, repository);
+    assert.deepEqual(unreviewedLiveFiles(handle, [committed]), [], "the committed file is the reviewed one");
+    const untracked = join(repository, "copy.test.ts");
+    writeFileSync(untracked, "an untracked copy");
+    assert.deepEqual(unreviewedLiveFiles(handle, [untracked]), ["copy.test.ts: not committed"]);
+    const linked = join(repository, "linked.test.ts");
+    linkSync(untracked, linked);
+    assert.deepEqual(unreviewedLiveFiles(handle, [linked]), ["linked.test.ts: has more than one name (a hard link)"]);
+    writeFileSync(committed, "edited after review");
+    assert.deepEqual(unreviewedLiveFiles(handle, [committed]), ["README.md: differs from its committed content"]);
+  });
+});
+
+test("the live door's refusal of an unreviewed live file sits before the run starts (its wiring, read from the door's source)", () => {
+  const door = readSourceView(new URL("../../scripts/tooling/test-guards.ts", import.meta.url).pathname).code();
+  const check = door.indexOf("unreviewedLiveFiles(configuredGitRepository(");
+  assert.ok(check !== -1 && check < door.indexOf("enforceTestRunLock(runner"), "the live door no longer checks the reviewed live set before it runs");
 });
