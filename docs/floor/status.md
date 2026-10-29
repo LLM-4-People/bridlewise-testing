@@ -32,7 +32,7 @@ This page shows the last generated snapshot of the floor and its promotion pair.
   </div>
 
   <div data-status-state="ready" hidden>
-    <div class="callout warning" data-status-fallback role="status" hidden></div>
+    <div class="callout warning" data-status-fallback data-volatile role="status" hidden></div>
     <div class="callout" data-status-stale role="status" hidden>
       <p><strong>This snapshot is stale.</strong> It predates the deployed page beyond the build window. Treat every field as historical, not current.</p>
     </div>

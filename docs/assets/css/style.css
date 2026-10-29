@@ -596,7 +596,7 @@ main dd {
   font: inherit;
   position: absolute;
   inset-inline-start: 0;
-  top: 0.35em;
+  top: 0.4em;
   margin: 0;
   accent-color: var(--ok);
 }
