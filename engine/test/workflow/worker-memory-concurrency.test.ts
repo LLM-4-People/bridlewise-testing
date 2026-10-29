@@ -12,7 +12,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { memoryBoundedConcurrency } from "../../src/workflow/workflow-config.ts";
-import { measureWorkerMemory, workerMemoryOf } from "../../scripts/tooling/worker-memory.ts";
+import { measureWorkerMemory, workerMemoryOf, workerPeaksOf } from "../../scripts/tooling/worker-memory.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const GIB = 1024 ** 3;
@@ -20,12 +20,14 @@ const CONFIGURED = { parallel: 12, inProcessSerial: 4, subprocessSerial: 8 };
 
 test("under a cap, the worker count is floor(cap / (measured peak x headroom)); within it, the configured counts", () => {
   // A hosted runner: 16 GiB, the run capped at half; a worker peaking at 1 GiB with 2x headroom: 4 fit.
-  const memory = { measuredPeakBytes: GIB, measuredFile: "test/x.test.ts", headroomFactor: 2 };
+  const memory = { measuredPeakBytes: GIB, measuredFile: "test/x.test.ts", headroomFactor: 2, runnerPeakBytes: 0 };
   assert.deepEqual(memoryBoundedConcurrency(CONFIGURED, 8 * GIB, memory), { parallel: 4, inProcessSerial: 1, subprocessSerial: 3, serialTiersTogether: true });
   // A larger host fits the configured counts whole.
   assert.deepEqual(memoryBoundedConcurrency(CONFIGURED, 64 * GIB, memory), { parallel: 12, inProcessSerial: 4, subprocessSerial: 8, serialTiersTogether: true });
   // A smaller measured peak fits more workers on the same cap.
   assert.deepEqual(memoryBoundedConcurrency(CONFIGURED, 8 * GIB, { ...memory, measuredPeakBytes: GIB / 2 }), { parallel: 8, inProcessSerial: 2, subprocessSerial: 6, serialTiersTogether: true });
+  // The runner's measured share (with the headroom) comes off the cap first: 8 GiB less 2 x 1 GiB holds 3 such workers.
+  assert.deepEqual(memoryBoundedConcurrency(CONFIGURED, 8 * GIB, { ...memory, runnerPeakBytes: GIB }), { parallel: 3, inProcessSerial: 1, subprocessSerial: 2, serialTiersTogether: true });
   // When one worker of each serial tier does not fit at once, the tiers run one after the other.
   assert.deepEqual(memoryBoundedConcurrency(CONFIGURED, 3 * GIB, { ...memory, measuredPeakBytes: 1.5 * GIB }), { parallel: 1, inProcessSerial: 1, subprocessSerial: 1, serialTiersTogether: false });
 });
@@ -37,7 +39,7 @@ test("a run with no cap of its own keeps the configured counts; a capped run wit
 
 test("a test file whose measured peak with its headroom passes the whole cap is a finding naming that file, never a raised cap", () => {
   assert.throws(
-    () => memoryBoundedConcurrency(CONFIGURED, 8 * GIB, { measuredPeakBytes: 5 * GIB, measuredFile: "test/heavy.test.ts", headroomFactor: 2 }),
+    () => memoryBoundedConcurrency(CONFIGURED, 8 * GIB, { measuredPeakBytes: 5 * GIB, measuredFile: "test/heavy.test.ts", headroomFactor: 2, runnerPeakBytes: 0 }),
     (error: unknown) => (error as { code?: unknown }).code === "worker_memory_over_share" && (error as Error).message.startsWith("test/heavy.test.ts alone peaks at "),
   );
 });
@@ -55,25 +57,35 @@ test("the suite's run planning derives its counts through that one owner, from t
 test("the declared peak is the largest measured reading over the suite's files; an unmeasured file counts at the median and is listed; a reading whose file left is ignored", () => {
   const policy = { headroomFactor: 1.5, maxUnmeasuredShare: 0.25 };
   const listed: string[][] = [];
-  const declared = workerMemoryOf({ "test/a.test.ts": 100, "test/b.test.ts": 300, "test/c.test.ts": 200, "test/gone.test.ts": 9_000 }, ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "test/new.test.ts"], policy, (files) => listed.push([...files]));
-  assert.deepEqual(declared, { measuredPeakBytes: 300, measuredFile: "test/b.test.ts", headroomFactor: 1.5 });
+  const declared = workerMemoryOf({ "test/a.test.ts": 100, "test/b.test.ts": 300, "test/c.test.ts": 200, "test/gone.test.ts": 9_000 }, 50, ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "test/new.test.ts"], policy, (files) => listed.push([...files]));
+  assert.deepEqual(declared, { measuredPeakBytes: 300, measuredFile: "test/b.test.ts", headroomFactor: 1.5, runnerPeakBytes: 50 });
   assert.deepEqual(listed, [["test/new.test.ts"]]);
 });
 
 test("past the declared unmeasured share the measurement is STALE and refused; a receipt missing a suite file is a partial measurement, refused", () => {
   const policy = { headroomFactor: 1.5, maxUnmeasuredShare: 0.25 };
   assert.throws(
-    () => workerMemoryOf({ "test/a.test.ts": 100 }, ["test/a.test.ts", "test/new-1.test.ts", "test/new-2.test.ts"], policy, () => undefined),
+    () => workerMemoryOf({ "test/a.test.ts": 100 }, 0, ["test/a.test.ts", "test/new-1.test.ts", "test/new-2.test.ts"], policy, () => undefined),
     (error: unknown) => (error as { code?: unknown }).code === "worker_memory_stale" && (error as Error).message.includes("2 of 3 test files have no measured peak"),
   );
   const root = createTempDir("worker-memory-measure-");
   mkdirSync(join(root, "traceability"), { recursive: true });
   const receipt = join(root, "receipt.json");
-  writeFileSync(receipt, JSON.stringify({ schemaVersion: "bridlewise-worker-memory-receipt/v1", measuredAt: "2026-10-29T00:00:00.000Z", runner: { totalMemoryBytes: 17_000_000_000, cpus: 4, kernel: "6.8.0" }, capBytes: 8_500_000_000, files: { "test/a.test.ts": 100 } }));
+  writeFileSync(receipt, JSON.stringify({ schemaVersion: "bridlewise-worker-memory-receipt/v1", measuredAt: "2026-10-29T00:00:00.000Z", runner: { totalMemoryBytes: 17_000_000_000, cpus: 4, kernel: "6.8.0" }, capBytes: 8_500_000_000, runnerPeakBytes: 400_000_000, files: { "test/a.test.ts": 100 } }));
   assert.throws(() => measureWorkerMemory(root, receipt, ["test/a.test.ts", "test/b.test.ts"]), (error: unknown) => (error as { code?: unknown }).code === "worker_memory_partial");
   const written = measureWorkerMemory(root, receipt, ["test/a.test.ts"]);
   const measurement = JSON.parse(readFileSync(written, "utf8")) as { schemaVersion: string; runner: { cpus: number }; files: Record<string, number> };
   assert.equal(measurement.schemaVersion, "bridlewise-worker-memory/v1");
   assert.equal(measurement.runner.cpus, 4, "the measurement names the runner it was measured on");
   assert.deepEqual(measurement.files, { "test/a.test.ts": 100 });
+});
+
+test("each file's peak is READ FROM THE SCOPE for the leaf it named; a stranger cgroup or a vanished leaf is a test hiding its memory, refused typed", () => {
+  const scope = { runPeakBytes: 700, workerPeakBytes: new Map([[11, 300], [12, 900]]), strangers: [] as string[] };
+  assert.deepEqual(workerPeaksOf([{ file: "test/a.test.ts", pid: 11 }, { file: "test/b.test.ts", pid: 12 }], scope), {
+    files: [{ file: "test/a.test.ts", peakBytes: 300 }, { file: "test/b.test.ts", peakBytes: 900 }],
+    runPeakBytes: 700,
+  });
+  assert.throws(() => workerPeaksOf([{ file: "test/a.test.ts", pid: 11 }], { ...scope, strangers: ["hidden"] }), (error: unknown) => (error as { code?: unknown }).code === "worker_memory_dodged" && (error as Error).message.includes("(hidden)"));
+  assert.throws(() => workerPeaksOf([{ file: "test/c.test.ts", pid: 13 }], scope), (error: unknown) => (error as { code?: unknown }).code === "worker_memory_dodged" && (error as Error).message.startsWith("test/c.test.ts named worker leaf worker-13"));
 });

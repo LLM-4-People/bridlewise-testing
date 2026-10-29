@@ -333,18 +333,20 @@ export const DEFAULT_FULL_SUITE_PARALLEL_CONCURRENCY = 12 as const;
 /**
  * THE MEASURED PEAK MEMORY OF ONE ENGINE TEST WORKER (`testExecution.workerMemory`):
  * the largest `memory.peak` a test file's own leaf of the run's scope reached
- * in a recorded run (its children included), the file that reached it, and
- * the headroom every worker is given over it.
+ * in a recorded run (its children included), the file that reached it, the
+ * headroom every worker is given over it, and the runner leaf's measured
+ * peak, which the cap holds before any worker.
  */
-export type WorkerMemory = Readonly<{ measuredPeakBytes: number; measuredFile: string; headroomFactor: number }>;
+export type WorkerMemory = Readonly<{ measuredPeakBytes: number; measuredFile: string; headroomFactor: number; runnerPeakBytes: number }>;
 
 /** How many workers of each phase run at once (the parallel phase alone, then the two serial tiers), and whether the tiers may overlap. */
 export type SuiteConcurrency = Readonly<{ parallel: number; inProcessSerial: number; subprocessSerial: number; serialTiersTogether: boolean }>;
 
 /**
  * THE SUITE'S PARALLELISM UNDER ITS MEMORY CAP, derived, never chosen: no
- * more workers run at once than the run's cap holds at the measured
- * per-worker peak times its headroom, `floor(capBytes / (measuredPeakBytes x
+ * more workers run at once than the run's cap holds, beside the runner's
+ * measured share, at the measured per-worker peak times its headroom:
+ * `floor((capBytes - runnerPeakBytes x headroomFactor) / (measuredPeakBytes x
  * headroomFactor))`; within that, the configured (CPU-tuned) counts. The cap
  * is the admitted run's scope `memory.max`; a run with no cap of its own (a
  * light run) keeps the configured counts.
@@ -364,11 +366,12 @@ export function memoryBoundedConcurrency(configured: Omit<SuiteConcurrency, "ser
     );
   }
   const share = workerMemory.measuredPeakBytes * workerMemory.headroomFactor;
-  const fit = Math.floor(capBytes / share);
+  // The runner's own measured share (with the same headroom) comes off the cap first.
+  const fit = Math.floor((capBytes - workerMemory.runnerPeakBytes * workerMemory.headroomFactor) / share);
   if (fit < 1) {
     throw new InputError(
       `${workerMemory.measuredFile} alone peaks at ${String(workerMemory.measuredPeakBytes)} bytes, which with the ${String(workerMemory.headroomFactor)}x headroom ` +
-        `passes the run's whole memory cap (${String(capBytes)} bytes): make that test use less memory (the cap is not raised, and no swap is allowed)`,
+        `passes what the run's memory cap (${String(capBytes)} bytes) leaves beside the runner: make that test use less memory (the cap is not raised, and no swap is allowed)`,
       "worker_memory_over_share",
     );
   }

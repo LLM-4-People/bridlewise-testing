@@ -409,6 +409,34 @@ export function registerTestExecutionExposure(): void {
         .map((one) => `${one.name} (measured ${one.measuredCpuMs / 1000} s, ceiling ${classCeilingMs({ headroomFactor: headroom }, one) / 1000} s): ${one.files.join(", ")}`).join("; ");
     },
   });
+  // WORKER MEMORY (the engine suite under its run's memory cap): the worker
+  // count derives from the measured per-worker peak; read-only like every
+  // suite-gate number, since a settings write that lowered the headroom would
+  // fit more workers under the cap than were measured to fit.
+  registerSignal({
+    id: "testExecution.workerMemoryHeadroom",
+    module: "testExecution",
+    name: "Headroom over a test worker's measured peak memory",
+    description:
+      "Under the run's memory cap the engine suite runs at most the cap divided by (the largest measured per-worker peak times this factor) workers at once. Shown read-only.",
+    type: "string",
+    value: () => {
+      const factor = readBudgetNumber("testExecution.workerMemory.headroomFactor");
+      return factor === undefined ? NOT_DECLARED : `each worker is given ${String(factor)} times the largest peak a worker was measured to reach`;
+    },
+  });
+  registerSignal({
+    id: "testExecution.workerMemoryStaleShare",
+    module: "testExecution",
+    name: "Share of the suite that may be unmeasured before the memory measurement is stale",
+    description:
+      "A test file with no measured peak counts at the median; past this share of unmeasured files the measurement is stale and a capped run is refused until it is measured again. Shown read-only.",
+    type: "string",
+    value: () => {
+      const share = readBudgetNumber("testExecution.workerMemory.maxUnmeasuredShare");
+      return share === undefined ? NOT_DECLARED : `the measurement is stale once more than ${String(share * 100)}% of the test files have no measured peak`;
+    },
+  });
   registerSignal({
     id: "testExecution.testHangBackstop",
     module: "testExecution",

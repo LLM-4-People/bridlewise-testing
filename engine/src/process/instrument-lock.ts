@@ -276,6 +276,12 @@ function splitRunScope(unit: string, caps: PerRunCaps): void {
   } catch (error) {
     throw capsUnavailable(caps, `${unit} could not be split into leaves (is it delegated?): ${error instanceof Error ? error.message : String(error)}`);
   }
+  // Each worker's peak is the run's measurement: a host whose kernel keeps none is refused here, before anything runs.
+  try {
+    scopeBytes(scope, RUN_LEAF, "memory.peak");
+  } catch (error) {
+    throw capsUnavailable(caps, error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**
@@ -283,24 +289,20 @@ function splitRunScope(unit: string, caps: PerRunCaps): void {
  * the run's scope, `worker-<pid>`, so its memory and its children's are
  * accounted on their own (`memory.peak`). Answers the leaf's cgroup path, or
  * `undefined` outside a run's scope (a light run has no scope to account in).
+ * Inside a scope, a leaf it cannot make is refused typed
+ * (`worker_leaf_unavailable`), never a run left unmeasured.
  */
 export function enterOwnWorkerLeaf(): string | undefined {
   const scope = runScopeCgroup();
   if (scope === undefined) return undefined;
   const leaf = `${scope}/worker-${String(process.pid)}`;
-  mkdirSync(`/sys/fs/cgroup${leaf}`, { recursive: true });
-  writeFileSync(`/sys/fs/cgroup${leaf}/cgroup.procs`, String(process.pid));
+  try {
+    mkdirSync(`/sys/fs/cgroup${leaf}`);
+    writeFileSync(`/sys/fs/cgroup${leaf}/cgroup.procs`, String(process.pid));
+  } catch (error) {
+    throw new HarnessError(`this test file's process could not enter its worker leaf ${leaf}: ${error instanceof Error ? error.message : String(error)}`, "worker_leaf_unavailable");
+  }
   return leaf;
-}
-
-/** The peak memory, in bytes, the kernel has charged to THIS process's own worker leaf (its children included); `undefined` outside a worker leaf. */
-export function ownWorkerMemoryPeakBytes(): number | undefined {
-  const own = ownCgroupPath();
-  if (own === undefined || !WORKER_LEAF.test(own.slice(own.lastIndexOf("/") + 1)) || runScopeCgroup() === undefined) return undefined;
-  const text = readFileSync(`/sys/fs/cgroup${own}/memory.peak`, "utf8").trim();
-  const peak = byteCountOf(text);
-  if (peak === undefined) throw new HarnessError(`the worker leaf ${own} holds memory.peak ${text}, not a byte count`, "worker_memory_unreadable");
-  return peak;
 }
 
 /** A cgroup interface file's byte count (its decimal digits exactly), or `undefined` for anything else ("max", absent). */
@@ -310,11 +312,68 @@ function byteCountOf(text: string | undefined): number | undefined {
   return Number.isSafeInteger(value) && value >= 0 && String(value) === text ? value : undefined;
 }
 
-/** The run scope's own memory readings: its cap (`memory.max`) and the peak it reached (`memory.peak`), in bytes; `undefined` outside a scope. */
+/** One byte-count interface file of the scope's cgroup `relative` (the scope itself when ""), refused typed when absent or not a byte count. */
+function scopeBytes(scope: string, relative: string, name: string): number {
+  const where = `/sys/fs/cgroup${scope}${relative === "" ? "" : `/${relative}`}/${name}`;
+  let text: string | undefined;
+  try {
+    text = readFileSync(where, "utf8").trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return requiredCgroupBytes(where, name, text);
+}
+
+/**
+ * A cgroup interface file's REQUIRED byte count: `text` as read from `where`
+ * (`undefined` when the file is absent). Refused typed
+ * (`run_memory_unreadable`), naming what is missing, never a substitute.
+ */
+export function requiredCgroupBytes(where: string, name: string, text: string | undefined): number {
+  const value = byteCountOf(text);
+  if (value === undefined) {
+    throw new HarnessError(
+      text === undefined
+        ? `the run's scope has no ${name} at ${where}${name === "memory.peak" ? " (memory.peak needs Linux 5.19 or later)" : ""}: its memory cannot be measured`
+        : `the run's scope holds ${name} ${text} at ${where}, not a byte count`,
+      "run_memory_unreadable",
+    );
+  }
+  return value;
+}
+
+/**
+ * The run scope's own memory readings: its cap (`memory.max`) and the peak it
+ * reached (`memory.peak`), in bytes; `undefined` OUTSIDE a run's scope (a
+ * light run has no cap of its own). Inside a scope, an unreadable file is
+ * refused typed (`run_memory_unreadable`), never a run with no cap.
+ */
 export function runScopeMemory(): Readonly<{ maxBytes: number; peakBytes: number }> | undefined {
-  const max = byteCountOf(runScopeFile("memory.max"));
-  const peak = byteCountOf(runScopeFile("memory.peak"));
-  return max === undefined || peak === undefined ? undefined : { maxBytes: max, peakBytes: peak };
+  const scope = runScopeCgroup();
+  if (scope === undefined) return undefined;
+  return { maxBytes: scopeBytes(scope, "", "memory.max"), peakBytes: scopeBytes(scope, "", "memory.peak") };
+}
+
+/**
+ * THE WORKERS' PEAKS, READ FROM THE SCOPE (never reported by the workers):
+ * every `worker-<pid>` leaf's `memory.peak`, the `run` leaf's (the runner's
+ * share, and any memory a test process moved there), and every other
+ * cgroup found under the scope — a STRANGER, which a test process made to
+ * hide its memory from both. `undefined` outside a scope; an unreadable
+ * peak is refused typed (`run_memory_unreadable`).
+ */
+export function runScopeLeafMemory(): Readonly<{ runPeakBytes: number; workerPeakBytes: ReadonlyMap<number, number>; strangers: readonly string[] }> | undefined {
+  const scope = runScopeCgroup();
+  if (scope === undefined) return undefined;
+  const workerPeakBytes = new Map<number, number>();
+  const strangers: string[] = [];
+  for (const entry of readdirSync(`/sys/fs/cgroup${scope}`, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === RUN_LEAF) continue;
+    if (WORKER_LEAF.test(entry.name)) workerPeakBytes.set(Number(entry.name.slice("worker-".length)), scopeBytes(scope, entry.name, "memory.peak"));
+    else strangers.push(entry.name);
+  }
+  return { runPeakBytes: scopeBytes(scope, RUN_LEAF, "memory.peak"), workerPeakBytes, strangers: strangers.sort() };
 }
 
 /** The live run this process runs inside (its own, or an ancestor's) AND inside whose capped scope it is, if any. */

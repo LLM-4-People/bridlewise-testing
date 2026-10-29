@@ -27,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
-import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
+import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, requiredCgroupBytes, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
 import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../../src/process/process-facts.ts";
 import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
@@ -527,4 +527,44 @@ test("A GRACE OF 0 IS SIGKILL AT ONCE (correctness M17): a target that ignores S
   await new Promise((resolveStart) => setTimeout(resolveStart, 200));
   const ended = await terminate({ group: ownedChild(stubborn) }, { graceMs: 0 });
   assert.equal(ended.ending, "killed");
+});
+
+test("EACH WORKER'S PEAK IS READ FROM THE SCOPE: a test process that moves out of its worker leaf into the runner's leaf still has its memory counted there, and one that makes a cgroup of its own is a STRANGER the runner sees", () => {
+  const lockPath = join(createTempDir("instrument-lock-leaves-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-leaves-script-"), "leaves.mjs");
+  // A worker that enters its leaf, then dodges: one into the runner's `run` leaf, one into a cgroup it made; each then allocates 160 MB.
+  const dodger = (target: "run" | "hidden"): string => [
+    `const { enterOwnWorkerLeaf } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { mkdirSync, writeFileSync } = await import("node:fs");`,
+    "const leaf = enterOwnWorkerLeaf();",
+    "const scope = leaf.slice(0, leaf.lastIndexOf('/'));",
+    `if (${JSON.stringify(target)} === "hidden") mkdirSync("/sys/fs/cgroup" + scope + "/hidden");`,
+    `writeFileSync("/sys/fs/cgroup" + scope + "/" + ${JSON.stringify(target)} + "/cgroup.procs", String(process.pid));`,
+    "const held = Buffer.alloc(160 * 1024 * 1024, 1);",
+    "console.log(String(process.pid) + ' ' + String(held[held.length - 1]));",
+  ].join("\n");
+  writeFileSync(script, [
+    `const { admitInstrumentRun, runScopeLeafMemory } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { spawnSync } = await import("node:child_process");`,
+    `const lock = admitInstrumentRun(process.argv[2], "a run whose workers dodge", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuLimitSeconds: 77, cpuKillGraceSeconds: 3, hangBackstopMs: 600_000 });`,
+    `const toRun = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(dodger("run"))}], { encoding: "utf8" });`,
+    `const toHidden = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", ${JSON.stringify(dodger("hidden"))}], { encoding: "utf8" });`,
+    "const leaves = runScopeLeafMemory();",
+    "const runPid = Number(toRun.stdout.split(' ')[0]);",
+    "lock.release();",
+    "process.stdout.write(JSON.stringify({ errors: [toRun.stderr.trim(), toHidden.stderr.trim()].filter(Boolean), runPeak: leaves.runPeakBytes, workerPeak: leaves.workerPeakBytes.get(runPid), strangers: leaves.strangers }));",
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr);
+  const seen = JSON.parse(ran.stdout) as { errors: string[]; runPeak: number; workerPeak: number; strangers: string[] };
+  assert.deepEqual(seen.errors, []);
+  assert.ok(seen.runPeak >= 160 * 1024 * 1024, `the memory the dodger moved into the runner's leaf is counted there (${String(seen.runPeak)} bytes)`);
+  assert.ok(seen.workerPeak < 160 * 1024 * 1024, `the dodger's own worker leaf did not see that memory (${String(seen.workerPeak)} bytes)`);
+  assert.deepEqual(seen.strangers, ["hidden"], "the cgroup a worker made to hide in is seen by the runner");
+});
+
+test("A SCOPED RUN'S MEMORY FILE THAT IS ABSENT OR NOT A BYTE COUNT IS REFUSED TYPED, naming what is missing: never a substitute value", () => {
+  assert.equal(requiredCgroupBytes("/sys/fs/cgroup/x/memory.peak", "memory.peak", "1048576"), 1048576);
+  assert.throws(() => requiredCgroupBytes("/sys/fs/cgroup/x/memory.peak", "memory.peak", undefined), (error: unknown) => (error as { code?: unknown }).code === "run_memory_unreadable" && (error as Error).message.includes("(memory.peak needs Linux 5.19 or later)"));
+  assert.throws(() => requiredCgroupBytes("/sys/fs/cgroup/x/memory.max", "memory.max", "max"), (error: unknown) => (error as { code?: unknown }).code === "run_memory_unreadable" && (error as Error).message.includes("holds memory.max max"));
 });

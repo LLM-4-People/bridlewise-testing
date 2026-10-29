@@ -122,7 +122,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: engine-test-summary
+          # A measuring run in the same workflow run keeps its own name (two uploads of one name collide).
+          name: engine-test-summary${{ inputs.measure-worker-memory && '-measuring' || '' }}
           path: engine/.bridlewise/state/test-results/latest-summary.json
           if-no-files-found: error
 

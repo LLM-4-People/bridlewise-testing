@@ -35,10 +35,15 @@ import { isMainThread } from "node:worker_threads";
 import { isEntryPointAmong } from "../../src/runtime/entry-point.ts";
 import { DEFAULT_TEST_CPU_CLASSES, DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
 import { installTestCpuJudgement, type TestCpuClasses } from "./test-cpu-class.ts";
-import { enterOwnWorkerLeaf, ownWorkerMemoryPeakBytes } from "../../src/process/instrument-lock.ts";
+import { enterOwnWorkerLeaf } from "../../src/process/instrument-lock.ts";
 
-/** The diagnostic word a test file's worker reports its peak memory with (`<word> <bytes> bytes`), read back by the run's accountant. */
-export const WORKER_MEMORY_PEAK_DIAGNOSTIC = "worker-memory-peak";
+/**
+ * The diagnostic word a test file's worker names its leaf with (`<word> <pid>`),
+ * read back by the run's accountant to know which file each leaf measured.
+ * The peak itself is read by the runner from the scope, never reported by the
+ * worker (instrument-lock.ts `runScopeLeafMemory`).
+ */
+export const WORKER_LEAF_DIAGNOSTIC = "worker-leaf";
 
 /**
  * What a test file's process is bounded by. `cpuClasses` is null for a run
@@ -126,9 +131,8 @@ export async function installEngineTestBounds(bounds: EngineTestBounds): Promise
     (context, reading) => {
       if (!("diagnostic" in context)) return;
       context.diagnostic(`cpu-work ${String(reading.cpuMs)} ms; wall ${String(reading.wallMs)} ms (recorded, not judged)`);
-      // The worker's peak so far (monotonic): its file's last reading is the file's peak, its children included.
-      const peak = workerLeaf === undefined ? undefined : ownWorkerMemoryPeakBytes();
-      if (peak !== undefined) context.diagnostic(`${WORKER_MEMORY_PEAK_DIAGNOSTIC} ${String(peak)} bytes (recorded, not judged)`);
+      // Which leaf measures this file: the runner reads its peak from the scope.
+      if (workerLeaf !== undefined) context.diagnostic(`${WORKER_LEAF_DIAGNOSTIC} ${String(process.pid)}`);
     },
   );
 }

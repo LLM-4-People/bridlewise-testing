@@ -32,10 +32,10 @@ import {
 import { DEFAULT_ENGINE_SUITE_WATCHDOG, memoryBoundedConcurrency, type SuiteWatchdog, type WorkerMemory } from "../../src/workflow/workflow-config.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { networkGuardImport } from "./network-under-test.ts";
-import { WORKER_MEMORY_PEAK_DIAGNOSTIC, engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
+import { WORKER_LEAF_DIAGNOSTIC, engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
 
-/** A worker's peak-memory diagnostic (engine-test-bounds.ts): `worker-memory-peak <bytes> bytes …`. */
-const WORKER_MEMORY_PEAK = new RegExp(`^${WORKER_MEMORY_PEAK_DIAGNOSTIC} (\\d+) bytes`, "u");
+/** A worker's leaf diagnostic (engine-test-bounds.ts): `worker-leaf <pid>`. */
+const WORKER_LEAF = new RegExp(`^${WORKER_LEAF_DIAGNOSTIC} (\\d+)$`, "u");
 import type { TestCpuClasses } from "./test-cpu-class.ts";
 
 type TestEvent = Readonly<{
@@ -122,13 +122,12 @@ export type InventoryTestAccounting = Readonly<{
    */
   testCpu: readonly Readonly<{ identity: string; cpuMs: number }>[];
   /**
-   * Each test file's worker's PEAK memory in bytes, its children included:
-   * the kernel's `memory.peak` of the file's own leaf in the run's scope (the
-   * `worker-memory-peak` diagnostic engine-test-bounds.ts reports), the
-   * largest reading per file, sorted by file. Empty for a run outside an
-   * admitted scope (a light run has no leaves).
+   * Which worker leaf of the run's scope measured each test file (the
+   * `worker-leaf <pid>` diagnostic engine-test-bounds.ts reports), sorted by
+   * file. Empty for a run outside an admitted scope (a light run has no
+   * leaves). The peaks are read by the runner from the scope.
    */
-  workerMemoryPeaks: readonly Readonly<{ file: string; peakBytes: number }>[];
+  workerLeaves: readonly Readonly<{ file: string; pid: number }>[];
   runnerSummaryObserved: boolean;
   runnerSuccessful: boolean;
   passed: boolean;
@@ -622,7 +621,7 @@ export function createInventoryTestAccountant(
   // only its file and line: the terminal event names the test at that place.
   const identityAtPlace = new Map<string, string>();
   const testCpuMs = new Map<string, number>();
-  const workerPeakBytes = new Map<string, number>();
+  const workerLeafPid = new Map<string, number>();
   const aggregateSummaryCounts = { tests: 0, failed: 0, passed: 0, cancelled: 0, skipped: 0, todo: 0 };
 
   const observe = (event: TestEvent): void => {
@@ -683,9 +682,9 @@ export function createInventoryTestAccountant(
       const reading = /^cpu-work (\d+) ms;/u.exec(data.message);
       const identity = identityAtPlace.get(`${data.file}:${String(data.line)}`);
       if (reading !== null && identity !== undefined) testCpuMs.set(identity, Number(reading[1]));
-      const memory = WORKER_MEMORY_PEAK.exec(data.message);
-      const fileId = memory === null ? undefined : sourceIdForFile(root, data.file);
-      if (memory !== null && fileId !== undefined) workerPeakBytes.set(fileId, Math.max(workerPeakBytes.get(fileId) ?? 0, Number(memory[1])));
+      const leaf = WORKER_LEAF.exec(data.message);
+      const fileId = leaf === null ? undefined : sourceIdForFile(root, data.file);
+      if (leaf !== null && fileId !== undefined) workerLeafPid.set(fileId, Number(leaf[1]));
     }
     if (event.type === "test:enqueue" && inventoryId) {
       const state = lifecycle.get(inventoryId);
@@ -905,8 +904,8 @@ export function createInventoryTestAccountant(
       testCpu: [...testCpuMs.entries()]
         .map(([identity, cpuMs]) => ({ identity, cpuMs }))
         .toSorted((left, right) => left.identity < right.identity ? -1 : left.identity > right.identity ? 1 : 0),
-      workerMemoryPeaks: [...workerPeakBytes.entries()]
-        .map(([file, peakBytes]) => ({ file, peakBytes }))
+      workerLeaves: [...workerLeafPid.entries()]
+        .map(([file, pid]) => ({ file, pid }))
         .toSorted((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0),
       runnerSummaryObserved: summaryEvents === 1,
       runnerSuccessful: normalizedRunnerSummary.successful,

@@ -44,21 +44,45 @@ const RECEIPT_SCHEMA = "bridlewise-worker-memory-receipt/v1";
 const MEASUREMENT_SCHEMA = "bridlewise-worker-memory/v1";
 
 type Runner = Readonly<{ totalMemoryBytes: number; cpus: number; kernel: string }>;
-type Measurement = Readonly<{ schemaVersion: typeof MEASUREMENT_SCHEMA; measuredAt: string; runner: Runner; capBytes: number; files: Readonly<Record<string, number>> }>;
+type Measurement = Readonly<{ schemaVersion: typeof MEASUREMENT_SCHEMA; measuredAt: string; runner: Runner; capBytes: number; runnerPeakBytes: number; files: Readonly<Record<string, number>> }>;
+
+/** What a run measured: each file's worker peak, and the runner leaf's (the runner's own share, and any memory a test moved there). */
+export type WorkerPeaks = Readonly<{ files: readonly Readonly<{ file: string; peakBytes: number }>[]; runPeakBytes: number }>;
+
+/**
+ * Joins the leaf each file named (`worker-leaf <pid>`) with the peaks read
+ * from the scope. Refused typed (`worker_memory_dodged`): a STRANGER cgroup
+ * under the scope (a test made it to hide memory from every leaf), and a file
+ * whose named leaf is gone (removed to hide its peak).
+ */
+export function workerPeaksOf(
+  leaves: readonly Readonly<{ file: string; pid: number }>[],
+  scope: Readonly<{ runPeakBytes: number; workerPeakBytes: ReadonlyMap<number, number>; strangers: readonly string[] }>,
+): WorkerPeaks {
+  if (scope.strangers.length > 0) {
+    throw new InputError(`the run's scope holds cgroups that are neither the runner's leaf nor a worker's (${scope.strangers.join(", ")}): a test process hid memory from the measurement`, "worker_memory_dodged");
+  }
+  const files = leaves.map(({ file, pid }) => {
+    const peakBytes = scope.workerPeakBytes.get(pid);
+    if (peakBytes === undefined) throw new InputError(`${file} named worker leaf worker-${String(pid)}, which is gone from the run's scope: its peak was hidden`, "worker_memory_dodged");
+    return { file, peakBytes };
+  });
+  return { files, runPeakBytes: scope.runPeakBytes };
+}
 
 /** The authored half of the declaration (`testExecution.workerMemory`): the headroom every worker gets, and how much of the suite may be unmeasured before the measurement is stale. */
 export type WorkerMemoryPolicy = Readonly<{ headroomFactor: number; maxUnmeasuredShare: number }>;
 
 /** A measuring run's receipt: every file's worker peak, the run's cap and the runner, written by the worker. */
-export function writeWorkerMemoryReceipt(root: string, peaks: readonly Readonly<{ file: string; peakBytes: number }>[], capBytes: number | undefined): string {
-  if (capBytes === undefined) throw new InputError("a measuring run must run inside an admitted run's scope: it has no worker leaves to measure", "worker_memory_unmeasurable");
+export function writeWorkerMemoryReceipt(root: string, peaks: WorkerPeaks, capBytes: number): string {
   const path = join(root, WORKER_MEMORY_RECEIPT_PATH);
   const receipt = {
     schemaVersion: RECEIPT_SCHEMA,
     measuredAt: new Date().toISOString(),
     runner: { totalMemoryBytes: totalmem(), cpus: cpus().length, kernel: release() },
     capBytes,
-    files: Object.fromEntries(peaks.map((one) => [one.file, one.peakBytes])),
+    runnerPeakBytes: peaks.runPeakBytes,
+    files: Object.fromEntries(peaks.files.map((one) => [one.file, one.peakBytes])),
   };
   const written = atomicWriteFile(path, `${canonicalJson(receipt)}\n`);
   if (!written.success) throw new InputError(`the worker memory receipt could not be written at ${path}: ${written.reason ?? "unknown"}`, "worker_memory_receipt_unwritten");
@@ -76,7 +100,7 @@ function parseDocument(text: string, schema: string, where: string): Measurement
   const parsed = parseJsonExact(text);
   const record = parsed?.value;
   if (typeof record !== "object" || record === null || Array.isArray(record)) throw new InputError(`${where} is not a JSON object`, "worker_memory_malformed");
-  const { schemaVersion, measuredAt, runner, capBytes, files } = record as Record<string, unknown>;
+  const { schemaVersion, measuredAt, runner, capBytes, runnerPeakBytes, files } = record as Record<string, unknown>;
   if (schemaVersion !== schema) throw new InputError(`${where} is not a ${schema} document`, "worker_memory_malformed");
   if (typeof measuredAt !== "string" || Number.isNaN(Date.parse(measuredAt))) throw new InputError(`${where} has no measuredAt instant`, "worker_memory_malformed");
   if (typeof runner !== "object" || runner === null) throw new InputError(`${where} names no runner`, "worker_memory_malformed");
@@ -88,6 +112,7 @@ function parseDocument(text: string, schema: string, where: string): Measurement
     schemaVersion: MEASUREMENT_SCHEMA, measuredAt,
     runner: { totalMemoryBytes: byteCount(totalMemoryBytes, `${where}'s runner memory`), cpus: cpuCount, kernel },
     capBytes: byteCount(capBytes, `${where}'s cap`),
+    runnerPeakBytes: byteCount(runnerPeakBytes, `${where}'s runner peak`),
     files: readings,
   };
 }
@@ -125,7 +150,7 @@ export function declaredWorkerMemory(root: string, suiteFiles: readonly string[]
   }
   if (policy === undefined) throw new InputError(`${WORKER_MEMORY_PATH} is measured, but testExecution.workerMemory declares no headroom or unmeasured share`, "worker_memory_policy_undeclared");
   const measurement = parseDocument(text, MEASUREMENT_SCHEMA, WORKER_MEMORY_PATH);
-  return workerMemoryOf(measurement.files, [...new Set(suiteFiles)], policy, (unmeasured) => {
+  return workerMemoryOf(measurement.files, measurement.runnerPeakBytes, [...new Set(suiteFiles)], policy, (unmeasured) => {
     process.stderr.write(`[worker-memory] ${String(unmeasured.length)} test file(s) have no measured peak yet and count at the median: ${unmeasured.join(", ")}\n`);
   });
 }
@@ -133,6 +158,7 @@ export function declaredWorkerMemory(root: string, suiteFiles: readonly string[]
 /** The pure derivation behind {@link declaredWorkerMemory}: readings and the suite's files in, the declared peak out. */
 export function workerMemoryOf(
   readings: Readonly<Record<string, number>>,
+  runnerPeakBytes: number,
   suiteFiles: readonly string[],
   policy: WorkerMemoryPolicy,
   onUnmeasured: (files: readonly string[]) => void,
@@ -151,7 +177,7 @@ export function workerMemoryOf(
   const sorted = measured.map((file) => readings[file]!).toSorted((left, right) => left - right);
   const median = sorted[Math.floor((sorted.length - 1) / 2)]!;
   const largest = measured.reduce((best, file) => (readings[file]! > readings[best]! ? file : best), measured[0]!);
-  return { measuredPeakBytes: Math.max(readings[largest]!, median), measuredFile: largest, headroomFactor: policy.headroomFactor };
+  return { measuredPeakBytes: Math.max(readings[largest]!, median), measuredFile: largest, headroomFactor: policy.headroomFactor, runnerPeakBytes };
 }
 
 if (isEntryPoint(import.meta.url)) {

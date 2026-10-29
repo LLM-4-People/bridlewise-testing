@@ -276,3 +276,15 @@ jobs:
     with:
       measure-worker-memory: false
 
+  # THE FIRST MEASUREMENT LANDS WITH THE CHANGE THAT NEEDS IT: a pull request
+  # labelled `measure-worker-memory` also runs the engine suite's measuring
+  # mode on the hosted runner (one worker at a time, every file's peak in
+  # isolation) and uploads the receipt; `worker-memory.ts measure` derives the
+  # committed measurement from it, so main never refuses a run for want of one.
+  engine-worker-memory:
+    name: Engine worker memory
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'measure-worker-memory')
+    uses: ./.github/workflows/engine-suite.yml
+    with:
+      measure-worker-memory: true
+

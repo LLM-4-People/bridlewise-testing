@@ -1,3 +1,4 @@
+import { InputError } from "../../src/kernel/errors.ts";
 import { writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -29,8 +30,8 @@ import { isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { ARCHITECTURE_MODULES_PATH } from "../../src/workflow/architecture-module-entries.ts";
 import { thinHeadroom } from "./test-cpu-class.ts";
 import { totalmem } from "node:os";
-import { runScopeMemory } from "../../src/process/instrument-lock.ts";
-import { MEASURE_WORKER_MEMORY_FLAG, declaredWorkerMemory, writeWorkerMemoryReceipt } from "./worker-memory.ts";
+import { runScopeLeafMemory, runScopeMemory } from "../../src/process/instrument-lock.ts";
+import { MEASURE_WORKER_MEMORY_FLAG, declaredWorkerMemory, workerPeaksOf, writeWorkerMemoryReceipt } from "./worker-memory.ts";
 
 type WorkerMode = "test" | "check";
 
@@ -92,7 +93,16 @@ export async function executeTestWorker(mode: WorkerMode, measureWorkerMemory = 
     ...(runScopeMemory() === undefined ? {} : { memoryCapBytes: runScopeMemory()!.maxBytes }),
     measureWorkerMemory,
   });
-  if (measureWorkerMemory) writeWorkerMemoryReceipt(root, accounting.workerMemoryPeaks, runScopeMemory()?.maxBytes);
+  // THE WORKERS' PEAKS, read by this runner from the scope (never reported by
+  // a worker), joined with the leaf each file named; a stranger cgroup or a
+  // vanished leaf is a test hiding its memory, refused typed.
+  const scopeMemory = runScopeMemory();
+  const leafMemory = runScopeLeafMemory();
+  const measured = leafMemory === undefined ? undefined : workerPeaksOf(accounting.workerLeaves, leafMemory);
+  if (measureWorkerMemory) {
+    if (scopeMemory === undefined || measured === undefined) throw new InputError("a measuring run must run inside an admitted run's scope: it has no worker leaves to measure", "worker_memory_unmeasurable");
+    writeWorkerMemoryReceipt(root, measured, scopeMemory.maxBytes);
+  }
   // Derive the after-run candidate identity from the before-run build by
   // re-reading only stat-changed files instead of a second full pass.
   const candidateAfterExecution = refreshCandidateTestIdentityExcluding(
@@ -112,14 +122,13 @@ export async function executeTestWorker(mode: WorkerMode, measureWorkerMemory = 
   // included), largest first: the readings `testExecution.workerMemory` is
   // derived from. A file whose peak with the headroom passes the whole cap is
   // a finding for that test (workflow-config.ts `memoryBoundedConcurrency`).
-  const scopeMemory = runScopeMemory();
-  if (scopeMemory !== undefined) {
-    const largest = accounting.workerMemoryPeaks.toSorted((left, right) => right.peakBytes - left.peakBytes);
-    process.stderr.write(`[worker-memory] run scope peak ${String(scopeMemory.peakBytes)} of its ${String(scopeMemory.maxBytes)}-byte cap (host total ${String(totalmem())}); ` +
+  if (scopeMemory !== undefined && measured !== undefined) {
+    const largest = measured.files.toSorted((left, right) => right.peakBytes - left.peakBytes);
+    process.stderr.write(`[worker-memory] run scope peak ${String(scopeMemory.peakBytes)} of its ${String(scopeMemory.maxBytes)}-byte cap (host total ${String(totalmem())}); runner leaf peak ${String(measured.runPeakBytes)}; ` +
       `${String(largest.length)} file worker(s) measured, largest: ${largest.slice(0, 8).map((one) => `${one.file} ${String(one.peakBytes)}`).join(", ") || "none"}\n`);
-    const headroom = testExecutionConfig.workerMemory?.headroomFactor ?? 1;  // a FINDING is judged at the declared headroom; none declared: the bare cap
-    for (const one of largest.filter((reading) => reading.peakBytes * headroom > scopeMemory.maxBytes)) {
-      process.stderr.write(`[worker-memory] FINDING ${one.file}: its worker peaked at ${String(one.peakBytes)} bytes, which with the ${String(headroom)}x headroom passes the run's whole cap: that test must use less memory\n`);
+    const headroom = testExecutionConfig.workerMemory?.headroomFactor;
+    for (const one of largest.filter((reading) => reading.peakBytes * (headroom ?? 1) > scopeMemory.maxBytes - measured.runPeakBytes)) {
+      process.stderr.write(`[worker-memory] FINDING ${one.file}: its worker peaked at ${String(one.peakBytes)} bytes, which ${headroom === undefined ? "(no headroom declared: judged bare)" : `with the ${String(headroom)}x headroom`} passes what the cap leaves beside the runner: that test must use less memory\n`);
     }
   }
   // Persist per-file durations so the next run schedules the parallel phase
