@@ -6,7 +6,7 @@ group: github
 status: in-force
 implementation: partial
 route: P2.1
-acted_in: [.github/workflows/ci.yml, .github/workflows/test-shards.yml, .github/workflows/pages.yml]
+acted_in: [.github/workflows/ci.yml, .github/workflows/test-shards.yml, .github/workflows/pages.yml, tests/public/workflow-policy.test.mjs]
 ---
 # GitHub is the only host
 
@@ -30,6 +30,22 @@ anything not properly done."
   protection, and a least-privilege GitHub App as the door.
 - CI and docs are generated from the harness's own sources.
 - Anything not done properly may be redone.
+
+A gating workflow (one the merge queue runs) never filters its triggers: a
+filtered trigger leaves its required check pending on what the filter skips
+(`tests/public/workflow-policy.test.mjs`). One `pull_request` `types` list is
+no filter: one that holds every one of GitHub's default types (opened,
+synchronize, reopened) skips nothing the unfiltered trigger runs on and only
+adds events, such as a label change that re-judges the visual check (#762);
+any narrower list is still refused. Added events bring one hazard, refused by
+the same test: a run on an added event reports a required job's newest check
+at the same head, and a job skipped there (by its own condition, a skipped
+dependency, its steps' conditions, or a script that exits early) counts as
+passing. No reading of conditions or scripts rules that out, so the rule is
+structural: a workflow that adds `pull_request` types hosts no job the forge
+requires (read from the forge's own ruleset declaration), whether by its
+name, as a reusable workflow's caller, or through a reusable workflow it
+calls, and a computed job name there is refused because it cannot be judged.
 
 Done so far: this repository is on GitHub, its CI runs on GitHub Actions
 (`.github/workflows/ci.yml`, with the sharded full suite in
