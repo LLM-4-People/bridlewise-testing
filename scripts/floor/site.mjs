@@ -19,7 +19,7 @@
  *    coverage over the pages this build rendered.
  *
  * `buildRedirectSite` writes the organisation site's tree that answers the
- * old `/bridlewise-testing/` base path once the repository is renamed (Pages
+ * old site (`LEGACY_SITE_URL`, from the repository identity) once the repository is renamed (Pages
  * URLs do not follow a rename): every old URL lands, in one hop, where the
  * plan's landing map (`landingPath`) sends it under the current site.
  *

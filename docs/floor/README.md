@@ -36,7 +36,7 @@ All published pages use `layout: default`, `title`, `description`, and `permalin
 
 A release snapshot is built at release time with `source --baseurl <base>/v/<version> --release <version>` (whole, floor data included), then Jekyll, and attached to the release; the Pages build only merges it.
 
-`redirect --out <dir>` writes the organisation site's tree (`<owner>.github.io`), which answers the old `/bridlewise-testing/` base once the repository is renamed. Each old pretty path gets a page that sends it in one hop, even without scripts, to where the plan's landing map (`landingPath`: the moved pages, the trackers' former home, the `.md` spellings) puts it on the current site, with that exact URL as its `rel=canonical`. A `404.html` runs the same map for every other path, and a `.nojekyll` makes Pages serve the tree as written. It refuses while the current site is the old URL or lies under it, because a redirect would loop; the comparison is of whole URLs.
+`redirect --out <dir>` writes the organisation site's tree (`<owner>.github.io`), which answers the site's old address (`LEGACY_SITE_URL` in `scripts/floor/repository.mjs`, derived from the repository identity) once the repository is renamed. Each old pretty path gets a page that sends it in one hop, even without scripts, to where the plan's landing map (`landingPath`: the moved pages, the trackers' former home, the `.md` spellings) puts it on the current site, with that exact URL as its `rel=canonical`. A `404.html` runs the same map for every other path, and a `.nojekyll` makes Pages serve the tree as written. It refuses while the current site is the old URL or lies under it, because a redirect would loop; the comparison is of whole URLs.
 
 ### The deploy order, and its one override
 
