@@ -18,7 +18,7 @@ import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
 import { HarnessError } from "../../kernel/errors.ts";
-import { TRACKER_BOARD } from "../../kernel/verification-paths.ts";
+import { ROADMAP_PAGE, TRACKER_BOARD } from "../../kernel/verification-paths.ts";
 import { isTrackerDate, readEntries, syncTrackerBoard, trackerItemSchema, trackerItems } from "../failure-owners.ts";
 import { publishBranch, type ForgePullRequest, type ForgeTarget, type WorkspaceForge } from "../workspace-forge.ts";
 import type { IntakeRecord } from "./issue-ops.ts";
@@ -68,12 +68,15 @@ export function itemPath(id: string): string {
 }
 
 /**
- * Writes `record`'s item into the checkout at `root` and regenerates the task
- * board from the items: the new item is judged with every other one by the
+ * Writes `record`'s item into the checkout at `root` and regenerates every
+ * generated view of the tracker items through its one owner — the task board
+ * and the roadmap page's status blocks (`roadmap`: the arm `harness sync`
+ * runs, `regenerateRoadmapPage`, handed in by the harness that owns it), so a
+ * record pull request never lands a stale view: the new item is judged with every other one by the
  * tracker's reader first (`tracker_item_invalid`), and an id that already has
  * a file is `community_record_exists`. Answers the paths written.
  */
-export function writeIntakeRecord(root: string, record: IntakeRecord, dates: Readonly<{ opened: string; closed: string }>): readonly string[] {
+export function writeIntakeRecord(root: string, record: IntakeRecord, dates: Readonly<{ opened: string; closed: string }>, roadmap: RoadmapRegeneration): readonly string[] {
   const path = itemPath(record.id);
   if (existsSync(join(root, path))) refuse("community_record_exists", `${path} exists: the issue was already triaged`, { id: record.id });
   const text = intakeItemText(record, dates);
@@ -82,11 +85,23 @@ export function writeIntakeRecord(root: string, record: IntakeRecord, dates: Rea
   if (!written.success) refuse("community_record_write_failed", `Failed to write ${path}: ${written.reason ?? "unknown error"}`);
   const board = syncTrackerBoard(root, true);
   if (!board.converged) refuse("community_record_board_invalid", `the task board cannot take the record: ${board.problems.join("; ")}`);
-  return [path, ...board.changed];
+  const page = roadmap(root, true);
+  if (!page.converged) refuse("community_record_roadmap_invalid", `the roadmap page cannot take the record (${page.status}): ${page.changed.join(", ")}`);
+  // The arm names the blocks it rewrote; the record names the file.
+  return [path, ...board.changed, ...(page.status === "regenerated" ? [ROADMAP_PAGE.path] : [])];
 }
+
+/**
+ * The roadmap page's regeneration (`harness sync`'s arm,
+ * src/workflow/harness-commands.ts `regenerateRoadmapPage`): handed in, since
+ * the harness that owns every generator sits above this module.
+ */
+export type RoadmapRegeneration = (root: string, write: boolean) => Readonly<{ status: string; converged: boolean; changed: readonly string[] }>;
 
 export type RecordLanding = Readonly<{
   forge: WorkspaceForge;
+  /** The roadmap page's regeneration, run with the board on every record. */
+  roadmap: RoadmapRegeneration;
   /** The checkout of the trunk's tip (the workflow's checkout of `main`), clean. */
   repository: GitRepository;
   git: WorktreeGitPort;
@@ -119,7 +134,7 @@ export async function landIntakeRecord(landing: RecordLanding, record: IntakeRec
   if (status.trim().length > 0) refuse("community_checkout_dirty", "the checkout a record lands from must be clean");
   const branch = recordBranch(record.id);
   gitOutput(repository, ["switch", "--create", branch]);
-  const paths = writeIntakeRecord(repository.root, record, dates);
+  const paths = writeIntakeRecord(repository.root, record, dates, landing.roadmap);
   gitOutput(repository, ["add", "--", ...paths]);
   const issue = issueNumberOf(record);
   const message = `tracker: ${record.id} from #${issue} (${command})\n\nThe ${command} command on #${issue} adds this record; when it lands, the\nprojector adopts the issue from the record's gh field.\n`;

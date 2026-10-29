@@ -12,7 +12,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, FRONT_DOOR_GENERATOR, ROADMAP_PAGE, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { frontDoorInput } from "./messaging.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
@@ -130,6 +130,8 @@ export type HarnessCheckOutput = Readonly<{
   decisionIndex: CheckStepResult;
   /** Would `harness regenerate` rewrite the task board (a tracker item changed)? */
   trackerBoard: CheckStepResult;
+  /** Would `harness regenerate` rewrite the roadmap page's status blocks (a tracker item, a decision or an evidence non-proof changed)? */
+  roadmapPage: CheckStepResult;
   /** Does the checkout's live index still match its recorded baseline (src/git/index-baseline.ts)? */
   liveIndex: CheckStepResult;
   /** Is a multi-file transaction left for recovery (src/filesystem/journaled-commit.ts)? */
@@ -235,6 +237,8 @@ export type HarnessRegenerateOutput = Readonly<{
    * `syncTrackerBoard`), so a row is always exactly its item.
    */
   trackerBoard: TrackerBoardReport;
+  /** The roadmap page's status blocks, from the tracker items, the decisions and the evidence non-proofs (`ROADMAP_PAGE`, scripts/floor/roadmap-status.ts). */
+  roadmapPage: DecisionIndexArm;
   /**
    * The shipped hooks (`SHIPPED_HOOK_FILES`): every canonical hook's whole
    * text, written by its generator (`scripts/verification/shipped-hooks.ts`)
@@ -532,6 +536,9 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the task board...");
   steps.push(trackerBoardStep(syncTrackerBoard(trackedTop(root), false)));
 
+  emitProgress(onProgress, "Checking the roadmap page's status blocks...");
+  steps.push(roadmapPageStep(regenerateRoadmapPage(root, false)));
+
   emitProgress(onProgress, "Checking the canonical artifact inventory...");
   const artifactManifest = regenerateArtifactManifest(root, false);
   steps.push(deepFreeze({
@@ -586,13 +593,14 @@ export async function harnessCheck(
     frozenRecords: steps[17]!,
     guardianSpecArtifact: steps[18]!,
     trackerBoard: steps[19]!,
-    artifactManifest: steps[20]!,
-    communityFiles: steps[21]!,
-    webBudgetPopulation: steps[22]!,
-    serviceWorkerDigest: steps[23]!,
-    frontDoors: steps[24]!,
-    bundle: steps[25]!,
-    candidateFormat: steps[26]!,
+    roadmapPage: steps[20]!,
+    artifactManifest: steps[21]!,
+    communityFiles: steps[22]!,
+    webBudgetPopulation: steps[23]!,
+    serviceWorkerDigest: steps[24]!,
+    frontDoors: steps[25]!,
+    bundle: steps[26]!,
+    candidateFormat: steps[27]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -969,6 +977,8 @@ export function harnessRegenerate(
   const decisionIndex = regenerateDecisionIndex(root, write);
   // The task board: rendered from the structured tracker items.
   const trackerBoard = syncTrackerBoard(trackedTop(root), write);
+  // The roadmap page's status blocks: the other generated view of the tracker items, right after the board.
+  const roadmapPage = regenerateRoadmapPage(root, write);
   // The shipped hooks: each canonical hook's text, from its owner.
   const shippedHooks = regenerateShippedHooks(root, write);
   // The evidence ignore rule: derived from the tracked evidence manifests.
@@ -989,7 +999,7 @@ export function harnessRegenerate(
   // rewrote (the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, serviceWorkerDigest, frontDoors, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, roadmapPage, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, serviceWorkerDigest, frontDoors, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -1004,7 +1014,7 @@ export function harnessRegenerate(
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged && serviceWorkerDigest.converged && frontDoors.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && roadmapPage.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged && serviceWorkerDigest.converged && frontDoors.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1289,6 +1299,23 @@ export function regenerateServiceWorkerDigest(root: string, write: boolean): Dec
   return repositoryGeneratorArm(root, SERVICE_WORKER_DIGEST.generator, (repositoryRoot) => [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the service worker digest generator", "service_worker_digest_no_result");
 }
 
+/** `harness sync`'s roadmap-page arm: the generated status blocks of `ROADMAP_PAGE.path`, from the tracker items (the repository-root generator). */
+export function regenerateRoadmapPage(root: string, write: boolean): DecisionIndexArm {
+  return repositoryGeneratorArm(root, ROADMAP_PAGE.generator, (repositoryRoot) => [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the roadmap page generator", "harness_regenerate_roadmap_page_failed");
+}
+
+/** `harness check`'s roadmap-page step: a status block that differs from its owners (a tracker change without the page regenerated) FAILS the check. */
+export function roadmapPageStep(arm: DecisionIndexArm): CheckStepResult {
+  return deepFreeze({
+    step: "roadmap-page",
+    status: arm.converged ? "pass" : "fail",
+    message: arm.converged
+      ? `the roadmap page's status blocks match the tracker items${arm.status === "absent" ? " (this tree carries no roadmap generator)" : ""}`
+      : `${ROADMAP_PAGE.path}'s status blocks are stale against the tracker items (run harness sync): ${arm.changed.join(", ") || arm.status}`,
+    details: arm,
+  });
+}
+
 /** `harness check`'s service-worker-digest step: a digest line that differs from the cached assets' digest FAILS the check. */
 export function serviceWorkerDigestStep(arm: DecisionIndexArm): CheckStepResult {
   return deepFreeze({
@@ -1461,6 +1488,8 @@ export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegene
   readmeConsumers: null,
   decisionIndex: null,
   trackerBoard: null,
+  // A repository-root generator, like the service worker's: a copy without scripts/floor/roadmap-status.ts converges by absence.
+  roadmapPage: null,
   shippedHooks: null,
   evidenceIgnore: null,
   // Refuses (`community_source_invalid`, a missing lockfile root) when its inputs are absent: it declares them.
@@ -2418,7 +2447,7 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
       answer = await runSlotCli(rest);
     } else if (subcommand === "community") {
       const { runCommunityCli } = await import("./community/community-cli.ts");
-      answer = await runCommunityCli(root, rest);
+      answer = await runCommunityCli(root, rest, regenerateRoadmapPage);
     } else if (subcommand === "forge") {
       // GitHub, the one forge (src/workflow/forge/): its own answers and codes.
       const { runForgeCli } = await import("./forge/cli.ts");
