@@ -29,47 +29,36 @@
  * ── A PRIVATE KEY HOME, LIKE EVERY RUNNER ─────────────────────────────────
  *
  * The run's processes are under test, and a process under test without a
- * key home is refused (`key_home_unset_under_test`): this wrapper arms one
- * (`armTestKeyHome`, the canonical worker's and the vitest config's owner),
- * exported to `node --test` and every file it spawns, removed at exit. Before
+ * key home is refused (`key_home_unset_under_test`): this wrapper has one
+ * armed (`armTestKeyHome`, the canonical worker's and the vitest config's
+ * owner) by a preload of `node --test`, INSIDE the run's confinement, so it
+ * lies in the run's own scratch; every file it spawns inherits it. Before
  * it did, `npm run test:guards` was red by construction on every guard that
  * opens a timeline or a database, and a targeted `npm run test:unit <file>`
  * refused the same way (L-2026-09-29-targeted-runs-need-a-private-key-home).
  */
 
-import { join, resolve, sep } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { repositoryToplevel } from "../../src/git/repository-ownership.ts";
-import { superviseCommand } from "../../src/process/supervised-run.ts";
+import { runTestCommand, superviseCommand } from "../../src/process/supervised-run.ts";
+import { testRunSuiteOf } from "../../src/filesystem/checkout-write-door.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
 import { enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
-import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-/**
- * Which suite this run is: the LIVE suite's (`engine/live/`) when every test
- * file it is given lies there. The live suite depends on the world outside the checkout
- * and is unconfined by design; a run that mixes live and hermetic files is
- * refused, so a hermetic file can never ride along unconfined.
- */
-function suiteOfRun(args: readonly string[]): "live" | "hermetic" | "mixed" {
-  const live = join(ENGINE_ROOT, "live") + sep;
-  const files = args.filter((arg) => !arg.startsWith("-")).map((arg) => resolve(arg));
-  const inLive = files.filter((file) => file.startsWith(live));
-  if (inLive.length === 0) return "hermetic";
-  return inLive.length === files.length ? "live" : "mixed";
-}
+const KEY_HOME_PRELOAD = fileURLToPath(new URL("../../test/support/arm-test-key-home.ts", import.meta.url));
 
 export async function main(): Promise<void> {
   const runner = `engine ${process.env.npm_lifecycle_event ?? "node --test"}`;
-  const suite = suiteOfRun(process.argv.slice(2));
-  if (suite === "mixed") {
-    process.stderr.write("[test-guards] REFUSED (test_live_suite_mixed) — a live-suite run takes engine/live/ files only: the live suite runs unconfined, a hermetic file never does\n");
+  const suite = testRunSuiteOf(process.argv.slice(2), join(ENGINE_ROOT, "live"));
+  if (typeof suite !== "string") {
+    process.stderr.write(`[test-guards] REFUSED (${suite.refused})\n`);
     process.exitCode = 1;
     return;
   }
@@ -96,7 +85,6 @@ export async function main(): Promise<void> {
   // admitted at once, under its per-run caps, and never waits for another
   // run; a targeted run of fewer is light and records nothing.
   const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
-  armTestKeyHome();
   // UNDER THE NATIVE SUPERVISOR (adopted into the run this door admitted): a
   // door killed outright leaves its `node --test` stopped with every process
   // it started, and the lock held until that is done — never a run orphaned
@@ -104,19 +92,22 @@ export async function main(): Promise<void> {
   const { engineSuiteWatchdog } = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url)));
   // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
   const supervisor = ensureTestProcessSupervisor();
-  const run = await superviseCommand({
+  const command = {
     supervisor,
     command: process.execPath,
-    args: ["--experimental-strip-types", "--test", ...process.argv.slice(2)],
+    // The run's key home is armed INSIDE the run (a preload of the `node --test` process; each file inherits it).
+    args: ["--experimental-strip-types", `--import=${KEY_HOME_PRELOAD}`, "--test", ...process.argv.slice(2)],
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
     killGraceMs: engineSuiteWatchdog.killGraceMs,
-    onStdout: (chunk) => process.stdout.write(chunk),
-    onStderr: (chunk) => process.stderr.write(chunk),
+    onStdout: (chunk: Buffer) => process.stdout.write(chunk),
+    onStderr: (chunk: Buffer) => process.stderr.write(chunk),
     killOnInterrupt: true,
-    // The checkout is read-only to the tests (#293's class), as under the suite runners — except the LIVE suite,
-    // unconfined by design (real host facts: decision TEST-CONFINEMENT-SELF-BIND).
-    ...(suite === "live" ? {} : { readOnlyCheckout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT }),
-  });
+  };
+  // Through the one test-execution door, confined — except the LIVE suite, unconfined by design (real host facts:
+  // decision TEST-CONFINEMENT-SELF-BIND), the one declared exception.
+  const run = suite === "live"
+    ? await superviseCommand(command)
+    : await runTestCommand({ ...command, checkout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT });
   lock.release();
   if (run.ending !== "exited") {
     process.stderr.write(`[test-guards] node --test ended by ${run.ending}${run.signal === null ? "" : ` (${run.signal})`}\n`);

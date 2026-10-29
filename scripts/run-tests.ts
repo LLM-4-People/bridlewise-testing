@@ -59,7 +59,7 @@
  */
 
 import { ensureTestProcessSupervisor } from "../engine/guardian/build.ts";
-import { superviseCommand, supervisedEndingLines, type SupervisedCommand } from "../engine/src/process/supervised-run.ts";
+import { runTestCommand, vitestCommand, supervisedEndingLines, type SupervisedCommand } from "../engine/src/process/supervised-run.ts";
 import { reportLauncherStop, watchLauncher } from "../engine/scripts/tooling/launcher-watch.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../engine/src/filesystem/temporary-root.ts";
 import { fileURLToPath } from "node:url";
@@ -72,6 +72,7 @@ import { supervisedCommandOutcome, finalizeQualifiedRun, qualificationInvocation
 import { readMeasuredTree } from "../engine/src/shared/tree-identity.ts";
 import { enforceTestRunLock, testFileCountOfArgs } from "../engine/scripts/tooling/test-run-lock.ts";
 import { resolve } from "node:path";
+import { writeFileSync } from "node:fs";
 
 const projectDir = process.cwd();
 
@@ -192,7 +193,7 @@ export async function superviseRun(
   command: string,
   args: readonly string[],
   watchdog: SuiteWatchdog,
-  options: Readonly<{ watchIntervalMs?: number; write?: (text: string) => void; killOnInterrupt?: boolean; stopWhenLauncherExits?: boolean; environment?: Readonly<NodeJS.ProcessEnv>; readOnlyCheckout?: string }> = {},
+  options: Readonly<{ checkout: string; watchIntervalMs?: number; write?: (text: string) => void; killOnInterrupt?: boolean; stopWhenLauncherExits?: boolean; environment?: Readonly<NodeJS.ProcessEnv>; onResult?: (chunk: Buffer) => void }>,
 ): Promise<SupervisedRun> {
   const write = options.write ?? ((text: string) => process.stderr.write(text));
   const stop = new AbortController();
@@ -204,8 +205,10 @@ export async function superviseRun(
       stop.abort();
     }, options.watchIntervalMs ?? WATCH_INTERVAL_MS)
     : () => undefined;
-  const run = await superviseCommand({
+  // Through the one test-execution door, CONFINED (decision TEST-CONFINEMENT-SELF-BIND); this runner stays outside.
+  const run = await runTestCommand({
     supervisor: ensureTestProcessSupervisor(),
+    checkout: options.checkout,
     command,
     args,
     hardCeilingMs: watchdog.hardCeilingMs,
@@ -218,7 +221,7 @@ export async function superviseRun(
     onStderr: (chunk) => process.stderr.write(chunk),
     stop: stop.signal,
     ...(options.killOnInterrupt === undefined ? {} : { killOnInterrupt: options.killOnInterrupt }),
-    ...(options.readOnlyCheckout === undefined ? {} : { readOnlyCheckout: options.readOnlyCheckout }),
+    ...(options.onResult === undefined ? {} : { onResult: options.onResult }),
   });
   stopLauncherWatch();
   const killedDescendants = (run.supervision?.reaped ?? []).filter((entry) => entry.killed).map((entry) => entry.pid);
@@ -252,6 +255,22 @@ export async function superviseRun(
     case "exited":
       return ended("exited", run.exitCode);
   }
+}
+
+/**
+ * The caller's report file, if it names one (`--outputFile=<path>`, one token):
+ * the arguments with it rewritten to the run's result channel, and the path
+ * this runner writes. A separate value, a per-reporter `--outputFile.<name>`
+ * or a second one is refused: a report the run would write into the read-only
+ * checkout, or lose, is never silently dropped.
+ */
+export function reportDestination(args: readonly string[]): Readonly<{ args: readonly string[]; path?: string }> | Readonly<{ refused: string }> {
+  const named = args.filter((arg) => arg === "--outputFile" || arg.startsWith("--outputFile=") || arg.startsWith("--outputFile."));
+  if (named.length === 0) return { args };
+  if (named.length > 1 || !named[0]!.startsWith("--outputFile=")) {
+    return { refused: "test_report_destination_unsupported: name one report file, as one --outputFile=<path> token" };
+  }
+  return { args: args.map((arg) => (arg === named[0] ? "--outputFile=/dev/fd/3" : arg)), path: resolve(named[0]!.slice("--outputFile=".length)) };
 }
 
 async function main(): Promise<void> {
@@ -289,12 +308,25 @@ async function main(): Promise<void> {
   const instrumentLock = enforceTestRunLock("web npm test", { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
   const invocationId = qualificationInvocation(process.env);
   const tree = readMeasuredTree(projectDir);
-  // THE CHECKOUT IS READ-ONLY TO THE RUN (#293's class): vitest and every worker it starts may write only the
-  // declared state directories (engine/src/process/supervised-run.ts `checkoutConfinement`); this runner stays outside.
-  const run = await superviseRun("npx", ["vitest", "run", ...process.argv.slice(2)], watchdog, {
-    killOnInterrupt: true, stopWhenLauncherExits: true, readOnlyCheckout: projectDir,
+  // THE CHECKOUT IS READ-ONLY TO THE RUN: vitest and every worker it starts may write only their run's scratch and the
+  // declared state directories (engine/src/process/supervised-run.ts `runTestCommand`); this runner stays outside.
+  // A report file the caller names (`--outputFile=<path>`, CI's shard report) is written HERE, outside the run: the
+  // confined vitest writes it to its result channel (fd 3) and this runner writes what arrived.
+  const report = reportDestination(process.argv.slice(2));
+  if ("refused" in report) {
+    process.stderr.write(`[run-tests] ${report.refused}\n`);
+    instrumentLock.release();
+    process.exitCode = 1;
+    return;
+  }
+  const reported: Buffer[] = [];
+  const [vitest, vitestArgs] = vitestCommand(projectDir, ["run", ...report.args]);
+  const run = await superviseRun(vitest, vitestArgs, watchdog, {
+    checkout: projectDir, killOnInterrupt: true, stopWhenLauncherExits: true,
     environment: { ...process.env, [QUALIFICATION_INVOCATION_ENV]: invocationId },
+    ...(report.path === undefined ? {} : { onResult: (chunk: Buffer) => { reported.push(chunk); } }),
   });
+  if (report.path !== undefined) writeFileSync(report.path, Buffer.concat(reported));
   process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);
   const completion = supervisedCommandOutcome(run.terminal, "web test command");
   if (completion.kind !== "pass") process.stderr.write(`[run-tests] ${completion.message}\n`);

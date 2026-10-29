@@ -160,29 +160,6 @@ export function gitPath(root: string, name: string, environment: GitEnvironment)
 }
 
 /**
- * EVERY DIRECTORY A CHECKOUT'S GIT STATE LIVES IN, asked of the directory's own
- * git (none for a folder outside any work tree): its git directory, the common one (a linked worktree's lives OUTSIDE the
- * checkout, in the repository it was added from), and every object directory
- * it borrows, as git reports them (`git count-objects -v`). The test confinement makes all of them read-only
- * with the checkout (`src/process/supervised-run.ts`): a worktree whose git
- * directory stayed writable let a confined `git commit` move its branch.
- */
-export function checkoutGitDirectories(root: string): readonly string[] {
-  // A folder outside any work tree keeps no git state: none to protect.
-  if (repositoryToplevel(root, "directory") === undefined) return [];
-  const asked = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], {
-    cwd: resolve(root), encoding: "utf8", env: gitProcessEnvironment("directory"),
-  });
-  if (asked.status !== 0) throw new InputError(`the git directories of ${root} could not be read: ${asked.stderr.trim()}`, "checkout_git_directories_unknown");
-  const [gitDir, commonDir] = asked.stdout.trim().split("\n").map((line) => resolve(line.trim()));
-  // The borrowed object directories, as git itself reports them (`count-objects -v`: one `alternate:` line each).
-  const counted = spawnSync("git", ["count-objects", "-v"], { cwd: resolve(root), encoding: "utf8", env: gitProcessEnvironment("directory") });
-  if (counted.status !== 0) throw new InputError(`the object directories of ${root} could not be read: ${counted.stderr.trim()}`, "checkout_git_directories_unknown");
-  const alternates = counted.stdout.split("\n").flatMap((line) => line.startsWith("alternate: ") ? [resolve(line.slice("alternate: ".length).trim())] : []);
-  return [...new Set([gitDir!, commonDir!, ...alternates])];
-}
-
-/**
  * THE ONE "WHICH INDEX FILE" ANSWER: git's own (`--git-path index`, absolute).
  * `inherited` honours a hook's temporary `GIT_INDEX_FILE` (the index
  * `git commit -a`, `-- <path>` and `-i` record); `directory` is the checkout's

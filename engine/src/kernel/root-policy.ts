@@ -2449,6 +2449,10 @@ const ROOT_POLICY_VALUE = {
     // environment is ever read.
     checkoutWriteDoor: {
       markerEnvironmentVariable: "HARNESS_CHECKOUT_UNDER_TEST",
+      // The variable naming a confined test run's own scratch root (set by the
+      // one test-execution door, never by a caller): its caches, temp folder
+      // and key home live there, and go with the run.
+      scratchEnvironmentVariable: "BRIDLEWISE_TEST_SCRATCH",
       markerFile: statePath("checkout-under-test"),
       // A node process RUNS tests when node's own options hold this flag, its
       // script is a test file (`recognizableSourcePatterns`), or an option
@@ -2482,22 +2486,26 @@ const ROOT_POLICY_VALUE = {
       ],
       // The executables whose command lines are read as node's (ancestors only).
       nodeExecutableNames: ["node", "nodejs"],
-      // The only directories of a checkout under test a test may write: a
-      // state root at the checkout's top, or at the top of one of its
-      // packages (a folder holding its own package.json, e.g. the engine) —
-      // never a same-named folder planted deeper (`src/.bridlewise/x.ts`).
+      // The only directories of a checkout under test a test may write (the
+      // in-process door here and the kernel's confinement, decision
+      // TEST-CONFINEMENT-SELF-BIND): these places of the state root at the
+      // checkout's top, or at the top of one of its packages (a folder holding
+      // its own package.json, e.g. the engine) — never a same-named folder
+      // planted deeper (`src/.bridlewise/x.ts`), and never the rest of the
+      // state root: the index baseline, the journals, the commit guard's
+      // state, the evidence store and the locks are trusted by later runs,
+      // so a test must not be able to forge them. The fixture root (owned
+      // temporaries, swept by owner), the web run ledger the in-run reporter
+      // writes (#655: forgeable, to move to the runner outside), and the
+      // landlock runner's per-project scratch and MCP server homes under the
+      // harness root (#664: forgeable across runs, to move to a state root
+      // the run owns); and the config's write locks (a settings test takes
+      // the live config's; a lock carries no content a later run trusts).
+      writablePlaces: [statePath("test-fixtures"), statePath("web-test-results"), statePath("confined-scratch"), statePath("mcp-home"), statePath("config-locks")],
+      // The in-process door's state roots (a process under test writes no
+      // tracked file; the runners outside a confined run write their ledgers
+      // there): every place above lies in one of them.
       writableDirectoryNames: [STATE_DIRECTORY_NAME],
-      // Vite's own gitignored scratch, never repository content: it bundles
-      // every config it loads into `node_modules/.vite-temp/` and vitest
-      // caches under `node_modules/.vite/` (vitest's module cache is kept
-      // outside the checkout: compile-cache.ts `vitestModuleCacheDirectory`),
-      // at the checkout's top and in each
-      // package, so a test run whose checkout is read-only
-      // (src/process/supervised-run.ts `checkoutConfinement`) could launch no
-      // vitest without them. Each must be a real directory: one that is a link,
-      // or not a directory, refuses the run (it could carry a write into the
-      // tree).
-      toolScratchDirectories: ["node_modules/.vite-temp", "node_modules/.vite"],
     },
     // A PROCESS UNDER TEST DIALS NOTHING BUT THIS MACHINE: the outbound door
     // refuses a remote destination (src/shared/outbound-http.ts), and every

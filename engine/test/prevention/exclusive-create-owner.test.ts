@@ -65,7 +65,7 @@ test("the three former copies publish through the owner: the folder is fsynced o
     },
     {
       what: "the config write lock",
-      folder: join(root, "config", ".bridlewise"),
+      folder: join(root, "config", ".bridlewise", "config-locks"),
       body: `const {withConfigWriteLock}=await import(${JSON.stringify(join(ENGINE_ROOT, "src/kernel/config-write-lock.ts"))});withConfigWriteLock(${JSON.stringify(join(root, "config", "harness.json"))},()=>0);`,
     },
     {

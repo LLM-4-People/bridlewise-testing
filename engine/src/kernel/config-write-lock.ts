@@ -26,7 +26,10 @@ import { ConfigWriteLockTimeout, InputError } from "./errors.ts";
 import { STATE_DIRECTORY_NAME } from "./product-identity.ts";
 import { withFileLock } from "../filesystem/file-lock.ts";
 
-/** The lock file's name prefix inside the state directory beside the config. */
+/** The folder of the state directory beside the config that holds its write locks. */
+const CONFIG_LOCK_FOLDER = "config-locks" as const;
+
+/** The lock file's name prefix inside that folder. */
 const LOCK_FILE_PREFIX = "config-write-" as const;
 
 /** The lock file path derived from a config file path. */
@@ -44,7 +47,9 @@ export function configWriteLockPath(configPath: string): string {
   // against the working directory matches exactly how the filesystem calls
   // below resolve the config path itself.
   const resolved = isAbsolute(configPath) ? configPath : resolve(configPath);
-  const lockDirectory = join(dirname(resolved), STATE_DIRECTORY_NAME);
+  // In its own folder of the state root (`config-locks`): a test run may hold the live config's lock (a settings test
+  // takes it), and the confinement makes writable only declared folders, never the state root itself.
+  const lockDirectory = join(dirname(resolved), STATE_DIRECTORY_NAME, CONFIG_LOCK_FOLDER);
   return join(lockDirectory, `${LOCK_FILE_PREFIX}${basename(resolved)}.lock`);
 }
 

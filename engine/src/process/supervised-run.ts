@@ -27,15 +27,19 @@
  * `engine/guardian/build.ts`) and
  * handed in: this layer runs processes, it builds nothing.
  *
- * - {@link checkoutConfinement}: the checkout made READ-ONLY to a command and
- *   every descendant (`readOnlyCheckout`), the places computed here.
+ * - {@link runTestCommand}: THE ONE TEST-EXECUTION DOOR — {@link superviseCommand}
+ *   with the run CONFINED, always: the whole filesystem read-only to the
+ *   command and every descendant but its own per-run scratch root and the
+ *   checkout's declared writable places (decision TEST-CONFINEMENT-SELF-BIND).
+ *   Every route that runs tests goes through it; {@link superviseCommand}
+ *   itself runs the trusted, non-test commands (a checkout's setup, a build).
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { constants } from "node:os";
+import { join } from "node:path";
 import type { Readable } from "node:stream";
 
-import { checkoutConfinementPlaces } from "../filesystem/checkout-write-door.ts";
-import { checkoutGitDirectories } from "../git/repository-ownership.ts";
+import { checkoutConfinementPlaces, closeTestRunScratch, openTestRunScratch, testRunEnvironment } from "../filesystem/checkout-write-door.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { isProcessGroupAlive, ownedAnnouncement, procfsDocument, terminate, type ProcessIdentity } from "./process-facts.ts";
@@ -128,58 +132,57 @@ function supervisorArguments(ceilingMs: number, graceMs: number, command: string
 }
 
 /**
- * THE TEST CONFINEMENT (#293's class: a test, or anything it started, changed
- * the live checkout — a same-mode chmod of its configuration refused a
- * concurrent commit). The places are computed HERE, from the checkout's own
- * facts, never passed by a caller:
- *
- * - READ-ONLY: the checkout and every directory its git state lives in — its
- *   git directory, the common one (a linked worktree's lies outside the
- *   checkout) and every object directory it borrows
- *   (`checkoutGitDirectories`, the git owner);
- * - WRITABLE inside it: exactly the checkout write door's state directories
- *   (`checkoutWritablePlaces`: `.bridlewise/` at the top and in each package),
- *   created through the one state-directory creator so they can be bound.
- *
- * The native supervisor makes them so in a user and mount namespace locked by
- * a second one (`engine/guardian/test-process-supervisor.c`): EROFS for every
- * write, chmod, utime, link and rename, for every descendant, and no way to
- * remount or unmount. The arrangement is PROBED once per process and checkout
- * before it is used; a host that refuses it gets a typed refusal naming the
- * one-time fix, never an unconfined run.
+ * THE ONE VITEST COMMAND every vitest route runs through {@link runTestCommand}:
+ * node itself on the checkout's vitest entry (no `npx` between: the run's
+ * result channel, fd 3, reaches vitest's main process), with vite's
+ * config loaded by its module runner (`--configLoader=runner`): the default
+ * loader bundles the config into `node_modules/.vite-temp`, a write into the
+ * read-only checkout.
  */
-const confinements = new Map<string, readonly string[]>();
+export function vitestCommand(checkout: string, args: readonly string[]): readonly [string, readonly string[]] {
+  return [process.execPath, [join(checkout, "node_modules", "vitest", "vitest.mjs"), ...args, "--configLoader=runner"]];
+}
 
-export function checkoutConfinement(supervisor: string, checkout: string): readonly string[] {
-  const known = confinements.get(checkout);
-  if (known !== undefined) return known;
-  const { readOnly, writable } = checkoutConfinementPlaces(checkout, checkoutGitDirectories(checkout));
-  const args = Object.freeze([...readOnly.flatMap((place) => ["--read-only-root", place]), ...writable.flatMap((place) => ["--writable", place])]);
+/**
+ * THE CONFINEMENT OF ONE RUN (decision TEST-CONFINEMENT-SELF-BIND; the user's
+ * rule that a malicious module cannot bypass core): the supervisor's arguments
+ * — the checkout, the run's scratch root and the checkout's declared writable
+ * places (the write door's `checkoutConfinementPlaces`, checked there first;
+ * the native supervisor checks each again by descriptor and binds it from that
+ * descriptor) — PROBED before use, every time: a host or a place that refuses
+ * is a typed refusal naming why and the fix, never an unconfined run.
+ */
+export function testConfinement(supervisor: string, checkout: string, scratch: string): readonly string[] {
+  const places = checkoutConfinementPlaces(checkout);
+  const args = Object.freeze([
+    "--checkout", places.root, "--scratch", scratch,
+    ...places.writable.flatMap((place) => ["--writable", place]),
+  ]);
   const probe = spawnSync(supervisor, ["--probe-confinement", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (probe.error !== undefined || probe.status !== 0) {
+    const said = (probe.stderr || String(probe.error ?? `exit ${String(probe.status)}`)).trim();
     throw new HarnessError(
-      `The test confinement is unavailable on this host, so no test runs: the checkout ${checkout} cannot be made read-only to its tests ` +
-        `(${(probe.stderr || String(probe.error ?? `exit ${String(probe.status)}`)).trim()}). ${confinementRemedy()}`,
+      `The test confinement refused this run, so no test runs (${said}). ${confinementRemedy(said)}`,
       "test_confinement_unavailable",
     );
   }
-  confinements.set(checkout, args);
   return args;
 }
 
 /**
- * The one-time host fix a refused confinement names. A host whose AppArmor
- * restricts unprivileged user namespaces (Ubuntu 24.04's default) admits them
- * for the supervisor binary alone through the profile the repository ships;
- * any other refusal is the kernel's own (user namespaces switched off).
+ * The fix for the step the supervisor refused (N9): the user-namespace host
+ * fix only when namespaces were refused, the kernel when mount_setattr is
+ * missing, the place itself when a writable place was refused.
  */
-function confinementRemedy(): string {
-  const restricted = procfsDocument("sys", "kernel", "apparmor_restrict_unprivileged_userns")?.trim() === "1";
-  return restricted
-    ? "AppArmor restricts unprivileged user namespaces here; admit them for the test supervisor alone, once: " +
-      "node engine/guardian/build.ts --apparmor-profile | sudo tee /etc/apparmor.d/bridlewise-test-process-supervisor >/dev/null " +
-      "&& sudo apparmor_parser -r /etc/apparmor.d/bridlewise-test-process-supervisor"
-    : "Unprivileged user namespaces are not available (check /proc/sys/user/max_user_namespaces and the kernel's user-namespace support).";
+function confinementRemedy(said: string): string {
+  if (/unshare|map this user/u.test(said)) {
+    return procfsDocument("sys", "kernel", "apparmor_restrict_unprivileged_userns")?.trim() === "1"
+      ? "AppArmor restricts unprivileged user namespaces here; admit them for this checkout's test supervisor alone, once: `node engine/guardian/build.ts --apparmor-install` prints the commands"
+      : "Unprivileged user namespaces are not available (check /proc/sys/user/max_user_namespaces and the kernel's user-namespace support).";
+  }
+  if (/mount_setattr|open_tree|move_mount/u.test(said)) return "The confinement needs Linux 5.12 or later (mount_setattr, open_tree, move_mount).";
+  if (/writable place|scratch root|checkout must/u.test(said)) return "Fix the named place (a real directory, at its canonical path, with no hard-linked file beneath it), then run again.";
+  return "The step it names failed; the run is refused rather than run unconfined.";
 }
 
 /**
@@ -222,13 +225,6 @@ export type SupervisedCommandOptions = Readonly<{
   stop?: AbortSignal;
   /** Stops the run when THIS process receives SIGINT, SIGTERM or SIGHUP (an operator's Ctrl-C takes every descendant down too). */
   killOnInterrupt?: boolean;
-  /**
-   * THE CHECKOUT IS READ-ONLY TO THE COMMAND: the checkout whose files, git
-   * directories and borrowed objects the command and every descendant may not
-   * change ({@link checkoutConfinement}). Both suites' runners pass their
-   * checkout for their workers; the runner itself stays outside.
-   */
-  readOnlyCheckout?: string;
 }>;
 
 export type SupervisedCommand = Readonly<{
@@ -257,9 +253,36 @@ export type SupervisedCommand = Readonly<{
  * the kill grace).
  */
 export function superviseCommand(options: SupervisedCommandOptions): Promise<SupervisedCommand> {
+  return supervise(options, []);
+}
+
+/** {@link runTestCommand}'s options: a supervised command's, and the checkout it runs in. */
+export type TestCommandOptions = SupervisedCommandOptions & Readonly<{
+  /** The checkout the tests are of: read-only to them but its declared writable places. */
+  checkout: string;
+}>;
+
+/**
+ * THE ONE TEST-EXECUTION DOOR: `command` supervised and CONFINED. It gets a
+ * fresh scratch root of its own (the write door's `openTestRunScratch`, removed
+ * when the run ends, whatever its outcome), its TMPDIR, node compile cache and
+ * scratch variable inside it, and sees everything else read-only but
+ * the checkout's declared writable places ({@link testConfinement}).
+ * Confinement is what this door IS, not an option of it.
+ */
+export async function runTestCommand(options: TestCommandOptions): Promise<SupervisedCommand> {
+  const scratch = openTestRunScratch();
+  try {
+    const confinement = testConfinement(options.supervisor, options.checkout, scratch.bound);
+    return await supervise({ ...options, env: testRunEnvironment(scratch, options.env) }, confinement);
+  } finally {
+    closeTestRunScratch(scratch);
+  }
+}
+
+function supervise(options: SupervisedCommandOptions, confinement: readonly string[]): Promise<SupervisedCommand> {
   const killGraceMs = options.killGraceMs;
   const passFd = options.onResult !== undefined;
-  const confinement = options.readOnlyCheckout === undefined ? [] : checkoutConfinement(options.supervisor, options.readOnlyCheckout);
   const args = [...confinement, ...supervisorArguments(options.hardCeilingMs, killGraceMs, options.command, options.args, passFd)];
   const startedAt = Date.now();
   let lastOutputAt = startedAt;

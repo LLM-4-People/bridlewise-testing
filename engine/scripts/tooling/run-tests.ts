@@ -92,12 +92,9 @@ export async function runWorkerWithEvidence(
     // ceiling sits a stall bound above the worker's own watchdog ceiling, so
     // the worker's abort always reports first.
     const { engineSuiteWatchdog } = readTestExecutionConfig(workingDirectory);
-    // A TEST RUN'S WORKER SEES ITS CHECKOUT READ-ONLY (#293's class): the checkout, its git directories and borrowed
-    // objects, except the declared state directories (src/process/supervised-run.ts `checkoutConfinement`). The
-    // runner itself, and its reports, stay outside.
-    const readOnlyCheckout = executionOperationSpec(operation).resultKind === "test-result-receipt"
-      ? repositoryToplevel(workingDirectory, "directory") ?? workingDirectory
-      : undefined;
+    // EVERY WORKER RUN IS CONFINED (decision TEST-CONFINEMENT-SELF-BIND): the test and the check modes alike run the
+    // inventory, so both go through the one test-execution door (recorded-command.ts → runTestCommand). The runner
+    // itself, and its reports, stay outside.
     const observation = await runRecordedCommand({
       arguments: arguments_,
       cwd: workingDirectory,
@@ -105,7 +102,7 @@ export async function runWorkerWithEvidence(
         supervisor: ensureTestProcessSupervisor(),
         hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs,
         killGraceMs: engineSuiteWatchdog.killGraceMs,
-        ...(readOnlyCheckout === undefined ? {} : { readOnlyCheckout }),
+        checkout: repositoryToplevel(workingDirectory, "directory") ?? workingDirectory,
       },
       ...(options.environment === undefined ? {} : { environment: options.environment }),
       ...(options.setupFailureCode === undefined ? {} : { setupFailureCode: options.setupFailureCode }),

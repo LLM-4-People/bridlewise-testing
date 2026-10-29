@@ -4,30 +4,42 @@
  * Keep this boundary outside the watched runtime; tests and policy stay in TS.
  * Linux manuals: PR_SET_CHILD_SUBREAPER(2), pidfd_open(2), wait4(2).
  *
- * Usage: test-process-supervisor [--read-only-root <dir>]... [--writable <dir>]...
+ * Usage: test-process-supervisor [--checkout <dir> --scratch <dir> [--writable <dir>]...]
  *                                [--pass-fd] <timeout ms> <grace ms> <command> [args...]
- *        test-process-supervisor --probe-confinement --read-only-root <dir>... [--writable <dir>]...
+ *        test-process-supervisor --probe-confinement --checkout <dir> --scratch <dir> [--writable <dir>]...
  * fd 3 carries this supervisor's receipt. With --pass-fd, the caller's fd 4
  * becomes the COMMAND's fd 3 (a command that reports on fd 3, like the engine
  * test worker, keeps its channel) and the supervisor holds no copy of it.
  *
- * THE CHECKOUT IS READ-ONLY TO THE COMMAND (#293's class: a test, or anything
- * it starts, wrote the live checkout). With --read-only-root, the command is
- * started in a user and mount namespace of its own where each such <dir> (the
- * checkout, and its git directories wherever they live: a worktree's are
- * outside it) is a read-only bind of itself, each --writable <dir> beneath
- * one of them a read-write bind, and a
- * SECOND user and mount namespace on top: the kernel locks mounts it copies
- * into a less privileged namespace (MNT_LOCKED, MNT_LOCK_READONLY), so the
- * command -- root in its own namespace -- can neither remount the checkout
- * read-write nor unmount it. Every write, chmod, utime, link or rename under
- * <dir> outside the writable places is EROFS, for the command and every
- * descendant. The pid namespace is not changed: this supervisor still owns,
- * stops and reaps the command as before. A host that refuses an unprivileged
- * user namespace refuses the run (exit 125 with the step that failed), never
- * an unconfined run. --probe-confinement sets the same namespaces up in a
- * child, proves a write under <dir> is EROFS, and exits 0, or 125 with the
- * refusing step.
+ * THE COMMAND SEES THE WHOLE FILESYSTEM READ-ONLY (#293's class, under the
+ * user's rule that a malicious module cannot bypass core: decision
+ * TEST-CONFINEMENT-SELF-BIND). With --checkout <dir> --scratch <dir>
+ * [--writable <dir>]..., the command starts in new user, mount, network and
+ * IPC namespaces where:
+ *   - every mount is read-only, recursively (mount_setattr AT_RECURSIVE: a
+ *     mount already beneath the checkout is read-only too);
+ *   - fresh empty tmpfs mounts cover /tmp, /run and /dev/shm, so no socket
+ *     or shared object of a same-user service outside is reachable by path;
+ *     the network namespace holds only its own loopback, and the IPC
+ *     namespace its own System V and POSIX queues;
+ *   - writable again: the per-run --scratch root (outside the checkout,
+ *     discarded by the caller) and each --writable place, a declared state
+ *     directory of the checkout. Each is opened without following a link,
+ *     checked to be a real directory at exactly its own canonical path (a
+ *     place inside the checkout for --writable, outside it for --scratch,
+ *     with no file of more than one name beneath a --writable place: a hard
+ *     link could alias a checkout file), and bound FROM THAT DESCRIPTOR, so
+ *     nothing can be swapped between the check and the bind;
+ *   - a SECOND user and mount namespace locks every mount (MNT_LOCKED,
+ *     MNT_LOCK_READONLY): the command, root in its own namespace, can
+ *     neither remount nor unmount;
+ *   - every inherited descriptor is closed but 0-2 (and the passed 3).
+ * The pid namespace is not changed: this supervisor still owns, stops and
+ * reaps the command. Any step that cannot be done refuses the run (exit 125
+ * and the step that failed), never an unconfined run.
+ * --probe-confinement sets the same namespaces up in a child and proves them:
+ * a write in the checkout and outside it is EROFS, each writable place takes
+ * a write, a remount read-write is refused; exit 0, or 125 with the step.
  *
  * THE RUNNER'S DEATH IS ONE STOP. It arrives as the parent-death signal, and
  * the kernel sends that on EVERY reparent: a dying multi-threaded runner (Node
@@ -48,10 +60,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <ftw.h>
+#include <net/if.h>
 #include <sched.h>
+#include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
-#include <sys/statvfs.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -237,13 +254,14 @@ static long long start_time_of(pid_t pid)
     return -1;
 }
 
-/* The read-only checkout (see the header): the root and its writable places. */
-#define MAX_PLACES 16
+/* The confinement (see the header): the checkout, the per-run scratch root and the writable places. */
+#define MAX_PLACES 32
 #define CONFINEMENT_REFUSED 125
-static const char *read_only_roots[MAX_PLACES];
-static int read_only_count = 0;
+static const char *checkout_root = NULL;
+static const char *scratch_root = NULL;
 static const char *writable[MAX_PLACES];
 static int writable_count = 0;
+static bool passes_fd = false;
 
 static int write_text(const char *path, const char *text) {
     int fd = open(path, O_WRONLY | O_CLOEXEC);
@@ -266,67 +284,360 @@ static int map_own_identity(uid_t uid, gid_t gid) {
     return write_text("/proc/self/gid_map", line);
 }
 
-/* The flags a bind remount must keep (a user namespace may not clear the ones its parent locked). */
-static unsigned long kept_mount_flags(const char *path) {
-    struct statvfs info;
-    if (statvfs(path, &info)) return 0;
-    unsigned long flags = 0;
-    if (info.f_flag & ST_NOSUID) flags |= MS_NOSUID;
-    if (info.f_flag & ST_NODEV) flags |= MS_NODEV;
-    if (info.f_flag & ST_NOEXEC) flags |= MS_NOEXEC;
-    if (info.f_flag & ST_NOATIME) flags |= MS_NOATIME;
-    if (info.f_flag & ST_NODIRATIME) flags |= MS_NODIRATIME;
-    if (info.f_flag & ST_RELATIME) flags |= MS_RELATIME;
-    return flags;
+/* `path` lies strictly beneath `root` (both canonical absolute paths). */
+static bool beneath(const char *path, const char *root) {
+    size_t length = strlen(root);
+    if (length == 1) return path[1] != '\0';
+    return strncmp(path, root, length) == 0 && path[length] == '/';
 }
 
-/* Sets the read-only checkout up in THIS process (a forked child, before it
- * execs). NULL, or the step that failed (errno says why). */
-static const char *confine_checkout(void) {
+/* A place opened by descriptor: a real directory at exactly its canonical path. -1 (errno, `*why`) when not. */
+static int open_place(const char *path, const char **why) {
+    int fd = open(path, O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) { *why = "open a writable place (it must be a real directory, not a link)"; return -1; }
+    char link[64], real[PATH_MAX];
+    snprintf(link, sizeof(link), "/proc/self/fd/%d", fd);
+    ssize_t length = readlink(link, real, sizeof(real) - 1);
+    if (length < 0) { *why = "read a writable place's real path"; close(fd); return -1; }
+    real[length] = '\0';
+    if (strcmp(real, path) != 0) { errno = ELOOP; *why = "a writable place resolves through a link"; close(fd); return -1; }
+    return fd;
+}
+
+static int aliased = 0;
+static int alias_walk(const char *path, const struct stat *stats, int type, struct FTW *where) {
+    (void)path; (void)where;
+    if (type == FTW_F && S_ISREG(stats->st_mode) && stats->st_nlink > 1) { aliased = 1; return 1; }
+    return 0;
+}
+
+/* Brings the namespace's own loopback up (a new network namespace starts with it down). */
+static int loopback_up(void) {
+    int sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (sock < 0) return -1;
+    struct ifreq request;
+    memset(&request, 0, sizeof(request));
+    strncpy(request.ifr_name, "lo", IFNAMSIZ - 1);
+    int result = ioctl(sock, SIOCGIFFLAGS, &request);
+    if (result == 0) { request.ifr_flags |= IFF_UP; result = ioctl(sock, SIOCSIFFLAGS, &request); }
+    int saved = errno;
+    close(sock);
+    errno = saved;
+    return result;
+}
+
+/* A fresh empty tmpfs over `path` when it exists (what was there is no longer reachable by path). */
+static int cover_with_tmpfs(const char *path) {
+    struct stat stats;
+    if (lstat(path, &stats) != 0 || !S_ISDIR(stats.st_mode)) return 0;
+    return mount("tmpfs", path, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777");
+}
+
+/* THE SOCKETS OF THE HOST, MASKED (#654): every pathname unix socket bound in this network namespace when the run
+ * starts, read from /proc/net/unix before the run's own namespace replaces it. A read-only mount does not stop
+ * connect(2), so each socket's folder is covered by an empty read-only tmpfs instead — except the run's own (under its
+ * scratch root) and those the fresh tmpfs already hides (/tmp, /run, /dev/shm). A folder that cannot be covered
+ * without hiding the run's own places (an ancestor of the checkout, the scratch root or a writable place), or a
+ * socket inside the checkout outside its writable places, refuses the run. A socket bound later, outside the run,
+ * stays reachable until Landlock ABI 9 (LANDLOCK_ACCESS_FS_RESOLVE_UNIX) can refuse it. */
+#define MAX_MASKS 4096
+static char *masks[MAX_MASKS];
+static int mask_count;
+
+static bool at_or_beneath(const char *path, const char *root) {
+    return strcmp(path, root) == 0 || beneath(path, root);
+}
+
+/* Judges one socket's folder (canonical) and remembers it to mask. NULL, or why the run is refused. */
+static const char *note_socket_folder(const char *folder, const char *const *covered, size_t covered_count) {
+    char real[PATH_MAX];
+    if (realpath(folder, real) == NULL) return NULL; /* gone, or not reachable from here: nothing to connect to */
+    for (size_t index = 0; index < covered_count; index++) if (at_or_beneath(real, covered[index])) return NULL;
+    if (at_or_beneath(real, scratch_root)) return NULL;
+    errno = EBUSY;
+    if (at_or_beneath(checkout_root, real) || at_or_beneath(scratch_root, real)) return "a unix socket's folder holds the run's own places, so it cannot be masked (move the socket)";
+    bool in_place = false;
+    for (int index = 0; index < writable_count; index++) {
+        if (at_or_beneath(writable[index], real)) return "a unix socket's folder holds a writable place, so it cannot be masked (move the socket)";
+        if (beneath(real, writable[index])) in_place = true;
+    }
+    if (beneath(real, checkout_root) && !in_place) return "a unix socket is bound inside the checkout (move the socket)";
+    errno = 0;
+    for (int index = 0; index < mask_count; index++) if (strcmp(masks[index], real) == 0) return NULL;
+    if (mask_count == MAX_MASKS) { errno = E2BIG; return "too many unix sockets' folders to mask"; }
+    masks[mask_count] = strdup(real);
+    if (masks[mask_count++] == NULL) return "remember a unix socket's folder";
+    return NULL;
+}
+
+/* A relative socket path is relative to its binder's working directory: the process of THIS user holding the socket
+ * (its descriptor names `socket:[inode]`) answers where it is. A socket no process of this user holds is another
+ * user's: not reachable as this user's own service, and not this run's to mask. A relative socket whose holder has
+ * since changed its working directory cannot be located, and stays reachable (the residual, with sockets bound later). */
+static const char *note_relative_socket(unsigned long inode, const char *relative, const char *const *covered, size_t covered_count) {
+    char wanted[64];
+    snprintf(wanted, sizeof(wanted), "socket:[%lu]", inode);
+    DIR *processes = opendir("/proc");
+    if (processes == NULL) return "list this host's processes to place a relative unix socket";
+    const char *failed = NULL;
+    bool placed = false;
+    for (struct dirent *entry = readdir(processes); entry != NULL && !placed && failed == NULL; entry = readdir(processes)) {
+        if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
+        char descriptors[64];
+        snprintf(descriptors, sizeof(descriptors), "/proc/%.32s/fd", entry->d_name);
+        DIR *fds = opendir(descriptors);
+        if (fds == NULL) continue; /* another user's process, or gone */
+        for (struct dirent *fd = readdir(fds); fd != NULL && !placed; fd = readdir(fds)) {
+            char link[128], target[128];
+            snprintf(link, sizeof(link), "%s/%.32s", descriptors, fd->d_name);
+            ssize_t length = readlink(link, target, sizeof(target) - 1);
+            if (length < 0) continue;
+            target[length] = '\0';
+            if (strcmp(target, wanted) != 0) continue;
+            char cwd_link[64], cwd[PATH_MAX], folder[PATH_MAX * 2];
+            snprintf(cwd_link, sizeof(cwd_link), "/proc/%.32s/cwd", entry->d_name);
+            ssize_t cwd_length = readlink(cwd_link, cwd, sizeof(cwd) - 1);
+            if (cwd_length < 0) continue;
+            cwd[cwd_length] = '\0';
+            snprintf(folder, sizeof(folder), "%s/%s", cwd, relative);
+            /* Only where the socket file really is: a holder that moved since it bound is no answer. */
+            struct stat found;
+            if (lstat(folder, &found) != 0 || !S_ISSOCK(found.st_mode)) continue;
+            char *slash = strrchr(folder, '/');
+            *slash = '\0';
+            failed = note_socket_folder(folder, covered, covered_count);
+            placed = true;
+        }
+        closedir(fds);
+    }
+    closedir(processes);
+    return failed;
+}
+
+static const char *collect_socket_masks(const char *const *covered, size_t covered_count) {
+    FILE *table = fopen("/proc/net/unix", "re");
+    if (table == NULL) return "read the host's unix sockets (/proc/net/unix)";
+    char line[PATH_MAX + 256];
+    const char *failed = NULL;
+    if (fgets(line, sizeof(line), table) == NULL) { fclose(table); return NULL; } /* the header */
+    while (failed == NULL && fgets(line, sizeof(line), table) != NULL) {
+        line[strcspn(line, "\n")] = '\0';
+        /* Num RefCount Protocol Flags Type St Inode Path: the inode is the seventh field, the path the rest. */
+        char *cursor = line;
+        unsigned long inode = 0;
+        for (int field = 0; field < 7 && cursor != NULL; field++) {
+            while (*cursor == ' ') cursor++;
+            if (field == 6) inode = strtoul(cursor, NULL, 10);
+            cursor = strchr(cursor, ' ');
+        }
+        if (cursor == NULL) continue;
+        while (*cursor == ' ') cursor++;
+        if (*cursor == '\0' || *cursor == '@') continue; /* unbound, or abstract (the network namespace scopes those) */
+        if (*cursor != '/') { failed = note_relative_socket(inode, cursor, covered, covered_count); continue; }
+        char folder[PATH_MAX];
+        snprintf(folder, sizeof(folder), "%s", cursor);
+        char *slash = strrchr(folder, '/');
+        if (slash == NULL || slash == folder) continue;
+        *slash = '\0';
+        failed = note_socket_folder(folder, covered, covered_count);
+    }
+    fclose(table);
+    return failed;
+}
+
+static int mask_length_order(const void *left, const void *right) {
+    return (int)strlen(*(char *const *)left) - (int)strlen(*(char *const *)right);
+}
+
+/* Each collected folder covered by an empty read-only tmpfs, found by a descriptor proven to name it; a folder beneath
+ * one already covered is hidden with it. */
+static const char *mount_socket_masks(void) {
+    qsort(masks, (size_t)mask_count, sizeof(masks[0]), mask_length_order);
+    for (int index = 0; index < mask_count; index++) {
+        bool inside_earlier = false;
+        for (int earlier = 0; earlier < index; earlier++) if (beneath(masks[index], masks[earlier])) inside_earlier = true;
+        if (inside_earlier) continue;
+        int folder = open(masks[index], O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC);
+        if (folder < 0) continue; /* gone since it was read: nothing left to connect to */
+        char link[64], named[PATH_MAX];
+        snprintf(link, sizeof(link), "/proc/self/fd/%d", folder);
+        ssize_t length = readlink(link, named, sizeof(named) - 1);
+        if (length < 0 || (named[length] = '\0', strcmp(named, masks[index]) != 0)) { close(folder); errno = EXDEV; return "a unix socket's folder changed before it could be masked"; }
+        int result = mount("tmpfs", link, "tmpfs", MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC, "size=4k,mode=0555");
+        int saved = errno;
+        close(folder);
+        errno = saved;
+        if (result) return "mask a unix socket's folder with an empty read-only tmpfs";
+    }
+    return NULL;
+}
+
+/* `fd` (a directory of this namespace) cloned, read-write or read-only, and mounted onto `target` (a directory descriptor). */
+static int bind_place(int fd, int target, bool writable_place) {
+    int tree = (int)syscall(SYS_open_tree, fd, "", OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_EMPTY_PATH);
+    if (tree < 0) return -1;
+    struct mount_attr attr = {0};
+    if (writable_place) attr.attr_clr = MOUNT_ATTR_RDONLY; else attr.attr_set = MOUNT_ATTR_RDONLY;
+    int result = (int)syscall(SYS_mount_setattr, tree, "", AT_EMPTY_PATH, &attr, sizeof(attr));
+    if (result == 0) result = (int)syscall(SYS_move_mount, tree, "", target, "", MOVE_MOUNT_F_EMPTY_PATH | MOVE_MOUNT_T_EMPTY_PATH);
+    int saved = errno;
+    close(tree);
+    errno = saved;
+    return result;
+}
+
+/* `path`, inside a fresh tmpfs this process just mounted (nobody else can reach it), made as a directory chain and opened. */
+static int make_in_fresh_tmpfs(const char *path) {
+    char partial[PATH_MAX];
+    snprintf(partial, sizeof(partial), "%s", path);
+    for (char *slash = strchr(partial + 1, '/'); slash != NULL; slash = strchr(slash + 1, '/')) {
+        *slash = '\0';
+        if (mkdir(partial, 0700) != 0 && errno != EEXIST) return -1;
+        *slash = '/';
+    }
+    if (mkdir(partial, 0700) != 0 && errno != EEXIST) return -1;
+    return open(partial, O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC);
+}
+
+/* Sets the confinement up in THIS process (a forked child, before it execs).
+ * NULL, or the step that failed (errno says why). */
+static const char *confine(void) {
     uid_t uid = getuid();
     gid_t gid = getgid();
     char cwd[PATH_MAX];
     bool have_cwd = getcwd(cwd, sizeof(cwd)) != NULL;
-    if (unshare(CLONE_NEWUSER | CLONE_NEWNS)) return "unshare a user and mount namespace";
+    char real[PATH_MAX];
+    if (!realpath(checkout_root, real) || strcmp(real, checkout_root) != 0) return "the checkout must be named by its canonical path";
+    if (!realpath(scratch_root, real) || strcmp(real, scratch_root) != 0) return "the scratch root must be named by its canonical path";
+    if (beneath(scratch_root, checkout_root) || strcmp(scratch_root, checkout_root) == 0) return "the scratch root must lie outside the checkout";
+    static const char *const covered[] = {"/tmp", "/run", "/dev/shm"};
+    /* A scratch root under a covered folder (a TMPDIR in /tmp) is re-attached at its own path inside the fresh tmpfs. */
+    bool scratch_covered = false;
+    for (size_t index = 0; index < sizeof(covered) / sizeof(covered[0]); index++)
+        if (beneath(scratch_root, covered[index])) scratch_covered = true;
+    for (int index = 0; index < writable_count; index++) {
+        if (!beneath(writable[index], checkout_root)) { errno = EINVAL; return "a writable place must lie inside the checkout"; }
+        aliased = 0;
+        if (nftw(writable[index], alias_walk, 32, FTW_PHYS) < 0) return "walk a writable place";
+        if (aliased) { errno = EMLINK; return "a writable place holds a file with more than one name (a hard link could alias a checkout file)"; }
+    }
+    /* Read in the host's network namespace, before the run's own replaces it. */
+    const char *unmaskable = collect_socket_masks(covered, sizeof(covered) / sizeof(covered[0]));
+    if (unmaskable != NULL) return unmaskable;
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWIPC)) return "unshare user, mount, network and IPC namespaces";
     if (map_own_identity(uid, gid)) return "map this user into the namespace";
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)) return "make the mounts private";
-    for (int index = 0; index < read_only_count; index++)
-        if (mount(read_only_roots[index], read_only_roots[index], NULL, MS_BIND | MS_REC, NULL)) return "bind a read-only root";
-    for (int index = 0; index < writable_count; index++)
-        if (mount(writable[index], writable[index], NULL, MS_BIND | MS_REC, NULL)) return "bind a writable place";
-    for (int index = 0; index < read_only_count; index++)
-        if (mount(NULL, read_only_roots[index], NULL, MS_REMOUNT | MS_BIND | MS_RDONLY | kept_mount_flags(read_only_roots[index]), NULL))
-            return "remount a root read-only";
+    /* Opened in THIS namespace, before anything is read-only: each bind below is made from its descriptor, in this
+     * order: the scratch root; the checkout again, read-only, when it lies inside the scratch root (a test's own
+     * fixture checkout in a nested run: the checkout is read-only wherever it lies); then the writable places. */
+    int places[MAX_PLACES + 2];
+    bool place_writable[MAX_PLACES + 2];
+    const char *place_path[MAX_PLACES + 2];
+    int count = 0;
+    const char *why = NULL;
+    place_path[count] = scratch_root;
+    place_writable[count] = true;
+    places[count] = open_place(scratch_root, &why);
+    if (places[count++] < 0) return why;
+    if (beneath(checkout_root, scratch_root)) {
+        place_path[count] = checkout_root;
+        place_writable[count] = false;
+        places[count] = open_place(checkout_root, &why);
+        if (places[count++] < 0) return why;
+    }
+    for (int index = 0; index < writable_count; index++) {
+        place_path[count] = writable[index];
+        place_writable[count] = true;
+        places[count] = open_place(writable[index], &why);
+        if (places[count++] < 0) return why;
+    }
+    struct mount_attr read_only = {.attr_set = MOUNT_ATTR_RDONLY};
+    if (syscall(SYS_mount_setattr, AT_FDCWD, "/", AT_RECURSIVE, &read_only, sizeof(read_only)))
+        return "make every mount read-only (mount_setattr, Linux 5.12 or later)";
+    /* The named kernel pseudo-filesystem the run needs to write: /proc (this process's own user-namespace maps,
+     * below; nothing of the user's lives there). /dev and /sys stay read-only (a device node is still written). */
+    struct mount_attr proc_writable = {.attr_clr = MOUNT_ATTR_RDONLY};
+    if (syscall(SYS_mount_setattr, AT_FDCWD, "/proc", 0, &proc_writable, sizeof(proc_writable))) return "keep /proc writable";
+    for (size_t index = 0; index < sizeof(covered) / sizeof(covered[0]); index++)
+        if (cover_with_tmpfs(covered[index])) return "cover /tmp, /run and /dev/shm with a fresh tmpfs";
+    for (int index = 0; index < count; index++) {
+        /* The scratch root under a folder the tmpfs covered is re-attached at its own path inside the tmpfs. A place
+         * beneath an earlier bind (inside the scratch root) is attached through that bind's new mount: found again by
+         * its path, and refused unless it is the very directory its descriptor names (device and inode). */
+        bool under_earlier = false;
+        for (int earlier = 0; earlier < index; earlier++)
+            if (beneath(place_path[index], place_path[earlier])) under_earlier = true;
+        int target = index == 0 && scratch_covered ? make_in_fresh_tmpfs(scratch_root)
+            : under_earlier ? open(place_path[index], O_PATH | O_NOFOLLOW | O_DIRECTORY | O_CLOEXEC)
+            : places[index];
+        if (target < 0) return "find a place's path under the binds";
+        if (under_earlier) {
+            struct stat found, opened;
+            if (fstat(target, &found) || fstat(places[index], &opened) || found.st_dev != opened.st_dev || found.st_ino != opened.st_ino) {
+                errno = EXDEV;
+                return "a place found again under the binds is not the directory first opened";
+            }
+        }
+        if (bind_place(places[index], target, place_writable[index])) return "bind a place from its descriptor";
+        if (target != places[index]) close(target);
+        close(places[index]);
+    }
+    const char *unmasked = mount_socket_masks();
+    if (unmasked != NULL) return unmasked;
+    if (loopback_up()) return "bring the network namespace's loopback up";
     /* The lock: copied into a less privileged namespace, these mounts can be
-     * neither remounted read-write nor taken away. */
+     * neither remounted nor taken away. */
     if (unshare(CLONE_NEWUSER | CLONE_NEWNS)) return "lock the mounts";
     if (map_own_identity(uid, gid)) return "map this user into the locking namespace";
-    /* A working directory inside the checkout still named the mount UNDER the
-     * bind: entered again, it resolves through the read-only one. */
+    /* A working directory still named the mount UNDER the binds: entered again, it resolves through them. */
     if (have_cwd && chdir(cwd)) return "re-enter the working directory";
+    if (syscall(SYS_close_range, passes_fd ? 4 : 3, ~0U, 0)) return "close every inherited descriptor";
     return NULL;
 }
 
 static void refuse_confinement(const char *step) {
-    fprintf(stderr, "test supervisor: confinement refused: %s: %s\n", step, strerror(errno));
+    fprintf(stderr, "test supervisor: confinement refused: %s: %s\n", step, errno == 0 ? "-" : strerror(errno));
 }
 
-/* --probe-confinement: the namespaces set up in a child, and a write under the root proven EROFS. */
+/* Creates and removes one file under `folder`; the open's errno, or 0 when the write was taken. */
+static int write_probe(const char *folder) {
+    char probe[PATH_MAX];
+    snprintf(probe, sizeof(probe), "%s/.confinement-probe-%ld", folder, (long)getpid());
+    int fd = open(probe, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if (fd < 0) return errno;
+    close(fd);
+    unlink(probe);
+    return 0;
+}
+
+/* --probe-confinement: the namespaces set up in a child, and proven. */
 static int probe_confinement(void) {
     pid_t child = fork();
     if (child < 0) { perror("test supervisor probe fork"); return 1; }
     if (child == 0) {
-        const char *failed = confine_checkout();
+        const char *failed = confine();
         if (failed) { refuse_confinement(failed); _exit(CONFINEMENT_REFUSED); }
-        for (int index = 0; index < read_only_count; index++) {
-            char probe[PATH_MAX];
-            snprintf(probe, sizeof(probe), "%s/.read-only-probe-%ld", read_only_roots[index], (long)getpid());
-            int fd = open(probe, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-            if (fd >= 0) { close(fd); unlink(probe); errno = 0; refuse_confinement("a write under a read-only root was not refused"); _exit(CONFINEMENT_REFUSED); }
-            if (errno != EROFS) { refuse_confinement("a write under a read-only root failed, but not read-only"); _exit(CONFINEMENT_REFUSED); }
-            if (mount(NULL, read_only_roots[index], NULL, MS_REMOUNT | MS_BIND | kept_mount_flags(read_only_roots[index]), NULL) == 0) {
-                errno = 0; refuse_confinement("a read-only root could be remounted read-write"); _exit(CONFINEMENT_REFUSED);
-            }
+        char parent[PATH_MAX];
+        snprintf(parent, sizeof(parent), "%s", checkout_root);
+        char *slash = strrchr(parent, '/');
+        if (slash != NULL && slash != parent) *slash = '\0';
+        /* Beside the checkout is read-only too, unless the checkout lies in the scratch root (a nested run's fixture
+         * checkout), whose folders are the run's to write. */
+        const char *const refused[] = {checkout_root, parent};
+        size_t refused_count = beneath(checkout_root, scratch_root) ? 1 : 2;
+        for (size_t index = 0; index < refused_count; index++) {
+            int code = write_probe(refused[index]);
+            if (code != EROFS) { errno = code; refuse_confinement(code == 0 ? "a write in the checkout or beside it was taken" : "a write in the checkout or beside it failed, but not read-only"); _exit(CONFINEMENT_REFUSED); }
+        }
+        for (int index = 0; index <= writable_count; index++) {
+            const char *place = index < writable_count ? writable[index] : scratch_root;
+            int code = write_probe(place);
+            if (code != 0) { errno = code; refuse_confinement("a writable place refused a write"); _exit(CONFINEMENT_REFUSED); }
+        }
+        struct mount_attr writable_attr = {.attr_clr = MOUNT_ATTR_RDONLY};
+        if (syscall(SYS_mount_setattr, AT_FDCWD, checkout_root, 0, &writable_attr, sizeof(writable_attr)) == 0 ||
+            mount(NULL, checkout_root, NULL, MS_REMOUNT | MS_BIND, NULL) == 0 || umount2("/", MNT_DETACH) == 0) {
+            errno = 0; refuse_confinement("the read-only mounts could be remounted or detached"); _exit(CONFINEMENT_REFUSED);
         }
         _exit(0);
     }
@@ -338,28 +649,28 @@ static int probe_confinement(void) {
 int main(int argc, char **argv) {
     bool probe = argc > 1 && strcmp(argv[1], "--probe-confinement") == 0;
     if (probe) { argv++; argc--; }
-    while (argc > 2 && (strcmp(argv[1], "--read-only-root") == 0 || strcmp(argv[1], "--writable") == 0)) {
-        bool root = strcmp(argv[1], "--read-only-root") == 0;
-        if ((root ? read_only_count : writable_count) == MAX_PLACES) { fprintf(stderr, "test supervisor: too many confinement places\n"); return 1; }
+    while (argc > 2 && (strcmp(argv[1], "--checkout") == 0 || strcmp(argv[1], "--scratch") == 0 || strcmp(argv[1], "--writable") == 0)) {
         if (argv[2][0] != '/') { fprintf(stderr, "test supervisor: a confinement place needs an absolute path\n"); return 1; }
-        if (root) read_only_roots[read_only_count++] = argv[2];
-        else writable[writable_count++] = argv[2];
+        if (strcmp(argv[1], "--checkout") == 0) checkout_root = argv[2];
+        else if (strcmp(argv[1], "--scratch") == 0) scratch_root = argv[2];
+        else {
+            if (writable_count == MAX_PLACES) { fprintf(stderr, "test supervisor: too many writable places\n"); return 1; }
+            writable[writable_count++] = argv[2];
+        }
         argv += 2; argc -= 2;
     }
-    for (int index = 0; index < writable_count; index++) {
-        bool under = false;
-        for (int root = 0; root < read_only_count && !under; root++) {
-            size_t length = strlen(read_only_roots[root]);
-            under = strncmp(writable[index], read_only_roots[root], length) == 0 && writable[index][length] == '/';
-        }
-        if (!under) { fprintf(stderr, "test supervisor: a --writable place must lie under a --read-only-root\n"); return 1; }
+    bool confined = checkout_root != NULL || scratch_root != NULL || writable_count > 0;
+    if (confined && (checkout_root == NULL || scratch_root == NULL)) {
+        fprintf(stderr, "test supervisor: a confined run needs both --checkout and --scratch\n");
+        return 1;
     }
     if (probe) {
-        if (read_only_count == 0) { fprintf(stderr, "test supervisor: --probe-confinement needs --read-only-root\n"); return 1; }
+        if (!confined) { fprintf(stderr, "test supervisor: --probe-confinement needs --checkout and --scratch\n"); return 1; }
         return probe_confinement();
     }
     bool pass_fd = argc > 1 && strcmp(argv[1], "--pass-fd") == 0;
     if (pass_fd) { argv++; argc--; }
+    passes_fd = pass_fd;
     if (argc < 4) { fprintf(stderr, "test supervisor: expected [--pass-fd] timeout grace command\n"); return 1; }
     if (pass_fd && fcntl(4, F_GETFD) < 0) { fprintf(stderr, "test supervisor: --pass-fd needs an open fd 4\n"); return 1; }
     double timeout = bound(argv[1]), grace = bound(argv[2]);
@@ -402,8 +713,8 @@ int main(int argc, char **argv) {
         if (setpgid(0, 0)) _exit(126);
         if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) || getppid() != supervisor) _exit(126);
         if (sigprocmask(SIG_SETMASK, &original, NULL)) _exit(126);
-        if (read_only_count > 0) {
-            const char *failed = confine_checkout();
+        if (confined) {
+            const char *failed = confine();
             if (failed) { refuse_confinement(failed); _exit(CONFINEMENT_REFUSED); }
         }
         execvp(argv[3], &argv[3]);

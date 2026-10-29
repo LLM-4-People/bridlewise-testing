@@ -26,7 +26,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -75,31 +76,49 @@ export function ensureTestProcessSupervisor(): string {
  * THE ONE-TIME HOST FIX FOR THE TEST CONFINEMENT on a host whose AppArmor
  * restricts unprivileged user namespaces (Ubuntu 24.04's default,
  * `kernel.apparmor_restrict_unprivileged_userns=1`): a profile that admits
- * them for the test supervisor binary ALONE (it sets the read-only checkout up
- * in a user and mount namespace: `engine/src/process/supervised-run.ts`
- * `checkoutConfinement`), not a global switch. It attaches to the binary at
- * this path under any home directory, so every checkout and workspace of the
- * repository is covered by one install. Installed with:
- *
- *   node engine/guardian/build.ts --apparmor-profile | sudo tee /etc/apparmor.d/bridlewise-test-process-supervisor >/dev/null
- *   sudo apparmor_parser -r /etc/apparmor.d/bridlewise-test-process-supervisor
+ * them for THIS checkout's test supervisor, at its exact canonical path, and
+ * nothing else — not a global switch (the confinement: `runTestCommand` in
+ * `engine/src/process/supervised-run.ts`). The grant follows the path, and the
+ * path is the user's to write: it admits user namespaces for whatever the user
+ * places there, which they can already create without the restriction — it
+ * narrows the exemption to one path, it is not a privilege boundary. Each
+ * checkout and workspace installs its own (named by a digest of the path), so
+ * no glob reaches a path nobody reviewed. The commands, with the file named:
+ * {@link testProcessSupervisorAppArmorInstall}.
  */
-export function testProcessSupervisorAppArmorProfile(): string {
-  return [
-    '# bridlewise: admits unprivileged user namespaces for the test supervisor alone (the read-only test checkout).',
-    'abi <abi/4.0>,',
-    'include <tunables/global>',
-    '',
-    `profile bridlewise-test-process-supervisor @{HOME}/**/engine/guardian/${['build', 'test-process-supervisor'].join('/')} flags=(unconfined) {`,
-    '  userns,',
-    '}',
-    '',
-  ].join('\n');
+export function testProcessSupervisorAppArmor(): Readonly<{ name: string; file: string; profile: string }> {
+  const binary = join(realpathSync(guardianDir), 'build', 'test-process-supervisor');
+  const name = `bridlewise-test-process-supervisor-${createHash('sha256').update(binary).digest('hex').slice(0, 12)}`;
+  if (/[\s"#,{}]/u.test(binary)) throw new Error(`the test supervisor's path cannot be named in an AppArmor profile as it is: ${binary}`);
+  return {
+    name,
+    file: `/etc/apparmor.d/${name}`,
+    profile: [
+      `# bridlewise: admits unprivileged user namespaces for the test supervisor at exactly ${binary} (the test confinement).`,
+      'abi <abi/4.0>,',
+      'include <tunables/global>',
+      '',
+      `profile ${name} ${binary} flags=(unconfined) {`,
+      '  userns,',
+      '}',
+      '',
+    ].join('\n'),
+  };
+}
+
+/** The one-time install of {@link testProcessSupervisorAppArmor}, as the commands to run (the remedy names them). */
+export function testProcessSupervisorAppArmorInstall(): string {
+  const { file } = testProcessSupervisorAppArmor();
+  return `node engine/guardian/build.ts --apparmor-profile | sudo tee ${file} >/dev/null && sudo apparmor_parser -r ${file}`;
 }
 
 function main(): void {
   if (process.argv[2] === '--apparmor-profile') {
-    process.stdout.write(testProcessSupervisorAppArmorProfile());
+    process.stdout.write(testProcessSupervisorAppArmor().profile);
+    return;
+  }
+  if (process.argv[2] === '--apparmor-install') {
+    process.stdout.write(`${testProcessSupervisorAppArmorInstall()}\n`);
     return;
   }
   if (process.argv[2] === '--test-process-supervisor') {
