@@ -996,19 +996,6 @@
         ],
         "timeoutMs": 120000
       },
-      "web-module-cache": {
-        "cwd": ".",
-        "argv": [
-          "npx",
-          "vitest",
-          "list"
-        ],
-        "timeoutMs": 600000,
-        "inputs": [
-          "package-lock.json"
-        ],
-        "holdsInstrumentLock": true
-      },
       "web-typecheck": {
         "cwd": ".",
         "argv": [
@@ -1139,8 +1126,7 @@
         "engine-deps",
         "guardian",
         "test-supervisor",
-        "bundle",
-        "web-module-cache"
+        "bundle"
       ],
       "validate": [
         "engine-format",
