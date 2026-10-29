@@ -26,18 +26,15 @@ The one checker is `engine/scripts/verification/tracker-entries.ts`
 commands these files name exist; the commit door judges the `acted_in` paths
 of every decision a commit writes).
 
+How far each decision is built is drawn on the
+[development floor](../floor/index.md#how-far-the-decisions-are-built), counted
+from these files when the site is built.
+
 The index below is GENERATED from the files' front matter and titles by
 `harness sync` (`engine/scripts/verification/decision-index.ts`; `harness
 check` reports it stale): change a decision's file, never its row.
 
 <!-- BEGIN GENERATED: the decision index, from each file's front matter (harness sync; engine/scripts/verification/decision-index.ts) -->
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../assets/generated/decision-status-dark.svg">
-  <img alt="176 decision records, by how far each is built: 15 built; 21 partly built; 95 designed, not built; 38 standing rules; 7 superseded. Source: generated from docs/decisions/*.md front matter." src="../assets/generated/decision-status-light.svg" width="760">
-</picture>
-
-176 decision records, by how far each is built: 15 built; 21 partly built; 95 designed, not built; 38 standing rules; 7 superseded. Source: generated from docs/decisions/*.md front matter.
 
 ## User rules (standing)
 

@@ -1142,6 +1142,47 @@ figcaption {
   fill: var(--ink-2);
 }
 
+.fig-count {
+  fill: var(--ink-1);
+  font-family: var(--face-sans);
+  font-size: var(--f-page-h3);
+  font-weight: 600;
+}
+
+/* A part bar's parts (shared/figures.ts PART_INKS): a solid part is filled,
+   a hatched one outlined, its hatching drawn in the same ink. */
+.fig-fill-ok {
+  fill: var(--ok);
+}
+
+.fig-fill-warn {
+  fill: var(--warn);
+}
+
+.fig-fill-alarm {
+  fill: var(--alarm);
+}
+
+.fig-fill-quiet {
+  fill: var(--ink-2);
+}
+
+.fig-line-ok {
+  stroke: var(--ok);
+}
+
+.fig-line-warn {
+  stroke: var(--warn);
+}
+
+.fig-line-alarm {
+  stroke: var(--alarm);
+}
+
+.fig-line-quiet {
+  stroke: var(--ink-2);
+}
+
 /* ── Footer: the index, then the colophon ───────────────────────────────── */
 
 .site-footer {

@@ -22,6 +22,10 @@
  *   `docs/_data/figures/<name>.json`, drawn inline by `shared/figures.ts`
  *   with classes the stylesheet inks, so it follows the theme switch. A
  *   malformed figure refuses the build (`site_figure_invalid`).
+ * - `_includes/figures/decision-status.svg`: every decision record by how far
+ *   it is built, counted from the records' front matter now and drawn inline
+ *   (`partBarInline`). A count is never committed: every change to the
+ *   records would rewrite it (#527).
  *
  * - `_includes/csp.html`: the two Content-Security-Policy meta tags (origin
  *   and base path, `shared/site-page.ts` `sitePolicies`), the
@@ -33,7 +37,9 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFi
 import { dirname, join } from "node:path";
 
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { boxFigureInline, boxFigureViolations } from "../../shared/figures.ts";
+import { boxFigureInline, boxFigureViolations, partBarInline } from "../../shared/figures.ts";
+import { DECISIONS_DIRECTORY, decisionStatus } from "../../engine/scripts/verification/tracker-entries.ts";
+import { readEntries } from "../../engine/src/workflow/failure-owners.ts";
 import { escapeHtml } from "../../shared/markup.ts";
 import { SITE_FONT_PATH, sitePolicies } from "../../shared/site-page.ts";
 import { readNames, readTokenOwner, themeColor, tokenSheet } from "../../shared/token-reader.ts";
@@ -139,7 +145,7 @@ export function writeSiteDesign({ root, outRoot, baseurl }) {
     `<link rel="stylesheet" href="{{ '/${SITE_TOKEN_SHEET}' | relative_url }}">`,
     "",
   ].join("\n"));
-  const figures = writeFigures(outRoot);
+  const figures = writeFigures(outRoot) + writeDecisionStatus(root, outRoot);
   return { tokens: used.size, fonts: fonts.length, figures };
 }
 
@@ -156,4 +162,10 @@ function writeFigures(outRoot) {
     write(outRoot, `${FIGURE_INCLUDES}/${stem}.svg`, `${boxFigureInline(figure, `fig-${stem}`)}\n`);
   }
   return names.length;
+}
+
+/** Draws the decision-status bar from the decision records as they are now (one figure). */
+function writeDecisionStatus(root, outRoot) {
+  write(outRoot, `${FIGURE_INCLUDES}/decision-status.svg`, `${partBarInline(decisionStatus(readEntries(root, DECISIONS_DIRECTORY)), "fig-decision-status")}\n`);
+  return 1;
 }

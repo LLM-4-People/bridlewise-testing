@@ -21,7 +21,7 @@
  */
 import { dirname } from "node:path";
 
-import { figurePicture, partBarSentence, type PartBar } from "../../../shared/figures.ts";
+import type { PartBar } from "../../../shared/figures.ts";
 import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
 import { entryViolations, listValue, parseFrontMatter, type FrontMatter } from "../../src/workflow/failure-owners.ts";
 
@@ -215,17 +215,11 @@ function indexRow(name: string, fields: FrontMatter, title: string): string {
 }
 
 /**
- * Where the decision-status figure lives (repository-relative), and how the
- * index (docs/decisions/README.md) reaches it; `decision-index.ts` writes it
- * with the index.
- */
-export const DECISION_STATUS_FIGURE = Object.freeze({ directory: "docs/assets/generated", fromIndex: "../assets/generated", stem: "decision-status" } as const);
-
-/**
  * Every decision record by how far it is built, from the records' own front
  * matter: a superseded record is superseded whatever it reached; a record in
  * force is built, partly built, designed but not built, or a standing rule.
- * The parts are the figure's (`shared/figures.ts`), inked from the token owner.
+ * The parts are the figure's (`shared/figures.ts`); the site build draws it
+ * (scripts/floor/site-design.mjs) when the site is built, never committed.
  */
 export function decisionStatus(entries: readonly { readonly name: string; readonly text: string }[]): PartBar {
   const counts = { done: 0, partial: 0, pending: 0, standing: 0, superseded: 0 };
@@ -262,8 +256,6 @@ export function decisionStatus(entries: readonly { readonly name: string; readon
  * lie after a `pending → done` flip).
  */
 export function renderDecisionIndex(entries: readonly { readonly name: string; readonly text: string }[]): string {
-  const status = decisionStatus(entries);
-  const figure = `${figurePicture(DECISION_STATUS_FIGURE.fromIndex, DECISION_STATUS_FIGURE.stem, partBarSentence(status))}\n\n${partBarSentence(status)}\n`;
   const sections = Object.entries(DECISION_GROUPS).flatMap(([group, heading]) => {
     const rows = entries.flatMap(({ name, text }) => {
       const parsed = parseFrontMatter(text);
@@ -272,5 +264,5 @@ export function renderDecisionIndex(entries: readonly { readonly name: string; r
     });
     return rows.length === 0 ? [] : [`## ${heading}\n\n| Id | Decision | By | State |\n|---|---|---|---|\n${rows.join("\n")}\n`];
   });
-  return [figure, ...sections].join("\n");
+  return sections.join("\n");
 }

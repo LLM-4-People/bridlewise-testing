@@ -149,11 +149,12 @@ Three judges hold the site to this system, fastest first:
 holds the text to 4.5:1 in both themes, and `scripts/rendered/proof.ts`
 proves each rendered row on planted breaks.
 
-Figures are generated, never drawn by hand (`shared/figures.ts`). A figure for
-a README is a light/dark SVG pair in concrete token colours behind a
-`<picture>`, with its facts repeated as a sentence beside it. The decision
-index's status bar is one: it is written with the index, from the same
-records. A figure on the site is declared as data (`docs/_data/figures/`) and
-drawn inline with `fig-*` classes, so it follows the theme switch. Parts are
-labelled directly with their counts, and a hatched part is hatched, so
-identity is never carried by colour alone.
+Figures are generated, never drawn by hand (`shared/figures.ts`), and drawn
+inline on the site with `fig-*` classes, so they follow the theme switch. A
+figure declared as data lives in `docs/_data/figures/`; a figure that counts
+records (the decision-status bar on the development floor) is counted and
+drawn when the site is built, and never committed, because a committed count
+is an aggregate every change to the records would rewrite (#527). A README
+links to the site's figure instead of carrying one. Parts are labelled
+directly with their counts, and a hatched part is hatched, so identity is
+never carried by colour alone.

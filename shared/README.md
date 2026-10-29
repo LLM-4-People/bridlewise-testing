@@ -61,10 +61,10 @@ two cannot drift.
   `color-mix` in sRGB) and writes a surface's token sheet; an undeclared name
   is a typed refusal.
 - `figures.ts` — THE GENERATED FIGURES: SVG drawn in the design system for
-  surfaces that strip stylesheets (a README on GitHub) as a light/dark pair
-  with concrete token colours and a `<picture>` to choose between them, and
-  for the site as inline SVG whose `fig-*` classes the stylesheet inks. Every
-  figure carries a title and a description stating its whole content.
+  the site, inline, whose `fig-*` classes the stylesheet inks from the live
+  theme. A figure that counts records is drawn when the site is built and
+  never committed. Every figure carries a title and a description stating its
+  whole content.
 
 ## Where it lives
 

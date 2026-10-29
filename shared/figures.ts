@@ -1,25 +1,20 @@
 /**
- * THE GENERATED FIGURES — SVG drawn in the design system for surfaces that
- * strip every stylesheet (a README on GitHub, a release page, a social card).
- *
- * A figure is drawn once per theme, its colours made concrete from the one
- * token owner through `token-reader.ts` (an SVG served as an image loads no
- * stylesheet and no font), and published as a light/dark pair that a
- * `<picture>` element chooses between. Every figure is accessible: `role="img"`
+ * THE GENERATED FIGURES — SVG drawn in the design system for the site, INLINE
+ * in the page: no colour in the markup, every mark a `fig-*` class the site's
+ * stylesheet inks from the live theme's tokens, so a figure follows the theme
+ * switch like the page around it. A figure whose numbers are counted (the
+ * decision-status bar) is drawn when the site is built, from the records it
+ * counts, and never committed: a committed count is an aggregate every change
+ * to the records would rewrite (#527). Every figure is accessible: `role="img"`
  * with a `<title>` and a `<desc>` that states the figure's whole content in
  * words, so the picture never holds a fact the text does not.
- *
- * Text is set in the design system's face first, then the reader's own sans:
- * an image cannot load a web font, so layouts leave room for a wider fallback
- * and never fit text tightly.
  */
 import { escapeHtml } from "./markup.ts";
-import { THEMES, themeColor, type ThemeName, type TokenOwner } from "./token-reader.ts";
 
 /** A figure's refusal, by code. */
 export class FigureError extends Error {
-  readonly code: "figure_id_invalid";
-  constructor(code: "figure_id_invalid", message: string) {
+  readonly code: "figure_id_invalid" | "figure_ink_unknown";
+  constructor(code: "figure_id_invalid" | "figure_ink_unknown", message: string) {
     super(`${code}: ${message}`);
     this.name = "FigureError";
     this.code = code;
@@ -29,33 +24,23 @@ export class FigureError extends Error {
 /** The shape of an inline figure's id prefix: it is spliced into ids and `url(#…)` references, so it is a plain name. */
 const FIGURE_ID = /^[a-z][a-z\d-]*$/u;
 
-/** Each theme as a `<picture>` source names it. */
-export const FIGURE_SCHEMES: Readonly<Record<ThemeName, "light" | "dark">> = Object.freeze({ logbook: "light", carbon: "dark" });
-
-const SANS = "'IBM Plex Sans', 'IBM Plex Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
-const MONO = "'IBM Plex Mono', 'IBM Plex Mono Variable', ui-monospace, 'SF Mono', 'Cascadia Code', monospace";
-
 const x = escapeHtml;
 const n = (value: number): string => (Number.isInteger(value) ? String(value) : value.toFixed(2));
 
-/** A figure's frame: the accessible SVG root around `body`, on the theme's ground. */
-export function figureDocument(o: Readonly<{ width: number; height: number; title: string; desc: string; body: string; ground: string }>): string {
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(o.width)}" height="${n(o.height)}" viewBox="0 0 ${n(o.width)} ${n(o.height)}" role="img" aria-labelledby="t d">`,
-    `<title id="t">${x(o.title)}</title>`,
-    `<desc id="d">${x(o.desc)}</desc>`,
-    `<rect width="${n(o.width)}" height="${n(o.height)}" rx="6" fill="${o.ground}"/>`,
-    o.body,
-    "</svg>",
-    "",
-  ].join("\n");
-}
+/**
+ * The tokens a part may be inked with, each with the class the site's
+ * stylesheet inks it by (`fig-fill-*` paints a part, `fig-line-*` outlines a
+ * hatched one): the figure itself carries no colour, so it follows the theme
+ * switch like the page around it.
+ */
+export const PART_INKS = Object.freeze({ "--ok": "ok", "--warn": "warn", "--alarm": "alarm", "--ink-2": "quiet" } as const);
+export type PartInk = keyof typeof PART_INKS;
 
 /** One part of a whole: its words, its count, the token that inks it, and whether it is hatched (a second encoding beside colour). */
 export interface Part {
   readonly label: string;
   readonly count: number;
-  readonly ink: string;
+  readonly ink: PartInk;
   readonly hatched?: boolean;
 }
 
@@ -69,90 +54,75 @@ export interface PartBar {
   readonly source: string;
 }
 
-/** The figure's facts in one sentence: its `<desc>`, its alt text and its table view. */
+/** The figure's facts in one sentence: its `<desc>`, so the picture never holds a fact the text does not. */
 export function partBarSentence(bar: PartBar): string {
   return `${bar.title}, ${bar.subtitle}: ${bar.parts.map((part) => `${String(part.count)} ${part.label}`).join("; ")}. Source: ${bar.source}.`;
 }
 
 const WIDTH = 760;
+const HEIGHT = 204;
 const PAD = 24;
 const BAR_Y = 64;
 const BAR_H = 22;
 const GAP = 2;
 
 /**
- * A whole divided into its parts as one bar: every part drawn to scale with a
- * surface gap between neighbours, labelled directly underneath with its words
- * and count (identity is never colour alone; a hatched part is hatched too).
+ * A whole divided into its parts as one bar, as an INLINE SVG for the site:
+ * every part drawn to scale with a surface gap between neighbours, labelled
+ * directly underneath with its words and count (identity is never colour
+ * alone; a hatched part is hatched too). No colour is in the markup: every
+ * mark is a `fig-*` class the stylesheet inks from the live theme's tokens.
+ * Drawn when the site is built, from the records it counts, never committed.
+ * `id` prefixes the figure's own ids (one page may hold several figures).
  */
-export function partBarFigure(bar: PartBar, owner: TokenOwner, theme: ThemeName): string {
-  const ink = (name: string): string => themeColor(owner, theme, name);
-  const ground = ink("--ground-0");
+export function partBarInline(bar: PartBar, id: string): string {
+  if (!FIGURE_ID.test(id)) throw new FigureError("figure_id_invalid", `${JSON.stringify(id)} is not a figure id (lower-case letters, digits and hyphens, starting with a letter)`);
+  for (const part of bar.parts) {
+    if (!Object.hasOwn(PART_INKS, part.ink)) throw new FigureError("figure_ink_unknown", `${JSON.stringify(part.ink)} inks no part (one of ${Object.keys(PART_INKS).join(", ")})`);
+  }
   const total = bar.parts.reduce((sum, part) => sum + part.count, 0);
   const span = WIDTH - PAD * 2;
-  const drawn = bar.parts.filter((part) => part.count > 0);
+  const drawn = bar.parts.map((part, index) => ({ part, index })).filter(({ part }) => part.count > 0);
   const usable = span - GAP * (drawn.length - 1);
-  let at = PAD;
+  const hatch = (index: number, size: number, ink: string): string =>
+    `<pattern id="${id}-h${String(index)}-${String(size)}" width="${String(size)}" height="${String(size)}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect class="fig-ground" width="${String(size)}" height="${String(size)}"/><rect class="fig-fill-${ink}" width="${String(size / 2)}" height="${String(size)}"/></pattern>`;
   const defs: string[] = [];
-  const marks = drawn.map((part, index) => {
+  const paint = (part: Part, index: number, size: number): string => {
+    const ink = PART_INKS[part.ink];
+    if (part.hatched !== true) return `class="fig-fill-${ink}"`;
+    defs.push(hatch(index, size, ink));
+    return `class="fig-line-${ink}" fill="url(#${id}-h${String(index)}-${String(size)})"`;
+  };
+  let at = PAD;
+  const marks = drawn.map(({ part, index }) => {
     const width = total === 0 ? 0 : (usable * part.count) / total;
-    const fill = ink(part.ink);
-    let paint = fill;
-    if (part.hatched === true) {
-      const id = `h${String(index)}`;
-      defs.push(`<pattern id="${id}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="${ground}"/><rect width="3" height="6" fill="${fill}"/></pattern>`);
-      paint = `url(#${id})`;
-    }
-    const rect = `<rect x="${n(at)}" y="${n(BAR_Y)}" width="${n(Math.max(width, 1))}" height="${n(BAR_H)}" fill="${paint}"${part.hatched === true ? ` stroke="${fill}" stroke-width="1"` : ""}/>`;
+    const rect = `<rect x="${n(at)}" y="${n(BAR_Y)}" width="${n(Math.max(width, 1))}" height="${n(BAR_H)}" ${paint(part, index, 6)}/>`;
     at += width + GAP;
     return rect;
   });
   // The ends of the whole are rounded once, by clipping, so a part keeps square inner edges.
-  defs.push(`<clipPath id="c"><rect x="${n(PAD)}" y="${n(BAR_Y)}" width="${n(span)}" height="${n(BAR_H)}" rx="4"/></clipPath>`);
-  const columns = bar.parts.length;
-  const column = span / columns;
+  defs.push(`<clipPath id="${id}-c"><rect x="${n(PAD)}" y="${n(BAR_Y)}" width="${n(span)}" height="${n(BAR_H)}" rx="4"/></clipPath>`);
+  const column = span / bar.parts.length;
   const legend = bar.parts.map((part, index) => {
     const left = PAD + column * index;
-    const fill = ink(part.ink);
-    const swatch = part.hatched === true
-      ? `<rect x="${n(left)}" y="110" width="12" height="12" rx="2" fill="url(#hl${String(index)})" stroke="${fill}" stroke-width="1"/>`
-      : `<rect x="${n(left)}" y="110" width="12" height="12" rx="2" fill="${fill}"/>`;
-    if (part.hatched === true) defs.push(`<pattern id="hl${String(index)}" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="${ground}"/><rect width="2" height="4" fill="${fill}"/></pattern>`);
     return [
-      swatch,
-      `<text x="${n(left + 20)}" y="121" font-family="${SANS}" font-size="20" font-weight="600" fill="${ink("--ink-1")}" dy="0">${String(part.count)}</text>`,
-      `<text x="${n(left + 20)}" y="146" font-family="${SANS}" font-size="13" fill="${ink("--ink-2")}">${x(part.label)}</text>`,
+      `<rect x="${n(left)}" y="110" width="12" height="12" rx="2" ${paint(part, index, 4)}/>`,
+      `<text class="fig-count" x="${n(left + 20)}" y="121">${String(part.count)}</text>`,
+      `<text class="fig-note" x="${n(left + 20)}" y="146">${x(part.label)}</text>`,
     ].join("");
   });
-  const body = [
-    `<defs>${defs.join("")}</defs>`,
-    `<text x="${n(PAD)}" y="40" font-family="${SANS}" font-size="18" font-weight="600" fill="${ink("--ink-1")}">${x(bar.title)}</text>`,
-    `<text x="${n(WIDTH - PAD)}" y="40" text-anchor="end" font-family="${SANS}" font-size="14" fill="${ink("--ink-2")}">${x(bar.subtitle)}</text>`,
-    `<g clip-path="url(#c)">${marks.join("")}</g>`,
-    ...legend,
-    `<line x1="${n(PAD)}" y1="168" x2="${n(WIDTH - PAD)}" y2="168" stroke="${ink("--line-2")}" stroke-width="1" stroke-dasharray="3 3"/>`,
-    `<text x="${n(PAD)}" y="188" font-family="${MONO}" font-size="12" fill="${ink("--ink-2")}">${x(bar.source)}</text>`,
-  ].join("\n");
-  return figureDocument({ width: WIDTH, height: 204, title: `${bar.title}, ${bar.subtitle}`, desc: partBarSentence(bar), body, ground });
-}
-
-/** A figure's two files' names: `<stem>-light.svg` and `<stem>-dark.svg`. */
-export function figureFiles(stem: string): Readonly<Record<ThemeName, string>> {
-  return Object.freeze(Object.fromEntries(THEMES.map((theme) => [theme, `${stem}-${FIGURE_SCHEMES[theme]}.svg`])) as Record<ThemeName, string>);
-}
-
-/**
- * The `<picture>` that shows a figure pair in the reader's scheme (GitHub
- * honours `prefers-color-scheme` on a README `<source>`), with the figure's
- * sentence as its alt text.
- */
-export function figurePicture(directory: string, stem: string, alt: string): string {
-  const files = figureFiles(stem);
   return [
-    "<picture>",
-    `  <source media="(prefers-color-scheme: dark)" srcset="${x(`${directory}/${files.carbon}`)}">`,
-    `  <img alt="${x(alt)}" src="${x(`${directory}/${files.logbook}`)}" width="760">`,
-    "</picture>",
+    `<svg class="fig" viewBox="0 0 ${n(WIDTH)} ${n(HEIGHT)}" role="img" aria-labelledby="${id}-t ${id}-d">`,
+    `<title id="${id}-t">${x(`${bar.title}, ${bar.subtitle}`)}</title><desc id="${id}-d">${x(partBarSentence(bar))}</desc>`,
+    `<rect class="fig-ground" width="${n(WIDTH)}" height="${n(HEIGHT)}" rx="6"/>`,
+    `<defs>${defs.join("")}</defs>`,
+    `<text class="fig-heading" x="${n(PAD)}" y="40">${x(bar.title)}</text>`,
+    `<text class="fig-tag" x="${n(WIDTH - PAD)}" y="40" text-anchor="end">${x(bar.subtitle)}</text>`,
+    `<g clip-path="url(#${id}-c)">${marks.join("")}</g>`,
+    ...legend,
+    `<line class="fig-rule" x1="${n(PAD)}" y1="168" x2="${n(WIDTH - PAD)}" y2="168"/>`,
+    `<text class="fig-tag" x="${n(PAD)}" y="188">${x(bar.source)}</text>`,
+    "</svg>",
   ].join("\n");
 }
 
