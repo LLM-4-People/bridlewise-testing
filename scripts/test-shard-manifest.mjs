@@ -27,6 +27,7 @@
  * non-green or different-population measurement.
  */
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -448,13 +449,23 @@ const CI_WORKFLOW = ".github/workflows/ci.yml";
  * one of each, or a typed refusal.
  */
 function shardJobNaming(root) {
-  const ci = readFileSync(resolve(root, CI_WORKFLOW), "utf8");
-  const callers = [...ci.matchAll(/^ {2}[A-Za-z0-9_-]+:\n {4}name: (.+)\n {4}uses: \.\/\.github\/workflows\/test-shards\.yml\n {4}with:\n(?: {6}.+\n)*? {6}shards: "?(\d+)"?\n/gmu)];
-  if (callers.length !== 1) fail(`shard_job_unnamed: ${CI_WORKFLOW} must call ${SHARD_WORKFLOW} from exactly one named job with a shards input (found ${String(callers.length)})`);
-  const shards = readFileSync(resolve(root, SHARD_WORKFLOW), "utf8");
-  const jobs = [...shards.matchAll(/^ {4}name: (.*)\$\{\{ matrix\.shard \}\}(.*)$/gmu)];
-  if (jobs.length !== 1) fail(`shard_job_unnamed: ${SHARD_WORKFLOW} must name exactly one job by \${{ matrix.shard }} (found ${String(jobs.length)})`);
-  return { caller: callers[0][1].trim(), shardCount: Number(callers[0][2]), prefix: jobs[0][1], suffix: jobs[0][2] };
+  // The repository's one YAML parser (the `yaml` package), loaded only here: the merge job, which installs no
+  // package, never calls shardJobOf.
+  const { parse } = createRequire(import.meta.url)("yaml");
+  const jobsOf = (workflow) => {
+    const document = parse(readFileSync(resolve(root, workflow), "utf8"));
+    return document !== null && typeof document === "object" && document.jobs !== null && typeof document.jobs === "object" ? Object.values(document.jobs) : [];
+  };
+  const callers = jobsOf(CI_WORKFLOW).filter((job) => job !== null && typeof job === "object" && job.uses === `./${SHARD_WORKFLOW}`);
+  const shardCount = Number(callers[0]?.with?.shards);
+  if (callers.length !== 1 || typeof callers[0].name !== "string" || !Number.isSafeInteger(shardCount) || shardCount < 1) {
+    fail(`shard_job_unnamed: ${CI_WORKFLOW} must call ${SHARD_WORKFLOW} from exactly one named job with a shards input (found ${String(callers.length)})`);
+  }
+  const marker = "${{ matrix.shard }}";
+  const shardJobs = jobsOf(SHARD_WORKFLOW).filter((job) => job !== null && typeof job === "object" && typeof job.name === "string" && job.name.includes(marker));
+  if (shardJobs.length !== 1) fail(`shard_job_unnamed: ${SHARD_WORKFLOW} must name exactly one job by ${marker} (found ${String(shardJobs.length)})`);
+  const [prefix, suffix = ""] = shardJobs[0].name.split(marker);
+  return { caller: callers[0].name, shardCount, prefix, suffix };
 }
 
 /**

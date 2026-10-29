@@ -445,7 +445,6 @@ export type LegitimateRawReader =
   | "web:tests/setup/source-tree-immutable.ts"
   | "web:scripts/check-docs-links.mjs"
   | "web:scripts/check-secrets.mjs"
-  | "web:scripts/test-shard-manifest.mjs"
   | "web:scripts/floor/site-pages.mjs"
   | "web:tests/prevention/agent-docs-liveness.test.ts"
   | "web:tests/prevention/declared-pattern-liveness.test.ts"
@@ -512,15 +511,6 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       "and link targets, so a source view would blank the spans being checked. " +
       "It enumerates the tracked tree and reads each document whole; the raw " +
       "document is the input, not program text.",
-  },
-  "web:scripts/test-shard-manifest.mjs": {
-    why:
-      "The bytes it matches are the two workflow YAML files (the shard workflow's "
-      + "caller job, its `shards:` input and the shard job's `name:`), which are "
-      + "configuration rather than program text: a source view lexes them as "
-      + "TypeScript and an apostrophe in a YAML comment would open a string. The "
-      + "test files' own exclusion tag is read through the source view's comments "
-      + "and code (`declaredExclusion`), never through these bytes.",
   },
   "web:scripts/check-secrets.mjs": {
     why:
