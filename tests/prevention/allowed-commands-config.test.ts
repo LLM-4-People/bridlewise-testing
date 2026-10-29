@@ -104,3 +104,42 @@ describe("shell commands that change files are refused by the door, not by a par
     expect(result.output).toContain("still-alive");
   });
 });
+
+/**
+ * GIT IS NEVER REACHABLE THROUGH execute_command (engine/src/tools/command-reach.ts,
+ * the one judgement both doors ask). The door used to gate only the NAME, so the
+ * config's `git` let a model commit, rewrite or push outside the git tools. Driven
+ * through the real door, in every spelling it can be handed — refused before the
+ * allowlist, so the refusal names the real reason, and the command never runs.
+ */
+describe("git, a program launcher, and an argument that launches a program are refused by the door", () => {
+  test("every spelling is refused, typed, and names the git tools where git was the target", async () => {
+    const { executeToolCall } = await import("../../server/tools/tool-executor.ts");
+    const { createTempDir } = await import("../helpers/temp-dir.ts");
+    const project = createTempDir("allowed-commands-git-");
+    const spellings: ReadonlyArray<readonly [string, readonly string[], string]> = [
+      ["git", ["commit", "-m", "x"], "tool_command_reaches_git"],
+      ["/usr/bin/git", ["commit", "-m", "x"], "tool_command_reaches_git"],
+      ["git-receive-pack", ["."], "tool_command_reaches_git"],
+      ["env", ["git", "commit", "-m", "x"], "tool_command_launches_programs"],
+      ["sh", ["-c", "git commit -m x"], "tool_command_launches_programs"],
+      ["find", [".", "-exec", "git", "commit", "-m", "x", ";"], "tool_command_argument_launches_program"],
+      ["rg", ["--pre=git", "x"], "tool_command_argument_launches_program"],
+    ];
+    for (const [command, args, code] of spellings) {
+      const result = await executeToolCall("execute_command", { command, args }, { userId: "git-gate", projectRoot: project });
+      expect(result.success, `${command} ${args.join(" ")} was not refused`).toBe(false);
+      expect(result.output, `${command} ${args.join(" ")}`).toContain(`(${code})`);
+    }
+    const git = await executeToolCall("execute_command", { command: "git", args: ["status"] }, { userId: "git-gate", projectRoot: project });
+    expect(git.output).toContain("git_commit");
+  });
+
+  test("the config allows none of them", async () => {
+    const { getAllowedCommands } = await import("../../server/kernel/harness-config.ts");
+    const { allowedCommandNameRefusal } = await import("../../engine/src/kernel/command-names.ts");
+    const allowed = getAllowedCommands();
+    expect(allowed.size, "commands the config allows").toBeGreaterThan(10);
+    expect([...allowed].filter((command) => allowedCommandNameRefusal(command) !== null)).toEqual([]);
+  });
+});

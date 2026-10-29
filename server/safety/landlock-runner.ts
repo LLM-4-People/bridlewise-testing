@@ -59,7 +59,7 @@
  */
 
 import { execFile, spawn, spawnSync, type ExecFileException, type SpawnSyncReturns } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -86,6 +86,7 @@ import {
 import { harnessRoot, serverKeepOutFacts, type ConfinedSpawnPurpose } from "./host-facts.ts";
 import { HarnessError } from "../../engine/src/kernel/errors.ts";
 import { withPrivateTemporary } from "../../engine/src/process/environment-projection.ts";
+import { resolveOnPath } from "../../engine/src/tools/command-reach.ts";
 // The four confinement states are declared once, in the shared wire-shape
 // owner, because the cockpit renders exactly the set this file can report.
 import type { ConfinementState } from "../../shared/wire-types.ts";
@@ -1337,15 +1338,8 @@ export function resolveExecutable(
   command: string,
   env: Readonly<Record<string, string | undefined>> = serverConfig.subprocessEnv,
 ): string | null {
-  if (command.includes("/")) return existsSync(command) ? command : null;
-  const search = env.PATH;
-  if (search === undefined || search.length === 0) return null;
-  for (const dir of search.split(":")) {
-    if (dir.length === 0) continue;
-    const candidate = join(dir, command);
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+  // The one resolver, shared with the git-reach judgement (engine/src/tools/command-reach.ts).
+  return resolveOnPath(command, env.PATH);
 }
 
 /**

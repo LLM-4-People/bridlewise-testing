@@ -454,6 +454,18 @@ test("CONF-5: tools.allowedCommands is optional and defaults to absent", () => {
   assert.ok((parsed.tools?.allowedCommands ?? []).length > 0);
 });
 
+test("CONF-5: tools.allowedCommands refuses git and every program launcher by name, typed (src/tools/command-reach.ts)", () => {
+  for (const [command, code] of [["git", "tool_command_reaches_git"], ["git-receive-pack", "tool_command_reaches_git"], ["sh", "tool_command_launches_programs"], ["env", "tool_command_launches_programs"], ["xargs", "tool_command_launches_programs"], ["awk", "tool_command_launches_programs"], ["sed", "tool_command_launches_programs"]] as const) {
+    const listed = candidate((v) => {
+      (v.tools as Record<string, unknown>).allowedCommands = ["echo", command];
+    });
+    const result = CONFIG_DOCUMENT_SCHEMA.safeParse(listed);
+    assert.equal(result.success, false, `${command} was accepted in allowedCommands`);
+    assert.deepEqual(result.error.issues.map((issue) => [issue.path.join("."), issue.message.endsWith(`(${code})`)]), [["tools.allowedCommands.1", true]], command);
+  }
+  assert.equal(CONFIG_DOCUMENT_SCHEMA.parse(VALID_CONFIG).tools?.allowedCommands?.includes("git"), false, "the shipped list holds git");
+});
+
 test("CONF-5: tools.allowedCommands rejects duplicate commands", () => {
   const dup = candidate((v) => {
     (v.tools as Record<string, unknown>).allowedCommands = ["echo", "echo"];

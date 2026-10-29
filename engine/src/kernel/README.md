@@ -28,6 +28,7 @@ The engine's trusted kernel: the typed error hierarchy, canonical integrity and 
 - `schema-subset.ts` — the schema-subset module.
 - `test-surface-manifest.ts` — the test-surface-manifest module.
 - `config.ts` — the engine configuration owner: the resolved values the engine reads.
+- `command-names.ts` — the names no `execute_command` may run and no `tools.allowedCommands` may hold: git and every program launcher (the pure half of `src/tools/command-reach.ts`).
 - `config-contracts.ts` — the config schema contracts: types and validation for the configuration document.
 - `verification-paths.ts` — the verification-paths module.
 - `web-performance-budgets.ts` — THE WEB-UI PERFORMANCE BUDGETS, ONE LIST (a module of its own: the root policy's literal holds only imports before it, so its static reading stays whole — S1's freeze boundary): each budget's name in the config section `webUi.performance` with the kind of…

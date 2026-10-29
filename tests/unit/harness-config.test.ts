@@ -128,10 +128,11 @@ function readRealEnabled(): readonly string[] {
 describe("harness-config reader (proactive MCP fix)", () => {
   test("getAllowedCommands reads tools.allowedCommands from the real config", () => {
     const cmds = getAllowedCommands();
-    // The real config has a non-empty allowedCommands list (node, git, etc.).
+    // The real config has a non-empty allowedCommands list (node, rg, etc.) — never git (its needs go
+    // through the git tools; the config contract refuses it).
     expect(cmds.size).toBeGreaterThan(10);
     expect(cmds.has("node")).toBe(true);
-    expect(cmds.has("git")).toBe(true);
+    expect(cmds.has("git")).toBe(false);
     expect(cmds.has("rg")).toBe(true);
     // A command NOT in the config must be absent (no hardcoded fallback).
     expect(cmds.has("definitely-not-a-real-command-zzz")).toBe(false);

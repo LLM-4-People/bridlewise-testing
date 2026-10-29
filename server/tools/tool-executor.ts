@@ -53,6 +53,7 @@ import { isMcpToolName, mcpUnavailableReason, type McpUnavailabilityKey } from "
 // Content search has ONE owner. The handler below states the question; the
 // door resolves the bounds, runs the scan off the event loop, and renders it.
 import { redactSecretFileText } from "../../engine/src/privacy/secret-files.ts";
+import { commandReachRefusal } from "../../engine/src/tools/command-reach.ts";
 import { searchProjectContent, formatContentSearchResult } from "../intelligence/content-search.ts";
 // SPO: the content digest has ONE owner (`digest.ts`). The editor tools
 // compare preimage hashes against files hashed elsewhere in the server, so a
@@ -534,10 +535,15 @@ async function toolExecuteCommand(ctx: ToolExecutionContext, args: Readonly<Reco
         `Use the edit tool instead — so the change is recorded and reversible.`,
     };
   }
+  const cmdArgs = Array.isArray(args.args) ? (args.args as unknown[]).filter((a): a is string => typeof a === "string") : [];
+  // What the command can REACH, not only its name — the engine's one judgement (command-reach.ts): git by any
+  // spelling (its needs go through the git tools), a program launcher, or an argument that launches a program.
+  // Checked BEFORE the allowlist, like the mutation gate, so the message names the real reason.
+  const reach = commandReachRefusal(command, cmdArgs, serverConfig.subprocessEnv.PATH);
+  if (reach !== null) return { success: false, output: `Error: ${reach.message} (${reach.code})` };
   if (!allowedCommands.has(command)) {
     return { success: false, output: `Error: command '${command}' is not in the allowed list. Allowed: ${[...allowedCommands].join(", ")}` };
   }
-  const cmdArgs = Array.isArray(args.args) ? (args.args as unknown[]).filter((a): a is string => typeof a === "string") : [];
   // PROACTIVE #5: a caller-supplied cwd that escapes the project root is a
   // typed error, NOT a silent fallback to projectRoot (silent fallbacks are
   // prohibited — rule: no silent workarounds). This also prevents a model
