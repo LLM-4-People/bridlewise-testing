@@ -21,12 +21,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
+import { schemaId } from "../kernel/product-identity.ts";
 import { FRONT_DOOR_GENERATOR } from "../kernel/verification-paths.ts";
 import { trackedFiles } from "../git/repository-ownership.ts";
 import { directoryOf, normalizeRepositoryPath, reachabilityClosure } from "./reachability.ts";
 
-export const MESSAGING_PATH = "docs/brand/messaging.json";
-export const MESSAGING_SCHEMA = "bridlewise-messaging/v1";
+const MESSAGING_PATH = "docs/brand/messaging.json";
+const MESSAGING_SCHEMA = schemaId("messaging", 1);
 /** The longest description the site's pages carry as their meta description. */
 const DESCRIPTION_MAX = 350;
 

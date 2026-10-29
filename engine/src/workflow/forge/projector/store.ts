@@ -3,7 +3,7 @@
  * GitHub through (github-only §9.0, steps 2, 4 and 5).
  *
  * It speaks the projection's own terms: an object is its class, its key (a
- * label's name, an item's id) and its git-owned fields (`FIELD_PHASES`,
+ * milestone's or an item's id) and its git-owned fields (`FIELD_PHASES`,
  * model.ts). Mapping a key to GitHub's identity (an issue's number, found by
  * the projector's marker), splitting the generated block from a reporter's
  * text above it, and turning a field write into the right API call (a sub-issue
@@ -22,9 +22,9 @@ export type LiveObject = Readonly<{
   key: string;
   fields: Fields;
   /**
-   * Whether the projector made it: an issue carrying its marker, a label in
-   * its registry's namespace (`lane:`). Only an owned object D does not hold
-   * is an orphan; a person's label (`bug`) or issue is GitHub's own.
+   * Whether the projector made it: an issue carrying its marker, a milestone
+   * it created. Only an owned object D does not hold is an orphan; a
+   * person's issue is GitHub's own.
    */
   owned: boolean;
 }>;

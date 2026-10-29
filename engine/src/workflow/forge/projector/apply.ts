@@ -19,9 +19,9 @@
  *
  * A second run on the same D against the state the first left makes no write
  * (V-25: idempotent). A live object the projector OWNS that D does not hold
- * (an issue whose record was removed, a lane label no lane declares) is an
- * ORPHAN: reported, never written here. A person's own label or issue is
- * GitHub's, never an orphan.
+ * (an issue or milestone whose record was removed) is an ORPHAN: reported,
+ * never written here. A person's own issue is GitHub's, never an orphan; a
+ * label is no projected object at all (model.ts `PROJECTION_CLASSES`).
  *
  * FOREIGN EDITS (V-27), JUDGED PER FIELD. The receipt records, for every
  * object, the digest of each git-owned field as projected and observed. A
