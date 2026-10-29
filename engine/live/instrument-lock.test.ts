@@ -17,24 +17,25 @@
  * (correctness L-N3).
  */
 import assert from "node:assert/strict";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
-import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
-import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
-import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
-import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../../src/process/process-facts.ts";
-import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
-import { createTempDir } from "../support/temp-dir.ts";
-import { requireHost } from "../support/host-requirement.ts";
+import { ensureTestProcessSupervisor } from "../guardian/build.ts";
+import { liveFileLockHolder } from "../src/filesystem/file-lock.ts";
+import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../src/process/instrument-lock.ts";
+import { SUBPROCESS_BOUNDS } from "../src/workflow/workflow-config.ts";
+import { runCheckoutCommand, type CheckoutCommandRunner } from "../src/workflow/checkout-setup.ts";
+import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../src/process/process-facts.ts";
+import { namedTestFileCount } from "../scripts/tooling/test-run-lock.ts";
+import { createTempDir } from "../test/support/temp-dir.ts";
+import { requireHost } from "../test/support/host-requirement.ts";
 
-const ENGINE = join(fileURLToPath(new URL("../../", import.meta.url)));
+const ENGINE = join(fileURLToPath(new URL("../", import.meta.url)));
 const LOCK_OWNER = pathToFileURL(join(ENGINE, "src", "process", "instrument-lock.ts")).href;
 const SUPERVISOR_OWNER = pathToFileURL(join(ENGINE, "src", "process", "supervised-run.ts")).href;
 
@@ -400,4 +401,43 @@ test("A GRACE OF 0 IS SIGKILL AT ONCE (correctness M17): a target that ignores S
   await new Promise((resolveStart) => setTimeout(resolveStart, 200));
   const ended = await terminate({ group: ownedChild(stubborn) }, { graceMs: 0 });
   assert.equal(ended.ending, "killed");
+});
+
+// From test/workflow/working-copy.test.ts: a heavy run's admission needs the host's user service manager (a cgroup
+// scope), which a confined test run cannot reach (decision TEST-CONFINEMENT-SELF-BIND), so it is a live-suite fact.
+test("a heavy setup command's OWN nested admission BORROWS the run its checkout command was admitted under: owns nothing, inside the run's scope, under its caps (NO-LOAD-BLOCK; a nested admission that refused or took a run of its own would leave the outer cap)", async () => {
+  const target = createTempDir("working-copy-nested-admission-");
+  execFileSync("git", ["init", "-q"], { cwd: target, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+  writeFileSync(join(target, "a.txt"), "a\n");
+  const lockPath = join(createTempDir("working-copy-nested-lock-"), "instrument.lock");
+  const runner: CheckoutCommandRunner = { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries: { retries: 0, backoffMs: 0 }, instrumentLock: { lockPath, perRun: { memoryMaxPercent: 37, cpuWeight: 42 } } };
+  const answer = join(target, "..", `${String(process.pid)}-nested.json`);
+  const engine = join(import.meta.dirname, "..");
+  const lockModule = pathToFileURL(join(engine, "src", "process", "instrument-lock.ts")).href;
+  const factsModule = pathToFileURL(join(engine, "src", "process", "process-facts.ts")).href;
+  const configModule = pathToFileURL(join(engine, "src", "workflow", "workflow-config.ts")).href;
+  // The checkout command itself is a nested heavy run (a validate's suite does exactly this): it admits on the same registry.
+  const script = [
+    `const { admitInstrumentRun, admittedRuns } = await import(${JSON.stringify(lockModule)});`,
+    `const { ownCgroupPath, ownCpuTimeLimit } = await import(${JSON.stringify(factsModule)});`,
+    `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(configModule)});`,
+    `const { readFileSync, writeFileSync } = await import("node:fs");`,
+    `const nested = admitInstrumentRun(${JSON.stringify(lockPath)}, "a nested suite", { memoryMaxPercent: 99, cpuWeight: 999 }, SUBPROCESS_BOUNDS);`,
+    "const cgroup = ownCgroupPath();",
+    `writeFileSync(${JSON.stringify(answer)}, JSON.stringify({ owns: nested.owns, cgroup, weight: readFileSync("/sys/fs/cgroup" + cgroup + "/cpu.weight", "utf8").trim(), limit: ownCpuTimeLimit(), runs: admittedRuns(${JSON.stringify(lockPath)}).length }));`,
+    "nested.release();",
+  ].join("\n");
+  const command = { cwd: ".", argv: [process.execPath, "--input-type=module", "-e", script], timeoutMs: 60_000, holdsInstrumentLock: true as const };
+  try {
+    const ran = await runCheckoutCommand(target, "nested", command, runner);
+    assert.equal(ran.status, "pass", ran.message);
+    const seen = JSON.parse(readFileSync(answer, "utf8")) as { owns: boolean; cgroup: string; weight: string; limit: { soft: string; hard: string }; runs: number };
+    assert.equal(seen.owns, false, "the nested admission borrows: it owns nothing");
+    assert.match(seen.cgroup, /\/bridlewise-run-[0-9a-f-]+\.scope$/u, "the nested run is inside the outer run's scope");
+    assert.equal(seen.weight, "42", "under the OUTER run's caps (its own requested 999 never applied)");
+    assert.deepEqual(seen.limit, { soft: String(SUBPROCESS_BOUNDS.cpuLimitSeconds), hard: String(SUBPROCESS_BOUNDS.cpuLimitSeconds + SUBPROCESS_BOUNDS.cpuKillGraceSeconds) }, "under the CPU-time limit");
+    assert.equal(seen.runs, 1, "one record: the outer run's; the nested admission wrote none");
+  } finally {
+    rmSync(answer, { force: true });
+  }
 });

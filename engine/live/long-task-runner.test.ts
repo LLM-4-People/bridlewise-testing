@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, rmSync } from "node:fs";
 
-import { LongTaskRunner, LongTaskUnavailableError } from "../../../src/tools/concurrent/long-task-runner.ts";
-import { createTempDir } from "../../support/temp-dir.ts";
-import { requireHost } from "../../support/host-requirement.ts";
+import { LongTaskRunner, LongTaskUnavailableError } from "../src/tools/concurrent/long-task-runner.ts";
+import { createTempDir } from "../test/support/temp-dir.ts";
+import { requireHost } from "../test/support/host-requirement.ts";
 
 function hasSystemd(): boolean {
   return LongTaskRunner.checkSystemd().ok;

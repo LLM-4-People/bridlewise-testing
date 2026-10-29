@@ -33,7 +33,6 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { ownedTemporaryName } from "../../src/filesystem/private-state.ts";
 import { configureDebugSystem, createCollectingSink, resetDebugSystem } from "../../src/shared/debug/debug-system.ts";
 import { DEBUG_CONFIG_DEFAULTS } from "../../src/shared/debug/debug-config.ts";
-import { SUBPROCESS_BOUNDS } from "../../src/workflow/workflow-config.ts";
 
 function git(cwd: string, ...argv: string[]): string {
   return execFileSync("git", ["-c", "user.name=Working Copy Test", "-c", "user.email=wc.invalid@example.invalid", ...argv], {
@@ -885,43 +884,6 @@ test("a heavy setup command is ADMITTED AT ONCE beside a live run — it never w
   } finally {
     holder.kill("SIGKILL");
     rmSync(counter, { force: true });
-  }
-});
-
-test("a heavy setup command's OWN nested admission BORROWS the run its checkout command was admitted under: owns nothing, inside the run's scope, under its caps (NO-LOAD-BLOCK; a nested admission that refused or took a run of its own would leave the outer cap)", async () => {
-  const target = gateRoot("working-copy-nested-admission-");
-  execFileSync("git", ["init", "-q"], { cwd: target, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
-  writeFileSync(join(target, "a.txt"), "a\n");
-  const lockPath = join(createTempDir("working-copy-nested-lock-"), "instrument.lock");
-  const runner: CheckoutCommandRunner = { ...supervisedRunner(), instrumentLock: { lockPath, perRun: { memoryMaxPercent: 37, cpuWeight: 42 } } };
-  const answer = join(target, "..", `${String(process.pid)}-nested.json`);
-  const engine = join(import.meta.dirname, "..", "..");
-  const lockModule = pathToFileURL(join(engine, "src", "process", "instrument-lock.ts")).href;
-  const factsModule = pathToFileURL(join(engine, "src", "process", "process-facts.ts")).href;
-  const configModule = pathToFileURL(join(engine, "src", "workflow", "workflow-config.ts")).href;
-  // The checkout command itself is a nested heavy run (a validate's suite does exactly this): it admits on the same registry.
-  const script = [
-    `const { admitInstrumentRun, admittedRuns } = await import(${JSON.stringify(lockModule)});`,
-    `const { ownCgroupPath, ownCpuTimeLimit } = await import(${JSON.stringify(factsModule)});`,
-    `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(configModule)});`,
-    `const { readFileSync, writeFileSync } = await import("node:fs");`,
-    `const nested = admitInstrumentRun(${JSON.stringify(lockPath)}, "a nested suite", { memoryMaxPercent: 99, cpuWeight: 999 }, SUBPROCESS_BOUNDS);`,
-    "const cgroup = ownCgroupPath();",
-    `writeFileSync(${JSON.stringify(answer)}, JSON.stringify({ owns: nested.owns, cgroup, weight: readFileSync("/sys/fs/cgroup" + cgroup + "/cpu.weight", "utf8").trim(), limit: ownCpuTimeLimit(), runs: admittedRuns(${JSON.stringify(lockPath)}).length }));`,
-    "nested.release();",
-  ].join("\n");
-  const command = { cwd: ".", argv: [process.execPath, "--input-type=module", "-e", script], timeoutMs: 60_000, holdsInstrumentLock: true as const };
-  try {
-    const ran = await runCheckoutCommand(target, "nested", command, runner);
-    assert.equal(ran.status, "pass", ran.message);
-    const seen = JSON.parse(readFileSync(answer, "utf8")) as { owns: boolean; cgroup: string; weight: string; limit: { soft: string; hard: string }; runs: number };
-    assert.equal(seen.owns, false, "the nested admission borrows: it owns nothing");
-    assert.match(seen.cgroup, /\/bridlewise-run-[0-9a-f-]+\.scope$/u, "the nested run is inside the outer run's scope");
-    assert.equal(seen.weight, "42", "under the OUTER run's caps (its own requested 999 never applied)");
-    assert.deepEqual(seen.limit, { soft: String(SUBPROCESS_BOUNDS.cpuLimitSeconds), hard: String(SUBPROCESS_BOUNDS.cpuLimitSeconds + SUBPROCESS_BOUNDS.cpuKillGraceSeconds) }, "under the CPU-time limit");
-    assert.equal(seen.runs, 1, "one record: the outer run's; the nested admission wrote none");
-  } finally {
-    rmSync(answer, { force: true });
   }
 });
 

@@ -21,7 +21,6 @@ import { join, relative } from "node:path";
 import test from "node:test";
 
 import { walk } from "../../scripts/verification/source-walk.ts";
-import { TEST_RUN_LOCK_FILE_NAME } from "../../scripts/tooling/test-run-lock.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const ENGINE_ROOT = join(import.meta.dirname, "..", "..");
@@ -53,7 +52,7 @@ test("no hand-written exclusive publication outside the one writer and the decla
   assert.equal(SHAPES[0]![1].test("unlinkSync(p)"), false, "unlink is not a publication");
 });
 
-test("the three former copies publish through the owner: the folder is fsynced once the record is named", () => {
+test("the former copies publish through the owner: the folder is fsynced once the record is named (the test-run lock's, an admitted heavy run, is a live-suite fact: live/test-run-lock.test.ts)", () => {
   const root = createTempDir("exclusive-create-owner-");
   const keyHome = join(root, "keys");
   mkdirSync(keyHome, { mode: 0o700 });
@@ -67,12 +66,6 @@ test("the three former copies publish through the owner: the folder is fsynced o
       what: "the config write lock",
       folder: join(root, "config", ".bridlewise", "config-locks"),
       body: `const {withConfigWriteLock}=await import(${JSON.stringify(join(ENGINE_ROOT, "src/kernel/config-write-lock.ts"))});withConfigWriteLock(${JSON.stringify(join(root, "config", "harness.json"))},()=>0);`,
-    },
-    {
-      // An admitted run's record is named in the run registry beside the lock path (src/process/instrument-lock.ts).
-      what: "the test-run lock",
-      folder: join(root, "locks", `${TEST_RUN_LOCK_FILE_NAME}.runs`),
-      body: `const {enforceTestRunLock}=await import(${JSON.stringify(join(ENGINE_ROOT, "scripts/tooling/test-run-lock.ts"))});const lock=await enforceTestRunLock("probe",{lockDir:${JSON.stringify(join(root, "locks"))},testFileCount:Number.POSITIVE_INFINITY});lock.release();`,
     },
   ];
   mkdirSync(join(root, "config"));

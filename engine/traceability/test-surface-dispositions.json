@@ -4,6 +4,28 @@
   "policyHash": "8e3ee99a049733a4012d0ef159e41721119188a58628e9828c91a986c649205c",
   "entries": [
     {
+      "path": "live/instrument-lock.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "qualified-external-oracle",
+      "rationale": "Run by `npm run test:live:host` only (CI's engine job, unconfined), never by the hermetic runner: it needs the host's user service manager (systemd --user over /run/user/UID/bus) for a heavy run's admission under a transient cgroup v2 scope, which a confined test run cannot reach by design (that bus is B12's escape; decision TEST-CONFINEMENT-SELF-BIND).",
+      "evidenceLinks": [
+        "package.json",
+        "src/kernel/root-policy.ts"
+      ],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "live/long-task-runner.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "qualified-external-oracle",
+      "rationale": "Run by `npm run test:live:host` only (CI's engine job, unconfined), never by the hermetic runner: it needs the host's user service manager (systemd --user over /run/user/UID/bus) for the long-task runner's units (systemd-run --user), which a confined test run cannot reach by design (that bus is B12's escape; decision TEST-CONFINEMENT-SELF-BIND).",
+      "evidenceLinks": [
+        "package.json",
+        "src/kernel/root-policy.ts"
+      ],
+      "blocksFullRepositoryClaim": false
+    },
+    {
       "path": "live/mcp-servers.test.ts",
       "language": "javascript-typescript",
       "disposition": "qualified-external-oracle",
@@ -42,6 +64,17 @@
       "language": "javascript-typescript",
       "disposition": "qualified-external-oracle",
       "rationale": "Run by `npm run test:live:s1` only (CI's engine job, unconfined), never by the hermetic runner: its fixture needs a real supplementary group, which the confined hermetic run's user namespace cannot map (decision TEST-CONFINEMENT-SELF-BIND).",
+      "evidenceLinks": [
+        "package.json",
+        "src/kernel/root-policy.ts"
+      ],
+      "blocksFullRepositoryClaim": false
+    },
+    {
+      "path": "live/test-run-lock.test.ts",
+      "language": "javascript-typescript",
+      "disposition": "qualified-external-oracle",
+      "rationale": "Run by `npm run test:live:host` only (CI's engine job, unconfined), never by the hermetic runner: it needs the host's user service manager (systemd --user over /run/user/UID/bus) for the test-run lock's heavy admissions, which a confined test run cannot reach by design (that bus is B12's escape; decision TEST-CONFINEMENT-SELF-BIND).",
       "evidenceLinks": [
         "package.json",
         "src/kernel/root-policy.ts"

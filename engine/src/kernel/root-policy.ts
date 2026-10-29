@@ -2424,8 +2424,11 @@ const ROOT_POLICY_VALUE = {
           // CI's engine job): their fixture needs a real supplementary group,
           // which the confined hermetic run's user namespace cannot map. The
           // scenarios moved; none vanished.
-          count: 10,
-          sha256: "102f6f72c6791e29faccadb287d641ea2e13737b5a0c864e71ec0d2b16cec2d4",
+          // 10 -> 13 (2026-10-29, decision TEST-CONFINEMENT-SELF-BIND): the heavy-run admission and long-task
+          // runner tests (`live/instrument-lock`, `live/test-run-lock`, `live/long-task-runner`) need the host's user
+          // service manager, which a confined run cannot reach, so they moved to the live suite.
+          count: 13,
+          sha256: "d57de876301489d5f4741ab589657250bd34b238a627ed4639f49f1d0c707c32",
         },
       },
       // END AUTHORED PINS
