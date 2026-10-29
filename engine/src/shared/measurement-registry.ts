@@ -292,7 +292,6 @@ export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.fr
  * exemption hides the next new producer). Each key is `module::symbol`.
  */
 export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Object.freeze({
-  "scripts/test-shard-manifest.mjs::readShardPopulation": "derives the shard population: it reads each selected test file's text for its own exclusion line and the measured weights file; it produces no measurement (the weight is measuredFileDurationMs's)",
   "scripts/test-shard-manifest.mjs::measureWeights": "assembles the weights file from measuredFileDurationMs (the registered producer) over a green run's reports; it subtracts no timestamp itself",
   "engine/scripts/tooling/compile-cache.ts::pruneCompileCache": "prunes the V8 compile cache to its byte bound and reports what it removed; a maintenance count, not a judged signal",
   "engine/scripts/tooling/compile-cache.ts::pruneCompileCacheAtEnablement": "runs that prune at most once per interval when the cache is enabled and says what it did; a maintenance line, not a judged signal",
