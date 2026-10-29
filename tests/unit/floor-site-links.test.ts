@@ -34,14 +34,14 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { candidateSiteFiles, crawlSiteLinks, pageUrlForSitePath, resolveSiteHref } from "../../scripts/floor/site-links.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
-import { legacyAliases, prettyPermalink, publishedDocsPage, rewritePageLinks, siteSourceViolations, sitePlan } from "../../scripts/floor/site-pages.mjs";
+import { landingMap, landingPath, legacyAliases, prettyPermalink, publishedDocsPage, rewritePageLinks, siteSourceViolations, sitePlan } from "../../scripts/floor/site-pages.mjs";
 import { sitePolicies } from "../../shared/site-page.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { buildRedirectSite, buildSiteSource, finishSite, readVersions, redirectTarget } from "../../scripts/floor/site.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { checkSiteLinks } from "../../scripts/check-docs-links.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
-import { siteCoordinates } from "../../scripts/floor/repository.mjs";
+import { legacySiteUrl, siteCoordinates } from "../../scripts/floor/repository.mjs";
 import { configuredForge } from "../../engine/src/workflow/forge/configured-forge.ts";
 import { repositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 
@@ -591,41 +591,109 @@ describe("G. the site source names no coordinate of its own", () => {
   });
 });
 
-const RENAMED = "https://llm-4-people.github.io/bridlewise/";
+const FROM = "https://llm-4-people.github.io/bridlewise-testing/";
+const TO = "https://bridlewise.llm4people.dev/";
 
 describe("F. the old-URL redirect site", () => {
-  test("every old path maps to the same path under the current site; anything else is not claimed", () => {
-    const to = { to: RENAMED };
-    expect(redirectTarget("/bridlewise-testing/", to)).toBe("https://llm-4-people.github.io/bridlewise/");
-    expect(redirectTarget("/bridlewise-testing", to)).toBe("https://llm-4-people.github.io/bridlewise/");
-    expect(redirectTarget("/bridlewise-testing/floor/roadmap/", to)).toBe("https://llm-4-people.github.io/bridlewise/floor/roadmap/");
-    expect(redirectTarget("/bridlewise-testing/assets/floor/floor.css", to)).toBe("https://llm-4-people.github.io/bridlewise/assets/floor/floor.css");
-    // Near misses: a longer name sharing the prefix, the new base, the root.
-    expect(redirectTarget("/bridlewise-testingx/a", to)).toBeNull();
-    expect(redirectTarget("/bridlewise/floor/", to)).toBeNull();
-    expect(redirectTarget("/", to)).toBeNull();
+  test("the old site is a whole URL from the identity: the owner's Pages host and the old base", () => {
+    expect(legacySiteUrl({ owner: "Example-Org" })).toBe("https://example-org.github.io/bridlewise-testing/");
   });
 
-  test("the built pages run that same mapping and show the destination without scripts", () => {
+  test("the landing map is one map per plan: an alias lands on its page, anything else on itself", () => {
+    const plan = sitePlan({ root: repository() });
+    expect(landingMap(plan)).toBe(landingMap(plan));
+    expect(Object.isFrozen(landingMap(plan))).toBe(true);
+    expect([...landingMap(plan)]).toEqual(legacyAliases(plan));
+    expect(landingPath("/roadmap/", plan)).toBe("/floor/roadmap/");
+    expect(landingPath("/floor/trackers/TASKS.md", plan)).toBe("/trackers/TASKS/");
+    expect(landingPath("/floor/roadmap/", plan)).toBe("/floor/roadmap/");
+    expect(landingPath("/never/", plan)).toBe("/never/");
+  });
+
+  test("a whole URL under the old site lands through the map, its query and fragment kept; anything else is not claimed", () => {
+    const options = { from: FROM, to: TO, landing: { "/roadmap/": "/floor/roadmap/", "/quickstart/": "/docs/quickstart/", "/a&b'%3Cc%3E/": "/docs/odd/" } };
+    expect(redirectTarget(`${FROM}roadmap/`, options)).toBe(`${TO}floor/roadmap/`);
+    expect(redirectTarget(`${FROM}quickstart`, options)).toBe(`${TO}docs/quickstart/`);
+    expect(redirectTarget(`${FROM}quickstart/?q=1#h`, options)).toBe(`${TO}docs/quickstart/?q=1#h`);
+    expect(redirectTarget(`${FROM}a&b'%3Cc%3E/`, options)).toBe(`${TO}docs/odd/`);
+    // The browser spells a path its own way (a raw `|`, lower-case escapes): the key is the map's `encodeURI` spelling.
+    expect(redirectTarget(`${FROM}a&b'%3cc%3e/`, options)).toBe(`${TO}docs/odd/`);
+    expect(redirectTarget(`${FROM}pipe|d/`, { ...options, landing: { [encodeURI("/pipe|d/")]: "/docs/pipe/" } })).toBe(`${TO}docs/pipe/`);
+    expect(redirectTarget(`${FROM}assets/floor/floor.css`, options)).toBe(`${TO}assets/floor/floor.css`);
+    expect(redirectTarget(FROM, options)).toBe(TO);
+    expect(redirectTarget("https://llm-4-people.github.io/bridlewise-testing", options)).toBe(TO);
+    // Near misses: a longer name sharing the prefix, another host with the same path, the host's root.
+    expect(redirectTarget("https://llm-4-people.github.io/bridlewise-testingx/a", options)).toBeNull();
+    expect(redirectTarget("https://other.github.io/bridlewise-testing/roadmap/", options)).toBeNull();
+    expect(redirectTarget("https://llm-4-people.github.io/", options)).toBeNull();
+  });
+
+  test("the organisation's tree: one exact, script-free hop per old pretty path, the 404 fallback over the same map, .nojekyll", () => {
+    const root = repository();
+    const plan = sitePlan({ root });
     const out = join(createTempDir("site-redirect-"), "out");
-    const result = buildRedirectSite({ out, to: RENAMED });
-    expect(result.files.map((file: string) => file.slice(out.length))).toEqual(["/bridlewise-testing/index.html", "/404.html"]);
-    for (const file of result.files) {
-      const html = readFileSync(file, "utf8");
-      expect(html).toContain('<a href="https://llm-4-people.github.io/bridlewise/">');
+    const result = buildRedirectSite({ root, out, from: FROM, to: TO });
+    const relative = result.files.map((file: string) => file.slice(out.length + 1)).sort();
+    expect(relative).toEqual([
+      ".nojekyll", "404.html",
+      "bridlewise-testing/decisions/index.html", "bridlewise-testing/floor/roadmap/index.html", "bridlewise-testing/floor/trackers/TASKS/index.html",
+      "bridlewise-testing/index.html", "bridlewise-testing/product/index.html", "bridlewise-testing/roadmap/index.html", "bridlewise-testing/trackers/TASKS/index.html",
+    ]);
+    const hop = (file: string): string => {
+      const html = readFileSync(join(out, file), "utf8");
+      const canonical = /<link rel="canonical" href="([^"]+)">/u.exec(html)![1]!;
+      expect(html).toContain(`<meta http-equiv="refresh" content="0; url=${canonical}">`);
+      expect(html).toContain(`<a href="${canonical}">`);
       expect(html).not.toMatch(/<script[^>]+src=/u);
-      const code = html.split("<script>\n")[1]!.split("</script>")[0]!;
-      const visit = (pathname: string): string | null => {
-        let target: string | null = null;
-        new Function("location", code)({ pathname, search: "?q=1", hash: "#h", replace: (url: string) => { target = url; } });
-        return target;
-      };
-      expect(visit("/bridlewise-testing/floor/atlas/")).toBe("https://llm-4-people.github.io/bridlewise/floor/atlas/?q=1#h");
-      expect(visit("/elsewhere/")).toBeNull();
+      let replaced: string | null = null;
+      new Function("location", html.split("<script>")[1]!.split("</script>")[0]!)({ search: "?q=1", hash: "#h", replace: (url: string) => { replaced = url; } });
+      expect(replaced).toBe(`${canonical}?q=1#h`);
+      return canonical;
+    };
+    expect(hop("bridlewise-testing/index.html")).toBe(TO);
+    expect(hop("bridlewise-testing/roadmap/index.html")).toBe(`${TO}floor/roadmap/`);
+    expect(hop("bridlewise-testing/product/index.html")).toBe(TO);
+    expect(hop("bridlewise-testing/floor/trackers/TASKS/index.html")).toBe(`${TO}trackers/TASKS/`);
+    // ONE hop: every stub lands on a page the plan publishes, never on another alias.
+    for (const file of relative.filter((name: string) => name.startsWith("bridlewise-testing/"))) {
+      expect(plan.byPermalink.has(`/${hop(file).slice(TO.length)}`)).toBe(true);
     }
+    const fallback = readFileSync(join(out, "404.html"), "utf8");
+    expect(fallback).toContain('<meta name="robots" content="noindex">');
+    expect(fallback).not.toContain('rel="canonical"');
+    expect(fallback).not.toMatch(/<script[^>]+src=/u);
+    const code = fallback.split("<script>\n")[1]!.split("</script>")[0]!;
+    const visit = (href: string): string | null => {
+      let target: string | null = null;
+      new Function("location", code)({ href, replace: (url: string) => { target = url; } });
+      return target;
+    };
+    expect(visit(`${FROM}floor/trackers/TASKS.md?q=1#h`)).toBe(`${TO}trackers/TASKS/?q=1#h`);
+    expect(visit(`${FROM}roadmap`)).toBe(`${TO}floor/roadmap/`);
+    expect(visit(`${FROM}assets/logo.png`)).toBe(`${TO}assets/logo.png`);
+    expect(visit("https://llm-4-people.github.io/elsewhere/")).toBeNull();
+    expect(readFileSync(join(out, ".nojekyll"), "utf8")).toBe("");
   });
 
-  test("before the rename the old base IS the site: building the redirect refuses (it would loop)", () => {
-    expect(() => buildRedirectSite({ out: join(createTempDir("site-redirect-"), "out"), to: "https://llm-4-people.github.io/bridlewise-testing/" })).toThrow(/nothing to redirect until the repository is renamed/u);
+  test("a landing path holding markup is escaped in the page and inert in the 404 script", () => {
+    const root = repository({ "docs/odd.md": "---\npermalink: /a&b'<c>/\n---\n\n# Odd\n" });
+    const out = join(createTempDir("site-redirect-"), "out");
+    buildRedirectSite({ root, out, from: FROM, to: TO });
+    const stub = readFileSync(join(out, "bridlewise-testing", "a&b'<c>", "index.html"), "utf8");
+    expect(stub).toContain(`<link rel="canonical" href="${escapeHtml(`${TO}a&b'%3Cc%3E/`)}">`);
+    expect(stub).not.toContain("<c>");
+    // The `.md` spelling is no pretty path: the 404 script answers it, from a map that holds no raw `<`.
+    const fallback = readFileSync(join(out, "404.html"), "utf8");
+    expect(fallback).toContain(`"/a&b'%3Cc%3E.md":"/a&b'%3Cc%3E/"`);
+    expect(fallback).not.toContain("<c>");
+  });
+
+  test("the loop guard compares whole URLs: a target that is the old site or under it refuses; the same path on another host does not", () => {
+    const build = (to: string) => () => buildRedirectSite({ root: repository(), out: join(createTempDir("site-redirect-"), "out"), from: FROM, to });
+    expect(build(FROM)).toThrow(/nothing to redirect until the repository is renamed/u);
+    expect(build("https://llm-4-people.github.io/bridlewise-testing")).toThrow(/would loop/u);
+    expect(build(`${FROM}docs/`)).toThrow(/would loop/u);
+    expect(build("https://bridlewise.llm4people.dev/bridlewise-testing/")).not.toThrow();
+    expect(build("https://llm-4-people.github.io/bridlewise/")).not.toThrow();
   });
 });

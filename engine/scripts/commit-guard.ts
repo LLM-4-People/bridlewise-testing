@@ -31,6 +31,7 @@ import { COMMIT_GUARD_PROGRAM, COMMIT_MESSAGE_FLAG, canonicalHookDuty, commitLos
 import { LESSON_TRAILER, missingLessonTrailers, stagedTrackerEntryViolations } from "./verification/lesson-trailers.ts";
 import { messageSignOffProblem } from "./verification/sign-off.ts";
 import { stagedTestDeletionVerdict, TEST_DELETED_TRAILER, testDeletionProblems } from "./verification/test-deletions.ts";
+import { stagedChangeProblems } from "./verification/added-content.ts";
 import { stagedRatchetGrowth } from "./verification/ratchet.ts";
 import { qualificationEvidence, readRunHistory, readRunFailureRows, WEB_RUN_HISTORY_PATH } from "../src/shared/run-history.ts";
 import { createWorkingCopy } from "../src/git/working-copy.ts";
@@ -104,6 +105,17 @@ function checkCommitMessage(): void {
     const signOff = messageSignOffProblem(root, message);
     if (signOff !== null) {
       process.stderr.write(`\nCOMMIT REFUSED — the commit's records are wrong (the DCO and the agent identity are binding): ${signOff}\n\n`);
+      process.exitCode = 1;
+    }
+    // What the commit adds never carries a host's home, a raw dump or a .ts file that is not TypeScript
+    // (scripts/verification/added-content.ts); the refusal names file, line and kind, never the text.
+    const added = stagedChangeProblems(root);
+    if (added.length > 0) {
+      process.stderr.write(
+        `\nCOMMIT REFUSED — what this commit adds is refused (nothing it found is printed):\n` +
+          `${added.map((problem) => `  - ${problem}`).join("\n")}\n\n` +
+          `Remove each one: a host's home path or account name, a raw output dump (it belongs in the evidence store: harness evidence ingest), a .ts file that is not TypeScript.\n\n`,
+      );
       process.exitCode = 1;
     }
     // A test deletion is a named decision (scripts/verification/test-deletions.ts):
