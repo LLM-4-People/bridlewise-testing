@@ -40,6 +40,13 @@ export type ProjectedObject = Readonly<{
   class: ProjectionClass;
   key: string;
   fields: Fields;
+  /**
+   * An issue only: the GitHub issue its record names (the item's `gh:
+   * issue-<n>`, set by the IssueOps record writer). The projector ADOPTS
+   * that issue as the item's face instead of opening one: it is trusted
+   * because the record at S says so, never because of a marker in it.
+   */
+  adopt?: number;
 }>;
 
 /** D: every desired object, sorted by class (write order) then key. */
@@ -110,6 +117,8 @@ export type InputItem = Readonly<{
   body: string;
   /** Repository-relative path of the item's file. */
   path: string;
+  /** The GitHub object the record names (`issue-<n>`): the issue the projector adopts as the item's face. */
+  gh: string | null;
 }>;
 
 

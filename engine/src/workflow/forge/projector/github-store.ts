@@ -24,6 +24,14 @@
  *     link, its `blockedBy` the issue dependencies, its `pinned` the
  *     repository's pinned issues; another person's issue in a relation is
  *     spelled `#<number>`, which no key ever is, so it always differs from D.
+ *     An ADOPTED issue (D's `adopt`: the issue a record's `gh` names, opened by
+ *     anyone) is that item's issue because the record at S says so: it is read
+ *     by its number, whatever its author, and its marker block is written
+ *     below the reporter's text, which is kept. A number that names no issue
+ *     is `projection_store_adopt_missing`, a pull request
+ *     `projection_store_adopt_pull_request`, and an item that also has an
+ *     issue of the projector's own, or an issue another item already holds,
+ *     `projection_store_adopt_conflict` — never two faces for one record.
  *     Its `labels` are names the projector never creates or claims: every
  *     label is declared in `docs/community/labels.json` and applied by
  *     `harness forge apply`. GitHub would create a missing label it is asked
@@ -41,7 +49,7 @@ import type { ForgeClient } from "../port.ts";
 import { FORGE_APPS } from "../app-registry.ts";
 import { repositoryPath } from "../repository-reads.ts";
 import { FIELD_PHASES, findItemMarker, type Fields, type Json, type ProjectionClass } from "./model.ts";
-import type { LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
+import type { Adoptions, LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
 
 export type GithubStoreOptions = Readonly<{
   /** `owner/name` of the repository the projection lives in. */
@@ -132,16 +140,32 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     }
   }
 
-  async function readIssues(): Promise<LiveObject[]> {
+  async function readIssues(adoptions: Adoptions): Promise<LiveObject[]> {
     issues.clear();
     keyOfNumber.clear();
-    const marked = (await list<RestIssue>("issues", { state: "all" })).flatMap((issue) => {
-      // A pull request is no issue; an issue the projector did not open is never its own, marker or not.
-      if (issue.pull_request !== undefined || issue.user?.login !== PROJECTOR_LOGIN) return [];
+    const all = await list<RestIssue>("issues", { state: "all" });
+    const adoptedNumbers = new Set(adoptions.values());
+    const marked = all.flatMap((issue) => {
+      // A pull request is no issue; an issue the projector did not open is never its own, marker or not (an adopted one is read below, by its number).
+      if (issue.pull_request !== undefined || issue.user?.login !== PROJECTOR_LOGIN || adoptedNumbers.has(issue.number)) return [];
       const body = issue.body ?? "";
       const marker = findItemMarker(body);
       return marker === null ? [] : [{ issue, body, key: marker.key, block: body.slice(marker.index) }];
     });
+    const byNumber = new Map(all.map((issue) => [issue.number, issue]));
+    for (const [key, number] of [...adoptions].sort(([left], [right]) => compareUtf8Bytes(left, right))) {
+      const issue = byNumber.get(number);
+      if (issue === undefined) refuse("projection_store_adopt_missing", `${key}'s record names #${String(number)}, which is no issue of ${options.repository}`);
+      if (issue.pull_request !== undefined) refuse("projection_store_adopt_pull_request", `${key}'s record names #${String(number)}, which is a pull request, not an issue`);
+      const own = marked.find((entry) => entry.key === key);
+      if (own !== undefined) refuse("projection_store_adopt_conflict", `${key} has the projector's own issue #${String(own.issue.number)} and its record names #${String(number)}: one record, one face`);
+      const holder = [...adoptions].find(([other, value]) => value === number && other !== key);
+      if (holder !== undefined) refuse("projection_store_adopt_conflict", `#${String(number)} is named by the records of both ${key} and ${holder[0]}`);
+      const body = issue.body ?? "";
+      const marker = findItemMarker(body);
+      // The adopted issue's block is what follows the marker once written; before that it carries none.
+      marked.push({ issue, body, key, block: marker === null ? "" : body.slice(marker.index) });
+    }
     for (const { issue, key } of marked) {
       if (keyOfNumber.has(issue.number)) continue;
       if (issues.has(key)) refuse("projection_store_duplicate_marker", `#${String(issues.get(key)!.number)} and #${String(issue.number)} both carry ${key}'s marker`);
@@ -203,9 +227,10 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     const body: Record<string, unknown> = {};
     if ("title" in fields) body.title = fields.title;
     if ("block" in fields) {
-      // The reporter's text above the marker is GitHub-owned: it is kept.
+      // The reporter's text above the marker is GitHub-owned: it is kept (an adopted issue's whole text, before its first block).
       const marker = findItemMarker(previousBody);
-      body.body = `${marker === null ? "" : previousBody.slice(0, marker.index)}${String(fields.block)}`;
+      const above = marker === null ? (previousBody === "" ? "" : `${previousBody.replace(/\s+$/u, "")}\n\n`) : previousBody.slice(0, marker.index);
+      body.body = `${above}${String(fields.block)}`;
     }
     if ("type" in fields) body.type = fields.type;
     if ("labels" in fields) body.labels = existingLabels(fields.labels!, key);
@@ -266,7 +291,7 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   }
 
   return Object.freeze({
-    read: async (classes: readonly ProjectionClass[]) => {
+    read: async (classes: readonly ProjectionClass[], adoptions: Adoptions) => {
       const objects: LiveObject[] = [];
       // Labels and milestones are read whenever issues are: an issue's labels and milestone are spelled through them.
       if (classes.includes("issue")) {
@@ -277,7 +302,7 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
         const live = await readMilestones();
         if (classes.includes("milestone")) objects.push(...live);
       }
-      if (classes.includes("issue")) objects.push(...await readIssues());
+      if (classes.includes("issue")) objects.push(...await readIssues(adoptions));
       return objects;
     },
     write: async (write: ProjectionWrite) => {

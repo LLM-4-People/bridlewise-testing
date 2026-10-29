@@ -50,7 +50,7 @@ const ENGINE_ROOT = join(REPOSITORY_ROOT, "engine");
 const CONFINEMENT: ProjectorConfinement = { harnessRoot: ENGINE_ROOT, keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
 
 const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> = {}): ProjectionInput["items"][number] => ({
-  id, type: "Task", title: null, state: "open", resolution: null, lane: "floor", milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null,
+  id, type: "Task", title: null, state: "open", resolution: null, lane: "floor", milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null, gh: null,
   body: `The outcome of ${id}; see [the roadmap](../../floor/roadmap.md#m1).`, path: `${TRACKER_BOARD.items}/${id}.md`, ...overrides,
 });
 const input = (items: ProjectionInput["items"], source = SOURCE): ProjectionInput => ({
@@ -352,6 +352,21 @@ test("every lane label an item carries is declared in labels.json AT S: an undec
   assert.throws(read, (error: HarnessError) => error.code === "projection_label_undeclared");
   git("add", "."); git("commit", "-q", "-m", "roadmap declared");
   assert.deepEqual(read().items.map((entry) => entry.lane), ["floor", "roadmap"]);
+});
+
+test("a record's gh is the issue the projector adopts: `issue-<n>` sets the object's adopt, none sets nothing, and a discussion is refused at S", () => {
+  const { projection } = computeProjection(input([item("A-ONE", { gh: "issue-7" }), item("B-TWO")]), CONFINEMENT);
+  const object = (key: string) => projection.objects.find((entry) => entry.class === "issue" && entry.key === key)!;
+  assert.equal(object("A-ONE").adopt, 7);
+  assert.equal("adopt" in object("B-TWO"), false);
+  const root = createTempDir("projector-adopt-");
+  const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", ...testGitIdentityEnvironment() } }).trim();
+  git("init", "-q", "-b", "main");
+  mkdirSync(join(root, TRACKER_BOARD.items), { recursive: true });
+  writeFileSync(join(root, TRACKER_BOARD.items, "C-THREE.md"), "---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: C-THREE\ntype: Task\ntitle: C-THREE\nstate: open\nlane: floor\ngh: discussion-3\nopened: 2026-10-21\n---\n\nThe outcome.\n");
+  labelsFile(root, ["lane:floor"]);
+  git("add", "."); git("commit", "-q", "-m", "a discussion face");
+  assert.throws(() => projectionInput(configuredGitRepository({}, root), "HEAD", null, "https://github.com/owner/repo"), (error: HarnessError) => error.code === "projection_adopt_unsupported" && /C-THREE \(discussion-3\)/u.test(error.message));
 });
 
 test("this repository's own HEAD projects: every tracker item is an issue, and no label", () => {

@@ -46,7 +46,7 @@ const SOURCE = "0123456789abcdef0123456789abcdef01234567";
 const CONFINEMENT: ProjectorConfinement = { harnessRoot: join(import.meta.dirname, "..", ".."), keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
 
 const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> = {}): ProjectionInput["items"][number] => ({
-  id, type: "Task", title: `The ${id} outcome`, state: "open", resolution: null, lane: "floor", milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null,
+  id, type: "Task", title: `The ${id} outcome`, state: "open", resolution: null, lane: "floor", milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null, gh: null,
   body: `What ${id} delivers.`, path: `${TRACKER_BOARD.items}/${id}.md`, ...overrides,
 });
 const input = (items: ProjectionInput["items"]): ProjectionInput => ({
@@ -154,13 +154,13 @@ test("a person's issue and label are never the projector's; a duplicate marker a
   const first = await run(project(), store);
   assert.deepEqual([first.verified, first.orphans], [true, []], "a person's label is not an orphan");
   assert.deepEqual([person.title, person.body, person.labels, person.parent], ["A person's report", "It broke.", [], null], "a person's issue is never touched");
-  const read = async (): Promise<unknown> => store.read(PROJECTION_CLASSES);
+  const read = async (): Promise<unknown> => store.read(PROJECTION_CLASSES, new Map());
   const blockers = Array.from({ length: 101 }, (_, index) => issues.open({ title: `blocker ${String(index)}`, body: "" }).number);
   issue("T-B").blockedBy.push(...blockers);
   await assert.rejects(read, (error: HarnessError) => error.code === "projection_store_relation_truncated");
   issue("T-B").blockedBy = [issue("T-C").number];
   issues.open({ title: "Quoting a marker", body: "It reads `<!-- bridlewise:item=T-B digest=not-a-digest -->`." });
-  assert.equal((await store.read(PROJECTION_CLASSES)).filter((object) => object.key === "T-B").length, 1, "a malformed marker is a person's text, not a second T-B");
+  assert.equal((await store.read(PROJECTION_CLASSES, new Map())).filter((object) => object.key === "T-B").length, 1, "a malformed marker is a person's text, not a second T-B");
   // Two of the projector's OWN issues carrying one marker are its own mistake, refused typed.
   issues.open({ title: "A copy", body: issue("T-B").body ?? "", login: PROJECTOR });
   await assert.rejects(read, (error: HarnessError) => error.code === "projection_store_duplicate_marker" && !isForgeError(error));
@@ -190,7 +190,7 @@ test("milestones are the projector's only by its own creation: a person's M1 is 
   const doubled = github();
   doubled.issues.milestone({ title: "M1 · one", login: PROJECTOR });
   doubled.issues.milestone({ title: "M1 · two", login: PROJECTOR });
-  await assert.rejects(doubled.store.read(PROJECTION_CLASSES), (error: HarnessError) => error.code === "projection_store_duplicate_milestone");
+  await assert.rejects(doubled.store.read(PROJECTION_CLASSES, new Map()), (error: HarnessError) => error.code === "projection_store_duplicate_milestone");
 });
 
 test("a label is the forge's: an existing `Lane:Floor` is carried as GitHub spells it and never written; a missing one is refused typed, never created", async () => {
@@ -208,16 +208,63 @@ test("a label is the forge's: an existing `Lane:Floor` is carried as GitHub spel
   assert.deepEqual([...bare.issues.labels.keys()], [], "no label was created on the way");
 });
 
+test("a record's gh names its face: the person's issue is adopted, its text kept above the block, every record field written, closed with the record; a second run writes nothing", async () => {
+  const { issues, store, issue } = github();
+  const reported = issues.open({ title: "It breaks on save", body: "Steps:\n1. Save.\n2. It breaks." });
+  const record = item("ISSUE-7", { title: "Saving breaks", gh: `issue-${String(reported.number)}` });
+  const first = await run(project([record]), store);
+  assert.equal(first.verified, true, JSON.stringify({ refusals: first.refusals, unverified: first.unverified }));
+  assert.equal([...issues.issues.values()].filter((candidate) => candidate.body?.includes("<!-- bridlewise:item=ISSUE-7 ") === true).length, 1, "no second face is opened for the record");
+  assert.equal(reported.user.login, "a-person", "still the reporter's issue");
+  assert.ok(reported.body!.startsWith("Steps:\n1. Save.\n2. It breaks.\n\n<!-- bridlewise:item=ISSUE-7 "), "the reporter's text is kept above the block");
+  assert.deepEqual([reported.title, reported.type?.name, reported.labels.map((label) => label.name), reported.state], ["Saving breaks", "Task", ["lane:floor"], "open"]);
+  assert.equal(issue("ISSUE-7"), undefined, "the adopted issue is no issue the projector opened");
+  // V-25 with an adoption: nothing changed, nothing written.
+  const second = await run(project([record]), store, first);
+  assert.deepEqual([second.writes, second.verified], [[], true]);
+  // The record closes: the adopted issue closes with it.
+  const closed = await run(project([{ ...record, state: "closed", resolution: "completed" }]), store, second);
+  assert.equal(closed.verified, true, JSON.stringify(closed.refusals));
+  assert.deepEqual([reported.state, reported.state_reason], ["closed", "completed"]);
+  assert.ok(reported.body!.startsWith("Steps:\n1. Save.\n2. It breaks.\n\n<!-- bridlewise:item=ISSUE-7 "), "a rewrite keeps the reporter's text once");
+});
+
+test("an adoption is refused typed when the record names no issue, a pull request, an issue another record holds, or an item that has the projector's own issue", async () => {
+  // Refused at the store's read, before the plan: nothing is written.
+  const refusedWith = async (setup: (fake: ReturnType<typeof github>) => Projection, code: string): Promise<void> => {
+    const world = github();
+    const projection = setup(world);
+    const sent = world.fake.requests.length;
+    await assert.rejects(run(projection, world.store), (error: HarnessError) => error.code === code);
+    assert.ok(world.fake.requests.slice(sent).every((request) => request.method === "GET" || request.path === "/graphql"), `${code}: nothing is written`);
+  };
+  await refusedWith(() => project([item("ISSUE-7", { gh: "issue-99" })]), "projection_store_adopt_missing");
+  await refusedWith((world) => {
+    const pull = world.issues.open({ title: "A change", body: "" });
+    pull.pull_request = { url: "https://api.github.com/repos/owner/repo/pulls/1" };
+    return project([item("ISSUE-7", { gh: `issue-${String(pull.number)}` })]);
+  }, "projection_store_adopt_pull_request");
+  await refusedWith((world) => {
+    const reported = world.issues.open({ title: "One report", body: "x" });
+    return project([item("ISSUE-7", { gh: `issue-${String(reported.number)}` }), item("ISSUE-8", { gh: `issue-${String(reported.number)}` })]);
+  }, "projection_store_adopt_conflict");
+  // The projector already opened ISSUE-7's issue; its record later names a person's issue too: one record, one face.
+  const world = github();
+  await run(project([item("ISSUE-7")]), world.store);
+  const reported = world.issues.open({ title: "Their report", body: "y" });
+  await assert.rejects(run(project([item("ISSUE-7", { gh: `issue-${String(reported.number)}` })]), world.store), (error: HarnessError) => error.code === "projection_store_adopt_conflict");
+});
+
 test("the store's edges: a list past maxPages is refused typed, a pull request is no issue, an unchanged parent or dependency sends nothing, an unknown field is refused", async () => {
   const bounded = github({}, 1);
   for (let index = 0; index < 101; index += 1) bounded.issues.open({ title: `a person's ${String(index)}`, body: "" });
-  await assert.rejects(bounded.store.read(PROJECTION_CLASSES), (error: unknown) => isForgeError(error, "forge_request_invalid"));
+  await assert.rejects(bounded.store.read(PROJECTION_CLASSES, new Map()), (error: unknown) => isForgeError(error, "forge_request_invalid"));
   const { fake, issues, store, issue } = github();
   const first = await run(project(), store);
   // A pull request opened by the projector's own App, carrying a marker, is still no issue of the projection.
   const pull = issues.open({ title: "A pull request", body: issue("T-C").body ?? "", login: PROJECTOR });
   pull.pull_request = { url: "https://api.github.com/repos/owner/repo/pulls/1" };
-  assert.equal((await store.read(PROJECTION_CLASSES)).filter((object) => object.key === "T-C").length, 1);
+  assert.equal((await store.read(PROJECTION_CLASSES, new Map())).filter((object) => object.key === "T-C").length, 1);
   const sent = fake.requests.length;
   await store.write({ phase: "link", kind: "update", class: "issue", key: "T-B", fields: { parent: "WS-A", blockedBy: ["T-C"] } });
   assert.deepEqual(fake.requests.slice(sent).map((request) => `${request.method} ${request.path}`), [], "the parent and the dependency are already so");
@@ -233,6 +280,6 @@ test("the GraphQL relations read is bounded by maxPages: a repository whose rela
     served += 1;
     return { status: 200, body: { data: { repository: { issues: { pageInfo: { hasNextPage: served < 6, endCursor: String(served) }, nodes: [] } } } } };
   }));
-  await assert.rejects(store.read(PROJECTION_CLASSES), (error: HarnessError) => error.code === "projection_store_too_many_issues");
+  await assert.rejects(store.read(PROJECTION_CLASSES, new Map()), (error: HarnessError) => error.code === "projection_store_too_many_issues");
   assert.equal(served, 2, "the read stopped at its bound: no third page was asked for");
 });

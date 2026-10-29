@@ -51,7 +51,7 @@ import { canonicalHash, canonicalJson, deepFreeze } from "../../../kernel/integr
 import { schemaId } from "../../../kernel/product-identity.ts";
 import { auditEvent, debugLog } from "../../../shared/debug/debug-system.ts";
 import { BORN_FIELDS, FIELD_PHASES, PROJECTION_CLASSES, PROJECTOR_OWNED_FIELDS, WRITE_PHASES, type Fields, type Json, type ProjectedObject, type Projection, type ProjectionClass } from "./model.ts";
-import type { LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
+import type { Adoptions, LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
 
 const PROJECTION_RECEIPT_SCHEMA = schemaId("projection-receipt", 1);
 
@@ -186,7 +186,8 @@ function refusalOf(error: unknown, write: ProjectionWrite | undefined): Projecti
 /** Steps 2–6 of the algorithm for `projection` against `store`; the receipt says what happened (see {@link projectionFailure}). */
 export async function applyProjection(projection: Projection, store: ProjectionStore, options: ApplyOptions): Promise<ProjectionReceipt> {
   const classes = PROJECTION_CLASSES.filter((name) => projection.objects.some((object) => object.class === name));
-  const live = await store.read(classes);
+  const adoptions: Adoptions = new Map(projection.objects.flatMap((object) => (object.adopt === undefined ? [] : [[object.key, object.adopt] as const])));
+  const live = await store.read(classes, adoptions);
   const liveById = new Map(live.map((object) => [id(object), object]));
   // Foreign changes, field by field: live differs from D and from what the previous run recorded for that field.
   const foreignEdits: ForeignEdit[] = [];
@@ -261,7 +262,7 @@ export async function applyProjection(projection: Projection, store: ProjectionS
     }
   }
   const pending = [...new Set(plan.writes.slice(done.length).map(id))].sort();
-  const observed = await store.read(classes);
+  const observed = await store.read(classes, adoptions);
   const observedById = new Map(observed.map((object) => [id(object), object]));
   const unverified = verifyProjection(projection, observed, new Set([...pending, ...heldObjects])).filter((field) => heldFields.get(`${field.class}/${field.key}`)?.has(field.field) !== true);
   // The next run's baseline, field by field: what was observed, except a held field (or object), which keeps its recorded digest — still foreign until met.

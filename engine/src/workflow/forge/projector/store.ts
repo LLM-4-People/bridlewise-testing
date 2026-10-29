@@ -38,9 +38,17 @@ export type ProjectionWrite = Readonly<{
   fields: Fields;
 }>;
 
+/**
+ * The issues D adopts: each item key → the GitHub issue number its record
+ * names (model.ts `ProjectedObject.adopt`). The store reads each as that
+ * item's live issue, whoever opened it; a number that names no issue, or a
+ * pull request, is refused typed.
+ */
+export type Adoptions = ReadonlyMap<string, number>;
+
 export type ProjectionStore = Readonly<{
   /** Every live object of `classes` (conditional reads: an unchanged answer costs no rate limit). The GitHub store paces its content-creating writes by GitHub's own answer (`retry-after`, the secondary-limit reset), never a fixed sleep. */
-  read: (classes: readonly ProjectionClass[]) => Promise<readonly LiveObject[]>;
+  read: (classes: readonly ProjectionClass[], adoptions: Adoptions) => Promise<readonly LiveObject[]>;
   /** One write; a refusal is typed (a budget refusal carries when to resume). */
   write: (write: ProjectionWrite) => Promise<void>;
 }>;
