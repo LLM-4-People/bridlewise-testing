@@ -87,7 +87,7 @@ const PULL_REQUEST_ONLY = new Map([
  * GitHub's default types ({@link DEFAULT_PULL_REQUEST_TYPES}) skips no event
  * the unfiltered trigger runs on, and only ADDS events (a label change that
  * re-judges a check). Any narrower list still skips a gating event and is
- * refused. The added events bring their own hazard, {@link requiredSkipViolations}.
+ * refused. The added events bring their own hazard, {@link requiredHostViolations}.
  */
 /** The `pull_request` activity types GitHub runs a workflow on when none are named. */
 const DEFAULT_PULL_REQUEST_TYPES = Object.freeze(["opened", "synchronize", "reopened"]);
@@ -190,14 +190,16 @@ function readWorkflow({ path, text }) {
     const job = resolved(pair.value);
     if (isMap(job)) readBlock(job.get("concurrency", true), `job ${String(pair.key?.value)}`);
   }
-  // Each job's key, display name, condition and line (what a required check is named by, and what can skip it).
+  // Each job's key, display name (and whether it is computed), the reusable workflow it calls, and its line:
+  // what a required check is named by.
   const jobsNode = resolved(root.get("jobs", true));
   const jobList = isMap(jobsNode)
     ? jobsNode.items.filter((pair) => isScalar(pair.key) && isMap(resolved(pair.value))).map((pair) => {
       const job = resolved(pair.value);
       const name = resolved(job.get("name", true));
-      const condition = resolved(job.get("if", true));
-      return { key: String(pair.key.value), name: isScalar(name) ? String(name.value) : String(pair.key.value), condition: isScalar(condition) ? String(condition.value) : null, at: at(pair.key) };
+      const uses = resolved(job.get("uses", true));
+      const display = isScalar(name) ? String(name.value) : String(pair.key.value);
+      return { key: String(pair.key.value), name: display, computed: name !== undefined && (!isScalar(name) || display.includes("${{")), uses: isScalar(uses) ? String(uses.value) : null, at: at(pair.key) };
     })
     : [];
   return { events, filters, blocks, unreadable, extraTypes, jobs: jobList };
@@ -276,22 +278,47 @@ function declaredRequiredChecks(root = ROOT) {
 }
 
 /**
- * A REQUIRED job that can skip itself on the events a full `types` list adds.
- * A skipped job still reports a check run, the newer one at the same head,
- * and GitHub counts a skipped run as passing for a required check: a label
- * event would turn the job's earlier failure into a pass. So in a workflow
- * whose `pull_request` trigger adds types, a job the forge requires (by its
- * display name, or its key when it has none) never carries an `if:` that
- * reads the event's action or label, or names an added type.
+ * A workflow whose `pull_request` trigger adds types hosts NO required job.
+ * The added events (a label change) re-run the workflow at the same head, and
+ * whatever a run does there, a required job's newest check run is what GitHub
+ * judges: a job skipped by its own `if:`, by a skipped `needs:`, by every
+ * step's `if:`, or that exits early in its script, reports a skipped or
+ * passing run, and a skipped run counts as passing for a required check, so a
+ * label event could turn its earlier failure into a pass. No reading of
+ * conditions or scripts can rule that out, so the rule is structural: such a
+ * workflow names no job the forge requires (read from the forge's own ruleset
+ * declaration): not by its exact name, not as the caller of a reusable
+ * workflow (`<name> / <job>`), and not through a local reusable workflow it
+ * calls that hosts one. A computed job name cannot be judged, and is refused
+ * in such a workflow outright.
  */
-function requiredSkipViolations(workflow, required = declaredRequiredChecks()) {
+function requiredHostViolations(workflow, required = declaredRequiredChecks(), root = ROOT) {
   const { extraTypes, jobs, unreadable } = readWorkflow(workflow);
   if (unreadable.length > 0) return unreadable;
   if (extraTypes.length === 0) return [];
-  const skipsOnExtra = (condition) => condition !== null && (/github\.event\.(?:action|label)\b/u.test(condition) || extraTypes.some((type) => condition.includes(`'${type}'`)));
-  return jobs
-    .filter((job) => (required.has(job.name) || required.has(job.key)) && skipsOnExtra(job.condition))
-    .map((job) => `${job.at}: the required job "${job.name}" can skip itself on the added pull_request types (${extraTypes.join(", ")}); a skipped run is the newer one at the head and counts as passing, so a label event would turn its failure into a pass`);
+  const added = extraTypes.join(", ");
+  const names = (job) => [job.name, job.key];
+  const hostsRequired = (name) => required.has(name) || [...required].some((context) => context.startsWith(`${name} / `));
+  const violations = [];
+  for (const job of jobs) {
+    if (job.computed) {
+      violations.push(`${job.at}: the job "${job.key}" has a computed name in a workflow that adds pull_request types (${added}); whether it is required cannot be judged`);
+      continue;
+    }
+    if (names(job).some(hostsRequired)) {
+      violations.push(`${job.at}: the required job "${job.name}" lives in a workflow that adds pull_request types (${added}); a run on an added event reports its newest check, and a skipped run counts as passing`);
+      continue;
+    }
+    if (job.uses !== null && job.uses.startsWith("./")) {
+      const called = readWorkflow({ path: job.uses.slice(2), text: readFileSync(join(root, job.uses.slice(2)), "utf8") });
+      for (const inner of called.jobs) {
+        if (names(inner).some((name) => required.has(name) || names(job).some((caller) => required.has(`${caller} / ${name}`)))) {
+          violations.push(`${job.at}: "${job.name}" calls ${job.uses}, which hosts the required job "${inner.name}", from a workflow that adds pull_request types (${added})`);
+        }
+      }
+    }
+  }
+  return violations;
 }
 
 /** The CodeQL steps that upload results to code scanning: `analyze` (unless told otherwise) and `upload-sarif` (always). */
@@ -695,7 +722,7 @@ test("every live workflow that gates a pull request also runs in the merge queue
   assert.deepEqual(workflows.flatMap(mergeQueueViolations), []);
   const required = declaredRequiredChecks();
   assert.ok(required.size > 0, "the forge's declaration names no required check; the reader no longer reads it");
-  assert.deepEqual(workflows.flatMap((entry) => requiredSkipViolations(entry, required)), []);
+  assert.deepEqual(workflows.flatMap((entry) => requiredHostViolations(entry, required)), []);
   const paths = new Set(workflows.map((entry) => entry.path));
   for (const [path] of PULL_REQUEST_ONLY) {
     assert.ok(paths.has(path), `the exemption ${path} names no workflow`);
@@ -831,21 +858,30 @@ test("a gating workflow never filters its pull_request or merge_group trigger, n
   }
 });
 
-test("a required job never skips itself on the pull_request types a workflow adds; a job the forge does not require may", () => {
-  const required = new Set(["Required job"]);
+test("a workflow that adds pull_request types hosts no required job, however a run could skip it; a job the forge does not require may live there", () => {
+  const required = new Set(["Required job", "Caller / Inner"]);
   const trigger = "on:\n  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:\n";
-  const skipping = `${trigger}jobs:\n  gate:\n    name: Required job\n    if: github.event.action != 'labeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
-  const found = requiredSkipViolations({ path: ".github/workflows/skip.yml", text: skipping }, required);
-  assert.equal(found.length, 1, JSON.stringify(found));
-  assert.match(found[0], /skip\.yml:\d+: the required job "Required job" can skip itself/u);
-  const byLabel = `${trigger}jobs:\n  gate:\n    name: Required job\n    if: github.event.label.name == 'visual-change'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
-  assert.equal(requiredSkipViolations({ path: ".github/workflows/skip.yml", text: byLabel }, required).length, 1, "a condition on the label is one on the added event too");
-  const notRequired = `${trigger}jobs:\n  build:\n    name: Build the site\n    if: github.event.action != 'labeled' && github.event.action != 'unlabeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
-  assert.deepEqual(requiredSkipViolations({ path: ".github/workflows/near.yml", text: notRequired }, required), [], "a job the forge does not require may skip on a label event");
-  const noSkip = `${trigger}jobs:\n  gate:\n    name: Required job\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
-  assert.deepEqual(requiredSkipViolations({ path: ".github/workflows/near.yml", text: noSkip }, required), [], "a required job that never skips runs on the label event too");
+  const job = (body) => `${trigger}jobs:\n${body}`;
+  // The reviewer's eight indirect skips: each is refused because the job is required, never by reading how it skips.
+  const shapes = {
+    "a needs: job that skips": job("  pre:\n    if: github.event.action != 'labeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n  gate:\n    name: Required job\n    needs: pre\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n"),
+    "an if: over a needs output": job("  pre:\n    runs-on: ubuntu-24.04\n    outputs: {go: '${{ steps.s.outputs.go }}'}\n    steps: [{id: s, run: 'echo go=1 >> $GITHUB_OUTPUT'}]\n  gate:\n    name: Required job\n    needs: pre\n    if: needs.pre.outputs.go == '1'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n"),
+    "contains() over labels": job("  gate:\n    name: Required job\n    if: \"!contains(github.event.pull_request.labels.*.name, 'x')\"\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n"),
+    "bracket syntax with format()": job("  gate:\n    name: Required job\n    if: github['event'][format('{0}', 'action')] != 'labeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n"),
+    "a step-level if:": job("  gate:\n    name: Required job\n    runs-on: ubuntu-24.04\n    steps: [{if: \"github.event.action != 'labeled'\", run: 'npm test'}]\n"),
+    "a script exiting early on the event payload": job("  gate:\n    name: Required job\n    runs-on: ubuntu-24.04\n    steps: [{run: 'grep -q labeled \"$GITHUB_EVENT_PATH\" && exit 0; npm test'}]\n"),
+    "a reusable caller (X / Y)": job("  caller:\n    name: Caller\n    uses: ./.github/workflows/reusable-workflow-failure.yml\n"),
+    "a computed job name": job("  gate:\n    name: ${{ format('Required {0}', 'job') }}\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n"),
+  };
+  for (const [shape, text] of Object.entries(shapes)) {
+    const found = requiredHostViolations({ path: ".github/workflows/host.yml", text }, required);
+    assert.ok(found.length >= 1, `${shape}: ${JSON.stringify(found)}`);
+    assert.match(found.join("\n"), /host\.yml:\d+: (?:the required job|the job "gate" has a computed name|"Caller")/u, shape);
+  }
+  const notRequired = job("  build:\n    name: Build the site\n    if: github.event.action != 'labeled' && github.event.action != 'unlabeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n");
+  assert.deepEqual(requiredHostViolations({ path: ".github/workflows/near.yml", text: notRequired }, required), [], "a job the forge does not require may live there, and may skip");
   const unfiltered = "on:\n  pull_request:\n  merge_group:\njobs:\n  gate:\n    name: Required job\n    if: github.event.action != 'labeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n";
-  assert.deepEqual(requiredSkipViolations({ path: ".github/workflows/near.yml", text: unfiltered }, required), [], "with no added types, no label event reaches the job");
+  assert.deepEqual(requiredHostViolations({ path: ".github/workflows/near.yml", text: unfiltered }, required), [], "with no added types, no added event reaches a required job");
 });
 
 test("planted cancelling groups are refused at workflow and job level, in any YAML spelling", () => {

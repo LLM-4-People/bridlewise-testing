@@ -38,10 +38,14 @@ no filter: one that holds every one of GitHub's default types (opened,
 synchronize, reopened) skips nothing the unfiltered trigger runs on and only
 adds events, such as a label change that re-judges the visual check (#762);
 any narrower list is still refused. Added events bring one hazard, refused by
-the same test: a skipped job still reports a check run, the newer one at the
-head, and GitHub counts a skipped run as passing for a required check, so in a
-workflow with added types no job the forge requires (read from the forge's own
-ruleset declaration) may carry a condition that skips it on those events.
+the same test: a run on an added event reports a required job's newest check
+at the same head, and a job skipped there (by its own condition, a skipped
+dependency, its steps' conditions, or a script that exits early) counts as
+passing. No reading of conditions or scripts rules that out, so the rule is
+structural: a workflow that adds `pull_request` types hosts no job the forge
+requires (read from the forge's own ruleset declaration), whether by its
+name, as a reusable workflow's caller, or through a reusable workflow it
+calls, and a computed job name there is refused because it cannot be judged.
 
 Done so far: this repository is on GitHub, its CI runs on GitHub Actions
 (`.github/workflows/ci.yml`, with the sharded full suite in
