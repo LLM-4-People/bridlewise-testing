@@ -8,15 +8,55 @@
  * (the IssueOps record writer, through `roadmap-page.ts`) use these, so no
  * caller imports the harness's dispatcher to reach a generator.
  */
-import type { SpawnSyncReturns } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { repositoryToplevel } from "../git/repository-ownership.ts";
 import { HarnessError, INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
-import { boundedEnding, spawnBoundedSync, type SubprocessBounds } from "../process/subprocess-bounds.ts";
-import { SCRIPT_SUBPROCESS_OUTPUT_BYTES, SUBPROCESS_BOUNDS } from "./workflow-config.ts";
+import { boundedEnding, type SubprocessBounds } from "../process/subprocess-bounds.ts";
+import { runCpuBounded } from "../process/supervised-run.ts";
+import { configuredSubprocessBounds } from "./workflow-config.ts";
+
+/**
+ * ONE KIND OF ARM: a repository-root generator (the runtime must not import
+ * it) run as a subprocess speaking the one generator protocol. A tree without
+ * the generator (a product-only tree) is converged by absence.
+ */
+export async function repositoryGeneratorArm(root: string, relativeGenerator: string, args: (repositoryRoot: string) => readonly string[], label: string, code: string): Promise<DecisionIndexArm> {
+  const absent = deepFreeze({ status: "absent" as const, converged: true, changed: [] });
+  const repositoryRoot = repositoryToplevel(root, "directory");
+  if (repositoryRoot === undefined) return absent;
+  const generator = resolve(repositoryRoot, relativeGenerator);
+  if (!existsSync(generator)) return absent;
+  const report = await generatorReport<"current" | "regenerated" | "stale">(root, generator, args(repositoryRoot), label, code);
+  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
+}
+
+/**
+ * THE ONE PROTOCOL of a builder-layer generator run as a subprocess (the
+ * runtime must not import the builder layer): ONE JSON line, the LAST one
+ * (`runScriptSubprocess` hands back the last non-empty stdout line, so a line
+ * an import printed before it is not the answer), `{ allCurrent, status,
+ * changed, … }`. A generator that printed nothing, or no JSON last, or
+ * another shape, judged nothing: typed `code`, never a silent "current" and
+ * never an untyped SyntaxError (wf-del2-correctness NEW-11).
+ */
+export async function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Promise<Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>>> {
+  const answer = await runScriptSubprocess(root, generator, args);
+  let parsed: { allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>;
+  try {
+    // A failed run's printed result still names what is stale; it is never all-current (below).
+    parsed = JSON.parse(answer.ok ? answer.payload : answer.printed) as typeof parsed;
+  } catch {
+    throw new HarnessError(`${label} ${generator} printed no result line (its last line is not the JSON result)`, code);
+  }
+  if (typeof parsed !== "object" || parsed === null || typeof parsed.allCurrent !== "boolean" || !Array.isArray(parsed.changed)) {
+    throw new HarnessError(`${label} ${generator} printed a result of another shape (no allCurrent flag or changed list)`, code);
+  }
+  // Current only from a clean exit: a generator that exited non-zero is never all-current, whatever it printed.
+  return answer.ok ? parsed : { ...parsed, allCurrent: false };
+}
 
 /**
  * What a script subprocess answered: its stdout payload (the final non-empty
@@ -93,18 +133,13 @@ function subprocessFailureSummary(lines: readonly string[]): string | undefined 
   return meaningful?.trim();
 }
 
-/** One synchronous run of `command args…` under `bounds` (src/process/subprocess-bounds.ts): the CPU limit, then the hang backstop. */
-export function runBoundedSync(command: string, args: readonly string[], cwd: string, bounds: SubprocessBounds): SpawnSyncReturns<string> {
-  return spawnBoundedSync(command, args, bounds, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: SCRIPT_SUBPROCESS_OUTPUT_BYTES });
-}
-
-export function runScriptSubprocess(
+export async function runScriptSubprocess(
   root: string,
   scriptRelativePath: string,
   args: readonly string[],
   options: Readonly<{ fullOutput?: boolean; bounds?: SubprocessBounds }> = {},
-): ScriptAnswer {
-  const bounds = options.bounds ?? SUBPROCESS_BOUNDS;
+): Promise<ScriptAnswer> {
+  const bounds = options.bounds ?? configuredSubprocessBounds();
   const scriptPath = resolve(root, scriptRelativePath);
   // A MISSING SCRIPT IS ITS OWN CAUSE. The subprocess's failure mode would
   // otherwise be Node's module loader: a MODULE_NOT_FOUND stack whose last
@@ -117,31 +152,27 @@ export function runScriptSubprocess(
       INPUT_ERROR_CODE,
     );
   }
-  // NO-LOAD-BLOCK L2 (audit A-18): bounded in CPU WORK, never by a wall
-  // clock a loaded host runs out (src/process/subprocess-bounds.ts).
-  const result = runBoundedSync(process.execPath, [scriptPath, ...args], root, bounds);
-  const errorCode = (result.error as NodeJS.ErrnoException | undefined)?.code;
-  const succeeded = result.error === undefined && result.status === 0;
-  let stdout = typeof result.stdout === "string" ? result.stdout : "";
+  // NO-LOAD-BLOCK L2 (audit A-18): bounded by its WORK through the one bounded run, never by a wall clock a
+  // loaded host runs out (src/process/subprocess-bounds.ts; the one wall bound is the hang backstop).
+  const run = await runCpuBounded(process.execPath, [scriptPath, ...args], { cwd: root, bounds });
+  const stdout = run.stdout.toString("utf8").trim();
+  const lines = run.stderr.toString("utf8").trim().split("\n").filter((line) => line.trim().length > 0);
   // A STEP THAT DID NOT FINISH HAS NO VERDICT, WHATEVER IT PRINTED FIRST.
-  // Ended by a signal, by a bound (the CPU limit's SIGXCPU/SIGKILL, the hang
-  // backstop), or by a spawn error, its stdout is a fragment of a run that
-  // never answered: a `{"fresh":true}` printed before a hang the backstop (or
-  // a person) ended once read as a pass, and `harness sync` reported
-  // allPassed. Fail closed, naming how it ended.
-  if (result.error !== undefined || result.signal !== null) {
-    const lines = typeof result.stderr === "string" ? result.stderr.trim().split("\n").filter((line) => line.trim().length > 0) : [];
-    const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
+  // Ended by a signal, by a bound (the group's CPU budget, a stall, the hang
+  // backstop, the kernel's CPU limit), or never started, its stdout is a
+  // fragment of a run that never answered: a `{"fresh":true}` printed before a
+  // hang the backstop (or a person) ended once read as a pass, and `harness
+  // sync` reported allPassed. Fail closed, naming how it ended.
+  if (run.ending !== "exited" || run.signal !== null) {
     const said = subprocessFailureSummary(lines);
-    const printed = stdout.trim().length;
     throw new InputError(
-      `subprocess ${scriptRelativePath} ended without a status payload: ${ending}` +
-        `${printed === 0 ? "" : ` (the ${String(printed)} characters it printed on stdout before it ended are not a verdict)`}` +
+      `subprocess ${scriptRelativePath} ended without a status payload: ${boundedEnding(run, bounds)}` +
+        `${stdout.length === 0 ? "" : ` (the ${String(stdout.length)} characters it printed on stdout before it ended are not a verdict)`}` +
         `${said === undefined ? "" : `; its stderr says: ${said}`}`,
-      errorCode === "ETIMEDOUT" ? "script_subprocess_hung" : "script_subprocess_unfinished",
+      run.ending === "hung" || run.ending === "stalled" ? "script_subprocess_hung" : "script_subprocess_unfinished",
     );
   }
-  if (stdout.trim().length === 0) {
+  if (stdout.length === 0) {
     // No payload on stdout — a genuine subprocess failure. The scripts
     // report a failure as ONE typed JSON line (`{"error": <code>,
     // "message": …}`) on stderr; that record is the error channel, and it
@@ -149,26 +180,24 @@ export function runScriptSubprocess(
     // assumed to be the last line: a runtime warning printed after it
     // (a Node deprecation notice) used to replace the typed refusal with
     // "failed without a status payload: (node:123) Warning: …".
-    const lines = typeof result.stderr === "string" ? result.stderr.trim().split("\n").filter((line) => line.trim().length > 0) : [];
     const typed = typedFailureRecord(lines);
-    if (typed !== undefined && !succeeded) {
+    if (typed !== undefined && run.status !== 0) {
       // The STEP is named as a step, never as a location: `src/cli.ts: <a
       // syntax error in another file>` sent the operator to the wrong file
       // (wf1a-correctness). A location, when there is one, is the
       // refusal's own (e.g. `source_syntax_invalid` names the source file).
       throw new HarnessError(`the ${scriptRelativePath} step failed: ${typed.message}`, typed.code);
     }
-    const ending = boundedEnding({ status: result.status, signal: result.signal, ...(errorCode !== undefined ? { errorCode } : {}) }, bounds);
     const said = subprocessFailureSummary(lines);
     throw new InputError(
-      `subprocess ${scriptRelativePath} ended without a status payload: ${ending}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
+      `subprocess ${scriptRelativePath} ended without a status payload: ${boundedEnding(run, bounds)}${said === undefined ? " (it printed nothing on stderr)" : `; its stderr says: ${said}`}`,
       INPUT_ERROR_CODE,
     );
   }
-  stdout = stdout.trim();
   const payload = options.fullOutput ? stdout : stdout.split("\n").filter((line) => line.trim().length > 0).at(-1) ?? "";
-  if (succeeded) return deepFreeze({ ok: true, payload });
-  return deepFreeze({ ok: false, ending: boundedEnding({ status: result.status, signal: result.signal }, bounds), printed: payload });
+  // A verdict counts only from a clean exit (#394's union): a non-zero exit is a failure whatever it printed.
+  if (run.status === 0) return deepFreeze({ ok: true, payload });
+  return deepFreeze({ ok: false, ending: boundedEnding(run, bounds), printed: payload });
 }
 
 /** The last stderr line that is a typed failure record (`{"error": <code>, "message": <text>}`), if any. */
@@ -189,46 +218,6 @@ function typedFailureRecord(lines: readonly string[]): Readonly<{ code: string; 
     if (typeof error === "string" && typeof message === "string") return { code: typeof originalCode === "string" ? originalCode : error, message };
   }
   return undefined;
-}
-
-/**
- * THE ONE PROTOCOL of a builder-layer generator run as a subprocess (the
- * runtime must not import the builder layer): ONE JSON line, the LAST one
- * (`runScriptSubprocess` hands back the last non-empty stdout line, so a line
- * an import printed before it is not the answer), `{ allCurrent, status,
- * changed, … }`. A generator that printed nothing, or no JSON last, or
- * another shape, judged nothing: typed `code`, never a silent "current" and
- * never an untyped SyntaxError (wf-del2-correctness NEW-11).
- */
-export function generatorReport<Status extends string>(root: string, generator: string, args: readonly string[], label: string, code: string): Readonly<{ allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>> {
-  const answer = runScriptSubprocess(root, generator, args);
-  let parsed: { allCurrent: boolean; status: Status; changed: readonly string[] } & Record<string, unknown>;
-  try {
-    // A failed run's printed result still names what is stale; it is never all-current (below).
-    parsed = JSON.parse(answer.ok ? answer.payload : answer.printed) as typeof parsed;
-  } catch {
-    throw new HarnessError(`${label} ${generator} printed no result line (its last line is not the JSON result)`, code);
-  }
-  if (typeof parsed !== "object" || parsed === null || typeof parsed.allCurrent !== "boolean" || !Array.isArray(parsed.changed)) {
-    throw new HarnessError(`${label} ${generator} printed a result of another shape (no allCurrent flag or changed list)`, code);
-  }
-  // Current only from a clean exit: a generator that exited non-zero is never all-current, whatever it printed.
-  return answer.ok ? parsed : { ...parsed, allCurrent: false };
-}
-
-/**
- * ONE KIND OF ARM: a repository-root generator (the runtime must not import
- * it) run as a subprocess speaking the one generator protocol. A tree without
- * the generator (a product-only tree) is converged by absence.
- */
-export function repositoryGeneratorArm(root: string, relativeGenerator: string, args: (repositoryRoot: string) => readonly string[], label: string, code: string): DecisionIndexArm {
-  const absent = deepFreeze({ status: "absent" as const, converged: true, changed: [] });
-  const repositoryRoot = repositoryToplevel(root, "directory");
-  if (repositoryRoot === undefined) return absent;
-  const generator = resolve(repositoryRoot, relativeGenerator);
-  if (!existsSync(generator)) return absent;
-  const report = generatorReport<"current" | "regenerated" | "stale">(root, generator, args(repositoryRoot), label, code);
-  return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
 }
 
 /** What a whole-file or block generator arm did (the decision index, the shipped hooks): `changed` is what a write rewrote, or what a check found stale. */

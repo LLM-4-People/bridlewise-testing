@@ -10,6 +10,6 @@ import { ROADMAP_PAGE } from "../kernel/verification-paths.ts";
 import { repositoryGeneratorArm, type DecisionIndexArm } from "./script-subprocess.ts";
 
 /** `harness sync`'s roadmap-page arm: the generated status blocks of `ROADMAP_PAGE.path`, from the tracker items (the repository-root generator). */
-export function regenerateRoadmapPage(root: string, write: boolean): DecisionIndexArm {
+export async function regenerateRoadmapPage(root: string, write: boolean): Promise<DecisionIndexArm> {
   return repositoryGeneratorArm(root, ROADMAP_PAGE.generator, (repositoryRoot) => [write ? "--write" : "--check", `--root=${repositoryRoot}`], "the roadmap page generator", "harness_regenerate_roadmap_page_failed");
 }
