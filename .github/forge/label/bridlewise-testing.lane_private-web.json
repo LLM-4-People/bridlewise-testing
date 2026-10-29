@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "lane:private-web",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "lane:private-web",
+    "color": "c5def5",
+    "description": "Tracker lane: a private web workstream kept as ordinary work"
+  }
+}

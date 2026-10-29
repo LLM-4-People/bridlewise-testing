@@ -25,6 +25,8 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { TRACKER_ITEM_TYPES } from "../../src/workflow/failure-owners.ts";
 import { FORGE_ISSUE_TYPES } from "../../src/workflow/forge/declarations.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
+import { schemaId } from "../../src/kernel/product-identity.ts";
+import { LABELS_PATH } from "../../src/workflow/community/labels.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { applyProjection, planProjection, projectionFailure } from "../../src/workflow/forge/projector/apply.ts";
 import { PROJECTION_INPUT_SCHEMA, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
@@ -53,7 +55,7 @@ const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> =
 });
 const input = (items: ProjectionInput["items"], source = SOURCE): ProjectionInput => ({
   schema: PROJECTION_INPUT_SCHEMA, source, ledger: null, repositoryUrl: "https://github.com/owner/repo",
-  items, lanes: [{ lane: "floor", color: "1d76db", description: "Tracker lane: open work" }], decisions: [], recordedEvidence: [], mainRuns: [],
+  items, decisions: [], recordedEvidence: [], mainRuns: [],
 });
 const INPUT = input([
   item("A-PARENT", { title: "The parent", type: "Workstream" }),
@@ -64,7 +66,7 @@ const INPUT = input([
 test("D is the tracker's issues and labels, with permalinks at S and the projector's marker", () => {
   const { projection, digest } = computeProjection(INPUT, CONFINEMENT);
   assert.match(digest, /^[0-9a-f]{64}$/u);
-  assert.deepEqual(projection.objects.map((object) => `${object.class}/${object.key}`), ["label/lane:floor", "issue/A-PARENT", "issue/B-CHILD", "issue/C-DONE"]);
+  assert.deepEqual(projection.objects.map((object) => `${object.class}/${object.key}`), ["issue/A-PARENT", "issue/B-CHILD", "issue/C-DONE"]);
   const child = projection.objects.find((object) => object.key === "B-CHILD")!;
   // Input order never reaches D: blocked-by is sorted.
   const unordered = computeProjection(input([item("A-ONE", { blockedBy: ["Z-LAST", "B-FIRST"] }), item("Z-LAST"), item("B-FIRST")]), CONFINEMENT).projection;
@@ -225,12 +227,12 @@ test("the first run creates in phase order, verifies, and its receipt names ever
   assert.equal(receipt.verified, true);
   assert.equal(receipt.digest, digest);
   assert.equal(receipt.observedDigest.length, 64);
-  // create (label before issues) → link (the child's parent and blocker) → state (the closed item).
+  // create (every issue) → link (the child's parent and blocker) → state (the closed item).
   assert.deepEqual(receipt.writes.map((write) => `${write.phase}:${write.kind}:${write.class}/${write.key}`), [
-    "create:create:label/lane:floor", "create:create:issue/A-PARENT", "create:create:issue/B-CHILD", "create:create:issue/C-DONE",
+    "create:create:issue/A-PARENT", "create:create:issue/B-CHILD", "create:create:issue/C-DONE",
     "link:update:issue/B-CHILD", "state:update:issue/C-DONE",
   ]);
-  assert.deepEqual(receipt.writes[4]!.fields, ["blockedBy", "parent"]);
+  assert.deepEqual(receipt.writes[3]!.fields, ["blockedBy", "parent"]);
   assert.deepEqual(github.get("issue", "C-DONE")?.fields.stateReason, "not_planned");
 });
 
@@ -269,13 +271,13 @@ test("V-28: a field GitHub silently does not keep is projection_unverified, neve
 test("an exhausted allowance stops typed and retryable, and the next run resumes the diff to a verified state", async () => {
   const { projection } = computeProjection(INPUT, CONFINEMENT);
   const github = memoryStore();
-  const first = await applyProjection(projection, github.store, { allowance: 2, previous: null, foreignEdit: "approval" });
-  assert.equal(first.writes.length, 2);
+  const first = await applyProjection(projection, github.store, { allowance: 1, previous: null, foreignEdit: "approval" });
+  assert.equal(first.writes.length, 1);
   assert.deepEqual(first.refusals.map((refusal) => [refusal.code, refusal.retryable]), [["github_content_budget_exhausted", true]]);
   assert.deepEqual(first.pending, ["issue/B-CHILD", "issue/C-DONE"]);
   assert.deepEqual(first.unverified, [], "the objects the run wrote are verified; the pending ones are only pending");
   assert.equal(projectionFailure(first)?.retryable, true);
-  assert.deepEqual(Object.keys(first.objects).sort(), ["issue/A-PARENT", "label/lane:floor"], "a pending object is not recorded: it was never seen on GitHub");
+  assert.deepEqual(Object.keys(first.objects).sort(), ["issue/A-PARENT"], "a pending object is not recorded: it was never seen on GitHub");
   // The next run resumes from this receipt: a pending object is created, never judged deleted.
   const second = await applyProjection(projection, github.store, { allowance: 100, previous: first, foreignEdit: "approval" });
   assert.deepEqual(second.foreignEdits, []);
@@ -286,26 +288,32 @@ test("an exhausted allowance stops typed and retryable, and the next run resumes
 test("a refused write stops the run with the object it was writing; the rest stays as it was", async () => {
   const github = memoryStore({ refuseAt: { write: 1, error: new HarnessError("forbidden", "github_forbidden") } });
   const receipt = await applyProjection(computeProjection(INPUT, CONFINEMENT).projection, github.store, { allowance: 100, previous: null, foreignEdit: "approval" });
-  assert.deepEqual(receipt.refusals.map((refusal) => [refusal.code, refusal.class, refusal.key, refusal.retryable]), [["github_forbidden", "issue", "A-PARENT", false]]);
+  assert.deepEqual(receipt.refusals.map((refusal) => [refusal.code, refusal.class, refusal.key, refusal.retryable]), [["github_forbidden", "issue", "B-CHILD", false]]);
   assert.equal(receipt.writes.length, 1);
   assert.equal(receipt.verified, false);
   assert.equal(projectionFailure(receipt)?.code, "github_forbidden");
-  assert.equal(github.get("issue", "B-CHILD"), undefined, "nothing after the refusal was written");
+  assert.equal(github.get("issue", "C-DONE"), undefined, "nothing after the refusal was written");
 });
 
-test("an OWNED live object D does not hold is an orphan: reported, never written; a person's label or issue is never one", async () => {
+test("an OWNED live object D does not hold is an orphan: reported, never written; a person's issue is never one, and the projector holds no label", async () => {
   const github = memoryStore();
   github.put({ class: "issue", key: "GONE", fields: { title: "GONE" }, owned: true });
-  github.put({ class: "label", key: "lane:retired", fields: { color: "000000", description: "x" }, owned: true });
-  // A person's label and a person's issue are GitHub's own: never orphans.
-  github.put({ class: "label", key: "bug", fields: { color: "d73a4a", description: "Something isn't working" }, owned: false });
+  // A person's issue is GitHub's own: never an orphan.
   github.put({ class: "issue", key: "#7", fields: { title: "A reporter's question" }, owned: false });
   const { projection } = computeProjection(INPUT, CONFINEMENT);
   assert.deepEqual(planProjection(projection, [{ class: "issue", key: "GONE", fields: {}, owned: true }]).orphans, ["issue/GONE"]);
   const receipt = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: "approval" });
-  assert.deepEqual(receipt.orphans, ["issue/GONE", "label/lane:retired"]);
-  assert.ok(receipt.writes.every((write) => !["GONE", "lane:retired", "bug", "#7"].includes(write.key)));
+  assert.deepEqual(receipt.orphans, ["issue/GONE"]);
+  assert.ok(receipt.writes.every((write) => !["GONE", "#7"].includes(write.key)));
+  // Labels are declared once (docs/community/labels.json) and applied by the forge: D holds none, so the projector neither writes nor reports one.
+  assert.deepEqual(projection.objects.filter((object) => !["milestone", "issue"].includes(object.class)), []);
 });
+
+/** A repository's declared labels file, as its owner reads it (`docs/community/labels.json`). */
+const labelsFile = (root: string, names: readonly string[]): void => {
+  mkdirSync(join(root, LABELS_PATH, ".."), { recursive: true });
+  writeFileSync(join(root, LABELS_PATH), `${JSON.stringify({ schema: schemaId("community-labels", 1), labels: names.map((name) => ({ name, color: "1d76db", description: `The ${name} label` })) })}\n`);
+};
 
 test("the input is read from the source COMMIT, never the working tree", () => {
   const root = createTempDir("projector-input-");
@@ -314,6 +322,7 @@ test("the input is read from the source COMMIT, never the working tree", () => {
   mkdirSync(join(root, TRACKER_BOARD.items), { recursive: true });
   const write = (id: string, title: string): void => writeFileSync(join(root, TRACKER_BOARD.items, `${id}.md`), `---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: ${id}\ntype: Task\ntitle: ${title}\nstate: open\nlane: floor\nopened: 2026-10-21\n---\n\nThe outcome.\n`);
   write("A-ONE", "As committed");
+  labelsFile(root, ["lane:floor"]);
   git("add", "."); git("commit", "-q", "-m", "one");
   const commit = git("rev-parse", "HEAD");
   write("A-ONE", "Edited after the commit");
@@ -324,21 +333,40 @@ test("the input is read from the source COMMIT, never the working tree", () => {
   assert.throws(() => projectionInput(configuredGitRepository({}, root), "no-such-ref", null, "https://github.com/owner/repo"), (error: HarnessError) => error.code === "projection_source_missing");
 });
 
-test("this repository's own HEAD projects: every tracker item is an issue, every lane a label", () => {
+test("every lane label an item carries is declared in labels.json AT S: an undeclared one is refused, naming the item; a declaration only in the working tree does not count; a commit without the file is refused", () => {
+  const root = createTempDir("projector-labels-");
+  const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", ...testGitIdentityEnvironment() } }).trim();
+  git("init", "-q", "-b", "main");
+  mkdirSync(join(root, TRACKER_BOARD.items), { recursive: true });
+  const write = (id: string, lane: string): void => writeFileSync(join(root, TRACKER_BOARD.items, `${id}.md`), `---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: ${id}\ntype: Task\ntitle: ${id}\nstate: open\nlane: ${lane}\nopened: 2026-10-21\n---\n\nThe outcome.\n`);
+  const read = (): ProjectionInput => projectionInput(configuredGitRepository({}, root), "HEAD", null, "https://github.com/owner/repo");
+  write("A-ONE", "floor");
+  git("add", "."); git("commit", "-q", "-m", "no labels file");
+  assert.throws(read, (error: HarnessError) => error.code === "projection_labels_missing");
+  labelsFile(root, ["Lane:Floor"]);
+  write("B-TWO", "roadmap");
+  git("add", "."); git("commit", "-q", "-m", "floor declared, roadmap not");
+  assert.throws(read, (error: HarnessError) => error.code === "projection_label_undeclared" && /B-TWO \(lane:roadmap\)/u.test(error.message) && !/A-ONE/u.test(error.message));
+  // Declared in the working tree only: S still lacks it.
+  labelsFile(root, ["lane:floor", "lane:roadmap"]);
+  assert.throws(read, (error: HarnessError) => error.code === "projection_label_undeclared");
+  git("add", "."); git("commit", "-q", "-m", "roadmap declared");
+  assert.deepEqual(read().items.map((entry) => entry.lane), ["floor", "roadmap"]);
+});
+
+test("this repository's own HEAD projects: every tracker item is an issue, and no label", () => {
   const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, configuredRepositoryIdentity().webUrl);
   const { projection } = computeProjection(read, CONFINEMENT);
   assert.equal(projection.objects.filter((object) => object.class === "issue").length, read.items.length);
   assert.ok(read.items.length > 0);
-  assert.equal(projection.objects.filter((object) => object.class === "label").length, read.lanes.length);
 });
 
-const withRoadmapLane = (base: ProjectionInput): ProjectionInput => ({ ...base, lanes: [...base.lanes, { lane: "roadmap", color: "0e8a16", description: "Tracker lane: the roadmap" }] });
-const MILESTONE_INPUT = withRoadmapLane(input([
+const MILESTONE_INPUT = input([
   item("M1", { type: "Milestone", title: "First milestone", state: null, lane: null }),
   item("W-ONE", { type: "Workstream", lane: "roadmap", milestone: "M1" }),
   item("T-ONE", { milestone: "M1", parent: "W-ONE", state: "closed", resolution: "completed", tests: ["tests/t-one.test.ts"] }),
   item("T-TWO", { lane: "roadmap", milestone: "M1" }),
-]));
+]);
 
 test("a Milestone item is a milestone and the head of its hierarchy: milestone → workstream → task, states computed from the records", () => {
   const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
@@ -352,7 +380,7 @@ test("a Milestone item is a milestone and the head of its hierarchy: milestone �
   assert.deepEqual([object("issue", "T-ONE").fields.parent, object("issue", "T-TWO").fields.parent], ["W-ONE", "M1"]);
   assert.match(String(object("issue", "W-ONE").fields.block), /Roadmap state: \*\*in progress\*\* \(T-ONE shipped\)/u);
   // Every member shipped: the milestone and its issue close as completed.
-  const done = computeProjection(withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] }))), CONFINEMENT).projection;
+  const done = computeProjection(input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] })), CONFINEMENT).projection;
   const closed = (klass: string, key: string) => done.objects.find((entry) => entry.class === klass && entry.key === key)!.fields;
   assert.equal(closed("milestone", "M1").state, "closed");
   assert.deepEqual([closed("issue", "M1").state, closed("issue", "M1").stateReason], ["closed", "completed"]);
@@ -362,14 +390,13 @@ test("V-27: a foreign edit in each class is detected and handled per mode — ap
   const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
   const projected = (klass: string, key: string, field: string) => projection.objects.find((entry) => entry.class === klass && entry.key === key)!.fields[field]!;
   const edits = [
-    // Fields no record holds: a lane's colour (from code) and an issue's generated block.
-    { klass: "label", key: "lane:roadmap", fields: { color: "000000" } },
+    // A field no record holds: an issue's generated block.
     { klass: "issue", key: "T-ONE", fields: { block: "Rewritten in the UI" } },
     // Fields a record holds.
     { klass: "milestone", key: "M1", fields: { title: "Renamed in the UI" } },
     { klass: "issue", key: "T-TWO", fields: { title: "Retitled in the UI", labels: ["lane:roadmap", "wontfix"] } },
   ] as const;
-  const order = (line: string): number => ["label", "milestone", "issue"].indexOf(line.split("/")[0]!);
+  const order = (line: string): number => ["milestone", "issue"].indexOf(line.split("/")[0]!);
   for (const mode of ["approval", "auto", "manual"] as const) {
     const github = memoryStore();
     const first = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: mode });
@@ -378,15 +405,13 @@ test("V-27: a foreign edit in each class is detected and handled per mode — ap
     const run = await applyProjection(projection, github.store, { allowance: 100, previous: first, foreignEdit: mode });
     const action = mode === "auto" ? "restored" : mode === "approval" ? "proposed" : "reported";
     assert.deepEqual(run.foreignEdits.map((edit) => `${edit.class}/${edit.key}:${edit.fields.join(",")}:${edit.action}`).sort((left, right) => order(left) - order(right) || left.localeCompare(right)), [
-      "label/lane:roadmap:color:restored",
       `milestone/M1:title:${action}`,
       "issue/T-ONE:block:restored",
       `issue/T-TWO:labels,title:${action}`,
     ], mode);
     // In every mode, the projector-owned fields are written back and never proposed.
-    assert.equal(github.get("label", "lane:roadmap")?.fields.color, projected("label", "lane:roadmap", "color"), mode);
     assert.equal(github.get("issue", "T-ONE")?.fields.block, projected("issue", "T-ONE", "block"), mode);
-    assert.ok(run.proposals.every((proposal) => proposal.change !== "edited" || (!("color" in proposal.fields) && !("block" in proposal.fields))), `${mode}: no projector-owned field flows back`);
+    assert.ok(run.proposals.every((proposal) => proposal.change !== "edited" || !("block" in proposal.fields)), `${mode}: no projector-owned field flows back`);
     if (mode === "auto") {
       assert.equal(run.verified, true, "auto: every projected value is restored and verified");
       assert.equal(github.get("issue", "T-TWO")?.fields.title, "T-TWO");
@@ -413,10 +438,11 @@ test("V-27: a foreign edit in each class is detected and handled per mode — ap
 
 test("a first run has no baseline: every difference is adopted, never a foreign edit", async () => {
   const github = memoryStore();
-  github.put({ class: "label", key: "lane:roadmap", fields: { color: "000000", description: "old" }, owned: true });
-  const receipt = await applyProjection(computeProjection(MILESTONE_INPUT, CONFINEMENT).projection, github.store, { allowance: 100, previous: null, foreignEdit: "manual" });
+  github.put({ class: "milestone", key: "M1", fields: { title: "An old title", description: "old", state: "open" }, owned: true });
+  const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
+  const receipt = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: "manual" });
   assert.deepEqual(receipt.foreignEdits, []);
-  assert.equal(github.get("label", "lane:roadmap")?.fields.color, "0e8a16");
+  assert.equal(github.get("milestone", "M1")?.fields.title, projection.objects.find((entry) => entry.class === "milestone" && entry.key === "M1")!.fields.title);
   assert.equal(receipt.verified, true);
 });
 
@@ -433,7 +459,7 @@ test("V-27 per field: a field newly owned by git is written, never held; one edi
   assert.equal(adopted.verified, true);
   // Someone retitles T-TWO on GitHub while its record CLOSES it (proven) and W-ONE's record is retitled.
   github.edit("issue", "T-TWO", { title: "Retitled in the UI" });
-  const moved = withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.id === "T-TWO" ? { ...entry, state: "closed", resolution: "completed", tests: ["tests/t-two.test.ts"] } : entry.id === "W-ONE" ? { ...entry, title: "Renamed workstream" } : entry)));
+  const moved = input(MILESTONE_INPUT.items.map((entry) => entry.id === "T-TWO" ? { ...entry, state: "closed", resolution: "completed", tests: ["tests/t-two.test.ts"] } : entry.id === "W-ONE" ? { ...entry, title: "Renamed workstream" } : entry));
   const run = await applyProjection(computeProjection(moved, CONFINEMENT).projection, github.store, { allowance: 100, previous: adopted, foreignEdit: "approval" });
   assert.deepEqual(run.foreignEdits.map((edit) => [edit.key, edit.change, edit.fields]), [["T-TWO", "edited", ["title"]]]);
   assert.deepEqual(run.proposals, [{ class: "issue", key: "T-TWO", change: "edited", fields: { title: "Retitled in the UI" } }], "the proposal changes only the edited field");
@@ -469,7 +495,7 @@ test("V-27 deletion: a projected object deleted on GitHub is a foreign change �
 });
 
 test("writes go by phase before class: a milestone's state is written after every issue is created", async () => {
-  const shippedMilestone = withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] })));
+  const shippedMilestone = input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] }));
   const receipt = await applyProjection(computeProjection(shippedMilestone, CONFINEMENT).projection, memoryStore().store, { allowance: 100, previous: null, foreignEdit: "approval" });
   const order = receipt.writes.map((write) => `${write.phase}:${write.class}`);
   const milestoneState = order.indexOf("state:milestone");

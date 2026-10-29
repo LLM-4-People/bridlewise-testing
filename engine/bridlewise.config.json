@@ -813,6 +813,13 @@
           "files": [
             "engine/test/architecture/architecture-baseline-clean.test.ts"
           ]
+        },
+        {
+          "name": "s1-b09",
+          "measuredCpuMs": 60207,
+          "files": [
+            "engine/test/s1-scenarios/b09.test.ts"
+          ]
         }
       ]
     },
@@ -878,7 +885,8 @@
         "engine/test/support/flake-shim-cpu-frequency-scaling.ts",
         "engine/test/support/flake-shim-preempt-after-ready.ts",
         "engine/test/support/flake-shim-concurrent-owner-sweep.ts",
-        "tests/helpers/flake-shim-loaded-runner.ts"
+        "tests/helpers/flake-shim-loaded-runner.ts",
+        "engine/test/support/flake-shim-cpu-past-default.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -986,19 +994,6 @@
           "build:bundle"
         ],
         "timeoutMs": 120000
-      },
-      "web-module-cache": {
-        "cwd": ".",
-        "argv": [
-          "npx",
-          "vitest",
-          "list"
-        ],
-        "timeoutMs": 600000,
-        "inputs": [
-          "package-lock.json"
-        ],
-        "holdsInstrumentLock": true
       },
       "web-typecheck": {
         "cwd": ".",
@@ -1130,8 +1125,7 @@
         "engine-deps",
         "guardian",
         "test-supervisor",
-        "bundle",
-        "web-module-cache"
+        "bundle"
       ],
       "validate": [
         "engine-format",
@@ -1377,83 +1371,6 @@
           "/tests/"
         ],
         "color": "d4c5f9"
-      }
-    ],
-    "labels": [
-      {
-        "name": "lane:gh-1",
-        "color": "5319e7",
-        "description": "Work of the GH-1 writer lane"
-      },
-      {
-        "name": "lane:gh-2",
-        "color": "5319e7",
-        "description": "Work of the GH-2 writer lane"
-      },
-      {
-        "name": "lane:gh-3",
-        "color": "5319e7",
-        "description": "Work of the GH-3 writer lane"
-      },
-      {
-        "name": "lane:gh-4",
-        "color": "5319e7",
-        "description": "Work of the GH-4 writer lane"
-      },
-      {
-        "name": "lane:gh-5",
-        "color": "5319e7",
-        "description": "Work of the GH-5 writer lane"
-      },
-      {
-        "name": "lane:gh-6",
-        "color": "5319e7",
-        "description": "Work of the GH-6 writer lane"
-      },
-      {
-        "name": "lane:gh-7",
-        "color": "5319e7",
-        "description": "Work of the GH-7 writer lane"
-      },
-      {
-        "name": "lane:gh-8",
-        "color": "5319e7",
-        "description": "Work of the GH-8 writer lane"
-      },
-      {
-        "name": "lane:gh-9",
-        "color": "5319e7",
-        "description": "Work of the GH-9 writer lane"
-      },
-      {
-        "name": "lane:mkt",
-        "color": "5319e7",
-        "description": "Work of the marketing and site lane"
-      },
-      {
-        "name": "forge-drift",
-        "color": "b60205",
-        "description": "A live GitHub setting differs from .github/forge (harness forge audit)"
-      },
-      {
-        "name": "key-rotation",
-        "color": "d93f0b",
-        "description": "An App key reaches its rotation age"
-      },
-      {
-        "name": "ci-failure",
-        "color": "e11d21",
-        "description": "A workflow failed (retired by the MAIN-RED projection, runbook P5.5)"
-      },
-      {
-        "name": "needs-evidence",
-        "color": "fbca04",
-        "description": "A claim waits for its evidence"
-      },
-      {
-        "name": "dependencies",
-        "color": "0366d6",
-        "description": "A dependency update"
       }
     ],
     "autolinks": [],
