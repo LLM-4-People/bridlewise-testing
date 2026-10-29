@@ -36,6 +36,7 @@ import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
 import { commandRegistryViolations, commandTable } from "./commands.ts";
+import { readLabels } from "./labels.ts";
 import { readModeration } from "./moderation.ts";
 import { readReplyTemplates, replyTemplateViolations } from "./replies.ts";
 import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
@@ -134,6 +135,8 @@ function readCommunityFacts(repositoryRoot: string): CommunityFacts {
   const disagreements = [...commandRegistryViolations(roles), ...replyTemplateViolations(readReplyTemplates(repositoryRoot))];
   if (disagreements.length > 0) templateInvalid(COMMUNITY_DIRECTORY, disagreements.join("; "));
   readModeration(repositoryRoot);
+  // The label registry is a community source too: harness check refuses it when it cannot mean anything.
+  readLabels(repositoryRoot);
   return Object.freeze({ roles, intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
 }
 
