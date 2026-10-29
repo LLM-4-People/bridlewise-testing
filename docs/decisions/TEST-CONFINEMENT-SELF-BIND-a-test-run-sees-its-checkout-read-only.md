@@ -33,7 +33,7 @@ malicious module cannot bypass core, by a kernel boundary.
   never through this door.
 - **The whole filesystem is read-only to a test run, by the kernel.** The
   native supervisor (`engine/guardian/test-process-supervisor.c`) enters new
-  user, mount, network and IPC namespaces and makes every mount read-only at
+  user, mount, network, IPC and cgroup namespaces and makes every mount read-only at
   once (`mount_setattr(AT_RECURSIVE, MOUNT_ATTR_RDONLY)` on `/`, the one
   mechanism; a kernel without it is refused, typed, with the remedy). Writable
   are only: the run's own scratch root, outside the checkout, made for the run
@@ -44,6 +44,26 @@ malicious module cannot bypass core, by a kernel boundary.
   and every inherited descriptor beyond the standard three (and the result
   channel) is closed. A second user and mount namespace locks the mounts, so a
   test can neither remount nor unmount them.
+  - **The run's cgroup limits are set from outside and cannot be lifted from
+    inside** (review of #734). The run gets a cgroup namespace whose root is a
+    leaf of its own (`bridlewise-run-<pid>`) beneath the cgroup it was started
+    in, such as the per-run scope that carries #564's cap. No process outside
+    the run is inside that namespace. The run's own cgroup2 view is mounted
+    over `/sys/fs/cgroup`. The host's cgroup2 is mounted `nsdelegate`, so the
+    kernel refuses a write from inside to the root's interface files
+    (`memory.max`, `memory.swap.max`, `pids.max`, `cpu.*`, `cgroup.freeze`,
+    `cgroup.kill`). The run can still make worker leaves below its root and
+    move into them, which per-worker measurement needs.
+  - A host whose cgroup2 lacks `nsdelegate` (systemd's default) is refused,
+    typed.
+  - **Two layouts, one property.** In a cgroup the user does not own (a
+    session's, a service's, a CI runner's), the leaf cannot be made, so the
+    namespace roots where the run started. That is a capability answer, not a
+    fallback: there the run can write nothing at all (the files are not its
+    own), so it can neither lift a limit nor reach another process's cgroup.
+  - The probe reports the layout it found (`{"cgroupLayout": "own-leaf" |
+    "started-cgroup"}`). Each run's receipt records it (`runCgroup`), so a
+    run says whether worker leaves were its to make.
   - The supervisor enforces its own invariant: it opens each writable place
     without following a link, proves its canonical path from the descriptor,
     refuses one outside the checkout, a scratch root inside it, and any file

@@ -14,8 +14,8 @@
  * THE COMMAND SEES THE WHOLE FILESYSTEM READ-ONLY (#293's class, under the
  * user's rule that a malicious module cannot bypass core: decision
  * TEST-CONFINEMENT-SELF-BIND). With --checkout <dir> --scratch <dir>
- * [--writable <dir>]..., the command starts in new user, mount, network and
- * IPC namespaces where:
+ * [--writable <dir>]..., the command starts in new user, mount, network, IPC
+ * and cgroup namespaces where:
  *   - every mount is read-only, recursively (mount_setattr AT_RECURSIVE: a
  *     mount already beneath the checkout is read-only too);
  *   - fresh empty tmpfs mounts cover /tmp, /run and /dev/shm, so no socket
@@ -30,9 +30,12 @@
  *     with no file of more than one name beneath a --writable place: a hard
  *     link could alias a checkout file), and bound FROM THAT DESCRIPTOR, so
  *     nothing can be swapped between the check and the bind;
+ *   - its cgroup namespace is rooted at a leaf of its own, and its own
+ *     cgroup2 view covers /sys/fs/cgroup: with the host's nsdelegate, its
+ *     root's limits refuse a write from inside (THE RUN'S CGROUP, below);
  *   - a SECOND user and mount namespace locks every mount (MNT_LOCKED,
- *     MNT_LOCK_READONLY): the command, root in its own namespace, can
- *     neither remount nor unmount;
+ *     MNT_LOCK_READONLY): the command, its own uid with no capability once
+ *     it is exec'd, can neither remount nor unmount;
  *   - every inherited descriptor is closed but 0-2 (and the passed 3).
  * The pid namespace is not changed: this supervisor still owns, stops and
  * reaps the command. Any step that cannot be done refuses the run (exit 125
@@ -532,6 +535,120 @@ static int make_in_fresh_tmpfs(const char *path) {
 
 /* Sets the confinement up in THIS process (a forked child, before it execs).
  * NULL, or the step that failed (errno says why). */
+/* THE RUN'S CGROUP (review of #734: a run under #564's per-run cap could write "max" to its own scope's limits).
+ * The run gets a cgroup namespace whose root is a leaf of its own, `bridlewise-run-<pid>` beneath the cgroup it was
+ * started in, so no process outside the run (this supervisor, the runner that admitted it) is inside the namespace.
+ * With the host's cgroup2 mounted `nsdelegate`, the kernel refuses a write from inside the namespace to its root's
+ * interface files (memory.max, memory.swap.max, pids.max, cpu.*, cgroup.freeze, cgroup.kill) but cgroup.procs,
+ * cgroup.threads and cgroup.subtree_control, so the run can make worker leaves below its root and move into them, and
+ * the limits stay set from outside, on the cgroup above. In a cgroup the user does not own (a session's, a service's)
+ * no leaf can be made, and none is needed: nothing there is the run's to write, so the namespace roots where it is. */
+static const char *const CGROUP_MOUNT = "/sys/fs/cgroup";
+
+/* The cgroup this process is in (cgroup v2's `0::<path>` line), as a path under CGROUP_MOUNT; false when unreadable. */
+static bool own_cgroup(char *path, size_t size) {
+    FILE *file = fopen("/proc/self/cgroup", "r");
+    if (!file) return false;
+    char line[PATH_MAX];
+    bool found = false;
+    while (!found && fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "0::", 3) != 0) continue;
+        line[strcspn(line, "\n")] = '\0';
+        found = (size_t)snprintf(path, size, "%s%s", CGROUP_MOUNT, strcmp(line + 3, "/") == 0 ? "" : line + 3) < size;
+    }
+    fclose(file);
+    return found;
+}
+
+/* The run's leaf for the command `pid`, beneath `cgroup`. */
+static bool run_leaf(char *leaf, size_t size, const char *cgroup, pid_t pid) {
+    return (size_t)snprintf(leaf, size, "%s/bridlewise-run-%ld", cgroup, (long)pid) < size;
+}
+
+/* Whether the cgroup2 hierarchy at CGROUP_MOUNT is mounted with nsdelegate (its super options, in mountinfo). */
+static bool cgroup_delegates_namespaces(void) {
+    FILE *file = fopen("/proc/self/mountinfo", "r");
+    if (!file) return false;
+    char line[4096];
+    bool delegates = false;
+    while (!delegates && fgets(line, sizeof(line), file)) {
+        char *separator = strstr(line, " - ");
+        if (!separator) continue;
+        char mount_point[PATH_MAX];
+        if (sscanf(line, "%*s %*s %*s %*s %4095s", mount_point) != 1 || strcmp(mount_point, CGROUP_MOUNT) != 0) continue;
+        char type[64], source[PATH_MAX], options[2048];
+        if (sscanf(separator + 3, "%63s %4095s %2047s", type, source, options) != 3 || strcmp(type, "cgroup2") != 0) continue;
+        for (char *option = strtok(options, ","); option; option = strtok(NULL, ","))
+            if (strcmp(option, "nsdelegate") == 0) delegates = true;
+    }
+    fclose(file);
+    return delegates;
+}
+
+/* The run's cgroup2 view mounted at CGROUP_MOUNT through the new mount API (fsopen, fsmount, move_mount): a legacy
+ * mount(2) of cgroup2 from inside a user namespace answers EBUSY on the hierarchy already mounted on the host. */
+static int mount_cgroup_view(void) {
+    int context = (int)syscall(SYS_fsopen, "cgroup2", FSOPEN_CLOEXEC);
+    if (context < 0) return -1;
+    int mounted = -1;
+    if (syscall(SYS_fsconfig, context, FSCONFIG_CMD_CREATE, NULL, NULL, 0) == 0)
+        mounted = (int)syscall(SYS_fsmount, context, FSMOUNT_CLOEXEC, MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV | MOUNT_ATTR_NOEXEC);
+    int code = errno;
+    close(context);
+    if (mounted < 0) { errno = code; return -1; }
+    int moved = (int)syscall(SYS_move_mount, mounted, "", AT_FDCWD, CGROUP_MOUNT, MOVE_MOUNT_F_EMPTY_PATH);
+    code = errno;
+    close(mounted);
+    errno = code;
+    return moved;
+}
+
+/* Into the run's own leaf when the cgroup it was started in is the user's; NULL when done (or not the user's). */
+static const char *enter_run_leaf(void) {
+    char cgroup[PATH_MAX], leaf[PATH_MAX];
+    if (!own_cgroup(cgroup, sizeof(cgroup))) { errno = ENOENT; return "read this process's cgroup v2 (/proc/self/cgroup)"; }
+    if (!run_leaf(leaf, sizeof(leaf), cgroup, getpid())) { errno = ENAMETOOLONG; return "name the run's cgroup leaf"; }
+    if (mkdir(leaf, 0755)) {
+        if (errno == EACCES || errno == EPERM || errno == EROFS) return NULL;
+        return "make the run's cgroup leaf";
+    }
+    char procs[PATH_MAX + 16];
+    snprintf(procs, sizeof(procs), "%s/cgroup.procs", leaf);
+    int fd = open(procs, O_WRONLY | O_CLOEXEC);
+    if (fd < 0 || write(fd, "0", 1) != 1) { int code = errno; if (fd >= 0) close(fd); rmdir(leaf); errno = code; return "move the run into its cgroup leaf"; }
+    close(fd);
+    return NULL;
+}
+
+/* The run's leaf removed, with every worker leaf the run made below it (all empty once the run is reaped). */
+static void remove_cgroup_tree(const char *path) {
+    DIR *directory = opendir(path);
+    if (directory) {
+        struct dirent *entry;
+        while ((entry = readdir(directory)) != NULL) {
+            if (entry->d_type != DT_DIR || strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+            char child[PATH_MAX];
+            if ((size_t)snprintf(child, sizeof(child), "%s/%s", path, entry->d_name) < sizeof(child)) remove_cgroup_tree(child);
+        }
+        closedir(directory);
+    }
+    rmdir(path);
+}
+
+/* After the command `pid` and every descendant are reaped: its leaf, if it made one, goes (a failure is said, never the
+ * result). Answers the LAYOUT the run had: true when it had a leaf of its own (worker leaves below its root were the
+ * run's to make), false when it rooted where it started (a cgroup the user does not own: no worker leaves). */
+static bool remove_run_leaf(const char *cgroup, pid_t pid) {
+    char leaf[PATH_MAX];
+    if (cgroup[0] == '\0' || !run_leaf(leaf, sizeof(leaf), cgroup, pid) || access(leaf, F_OK) != 0) return false;
+    remove_cgroup_tree(leaf);
+    if (access(leaf, F_OK) == 0) fprintf(stderr, "test supervisor: warning: the run's cgroup leaf %s could not be removed: %s\n", leaf, strerror(errno));
+    return true;
+}
+
+/* The layout's name, as the probe reports it and the receipt records it. */
+static const char *cgroup_layout(bool own_leaf) { return own_leaf ? "own-leaf" : "started-cgroup"; }
+
 static const char *confine(void) {
     uid_t uid = getuid();
     gid_t gid = getgid();
@@ -555,7 +672,10 @@ static const char *confine(void) {
     /* Read in the host's network namespace, before the run's own replaces it. */
     const char *unmaskable = collect_socket_masks(covered, sizeof(covered) / sizeof(covered[0]));
     if (unmaskable != NULL) return unmaskable;
-    if (unshare(CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWIPC)) return "unshare user, mount, network and IPC namespaces";
+    if (!cgroup_delegates_namespaces()) { errno = ENOTSUP; return "protect the run's cgroup limits: the host's cgroup2 at /sys/fs/cgroup is not mounted nsdelegate (cgroup v2 with nsdelegate, systemd's default, is required)"; }
+    const char *unentered = enter_run_leaf();
+    if (unentered != NULL) return unentered;
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWCGROUP)) return "unshare user, mount, network, IPC and cgroup namespaces";
     if (map_own_identity(uid, gid)) return "map this user into the namespace";
     if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)) return "make the mounts private";
     /* Opened in THIS namespace, before anything is read-only: each bind below is made from its descriptor, in this
@@ -591,6 +711,9 @@ static const char *confine(void) {
     if (syscall(SYS_mount_setattr, AT_FDCWD, "/proc", 0, &proc_writable, sizeof(proc_writable))) return "keep /proc writable";
     for (size_t index = 0; index < sizeof(covered) / sizeof(covered[0]); index++)
         if (cover_with_tmpfs(covered[index])) return "cover /tmp, /run and /dev/shm with a fresh tmpfs";
+    /* The run's own view of cgroup2, rooted at its namespace's root (see THE RUN'S CGROUP): writable where the kernel
+     * lets the run write, which never includes its root's limits. */
+    if (mount_cgroup_view()) return "mount the run's cgroup2 view";
     for (int index = 0; index < count; index++) {
         /* The scratch root under a folder the tmpfs covered is re-attached at its own path inside the tmpfs. A place
          * beneath an earlier bind (inside the scratch root) is attached through that bind's new mount: found again by
@@ -643,6 +766,8 @@ static int write_probe(const char *folder) {
 
 /* --probe-confinement: the namespaces set up in a child, and proven. */
 static int probe_confinement(void) {
+    char cgroup[PATH_MAX] = "";
+    if (!own_cgroup(cgroup, sizeof(cgroup))) cgroup[0] = '\0';
     pid_t child = fork();
     if (child < 0) { perror("test supervisor probe fork"); return 1; }
     if (child == 0) {
@@ -670,11 +795,21 @@ static int probe_confinement(void) {
             mount(NULL, checkout_root, NULL, MS_REMOUNT | MS_BIND, NULL) == 0 || umount2("/", MNT_DETACH) == 0) {
             errno = 0; refuse_confinement("the read-only mounts could be remounted or detached"); _exit(CONFINEMENT_REFUSED);
         }
+        /* The run's cgroup root refuses a write to its own interface files (nsdelegate): cgroup.freeze is one every
+         * non-root cgroup has, and freezing itself would be the least of it (memory.max, pids.max, cgroup.kill). */
+        char freeze[PATH_MAX];
+        snprintf(freeze, sizeof(freeze), "%s/cgroup.freeze", CGROUP_MOUNT);
+        int frozen = open(freeze, O_WRONLY | O_CLOEXEC);
+        if (frozen >= 0 && write(frozen, "0", 1) == 1) { errno = 0; refuse_confinement("the run's cgroup root accepted a write to its own limits"); _exit(CONFINEMENT_REFUSED); }
         _exit(0);
     }
     int status;
-    if (reap(child, &status, 0) != child) { perror("test supervisor probe wait"); return 1; }
-    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    if (reap(child, &status, 0) != child) { perror("test supervisor probe wait"); remove_run_leaf(cgroup, child); return 1; }
+    bool own_leaf = remove_run_leaf(cgroup, child);
+    int result = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    /* Which cgroup layout this host gives a run (THE RUN'S CGROUP): whether worker leaves will be the run's to make. */
+    if (result == 0) printf("{\"cgroupLayout\":\"%s\"}\n", cgroup_layout(own_leaf));
+    return result;
 }
 
 int main(int argc, char **argv) {
@@ -732,6 +867,9 @@ int main(int argc, char **argv) {
     pid_t supervisor = getpid();
     int relay[2] = {-1, -1};
     if (pass_fd && pipe2(relay, O_CLOEXEC)) fail("test supervisor result pipe");
+    /* The cgroup the command starts in, as the command reads it before it makes its leaf there (THE RUN'S CGROUP). */
+    char cgroup[PATH_MAX] = "";
+    if (confined && !own_cgroup(cgroup, sizeof(cgroup))) cgroup[0] = '\0';
     pid_t child = fork();
     if (child < 0) fail("test supervisor fork");
     if (child == 0) {
@@ -797,11 +935,15 @@ int main(int argc, char **argv) {
     fprintf(receipt, "{\"commandPid\":%ld,\"status\":%d,\"timedOut\":%s,\"interrupted\":%s,\"commandKilled\":%s,\"reaped\":[",
             (long)child, result, timed_out ? "true" : "false", interrupted ? "true" : "false", killed ? "true" : "false");
     cleanup_descendants();
+    bool own_leaf = confined && remove_run_leaf(cgroup, child);
     /* Every writer of the result pipe is reaped: the relay has read its end-of-file, or reads it now. */
     if (relaying && pthread_join(relay_thread, NULL)) fail("test supervisor result relay join");
     struct rusage waited, own;
     if (getrusage(RUSAGE_CHILDREN, &waited) || getrusage(RUSAGE_SELF, &own)) fail("test supervisor CPU");
-    fprintf(receipt, "],\"noOwnedChildren\":true,\"waitedCpuUs\":%" PRId64 ",\"supervisorCpuUsBeforeReceipt\":%" PRId64 "}\n", cpu_us(&waited), cpu_us(&own));
+    /* The run's cgroup layout (null for an unconfined command): whether its worker leaves were its own to make. */
+    char layout[32] = "null";
+    if (confined) snprintf(layout, sizeof(layout), "\"%s\"", cgroup_layout(own_leaf));
+    fprintf(receipt, "],\"noOwnedChildren\":true,\"runCgroup\":%s,\"waitedCpuUs\":%" PRId64 ",\"supervisorCpuUsBeforeReceipt\":%" PRId64 "}\n", layout, cpu_us(&waited), cpu_us(&own));
     int close_result = fclose(receipt);
     receipt = NULL;
     if (close_result) fail("test supervisor close receipt");

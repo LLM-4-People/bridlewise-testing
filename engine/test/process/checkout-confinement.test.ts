@@ -19,7 +19,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
-import { runTestCommand, testConfinement } from "../../src/process/supervised-run.ts";
+import { runTestCommand, testConfinement, type SupervisedCommand } from "../../src/process/supervised-run.ts";
 import { createRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -48,14 +48,14 @@ function fixtureCheckouts(): Readonly<{ repository: string; worktree: string }> 
 }
 
 /** `script` (sh) run through the one test-execution door in `checkout`; its output and exit code. */
-async function confined(checkout: string, script: string): Promise<Readonly<{ stdout: string; exitCode: number }>> {
+async function confined(checkout: string, script: string): Promise<Readonly<{ stdout: string; exitCode: number; supervision: SupervisedCommand["supervision"] }>> {
   const out: Buffer[] = [];
   const run = await runTestCommand({
     supervisor: SUPERVISOR, checkout, command: "sh", args: ["-c", script], cwd: checkout,
     hardCeilingMs: 60_000, killGraceMs: 2_000,
     onStdout: (chunk) => out.push(chunk), onStderr: (chunk) => out.push(chunk),
   });
-  return { stdout: Buffer.concat(out).toString("utf8"), exitCode: run.exitCode };
+  return { stdout: Buffer.concat(out).toString("utf8"), exitCode: run.exitCode, supervision: run.supervision };
 }
 
 const refused = (stdout: string, name: string): void => assert.match(stdout, new RegExp(`^${name}=[1-9]`, "mu"), `${name} was not refused:\n${stdout}`);
@@ -151,6 +151,22 @@ test("THE SCRATCH GOES WITH THE RUN, and a folder the test left unlistable (mode
   const scratch = /^scratch=(.+)$/mu.exec(stdout)?.[1];
   assert.ok(scratch !== undefined && scratch.length > 0, stdout);
   assert.equal(existsSync(scratch), false, `the scratch root ${scratch} outlived its run`);
+});
+
+test("THE RUN'S CGROUP: the run is the root of a cgroup namespace of its own, and its root's interface files (limits, freeze) refuse a write (review of #734; the scope case: live/door-canaries)", async () => {
+  const { repository } = fixtureCheckouts();
+  // Each file is written with the value it holds (a refused write changes nothing; a taken one would be the escape).
+  const { stdout, supervision } = await confined(repository, [
+    `grep -qx '0::/' /proc/self/cgroup; echo cgroup_namespace_root=$?`,
+    ...["cgroup.freeze", "memory.max", "memory.swap.max", "pids.max", "cpu.weight", "cpu.max"].map((file) =>
+      `if [ -e /sys/fs/cgroup/${file} ]; then (cat /sys/fs/cgroup/${file} > /sys/fs/cgroup/${file}) 2>/dev/null; echo limit_${file.replace(".", "_")}_written=$?; fi`),
+  ].join("\n"));
+  taken(stdout, "cgroup_namespace_root");
+  // The receipt says which layout the run had: whether its worker leaves were its own to make.
+  assert.ok(supervision?.runCgroup === "own-leaf" || supervision?.runCgroup === "started-cgroup", `the receipt names no cgroup layout: ${String(supervision?.runCgroup)}`);
+  // cgroup.freeze is every non-root cgroup's, so at least one write was tried.
+  refused(stdout, "limit_cgroup_freeze_written");
+  for (const line of stdout.split("\n").filter((entry) => entry.startsWith("limit_"))) assert.match(line, /=[1-9]\d*$/u, `a limit of the run's cgroup root took a write: ${line}`);
 });
 
 test("EACH ISOLATION HOLDS ON ITS OWN: a host SysV queue is out of reach (IPC namespace), an inherited descriptor is closed (close_range), /dev/shm is fresh, and an ABSOLUTE-path socket's folder is masked", async (t) => {

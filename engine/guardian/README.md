@@ -27,8 +27,8 @@ what ships.
 It also CONFINES the command (decision TEST-CONFINEMENT-SELF-BIND; the one
 test-execution door, `runTestCommand` in `engine/src/process/supervised-run.ts`,
 always passes the confinement). With `--checkout <dir> --scratch <dir>
-[--writable <dir>]…`, the command starts in user, mount, network and IPC
-namespaces of its own where EVERY mount is read-only
+[--writable <dir>]…`, the command starts in user, mount, network, IPC and
+cgroup namespaces of its own where EVERY mount is read-only
 (`mount_setattr(AT_RECURSIVE, MOUNT_ATTR_RDONLY)` on `/`, the one mechanism),
 except the scratch root (outside the checkout) and the writable places (the
 checkout's declared state folders), each opened without following a link,
@@ -36,7 +36,11 @@ checked by its canonical path, refused if a file beneath it has more than one
 name, and bound read-write from that descriptor. `/tmp`, `/run` and `/dev/shm`
 are fresh tmpfs, only a loopback is up, inherited descriptors beyond 0–2 (and
 3 with `--pass-fd`) are closed, and a second user and mount namespace locks
-the mounts. A step that fails is refused with exit 125 and its name; the
+the mounts. The run's cgroup namespace is rooted at a leaf of its own beneath
+the cgroup it started in, and its own cgroup2 view covers `/sys/fs/cgroup`.
+With the host's `nsdelegate`, which is required (a typed refusal otherwise),
+its root's limits refuse a write from inside, while worker leaves below the
+root can still be made. A step that fails is refused with exit 125 and its name; the
 command never starts unconfined. `--probe-confinement` (same places) proves
 the arrangement before a run. On a host whose AppArmor restricts unprivileged
 user namespaces (Ubuntu 24.04's default), `node guardian/build.ts

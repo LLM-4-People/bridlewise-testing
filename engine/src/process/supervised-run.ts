@@ -66,6 +66,12 @@ export type TestProcessSupervision = Readonly<{
   /** Every process it killed: the command (when killed) and each killed descendant. */
   killed: readonly number[];
   noOwnedChildren: boolean;
+  /**
+   * The confined run's cgroup layout (decision TEST-CONFINEMENT-SELF-BIND, the run's cgroup): `own-leaf` when its
+   * cgroup namespace was rooted at a leaf of its own (worker leaves below were the run's to make), `started-cgroup`
+   * when it rooted where it started (a cgroup the user does not own: no worker leaves), null for an unconfined command.
+   */
+  runCgroup: "own-leaf" | "started-cgroup" | null;
 }>;
 
 const isInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value);
@@ -76,7 +82,8 @@ function receiptOf(line: Record<string, unknown>): Omit<TestProcessSupervision, 
   const reaped = line["reaped"];
   if (!isInteger(line["commandPid"]) || !isInteger(line["status"]) || !isBoolean(line["timedOut"]) || !isBoolean(line["interrupted"])
     || !isBoolean(line["commandKilled"]) || !isBoolean(line["noOwnedChildren"]) || !isInteger(line["waitedCpuUs"])
-    || !isInteger(line["supervisorCpuUsBeforeReceipt"]) || !Array.isArray(reaped)) return undefined;
+    || !isInteger(line["supervisorCpuUsBeforeReceipt"]) || !Array.isArray(reaped)
+    || !(line["runCgroup"] === null || line["runCgroup"] === "own-leaf" || line["runCgroup"] === "started-cgroup")) return undefined;
   const children = reaped.map((entry: unknown) => {
     const child = entry as Record<string, unknown> | null;
     return child !== null && typeof child === "object" && isInteger(child["pid"]) && isInteger(child["status"]) && isBoolean(child["killed"])
@@ -87,6 +94,7 @@ function receiptOf(line: Record<string, unknown>): Omit<TestProcessSupervision, 
     commandPid: line["commandPid"], status: line["status"], timedOut: line["timedOut"], interrupted: line["interrupted"],
     reaped: Object.freeze(children as NonNullable<(typeof children)[number]>[]), commandKilled: line["commandKilled"],
     waitedCpuUs: line["waitedCpuUs"], supervisorCpuUsBeforeReceipt: line["supervisorCpuUsBeforeReceipt"], noOwnedChildren: line["noOwnedChildren"],
+    runCgroup: line["runCgroup"],
   };
 }
 

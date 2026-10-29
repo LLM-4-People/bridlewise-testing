@@ -10,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -32,7 +32,9 @@ test("the guard runner (test-guards.ts) runs a hermetic file confined: the engin
   assert.match(run.stdout, /pass 2\b/u, `the canary's two tests did not run:\n${run.stdout.slice(-800)}`);
 });
 
-test("`harness slot run` (the door of coverage, test:raw, test:supported, the browser routes and the perf profile) runs its command confined", () => {
+test("`harness slot run` (the door of coverage, test:raw, test:supported, the browser routes and the perf profile) runs its command confined", (t) => {
+  // Under a regression the probe WOULD land in the checkout: it goes with the test either way.
+  t.after(() => { try { unlinkSync(join(CHECKOUT, ".door-canary-probe")); } catch { /* absent: the write was refused */ } });
   const run = spawnSync(process.execPath, ["--experimental-strip-types", join(ENGINE, "src", "cli.ts"), "harness", "slot", "run", "--", process.execPath, "-e", WRITE_CHECKOUT], { cwd: ENGINE, encoding: "utf8", env: RUNNER_ENV });
   assert.match(run.stdout, /^canary=EROFS$/mu, `${run.stdout.slice(-800)}${run.stderr.slice(-800)}`);
 });
@@ -72,4 +74,22 @@ test("an inherited run-scratch variable is refused outside a confined run: a lau
   const run = spawnSync(process.execPath, ["--experimental-strip-types", join(ENGINE, "scripts", "tooling", "test-guards.ts"), CANARY], { cwd: ENGINE, encoding: "utf8", env: { ...RUNNER_ENV, BRIDLEWISE_TEST_SCRATCH: named } });
   assert.notEqual(run.status, 0, `the run started on an inherited scratch:\n${run.stdout.slice(-800)}`);
   assert.match(`${run.stdout}${run.stderr}`, /test_run_scratch_unconfined/u);
+});
+
+test("THE RUN'S CGROUP in a capped scope (`harness slot run`, #564's per-run cap; review of #734): the run cannot write its limits, can make and enter a worker leaf, and its supervisor is outside its namespace", () => {
+  // The run's parent is its native supervisor; each limit file is written with the value it holds.
+  const script = [
+    "root=/sys/fs/cgroup",
+    "echo \"cgroup=$(cat /proc/self/cgroup)\"",
+    "for f in cgroup.freeze memory.max memory.swap.max pids.max cpu.weight cpu.max; do [ -e $root/$f ] || continue; if (cat $root/$f > $root/$f) 2>/dev/null; then echo \"limit-written=$f\"; else echo \"limit-refused=$f\"; fi; done",
+    "if mkdir $root/worker-1 && echo $$ > $root/worker-1/cgroup.procs; then echo \"worker=$(cat /proc/self/cgroup)\"; echo $$ > $root/cgroup.procs; rmdir $root/worker-1; fi",
+    "if grep -qx \"$PPID\" $root/cgroup.procs; then echo supervisor=inside; else echo supervisor=outside; fi",
+  ].join("\n");
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", join(ENGINE, "src", "cli.ts"), "harness", "slot", "run", "--", "sh", "-c", script], { cwd: ENGINE, encoding: "utf8", env: RUNNER_ENV });
+  const said = `${run.stdout.slice(-1500)}${run.stderr.slice(-800)}`;
+  assert.match(run.stdout, /^cgroup=0::\/$/mu, said);
+  assert.match(run.stdout, /^limit-refused=cgroup\.freeze$/mu, said);
+  assert.doesNotMatch(run.stdout, /^limit-written=/mu, said);
+  assert.match(run.stdout, /^worker=0::\/worker-1$/mu, said);
+  assert.match(run.stdout, /^supervisor=outside$/mu, said);
 });

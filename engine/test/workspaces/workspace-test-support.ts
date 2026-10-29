@@ -205,7 +205,7 @@ export function fixtureSupervisedCommand(exitCode: number, changes: Partial<Supe
     outputComplete: true, orphanedGroupKilled: false,
     supervision: { commandPid: 123, status: exitCode, timedOut: false, interrupted: false,
       reaped: [], commandKilled: false, waitedCpuUs: 0, supervisorCpuUsBeforeReceipt: 0,
-      killed: [], noOwnedChildren: true }, ...changes };
+      killed: [], noOwnedChildren: true, runCgroup: null }, ...changes };
 }
 
 /** Drive the actual append/finalize/read contract for a fake workspace command. */
