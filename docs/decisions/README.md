@@ -26,6 +26,10 @@ The one checker is `engine/scripts/verification/tracker-entries.ts`
 commands these files name exist; the commit door judges the `acted_in` paths
 of every decision a commit writes).
 
+How far each decision is built is drawn on the
+[development floor](../floor/index.md#how-far-the-decisions-are-built), counted
+from these files when the site is built.
+
 The index below is GENERATED from the files' front matter and titles by
 `harness sync` (`engine/scripts/verification/decision-index.ts`; `harness
 check` reports it stale): change a decision's file, never its row.

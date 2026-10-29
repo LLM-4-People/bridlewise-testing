@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @shard-exclude: requires a WSL host with a mounted Windows profile, including a credential store with its 8.3 short name; the standard Ubuntu shard runner does not provide that host (evidence: docs/floor/roadmap.md#snapshot · public baseline audit)
 /**
  * The WSL host arm of the project-door keep-out tests.
  *

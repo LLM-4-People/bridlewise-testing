@@ -66,9 +66,7 @@ function positiveFinite(v: unknown): number | null {
  * configuration is a first-class state here: the gate fails, says what is
  * absent, and says where to put it.
  */
-export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: string } {
-  const section = testExecutionSection();
-  const declared = section.webUiSuiteCpuBudget;
+export function readCpuBudget(declared: unknown = testExecutionSection().webUiSuiteCpuBudget): CpuBudgetDeclaration | { readonly missing: string } {
   if (typeof declared !== "object" || declared === null) {
     return {
       missing:
@@ -124,7 +122,17 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
         `budget must be re-derived on the tree as it now is.`,
     };
   }
-  const derivedAtTestFileCount = positiveFinite(rec.derivedAtTestFileCount);
+  // IN ACCUMULATION THE POPULATION IS DERIVED, never committed: the window is filled at the live supported
+  // population, so a branch that adds a test edits no shared count. A committed one is refused, not read.
+  if (rec.phase === "accumulation" && rec.derivedAtTestFileCount !== undefined) {
+    return {
+      missing:
+        `webUiSuiteCpuBudget.derivedAtTestFileCount under ${CONFIG_SITE} is not declared in the accumulation ` +
+        `phase: the population the window is filled at is the live supported population, derived on every ` +
+        `read. Remove it; a measured floor records the population it was measured at, with it.`,
+    };
+  }
+  const derivedAtTestFileCount = rec.phase === "accumulation" ? fullRunModuleCount() : positiveFinite(rec.derivedAtTestFileCount);
   if (derivedAtTestFileCount === null) {
     return {
       missing:

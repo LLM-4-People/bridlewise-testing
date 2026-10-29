@@ -221,7 +221,7 @@ export function loadMeasurementWorld(root: string): MeasurementWorld {
     docs.set(repoPath, readText(absolute) ?? "");
   }
   const other = new Map<string, string>();
-  for (const path of ["tests/test-shards.json", "package.json", "engine/package.json"]) {
+  for (const path of ["tests/test-weights.json", "package.json", "engine/package.json"]) {
     const text = readText(join(repositoryRoot, path));
     if (text !== null) other.set(path, text);
   }

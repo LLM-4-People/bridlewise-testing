@@ -20,8 +20,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { InputError } from "../kernel/errors.ts";
+import { HarnessError, InputError } from "../kernel/errors.ts";
 import { schemaId } from "../kernel/product-identity.ts";
+import { FRONT_DOOR_GENERATOR } from "../kernel/verification-paths.ts";
+import { trackedFiles } from "../git/repository-ownership.ts";
+import { directoryOf, normalizeRepositoryPath, reachabilityClosure } from "./reachability.ts";
 
 const MESSAGING_PATH = "docs/brand/messaging.json";
 const MESSAGING_SCHEMA = schemaId("messaging", 1);
@@ -97,7 +100,7 @@ export const CLAIMS_PATH = "docs/brand/claims.json";
 /** The decision records a designed claim names. */
 const DECISIONS_DIRECTORY = "docs/decisions";
 /** The files the front doors are written into, and the readers outside the engine they are made with. */
-const FRONT_DOOR_FILES = Object.freeze(["README.md", "docs/index.md", "docs/floor/claims.md", "package.json", "scripts/floor/repository.mjs"]);
+const FRONT_DOOR_FILES = Object.freeze(["README.md", "docs/index.md", "docs/floor/claims.md", "package.json"]);
 
 /** The repository file a claim's evidence names (its `#anchor` dropped), or null for an https address. */
 export function evidencePath(evidence: string): string | null {
@@ -114,7 +117,55 @@ export function evidencePath(evidence: string): string | null {
  */
 export function frontDoorInput(path: string): boolean {
   if (path.startsWith("docs/brand/") || path.startsWith(`${DECISIONS_DIRECTORY}/`) || FRONT_DOOR_FILES.includes(path)) return true;
-  return citedEvidence().has(path);
+  return citedEvidence().has(path) || generatorModules().has(path);
+}
+
+/**
+ * Every module the front-door generator reaches (`FRONT_DOOR_GENERATOR`, engine-relative), repository-relative:
+ * DERIVED from its imports by the one reachability walk, never listed. A hand list of the generator's modules
+ * beyond the engine (`scripts/floor/repository.mjs` once) went stale the day the claims reader came to import
+ * `scripts/floor/status.mjs`, and every generator test's copy then lacked a module the generator loads.
+ */
+let modules: ReadonlySet<string> | undefined;
+function generatorModules(): ReadonlySet<string> {
+  if (modules === undefined) {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    modules = frontDoorGeneratorModules(root, trackedFiles(root));
+  }
+  return modules;
+}
+
+/** Whether `path` is a script module of the repository (where the generator's own code and its siblings live). */
+function isScriptPath(path: string): boolean {
+  return path.startsWith("scripts/") || path.startsWith("engine/scripts/");
+}
+
+/**
+ * The modules the front-door generator reaches in the tree at `root`, whose tracked files are `files`. No
+ * fallback: a tracked set that cannot be read (`undefined`) refuses (`front_door_generator_unreadable`), and an
+ * import the walk could not follow — one that names no file the tree holds, or a computed one, from or into a
+ * script module — refuses by name (`front_door_generator_import_unfollowed`): an import the derivation cannot
+ * see is a module the copy would silently lack, the very failure this derivation replaced.
+ */
+export function frontDoorGeneratorModules(root: string, files: readonly string[] | undefined): ReadonlySet<string> {
+  if (files === undefined) {
+    throw new HarnessError(`the tracked files of ${root} cannot be read (it is not a git checkout, or git failed): the front-door generator's modules cannot be derived`, "front_door_generator_unreadable", false, { root });
+  }
+  const reached = reachabilityClosure({
+    entryPoints: [`engine/${FRONT_DOOR_GENERATOR.generator}`],
+    files,
+    readTexts: (paths) => new Map(paths.map((path) => [path, existsSync(join(root, path)) ? readFileSync(join(root, path), "utf8") : null])),
+  });
+  const unfollowed = [
+    ...reached.unresolved.filter((edge) => isScriptPath(edge.importer) || isScriptPath(normalizeRepositoryPath(directoryOf(edge.importer), edge.specifier)))
+      .map((edge) => `${edge.importer} imports ${edge.specifier}, which names no file the tree holds`),
+    ...reached.opaque.filter((edge) => isScriptPath(edge.importer)).map((edge) => `${edge.importer} has a computed import: ${edge.detail}`),
+    ...reached.missingEntries.map((entry) => `the generator ${entry} is not in the tree`),
+  ];
+  if (unfollowed.length > 0) {
+    throw new HarnessError(`the front-door generator's modules cannot be derived: ${unfollowed.join("; ")}`, "front_door_generator_import_unfollowed", false, { root, count: String(unfollowed.length) });
+  }
+  return reached.closure;
 }
 
 let cited: ReadonlySet<string> | undefined;

@@ -1315,7 +1315,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     phase: z.literal("accumulation"),
     minimumJudgedRuns: z.number().int().min(2).max(50),
     maxPopulationDriftFraction: z.number().positive().lt(1),
-    derivedAtTestFileCount: z.number().int().positive().max(100000).optional(),
+    // No `derivedAtTestFileCount`: in accumulation the population is the live supported one, derived on
+    // every read, never a committed number a branch that adds a test would edit.
     // The retired declaration, recorded and marked incomparable — never
     // rescaled into the new unit and never eligible for the new window.
     legacy: z.strictObject({
