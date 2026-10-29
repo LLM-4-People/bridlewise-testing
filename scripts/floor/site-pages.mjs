@@ -255,7 +255,7 @@ export function legacyAliases(plan) {
  * declaration (`repository.mjs`) and the deployment: the builder refuses a
  * source config that declares one (a second owner of that value).
  */
-export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "product_repository", "product_repository_url", "product_site_url", "preview_repository_url", "versions_url", "release_version"]);
+export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "product_repository", "product_repository_url", "docs_url", "preview_repository_url", "versions_url", "release_version"]);
 
 /**
  * The record collections under `docs/`: data and dated records the site

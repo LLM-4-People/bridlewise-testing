@@ -1,0 +1,14 @@
+{
+  "kind": "pages",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "bridlewise-testing",
+  "unavailableOnPlan": [],
+  "desired": {
+    "build_type": "workflow",
+    "cname": "bridlewise.llm4people.dev",
+    "https_enforced": true
+  }
+}

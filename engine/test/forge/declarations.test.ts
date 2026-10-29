@@ -79,9 +79,9 @@ test("the declarations: every object once, in apply order, with the plan's unava
   const pushRulesets = objects.filter((entry) => entry.kind === "ruleset" && (entry.desired as { target: string }).target === "push");
   assert.deepEqual(pushRulesets.map((entry) => `${scopeName(entry.scope)}:${entry.key}`), ["bridlewise-coordination:content-policy"]);
   assert.deepEqual((pushRulesets[0]!.desired as { rules: unknown[] }).rules, [
-    { type: "max_file_size", parameters: { max_file_size: 10 } },
+    { type: "max_file_size", parameters: { ignored_file_paths: [], max_file_size: 10 } },
     { type: "file_extension_restriction", parameters: { restricted_file_extensions: ["*.pem", "*.key", "*.env"] } },
-    { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**", "**/tokens/**"] } },
+    { type: "file_path_restriction", parameters: { ignored_file_paths: [], restricted_file_paths: ["**/secrets/**", "**/tokens/**"] } },
   ]);
 });
 
@@ -100,7 +100,8 @@ function specifiedBaseline(stage: "p0" | "door"): unknown {
   return {
     name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
     conditions: {
-      repository_property: { include: [{ name: "kind", property_values: door ? ["trunk", "notes", "evidence", "meta"] : ["trunk"] }], exclude: [] },
+      // GitHub's stored shape: a custom property's condition names its source (GitHub answers it even when a write omits it).
+      repository_property: { include: [{ name: "kind", source: "custom", property_values: door ? ["trunk", "notes", "evidence", "meta"] : ["trunk"] }], exclude: [] },
       ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
     },
     rules: [
@@ -270,6 +271,27 @@ test("an ENABLED dismissal restriction may only stay enabled with fewer allowed 
   assert.notDeepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [{ actor_id: 1 }, { actor_id: 2 }, { actor_id: 3 }] }), live), [], "another dismisser loosens");
   assert.deepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [{ actor_id: 1 }] }), live), [], "fewer dismissers is stricter");
   assert.deepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [] }), rule({ enabled: false, allowed_actors: [] })), [], "restricting where nothing was is stricter");
+});
+
+test("the Pages sites (W2): each declared repository's site, built its declared way, on its own domain or none, HTTPS enforced; the organisation site with no domain and its publisher installed; the trunk's homepage is its site", () => {
+  const withSites = { ...SETTINGS, repositories: [
+    ...SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, site: { host: "bridlewise.llm4people.dev", docsPath: "/docs/" }, pages: { build: "workflow" as const } }
+      : repository.provingGround === true ? { ...repository, pages: { build: "workflow" as const } } : repository),
+    { name: "LLM-4-People.github.io", kind: "none" as const, visibility: "public" as const, pages: { build: "legacy" as const, branch: "main", path: "/" as const }, apps: ["publisher" as const] },
+  ] };
+  const objects = forgeDeclarations({ ...SOURCES, settings: withSites });
+  assert.deepEqual(find(objects, "pages", TRUNK).desired, { build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: true });
+  assert.deepEqual(find(objects, "pages", "forge-proving-ground").desired, { build_type: "workflow", cname: null, https_enforced: true });
+  assert.deepEqual(find(objects, "pages", "LLM-4-People.github.io").desired, { build_type: "legacy", source: { branch: "main", path: "/" }, cname: null, https_enforced: true });
+  assert.deepEqual(find(objects, "app-installation", "publisher").scope, { kind: "repo", repository: "LLM-4-People.github.io" });
+  assert.equal((find(objects, "repository-settings", TRUNK).desired as Record<string, unknown>).homepage, "https://bridlewise.llm4people.dev/");
+  // A repository without a pages declaration has no Pages object (nothing invisible is created).
+  assert.ok(!objects.some((entry) => entry.kind === "pages" && entry.key === "bridlewise-evidence"));
+  // The order: removing or changing a custom domain is a loosening, setting one where none was is not; HTTPS only stays on.
+  assert.deepEqual(looseningOf("pages", { cname: "bridlewise.llm4people.dev", https_enforced: true }, { cname: null, https_enforced: true }), []);
+  assert.notDeepEqual(looseningOf("pages", { cname: null, https_enforced: true }, { cname: "bridlewise.llm4people.dev", https_enforced: true }), [], "removing the domain");
+  assert.notDeepEqual(looseningOf("pages", { cname: "other.example", https_enforced: true }, { cname: "bridlewise.llm4people.dev", https_enforced: true }), [], "changing it");
+  assert.notDeepEqual(looseningOf("pages", { cname: null, https_enforced: false }, { cname: null, https_enforced: true }), [], "HTTPS off");
 });
 
 test("a form naming a type outside the registry, or two labels with one name, refuses the declarations", () => {

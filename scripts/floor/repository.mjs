@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 
 /**
  * THE ONE READER of the generated repository identity (owner, name,
- * fullName, webUrl, pagesUrl, pagesBasePath, organisationRepositories). A
+ * fullName, webUrl, pagesUrl, pagesBasePath, docsUrl, organisationRepositories). A
  * missing or malformed file is a loud failure (run harness sync), never a
  * guess.
  */
@@ -22,8 +22,9 @@ export function generatedRepositoryIdentity() {
   const path = new URL("../../.github/forge/repository-identity.json", import.meta.url);
   const identity = JSON.parse(readFileSync(path, "utf8"));
   const text = (value) => typeof value === "string" && value !== "";
-  const repository = (value) => typeof value === "object" && value !== null && [value.name, value.fullName, value.webUrl, value.pagesUrl].every(text);
-  if (![identity.owner, identity.name, identity.fullName, identity.webUrl, identity.pagesUrl, identity.pagesBasePath].every(text)
+  const repository = (value) => typeof value === "object" && value !== null && [value.name, value.fullName, value.webUrl, value.pagesUrl, value.docsUrl].every(text);
+  // The base path is empty on the site's own host (`site`), `/name` on the forge's Pages domain.
+  if (![identity.owner, identity.name, identity.fullName, identity.webUrl, identity.pagesUrl, identity.docsUrl].every(text) || typeof identity.pagesBasePath !== "string"
     || !Array.isArray(identity.organisationRepositories) || !identity.organisationRepositories.every(text)
     || !repository(identity.product) || !(identity.preview === null || repository(identity.preview))) {
     throw new Error(`${path.pathname} is not the generated repository identity: run harness sync`);
@@ -42,10 +43,12 @@ export function siteCoordinates(identity) {
     siteOrigin: new URL(identity.pagesUrl).origin,
     siteBaseurl: identity.pagesBasePath,
     siteUrl: identity.pagesUrl,
-    // The product's repository and site, and the preview repository: identities of their own (the forge section's flags).
+    // The site's own host when the trunk declares one (`site.host`), else none: its project site is on the forge's domain.
+    siteHost: identity.pagesBasePath === "" ? new URL(identity.pagesUrl).host : "",
+    docsUrl: identity.docsUrl,
+    // The product's repository and the preview repository: identities of their own (the forge section's flags).
     productRepository: identity.product.fullName,
     productRepositoryUrl: identity.product.webUrl,
-    productSiteUrl: identity.product.pagesUrl,
     previewRepositoryUrl: identity.preview === null || identity.preview === undefined ? "" : identity.preview.webUrl,
   });
 }
@@ -84,7 +87,8 @@ export function repositoryFileUrl(path, kind = "blob", coordinates = COORDINATES
  * GitHub URL and its Pages URL, under the current name and every name in its
  * history (case-insensitive, as GitHub and DNS treat them), each with its
  * kind:
- * - `site`: the Pages site;
+ * - `site`: the Pages site (on the forge's Pages domain, or the site's own
+ *   host when the trunk declares one: `bridlewise.llm4people.dev`);
  * - `object`: a GitHub object with its own id (an issue, a pull request, a
  *   discussion, a commit, a release tag, a run, an advisory); GitHub keeps
  *   such a link working through a rename, and a record cites it by id;
@@ -100,8 +104,14 @@ export function spelledUrls(text, coordinates) {
   // The id ends the path (a pull request's own tabs and a run's job aside):
   // no `..` or further segment can walk from an object to a file.
   const OBJECT = /^\/(?:(?:issues|discussions|commit|security\/advisories)\/[0-9A-Za-z-]+|pull\/\d+(?:\/(?:files|commits|checks))?|actions\/runs\/\d+(?:\/job\/\d+)?|releases\/tag\/[0-9A-Za-z._-]+)\/?(?:[#?][^\s]*)?$/u;
-  return [...text.matchAll(pattern)].map((match) => ({
+  const spelled = [...text.matchAll(pattern)].map((match) => ({
     url: match[0],
     kind: match.groups.pages !== undefined ? "site" : OBJECT.test(match.groups.path ?? "") ? "object" : "repository",
   }));
+  // The site's own host (a custom domain), spelled by hand: the site's address too, whatever the path.
+  if (coordinates.siteHost !== undefined && coordinates.siteHost !== "") {
+    const host = coordinates.siteHost.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    for (const match of text.matchAll(new RegExp(`(?<![\\w.-])${host}(?![\\w-])(?:/[^\\s)"'<>\\]]*)?`, "giu"))) spelled.push({ url: match[0], kind: "site" });
+  }
+  return spelled;
 }

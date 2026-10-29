@@ -18,10 +18,8 @@
   --deny: #e07a6a;
   --ok: #5fc78e;
 
-  --sans: "IBM Plex Sans Variable", "IBM Plex Sans", ui-sans-serif, system-ui,
-    "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono Variable", "IBM Plex Mono", ui-monospace, "SF Mono",
-    "Cascadia Code", "Liberation Mono", monospace;
+  --sans: var(--face-sans);
+  --mono: var(--face-mono);
 
   --max: 1400px;
   --pad: clamp(20px, 4vw, 48px);
@@ -154,7 +152,8 @@ pre {
 }
 
 .brand-mark {
-  color: var(--beam);
+  width: 20px;
+  height: 20px;
   flex: none;
 }
 

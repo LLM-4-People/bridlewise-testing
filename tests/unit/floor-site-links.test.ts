@@ -35,6 +35,7 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 import { candidateSiteFiles, crawlSiteLinks, pageUrlForSitePath, resolveSiteHref } from "../../scripts/floor/site-links.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { legacyAliases, prettyPermalink, publishedDocsPage, rewritePageLinks, siteSourceViolations, sitePlan } from "../../scripts/floor/site-pages.mjs";
+import { sitePolicies } from "../../shared/site-page.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { buildRedirectSite, buildSiteSource, finishSite, readVersions, redirectTarget } from "../../scripts/floor/site.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
@@ -163,6 +164,14 @@ function repository(extra: Readonly<Record<string, string>> = {}): string {
     "package.json": JSON.stringify({ name: "fixture" }),
     "engine/x.ts": "export {};\n",
     "shared/markup.ts": readFileSync(join(REAL_ROOT, "shared/markup.ts"), "utf8"),
+    // The design system the builder generates the site's design assets from
+    // (scripts/floor/site-design.mjs): the real token owner, the files its
+    // @font-face blocks name, and the shell's two stylesheets.
+    "src/cockpit/tokens.css": readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8"),
+    ...Object.fromEntries([...readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8").matchAll(/url\("\/(fonts\/[^"]+)"\)/gu)].map((match) => [`public/${match[1]}`, "woff2"])),
+    "public/fonts/OFL.txt": "licence\n",
+    "docs/assets/css/style.css": "body { color: var(--ink-1); background: var(--ground-0); }\n",
+    "docs/assets/floor/floor.css": "",
     "docs/_config.yml": "title: Fixture\nplugins:\n  - jekyll-sitemap\n",
     "docs/_layouts/default.html": "<html><body>{{ content }}</body></html>\n",
     "docs/index.md": "---\ntitle: Home\npermalink: /\n---\n\n# Home\n\n[Roadmap](floor/roadmap.md) · [Engine](../engine/x.ts)\n",
@@ -256,6 +265,18 @@ describe("D. the source step", () => {
     expect(tasks).toContain("{% raw %}\n# Tasks");
     expect(tasks.trimEnd().endsWith("{% endraw %}")).toBe(true);
     expect(readFileSync(join(out, "floor/roadmap.md"), "utf8")).toMatch(/^---\ntitle: Roadmap\npermalink: \/floor\/roadmap\/\n---/u);
+    // The design system's generated half: the sheet holds exactly what the
+    // shell reads (and what that reads), Logbook leads, the faces are served.
+    const sheet = readFileSync(join(out, "assets/css/tokens.css"), "utf8");
+    expect(sheet).toMatch(/^\/\* GENERATED from src\/cockpit\/tokens\.css/u);
+    expect(sheet).toMatch(/:root \{\n {2}color-scheme: light;\n/u);
+    expect(sheet).toContain("\n  --ground-0: #f6f4ef;\n");
+    // The mark's inks ride in the sheet, each part from its own token.
+    expect(sheet).toContain(".brand-mark > :nth-child(1) { fill: var(--ground-0); }");
+    expect(sheet).not.toContain("--cat-turn");
+    expect(readFileSync(join(out, "_includes/design-head.html"), "utf8")).toContain('<meta name="theme-color" content="#f6f4ef">');
+    expect(readFileSync(join(out, "_includes/brand-mark.svg"), "utf8")).toMatch(/^<svg class="brand-mark"/u);
+    expect(readFileSync(join(out, "assets/fonts/OFL.txt"), "utf8")).toBe("licence\n");
     const config = readFileSync(join(out, "_config.yml"), "utf8");
     // Every coordinate comes from package.json and the deployment's base path.
     expect(parse(config)).toMatchObject({
@@ -278,6 +299,35 @@ describe("D. the source step", () => {
     expect(JSON.parse(readFileSync(join(out, "versions.json"), "utf8"))).toEqual({ current: "main", versions: [] });
   });
 
+  test("a stylesheet that is not the design system's refuses the build (scripts/floor/site-style.mjs)", async () => {
+    const root = repository({
+      "docs/assets/css/style.css": "body { color: red; font-family: Georgia; }\n",
+      "docs/assets/css/extra.scss": "---\n---\n.a { color: #fff; }\n",
+    });
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 style finding(s): ");
+    expect(lines).toContain("assets/css/extra.scss: a Sass source: the site's stylesheets are plain CSS, judged by one parser");
+    expect(lines.filter((line) => line.startsWith("assets/css/style.css:1:")).map((line) => line.replace(/^assets\/css\/style\.css:1:\d+ /u, ""))).toEqual([
+      "color: colour literal: red",
+      "font-family: not one --face-* token: Georgia",
+    ]);
+  });
+
+  test("a layout with a style of its own or a remote sheet refuses the build", async () => {
+    const root = repository({ "docs/_layouts/default.html": '<html><head><link rel="stylesheet" href="https://cdn.example/x.css"><style>p { color: var(--ink-1); }</style></head><body style="margin: 0">{{ content }}</body></html>\n' });
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 style finding(s): ");
+    expect(lines.filter((line) => line.startsWith("_layouts/default.html:1 ")).map((line) => line.replace(/^_layouts\/default\.html:1 /u, ""))).toEqual([
+      '<link rel="stylesheet"> fetches from elsewhere: https://cdn.example/x.css',
+      "<style>: the styles live in the token-reading stylesheets",
+      "<body style=…>: the styles live in the token-reading stylesheets",
+    ]);
+  });
+
   test("a plain page holding {% endraw %} is refused (it would end the raw block early)", async () => {
     const root = repository({ "docs/process/x.md": "# X\n\n{% endraw %}\n" });
     await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/cannot contain \{% endraw %\}/u);
@@ -294,7 +344,8 @@ describe("D. the source step", () => {
     const out = join(root, ".site");
     await source({ root, out, baseurl: "/bridlewise" });
     const moved = readFileSync(join(out, "floor/trackers/TASKS.md/index.html"), "utf8");
-    expect(moved).toContain('location.replace("/bridlewise/trackers/TASKS/")');
+    expect(moved).toContain('<script src="moved.js"></script>');
+    expect(readFileSync(join(out, "floor/trackers/TASKS.md/moved.js"), "utf8")).toBe('location.replace("/bridlewise/trackers/TASKS/");\n');
     expect(moved).toContain('<a href="/bridlewise/trackers/TASKS/">');
     // `/trackers/TASKS.md` is the page's own source file in the Jekyll
     // source: the redirect folder cannot and does not take its name.
@@ -320,9 +371,15 @@ describe("D. the source step", () => {
   });
 });
 
+/** A built page as the layout leaves it: the charset, the site's two policies for `base`, then what loads. */
+function policied(body: string, base = "/bridlewise"): string {
+  const [origin, scoped] = sitePolicies(base);
+  return `<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${origin}"><meta http-equiv="Content-Security-Policy" content="${scoped}"><link rel="stylesheet" href="/bridlewise/assets/css/style.css"></head><body><main id="main" class="wrap article">${body}</main></body></html>\n`;
+}
+
 /** A built site as Jekyll would leave it for `buildSiteSource` with `versions`. */
 function builtSite(versions: readonly string[], pages: Readonly<Record<string, string>> = {}): string {
-  const page = (body: string): string => `<html><head><link rel="stylesheet" href="/bridlewise/assets/css/style.css"></head><body><main id="main" class="wrap article">${body}</main></body></html>\n`;
+  const page = (body: string): string => policied(body);
   return site({
     "index.html": page('<p class="lede">Home</p><a href="/bridlewise/v/">Versions</a>'),
     "v/index.html": page(versions.map((version) => `<a href="/bridlewise/v/${version}/">${version}</a>`).join("")),
@@ -341,6 +398,29 @@ function snapshots(entries: Readonly<Record<string, Readonly<Record<string, stri
 }
 
 describe("E. the finish step: released snapshots merge whole, then the whole site is judged", () => {
+  test("every HTML file the built site serves carries the two policies first; any other output is refused", () => {
+    const [origin, scoped] = sitePolicies("/bridlewise");
+    const meta = (content: string): string => `<meta http-equiv="Content-Security-Policy" content="${content}">`;
+    const bare = "<html><head><title>bare</title></head><body><main id=\"main\" class=\"wrap article\"><p class=\"lede\">x</p></main></body></html>";
+    const siteRoot = builtSite([], {
+      "bare/index.html": bare,
+      "loud/PAGE.HTML": bare,
+      "old/page.htm": bare,
+      "one/index.html": `<html><head><meta charset="utf-8">${meta(origin)}</head><body></body></html>`,
+      "late/index.html": `<html><head><meta charset="utf-8"><title>t</title>${meta(origin)}${meta(scoped)}</head><body></body></html>`,
+      "elsewhere/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(sitePolicies("/other")[1])}</head><body></body></html>`,
+      "third/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(scoped)}</head><body><noscript>${meta("default-src *")}</noscript></body></html>`,
+      // The policies right after a script: the script loads before any policy applies.
+      "script-first/index.html": `<html><head><script src="/bridlewise/assets/js/early.js"></script>${meta(origin)}${meta(scoped)}</head><body></body></html>`,
+      "no-charset/index.html": `<html><head>${meta(origin)}${meta(scoped)}<meta charset="utf-8"></head><body></body></html>`,
+      "good/index.html": policied('<p class="lede">fine</p>'),
+      "feed.xml": "<feed/>",
+    });
+    const refusal = (() => { try { finishSite({ site: siteRoot, baseurl: "/bridlewise" }); return ""; } catch (error) { return (error as Error).message; } })();
+    const refused = refusal.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("policy: ")).map((line) => line.slice("policy: ".length).split(" ")[0]);
+    expect(refused).toEqual(["bare/index.html", "elsewhere/index.html", "late/index.html", "loud/PAGE.HTML", "no-charset/index.html", "old/page.htm", "one/index.html", "script-first/index.html", "third/index.html"]);
+  });
+
   test("versions sort newest first, a release before its pre-releases", () => {
     const dir = snapshots({ "0.2.0": { "index.html": "x" }, "0.10.0": { "index.html": "x" }, "0.10.0-rc.1": { "index.html": "x" }, "1.0.0": { "index.html": "x" } });
     expect(readVersions(dir)).toEqual(["1.0.0", "0.10.0", "0.10.0-rc.1", "0.2.0"]);
@@ -348,7 +428,7 @@ describe("E. the finish step: released snapshots merge whole, then the whole sit
   });
 
   test("a snapshot merges at /v/<version>/ and its links are crawled with the rest", () => {
-    const dir = snapshots({ "0.1.0": { "index.html": '<a href="/bridlewise/v/0.1.0/quickstart/">Quickstart</a><a href="/bridlewise/v/">Other versions</a>', "quickstart/index.html": '<a href="../">Back</a>' } });
+    const dir = snapshots({ "0.1.0": { "index.html": policied('<a href="/bridlewise/v/0.1.0/quickstart/">Quickstart</a><a href="/bridlewise/v/">Other versions</a>', "/bridlewise/v/0.1.0"), "quickstart/index.html": policied('<a href="../">Back</a>', "/bridlewise/v/0.1.0") } });
     const siteRoot = builtSite(["0.1.0"]);
     const result = finishSite({ site: siteRoot, baseurl: "/bridlewise", versionsDir: dir });
     expect(result.versions).toEqual(["0.1.0"]);

@@ -24,6 +24,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix, resolve, sep } from "node:path";
 import { decodeHtmlEntities, htmlWithout } from "../../shared/markup.ts";
+import { SERVED_HTML } from "../../shared/site-page.ts";
 import { isEntryPoint } from "../../engine/src/runtime/entry-point.ts";
 
 const HTML_TAG = /<[a-zA-Z][^>]*>/gu;
@@ -34,7 +35,7 @@ function toPosix(path) {
   return path.split(sep).join("/");
 }
 
-/** Every `.html` page under `siteRoot`, as site-relative POSIX paths. */
+/** Every page Pages serves as HTML under `siteRoot` (`shared/site-page.ts` SERVED_HTML, any case), as site-relative POSIX paths. */
 export function htmlPages(siteRoot) {
   const root = resolve(siteRoot);
   const out = [];
@@ -43,7 +44,7 @@ export function htmlPages(siteRoot) {
       const full = join(directory, entry.name);
       if (entry.isDirectory()) {
         visit(full);
-      } else if (entry.isFile() && entry.name.endsWith(".html")) {
+      } else if (entry.isFile() && SERVED_HTML.test(entry.name)) {
         out.push(toPosix(full.slice(root.length)).replace(/^\/+/u, ""));
       }
     }

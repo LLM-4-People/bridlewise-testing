@@ -308,7 +308,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     let query: ForgeRequest["query"] = { ...request.query, ...(options.perPage === undefined ? {} : { per_page: options.perPage }) };
     for (let page = 0; path !== undefined; page += 1) {
       if (page >= options.maxPages) {
-        throw new ForgeError("forge_request_invalid", `GET ${request.path}: the list has more than ${String(options.maxPages)} pages; raise the bound deliberately or narrow the query.`, { path: request.path, maxPages: options.maxPages });
+        throw new ForgeError("forge_list_oversized", `GET ${request.path}: the list has more than ${String(options.maxPages)} pages; raise the bound deliberately or narrow the query.`, { path: request.path, maxPages: options.maxPages });
       }
       const [pathOnly, search] = splitPath(path);
       const answer: ForgeResponse<unknown> = await rest({ ...request, method: "GET", path: pathOnly, query: search ?? query });

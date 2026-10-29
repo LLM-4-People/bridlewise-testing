@@ -1190,7 +1190,14 @@
       {
         "name": "bridlewise-testing",
         "kind": "trunk",
-        "visibility": "public"
+        "visibility": "public",
+        "site": {
+          "host": "bridlewise.llm4people.dev",
+          "docsPath": "/docs/"
+        },
+        "pages": {
+          "build": "workflow"
+        }
       },
       {
         "name": ".github",
@@ -1224,7 +1231,23 @@
         "name": "forge-proving-ground",
         "kind": "none",
         "visibility": "public",
-        "provingGround": true
+        "provingGround": true,
+        "pages": {
+          "build": "workflow"
+        }
+      },
+      {
+        "name": "LLM-4-People.github.io",
+        "kind": "none",
+        "visibility": "public",
+        "pages": {
+          "build": "legacy",
+          "branch": "main",
+          "path": "/"
+        },
+        "apps": [
+          "publisher"
+        ]
       }
     ],
     "maintainerCli": {

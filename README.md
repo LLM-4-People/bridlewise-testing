@@ -22,7 +22,7 @@ This repository is the development floor: the source of Bridlewise together with
 | Every change passes a secret scan before it lands in the public tree | `testing.secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
 | CodeQL analyses every change | `testing.codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
 
-A claim whose check is red is struck out on the [live claims page](https://llm-4-people.github.io/bridlewise-testing/floor/claims/) until it passes again.
+A claim whose check is red is struck out on the [live claims page](https://bridlewise.llm4people.dev/floor/claims/) until it passes again.
 
 **Designed, not built yet:** A malicious module cannot bypass the core ([UD-CORE-NO-BYPASS](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md)); The model never sees a credential ([CRED-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/CRED-DIR-credentials-the-model-never-sees.md)); Layered memory with provenance and forgetting ([MEM-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/MEM-DIR-continue-the-memory-layers-lab.md)).
 
@@ -40,14 +40,14 @@ A claim whose check is red is struck out on the [live claims page](https://llm-4
 | I want to | Go to |
 |---|---|
 | Help test, review, or improve the floor | [How to help][site:floor/help/] · [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Build on the harness | [Building on the harness](docs/extending.md) · [Architecture][product-site:architecture/] |
+| Build on the harness | [Building on the harness](docs/extending.md) · [Architecture][docs:architecture/] |
 | See where the work is going | [Build roadmap][site:floor/roadmap/] |
 | Verify a claim | [Floor evidence][site:floor/evidence/] · [Status][site:floor/status/] |
-| Use the product | [Product repository][product:] · [Product docs][product-site:] |
+| Use the product | [Product repository][product:] · [Product docs][docs:] |
 
 ## The site is a floor, not a product mirror
 
-The [testing site][site:] starts with a **contributor hub**, not a copy of the product home. The complete product documentation is still mirrored on the site, with a [product documentation entry point][site:product/]. The product home remains at [the product's site][product-site:].
+The [testing site][site:] starts with a **contributor hub**, not a copy of the product home. The complete product documentation is still mirrored on the site, with a [product documentation entry point][site:product/]. The product home remains at [the site][site:].
 
 The [development floor][site:floor/] is part of that site. It carries a generated test atlas, a public status snapshot, the promotion contract, the build roadmap, the contribution guide, and the evidence commands. The mirror is assembled from the public product docs at build time. It is not a second copy in Git.
 
@@ -234,9 +234,9 @@ Model invocation, repository mutation, process execution, and network egress are
 | [docs/decisions/](docs/decisions/) | The decision records, one per rule, with a generated index |
 | [docs/floor/](docs/floor/) | Source pages for the generated development-floor site |
 | [docs/design/](docs/design/) | Selected cockpit, performance, and structure essays |
-| [The product's architecture pages][product-site:architecture/] | Architecture and migration design records |
+| [The product's architecture pages][docs:architecture/] | Architecture and migration design records |
 
-The public product docs live at [the product's site][product-site:] once the site is published.
+The public product docs live at [the documentation][docs:] once the site is published.
 
 ## Status
 
@@ -259,18 +259,18 @@ AGPL-3.0-only. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_N
 **Every run, recorded. Every tool, governed.** But not yet ready for your production code.
 
 <!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
-[product-site:]: https://llm-4-people.github.io/bridlewise/
-[product-site:architecture/]: https://llm-4-people.github.io/bridlewise/architecture/
+[docs:]: https://bridlewise.llm4people.dev/docs/
+[docs:architecture/]: https://bridlewise.llm4people.dev/docs/architecture/
 [product:]: https://github.com/LLM-4-People/bridlewise
 [repo:actions/workflows/ci.yml]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml
 [repo:actions/workflows/ci.yml/badge.svg?branch=main]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/ci.yml/badge.svg?branch=main
 [repo:actions/workflows/secret-scan.yml]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml
 [repo:actions/workflows/secret-scan.yml/badge.svg?branch=main]: https://github.com/LLM-4-People/bridlewise-testing/actions/workflows/secret-scan.yml/badge.svg?branch=main
-[site:]: https://llm-4-people.github.io/bridlewise-testing/
-[site:floor/]: https://llm-4-people.github.io/bridlewise-testing/floor/
-[site:floor/evidence/]: https://llm-4-people.github.io/bridlewise-testing/floor/evidence/
-[site:floor/help/]: https://llm-4-people.github.io/bridlewise-testing/floor/help/
-[site:floor/roadmap/]: https://llm-4-people.github.io/bridlewise-testing/floor/roadmap/
-[site:floor/status/]: https://llm-4-people.github.io/bridlewise-testing/floor/status/
-[site:product/]: https://llm-4-people.github.io/bridlewise-testing/product/
+[site:]: https://bridlewise.llm4people.dev/
+[site:floor/]: https://bridlewise.llm4people.dev/floor/
+[site:floor/evidence/]: https://bridlewise.llm4people.dev/floor/evidence/
+[site:floor/help/]: https://bridlewise.llm4people.dev/floor/help/
+[site:floor/roadmap/]: https://bridlewise.llm4people.dev/floor/roadmap/
+[site:floor/status/]: https://bridlewise.llm4people.dev/floor/status/
+[site:product/]: https://bridlewise.llm4people.dev/product/
 <!-- END GENERATED: repository links -->

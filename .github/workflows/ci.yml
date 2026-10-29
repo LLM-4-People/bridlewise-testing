@@ -349,3 +349,14 @@ jobs:
             process.stdout.write(text);
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
           '
+
+      # The same verdict as an artifact (pass/fail/total and every failure), so
+      # a reader outside this run — the landing page's claims, bound to the job
+      # that proves each one — reads the job's own result, not a summary of it.
+      - name: Upload the engine suite's summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: engine-test-summary
+          path: engine/.bridlewise/state/test-results/latest-summary.json
+          if-no-files-found: error
