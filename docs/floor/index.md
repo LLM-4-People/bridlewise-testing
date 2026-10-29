@@ -27,7 +27,7 @@ The floor is not the product, a staging environment, a hosted service, or a supp
 
 ## How far the decisions are built
 
-<figure class="system-figure">
+<figure class="system-figure" tabindex="0">
   {% include figures/decision-status.svg %}
   <figcaption>Every decision record by how far it is built, counted from the records' front matter when this site was built. Read the records in the <a href="{{ '/decisions/' | relative_url }}">decision index</a>.</figcaption>
 </figure>

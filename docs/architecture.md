@@ -19,7 +19,7 @@ Nothing in this document is a claim of production readiness. The engine is pre-a
 
 ## The shape
 
-<figure class="system-figure">
+<figure class="system-figure" tabindex="0">
   {% include figures/architecture.svg %}
   <figcaption>The local shape. The provider is the one intentional egress; the key home is outside every checkout.</figcaption>
 </figure>

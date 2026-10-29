@@ -1053,6 +1053,17 @@ figcaption {
   max-width: 100%;
 }
 
+/* A figure drawn to a fixed width keeps its type legible on a narrow screen:
+   it scrolls inside its own frame (which takes focus, so a keyboard scrolls
+   it too) instead of shrinking its labels below reading size. */
+.system-figure {
+  overflow-x: auto;
+}
+
+.system-figure > .fig {
+  min-width: 600px;
+}
+
 .screenshot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
