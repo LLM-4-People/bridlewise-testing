@@ -26,7 +26,7 @@
     "inventory:recover": "node scripts/test-inventory.ts --recover",
     "coverage": "node scripts/tooling/coverage.ts",
     "test:coverage": "npm run coverage",
-    "manifest:candidate": "node scripts/tooling/candidate-manifest.ts --root .",
+    "manifest:candidate": "node scripts/verification/candidate-manifest.ts --root .",
     "verify:s1": "node scripts/tooling/check.ts",
     "check": "npm run typecheck && node scripts/tooling/check.ts",
     "foundation:plan": "node scripts/tooling/foundation.ts plan",

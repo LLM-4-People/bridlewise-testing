@@ -50,7 +50,9 @@
  * wanted, it needs its own ordering design, not a `Promise.all`.
  */
 import { describe, expect, test, beforeAll, afterAll } from "vitest";
+import { spawnSync } from "node:child_process";
 import { writeFileSync, readFileSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { join } from "node:path";
 
 import { executeToolCall } from "../../server/tools/tool-executor.ts";
@@ -60,13 +62,20 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 import { walk, codeStructureOnly } from "../helpers/source-scan.ts";
 
 /** A config that allows the commands these tests need, with tight bounds. */
+/**
+ * The loop test's hang backstop: only a BROKEN executor (a loop blocked for
+ * the child's run) reaches it; a correct one finishes at the loop's next
+ * turn, so a loaded host never fails it.
+ */
+const TOOL_HANG_BACKSTOP_MS = 600_000;
+
 function writeConfig(dir: string, timeoutMs: number): string {
   const path = join(dir, "harness.config.json");
   writeFileSync(
     path,
     JSON.stringify({
       tools: {
-        allowedCommands: ["sleep", "yes", "echo"],
+        allowedCommands: ["sleep", "yes", "echo", "cat"],
         defaultBounds: { timeoutMs, maxOutputBytes: 64 * 1024, maxMemoryBytes: 1 << 28 },
       },
       // WRITTEN DOWN ON PURPOSE, and the fact that it has to be is the
@@ -200,64 +209,38 @@ function droppedExecutorCalls(code: string): number[] {
 }
 
 describe("the event loop stays free while a tool subprocess runs", () => {
-  test("a 10ms timer keeps firing across a 700ms subprocess", async () => {
-    useConfig(30_000);
+  test("a tool subprocess that can only finish if the loop turns DURING it, finishes", async () => {
+    // JUDGED BY AN EVENT, never by timer ticks against a wall-time child
+    // (NO-LOAD-BLOCK): a loaded host gives a free loop fewer turns, so a
+    // count of 10 ms firings judged the host. Here the child is `cat` on a
+    // FIFO, and the only writer is a callback this loop runs AFTER the call
+    // has started. A loop blocked for the child's whole run (the old
+    // `spawnSync`) can never run that callback, so `cat` never sees a writer
+    // and the call ends only at its hang backstop, without the token. A free
+    // loop runs it at its next turn, however loaded the host is.
+    useConfig(TOOL_HANG_BACKSTOP_MS);
+    const fifo = join(projectRoot, "loop-turn.fifo");
+    const made = spawnSync("mkfifo", [fifo], { encoding: "utf8" });
+    expect(made.status, `mkfifo: ${made.stderr}`).toBe(0);
 
-    // The instrument L1 is written in terms of: a timer that cannot get a
-    // turn is a loop that is not turning. Under `spawnSync` this counted
-    // ZERO for the whole duration of the child, whatever the interval.
-    let ticks = 0;
-    let worstGapMs = 0;
-    let last = performance.now();
-    const timer = setInterval(() => {
-      const now = performance.now();
-      worstGapMs = Math.max(worstGapMs, now - last);
-      last = now;
-      ticks += 1;
-    }, 10);
+    const TOKEN = "written-by-a-loop-turn-during-the-call";
+    let wroteDuringCall = false;
+    // The writer runs at the loop's next turn. Its open waits (off the loop)
+    // until `cat` holds the read end, and `cat` ends only when the writer
+    // CLOSES — which takes further loop turns while the call is running.
+    setImmediate(() => {
+      void (async () => {
+        const writer = await open(fifo, "w");
+        await writer.write(TOKEN);
+        await writer.close();
+        wroteDuringCall = true;
+      })();
+    });
+    const res = await executeToolCall("execute_command", { command: "cat", args: [fifo] }, { projectRoot });
 
-    const started = performance.now();
-    const res = await executeToolCall(
-      "execute_command",
-      { command: "sleep", args: ["0.7"] },
-      { projectRoot },
-    );
-    const elapsed = performance.now() - started;
-    clearInterval(timer);
-
-    expect(res.success, `sleep must run: ${res.output}`).toBe(true);
-    // The child really did take its time — otherwise the loop had nothing to
-    // be free DURING, and a green result would mean nothing.
-    expect(elapsed, "the subprocess did not actually block for ~700ms").toBeGreaterThan(500);
-
-    // 700ms at a 10ms interval is ~70 expected firings. The bar is
-    // deliberately far below that (timers are not precise, and the suite runs
-    // 400 files in parallel) while being utterly out of reach of a blocked
-    // loop, which scores exactly 0.
-    expect(
-      ticks,
-      `the event loop got ${String(ticks)} turns during a ${elapsed.toFixed(0)}ms tool call ` +
-        `(worst gap ${worstGapMs.toFixed(0)}ms). A blocked loop scores 0 — that was the ` +
-        `spawnSync behaviour, where one tool call froze every other user's stream.`,
-    ).toBeGreaterThan(20);
-
-    // Printed, not merely asserted: this is the §1 L1 number for tool
-    // execution, and a reader of the run output should see what it was rather
-    // than only learning it when it breaks. Measured across this conversion,
-    // same test, same machine: 0 turns / 703ms worst gap with the blocking
-    // spawn, 68 turns / 11.2ms with the async one.
-    console.info(
-      `[L1] event-loop turns during a ${elapsed.toFixed(0)}ms tool call: ` +
-        `${String(ticks)} (worst gap ${worstGapMs.toFixed(1)}ms)`,
-    );
-
-    // The shape metric, not the count: no single stall may approach the
-    // child's own duration. A loop blocked for the whole spawn shows one gap
-    // the size of the call.
-    expect(
-      worstGapMs,
-      `a single ${worstGapMs.toFixed(0)}ms stall inside a ${elapsed.toFixed(0)}ms call`,
-    ).toBeLessThan(elapsed / 2);
+    expect(res.success, `the call finished only at its hang backstop: the loop never turned during it (${res.output})`).toBe(true);
+    expect(res.output).toContain(TOKEN);
+    expect(wroteDuringCall, "the writer closed before the call answered").toBe(true);
   });
 });
 

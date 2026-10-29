@@ -171,7 +171,11 @@ export function fsyncDirectory(directory: string): void {
   }
 }
 
-export function atomicWriteFile(requestedPath: string, content: string | Uint8Array, options: AtomicWriteOptions = {}): AtomicWriteResult {
+/** A write prepared: where it lands, its temporary sibling, the mode the result carries and the mode the temp file opens with. */
+type PreparedWrite = Readonly<{ resolvedPath: string; dir: string; tempPath: string; targetMode: number | undefined; openMode: number }>;
+
+/** Everything before the first byte: the target (links refused), the door, the sweep, the modes. A refusal throws; a mode conflict is an answer. */
+function prepareWrite(requestedPath: string, options: AtomicWriteOptions): PreparedWrite | AtomicWriteResult {
   const resolvedPath = atomicWriteTargetOf(requestedPath, options.linkTargetRoots ?? []);
   assertCheckoutWriteAllowed(resolvedPath);
   const dir = dirname(resolvedPath);
@@ -208,45 +212,86 @@ export function atomicWriteFile(requestedPath: string, content: string | Uint8Ar
       ? options.requiredMode
       : existingMode & options.requiredMode
     : existingMode);
+  if (options.createParentDirectories !== false) bestEffort(() => mkdirSync(dir, { recursive: true }));
+  // A new file with no mode policy is created the way the caller asked (the
+  // umask applies, as for any open); every other case starts private and is
+  // widened to its target mode through the descriptor below.
+  return { resolvedPath, dir, tempPath, targetMode, openMode: targetMode === undefined ? options.createMode ?? PRIVATE_FILE_MODE : PRIVATE_FILE_MODE };
+}
 
-  let fd: number | undefined;
+/** Every byte of `bytes` at the descriptor. */
+function writeAll(fd: number, bytes: Uint8Array): void {
+  let written = 0;
+  while (written < bytes.length) written += writeSync(fd, bytes, written, bytes.length - written);
+}
+
+/** The complete temp file published under the target: fsync, mode carried through the descriptor, close, rename (or link), and the directory's fsync when durable. */
+function publishWrite(fd: number, prepared: PreparedWrite, options: AtomicWriteOptions): void {
   try {
-    if (options.createParentDirectories !== false) bestEffort(() => mkdirSync(dir, { recursive: true }));
-    // A new file with no mode policy is created the way the caller asked (the
-    // umask applies, as for any open); every other case starts private and is
-    // widened to its target mode through the descriptor below.
-    fd = openSync(tempPath, "wx", targetMode === undefined ? options.createMode ?? PRIVATE_FILE_MODE : PRIVATE_FILE_MODE);
-    const bytes = typeof content === "string" ? Buffer.from(content, "utf8") : content;
-    let written = 0;
-    while (written < bytes.length) {
-      written += writeSync(fd, bytes, written, bytes.length - written);
-    }
-    const fdSafe = fd;
-    if (options.durable === true) fsyncSync(fdSafe);
-    else bestEffort(() => fsyncSync(fdSafe));
+    if (options.durable === true) fsyncSync(fd);
+    else bestEffort(() => fsyncSync(fd));
     // Through the DESCRIPTOR, not the path: the temp name cannot be swapped
     // for something else between the write and the permission change. NOT
     // best-effort — a write that silently re-permissions its target is the
     // defect this exists to prevent, so failing to carry the mode across is
     // a failed write, not a footnote.
-    if (targetMode !== undefined) fchmodSync(fdSafe, targetMode);
-    closeSync(fd);
+    if (prepared.targetMode !== undefined) fchmodSync(fd, prepared.targetMode);
+  } catch (error) {
+    bestEffort(() => closeSync(fd));
+    throw error;
+  }
+  closeSync(fd);
+  if (options.exclusive === true) {
+    linkSync(prepared.tempPath, prepared.resolvedPath);
+    unlinkSync(prepared.tempPath);
+  } else {
+    renameSync(prepared.tempPath, prepared.resolvedPath);
+  }
+  if (options.durable === true) fsyncDirectory(prepared.dir);
+}
+
+/** A failed write: its descriptor closed (when still open) and its temp file removed; the target is untouched. */
+function abandonWrite(fd: number | undefined, prepared: PreparedWrite, error: unknown): AtomicWriteResult {
+  if (fd !== undefined) bestEffort(() => closeSync(fd));
+  bestEffort(() => unlinkSync(prepared.tempPath));
+  return { success: false, reason: extractErrorMessage(error), error };
+}
+
+export function atomicWriteFile(requestedPath: string, content: string | Uint8Array, options: AtomicWriteOptions = {}): AtomicWriteResult {
+  const prepared = prepareWrite(requestedPath, options);
+  if ("success" in prepared) return prepared;
+  let fd: number | undefined;
+  try {
+    fd = openSync(prepared.tempPath, "wx", prepared.openMode);
+    writeAll(fd, typeof content === "string" ? Buffer.from(content, "utf8") : content);
+    const open = fd;
     fd = undefined;
-    if (options.exclusive === true) {
-      linkSync(tempPath, resolvedPath);
-      unlinkSync(tempPath);
-    } else {
-      renameSync(tempPath, resolvedPath);
-    }
-    if (options.durable === true) fsyncDirectory(dir);
+    publishWrite(open, prepared, options);
     return { success: true };
   } catch (error) {
-    const reason = extractErrorMessage(error);
-    if (fd !== undefined) {
-      const fdErr = fd;
-      bestEffort(() => closeSync(fdErr));
-    }
-    bestEffort(() => unlinkSync(tempPath));
-    return { success: false, reason, error };
+    return abandonWrite(fd, prepared, error);
+  }
+}
+
+/**
+ * The same write, with its content STREAMED: `fill` appends chunks as they
+ * arrive (a download), and the file is published only when `fill` resolves.
+ * When `fill` rejects (a refused checksum, a stall), the temp file is removed
+ * and the target is untouched: nothing partial is ever visible under the
+ * target's name. The content never has to fit in memory.
+ */
+export async function atomicWriteStream(requestedPath: string, fill: (append: (chunk: Uint8Array) => void) => Promise<void>, options: AtomicWriteOptions = {}): Promise<AtomicWriteResult> {
+  const prepared = prepareWrite(requestedPath, options);
+  if ("success" in prepared) return prepared;
+  let fd: number | undefined;
+  try {
+    fd = openSync(prepared.tempPath, "wx", prepared.openMode);
+    const target = fd;
+    await fill((chunk) => writeAll(target, chunk));
+    fd = undefined;
+    publishWrite(target, prepared, options);
+    return { success: true };
+  } catch (error) {
+    return abandonWrite(fd, prepared, error);
   }
 }

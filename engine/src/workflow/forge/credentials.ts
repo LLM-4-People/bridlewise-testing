@@ -1,6 +1,6 @@
 /**
  * THE FORGE CREDENTIALS — every way a forge client is told who it runs as.
- * There are exactly five, and none reads a token from a file:
+ * There are exactly six, and none reads a token from a file:
  *
  * - {@link appInstallationCredential}: an App installation token, minted by
  *   the harness from the host's key custody (`app-keys.ts`), narrowed to ONE
@@ -8,6 +8,9 @@
  *   registry, `app-registry.ts`), cached in memory until shortly before it
  *   expires, and checked: a token GitHub minted for other permissions or
  *   repositories than asked is `forge_token_scope_mismatch`;
+ * - {@link appInstallationMetadataCredential}: an installation token that
+ *   reads only metadata, on every repository the installation was granted
+ *   (the apps audit lists that set), checked like the others;
  * - {@link appJwtCredential}: the App itself (a 9-minute RS256 JWT, `iss` = the
  *   client id), for the App-level endpoints (`/app/…`) only;
  * - {@link environmentCredential}: a token the process was handed in an
@@ -34,18 +37,28 @@ function base64url(bytes: Uint8Array | string): string {
 
 /** An RS256 JWT for `role`, signed by the custody (the key never leaves it). */
 export function appJwt(custody: AppKeyCustody, role: ForgeAppRole, nowMs: number): string {
-  const { clientId } = custody.identity(role);
+  const clientId = custody.clientId(role);
   const now = Math.floor(nowMs / 1000);
   const input = `${base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }))}.${base64url(JSON.stringify({ iat: now - JWT_BACKDATE_SECONDS, exp: now + JWT_LIFETIME_SECONDS, iss: clientId }))}`;
   return `${input}.${base64url(custody.signRs256(role, Buffer.from(input, "utf8")))}`;
 }
 
 /** The App itself (`role`), for `/app/…` endpoints. */
-function appJwtCredential(custody: AppKeyCustody, role: ForgeAppRole): ForgeCredential {
+export function appJwtCredential(custody: AppKeyCustody, role: ForgeAppRole): ForgeCredential {
   return Object.freeze({
     principal: `app:${FORGE_APPS[role].name}`,
     authorization: async () => `Bearer ${appJwt(custody, role, Date.now())}`,
   });
+}
+
+/**
+ * THE FORGE'S ONE READ of a value handed to the process in its environment
+ * (a token, an App's key or client id): read at each use and held nowhere.
+ * A blank value is no value.
+ */
+export function handedValue(variable: string): string | undefined {
+  const value = process.env[variable];
+  return value === undefined || value.trim() === "" ? undefined : value;
 }
 
 /** A token handed to the process in `variable`, read at call time. */
@@ -53,8 +66,8 @@ export function environmentCredential(principal: string, variable: string): Forg
   return Object.freeze({
     principal,
     authorization: async () => {
-      const token = process.env[variable];
-      if (token === undefined || token.trim() === "") throw new ForgeError("forge_token_unavailable", `The environment variable ${variable} holds no token.`, { variable, principal });
+      const token = handedValue(variable);
+      if (token === undefined) throw new ForgeError("forge_token_unavailable", `The environment variable ${variable} holds no token.`, { variable, principal });
       return `Bearer ${token.trim()}`;
     },
   });
@@ -104,6 +117,35 @@ function checkMinted(answer: AccessTokenAnswer, asked: ForgePermissions, request
   }
   return Object.freeze({ token: answer.token, expiresAtMs: Date.parse(answer.expires_at) });
 }
+
+/**
+ * An installation token that can only READ METADATA, on every repository the
+ * installation `installationId` was granted. `harness forge apps audit` uses
+ * it to list exactly that set. GitHub must mint `metadata: read` and nothing
+ * else (`forge_token_scope_mismatch`); it is minted once, for one audit.
+ */
+export function appInstallationMetadataCredential(endpoint: ForgeEndpoint, custody: AppKeyCustody, role: ForgeAppRole, installationId: number): ForgeCredential {
+  const app = githubClient(endpoint, appJwtCredential(custody, role));
+  let pending: Promise<string> | undefined;
+  const mint = async (signal: AbortSignal): Promise<string> => {
+    const answer = (await app.rest<AccessTokenAnswer>({ method: "POST", path: `/app/installations/${String(installationId)}/access_tokens`, body: { permissions: METADATA_ONLY }, signal })).data ?? {};
+    if (typeof answer.token !== "string" || answer.token === "") throw new ForgeError("github_response_invalid", "GitHub's installation token answer carries no token.", { role });
+    const granted = (typeof answer.permissions === "object" && answer.permissions !== null ? answer.permissions : {}) as Record<string, unknown>;
+    const mismatched = [...new Set([...Object.keys(METADATA_ONLY), ...Object.keys(granted)])].filter((name) => granted[name] !== METADATA_ONLY[name]);
+    if (mismatched.length > 0) throw new ForgeError("forge_token_scope_mismatch", `GitHub minted the ${role} audit token for other permissions than metadata: read.`, { role, permissions: mismatched });
+    return answer.token;
+  };
+  return Object.freeze({
+    principal: `app:${FORGE_APPS[role].name}#${String(installationId)}:metadata`,
+    authorization: async (signal: AbortSignal) => {
+      pending ??= mint(signal);
+      return `Bearer ${await pending}`;
+    },
+  });
+}
+
+/** The one permission an audit token holds. */
+const METADATA_ONLY: ForgePermissions = Object.freeze({ metadata: "read" });
 
 /**
  * An App installation token for `request.role` on ONE repository, narrowed to

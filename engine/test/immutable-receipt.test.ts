@@ -6,7 +6,7 @@ import { join } from "node:path";
 import nodeTest, { type TestContext } from "node:test";
 
 import { runWorkerWithEvidence } from "../scripts/tooling/run-tests.ts";
-import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../scripts/tooling/candidate-manifest.ts";
+import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../scripts/verification/candidate-manifest.ts";
 import { createTestInventory, createTestInventoryEntry, testInventoryIdentity } from "../scripts/test-inventory.ts";
 import {
   beginRecordedExecution,

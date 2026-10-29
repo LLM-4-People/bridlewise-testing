@@ -573,34 +573,20 @@ export function closeTestRunScratch(scratch: TestRunScratch): void {
   removeOwnedTemporaryDirectory(scratch.root);
 }
 
-const VALUED_NODE_OPTIONS: ReadonlySet<string> = new Set([...POLICY.nodeCodeOptions, ...POLICY.nodeValuedOptions]);
-
 /**
  * WHICH SUITE A `node --test` RUN IS (the guard runner's, scripts/tooling/test-guards.ts),
- * from WHAT node will run, never from how an argument is spelled (N3, N7):
- * every argument is an option (a valued one as one `--option=value` token: a
- * separate value would be read as a file) or an existing regular file, named
- * by its real location. A glob, a brace list or anything node would expand
- * itself is refused (`test_arguments_unresolved`). The LIVE suite's (`liveRoot`,
- * unconfined by design: real host facts) is a run whose every file really lies
- * there; a run mixing live and hermetic files is refused, so a hermetic file
- * never rides along unconfined.
+ * from the very files node will run (absolute, the runner resolved them), by
+ * their real location, never by how a path is spelled (N3, N7). The LIVE
+ * suite's (`liveRoot`, unconfined by design: real host facts) is a run whose
+ * every file really lies there; a run mixing live and hermetic files is
+ * refused, so a hermetic file never rides along unconfined.
  */
-export function testRunSuiteOf(args: readonly string[], liveRoot: string): "live" | "hermetic" | Readonly<{ refused: string }> {
+export function testRunSuiteOf(files: readonly string[], liveRoot: string): "live" | "hermetic" | Readonly<{ refused: string }> {
   const live = resolveLocation(realpathSync(liveRoot), "the live suite");
-  const files: ReturnType<typeof resolveLocation>[] = [];
-  for (const arg of args) {
-    if (arg.startsWith("-")) {
-      if (!arg.includes("=") && VALUED_NODE_OPTIONS.has(arg)) return { refused: `test_arguments_unresolved: give ${arg} its value as one ${arg}=value token` };
-      continue;
-    }
-    const found = statSync(arg, { throwIfNoEntry: false });
-    if (found === undefined || !found.isFile()) return { refused: `test_arguments_unresolved: not an existing test file (globs and patterns are expanded by the caller): ${arg}` };
-    files.push(resolveLocation(realpathSync(arg), "a test file"));
-  }
   const overlap = identityOverlapIndex();
-  const inLive = files.filter((file) => overlap.atOrUnder(file, live));
+  const located = files.map((file) => resolveLocation(realpathSync(file), "a test file"));
+  const inLive = located.filter((file) => overlap.atOrUnder(file, live));
   if (inLive.length === 0) return "hermetic";
-  if (inLive.length !== files.length) return { refused: "test_live_suite_mixed: a live-suite run takes engine/live/ files only: the live suite runs unconfined, a hermetic file never does" };
+  if (inLive.length !== located.length) return { refused: "test_live_suite_mixed: a live-suite run takes engine/live/ files only: the live suite runs unconfined, a hermetic file never does" };
   return "live";
 }

@@ -28,7 +28,7 @@
     },
     {
       "path": ".github/forge/security-configuration/org.bridlewise-baseline.json",
-      "sha256": "c4060a3a0fc3884a961ff740757213aca86b96dc79cea732077ad97c9f0b44fe"
+      "sha256": "6b296b81809d5c53b7064227d4531d19990bb79abefeea178f7bd39f06bb8291"
     },
     {
       "path": ".github/forge/security-configuration-repositories/org.bridlewise-baseline.json",
@@ -36,7 +36,7 @@
     },
     {
       "path": ".github/forge/security-configuration/org.bridlewise-baseline-private.json",
-      "sha256": "a8f034069b16c8e236e9623aeb771b4cd8eb6d2e09d8017acf8d9d67c50b7fd9"
+      "sha256": "2c0a319b8c3c36f2bef1e7a99cce969f87428443cd6eafff2fc9c864e704cd34"
     },
     {
       "path": ".github/forge/security-configuration-repositories/org.bridlewise-baseline-private.json",
@@ -188,7 +188,7 @@
     },
     {
       "path": ".github/forge/org-ruleset/org.baseline.json",
-      "sha256": "69fb2b1b2fda0754dd6f9433c0ca40e3b4a6176da56b006460987e6085399d1c"
+      "sha256": "0b06ca6a3b80ec02e683b7c3cb0d0114d76df28acf2afb688e8e7d0460a8c9f0"
     },
     {
       "path": ".github/forge/ruleset/bridlewise-testing.trunk.json",
@@ -216,11 +216,11 @@
     },
     {
       "path": ".github/forge/ruleset/bridlewise-coordination.content-policy.json",
-      "sha256": "a5e8ad56f3b8b74525caecfe7a2178b63061e9f1afe8e753de7c43a56f45e6d9"
+      "sha256": "8eb040ac742abbeb1df8cde494ff41c3adb7f7a169f91c1bd50df4b535c52a5b"
     },
     {
       "path": ".github/forge/repository-settings/forge-proving-ground.forge-proving-ground.json",
-      "sha256": "74d736691b9c7224885ac6b85f10f71108627e9ae353b2393497492e5cde3f94"
+      "sha256": "163017160fba5a9d1aee2fc3abbcd95723562f4e3449fb3018444090845b7b4e"
     },
     {
       "path": ".github/forge/ruleset/forge-proving-ground.proving-main.json",
@@ -377,6 +377,10 @@
     {
       "path": ".github/dependabot.yml",
       "sha256": "a9636142974b671d6a86e2c394bbd6fd1fcd31c3ea5a56d501547c63b7cbe345"
+    },
+    {
+      "path": ".github/forge/repository-identity.json",
+      "sha256": "341d4aa1ffb0641e3bdc020462f55a805cc9e5621ff47f606e308487bc7e7a1a"
     },
     {
       "path": ".github/CODEOWNERS",

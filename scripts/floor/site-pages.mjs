@@ -25,7 +25,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { posix, resolve } from "node:path";
 
-import { coordinatesOf, repositoryFileUrl, spelledUrls } from "./repository.mjs";
+import { COORDINATES, repositoryFileUrl, spelledUrls } from "./repository.mjs";
 
 /** The site's only source folder, repository-relative. */
 export const DOCS_ROOT = "docs";
@@ -126,8 +126,7 @@ function markdownFiles(root) {
  * permalink (`null` when `published: false`), and a map from each published
  * permalink to its page. Two pages answering one URL refuse the plan.
  */
-export function sitePlan({ root }) {
-  const coordinates = coordinatesOf(root);
+export function sitePlan({ root, coordinates = COORDINATES }) {
   const pages = new Map();
   const byPermalink = new Map();
   const collisions = [];
@@ -256,7 +255,7 @@ export function legacyAliases(plan) {
  * declaration (`repository.mjs`) and the deployment: the builder refuses a
  * source config that declares one (a second owner of that value).
  */
-export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "versions_url", "release_version"]);
+export const BUILDER_OWNED_CONFIG_KEYS = Object.freeze(["url", "baseurl", "repository", "repository_url", "security_url", "product_repository", "product_repository_url", "docs_url", "preview_repository_url", "versions_url", "release_version"]);
 
 /**
  * The record collections under `docs/`: data and dated records the site
@@ -332,17 +331,18 @@ function textFiles(root) {
  * - two pages for one URL, and a moved URL a page still publishes;
  * - a relative link of a published page that names nothing;
  * - a source file that spells the repository's own GitHub or Pages URL (the
- *   one declaration is `package.json`; pages read `site.repository_url`,
+ *   one source is the repository identity; pages read `site.repository_url`,
  *   `site.url` and `site.baseurl`, links into the tree stay relative);
  * - any link into the released versions' folder, in any form
  *   ({@link siteLinkTargets}): inside a release snapshot it would resolve
  *   under the snapshot, where no versions page exists (`site.versions_url`
  *   names the live one).
- * It reads no dependency, so `npm run docs:links` runs before any install;
- * the builder adds the configuration's own refusals (`site.mjs`).
+ * It reads the repository identity from the file `harness sync` generates
+ * (`repository.mjs`), so it needs no install; the builder adds the
+ * configuration's own refusals (`site.mjs`).
  */
-export function siteSourceViolations({ root }) {
-  const plan = sitePlan({ root });
+export function siteSourceViolations({ root, coordinates = COORDINATES }) {
+  const plan = sitePlan({ root, coordinates });
   const violations = [...plan.collisions];
   for (const page of plan.byPermalink.values()) {
     const { errors } = rewritePageLinks(readFileSync(page.file, "utf8"), { pageDocsPath: page.docsPath, root, plan });
@@ -361,7 +361,7 @@ export function siteSourceViolations({ root }) {
         if (record && kind === "object") continue;
         violations.push(record
           ? `${path}:${String(index + 1)}: spells ${url}; a record cites a repository file or folder by a relative link and the site by its own pages (only a GitHub object — an issue, a pull request, a discussion, a commit, a release, a run — is cited by URL)`
-          : `${path}:${String(index + 1)}: spells the repository's own URL (${url}); use site.repository_url, site.url and site.baseurl, or a relative link (package.json repository.url is the one declaration)`);
+          : `${path}:${String(index + 1)}: spells the repository's own URL (${url}); use site.repository_url, site.url and site.baseurl, or a relative link (the repository identity is the one source)`);
       }
       for (const target of fenced[index] ? [] : siteLinkTargets(line, pageUrl)) {
         if (inVersionsFolder(target)) violations.push(`${path}:${String(index + 1)}: links ${target} in the versions folder, which a release snapshot resolves under itself; use site.versions_url`);

@@ -16,18 +16,20 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import test from "node:test";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { TRACKER_ITEM_TYPES } from "../../src/workflow/failure-owners.ts";
+import { FORGE_ISSUE_TYPES } from "../../src/workflow/forge/declarations.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { applyProjection, planProjection, projectionFailure } from "../../src/workflow/forge/projector/apply.ts";
 import { PROJECTION_INPUT_SCHEMA, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
 import { computeProjection, deterministicCall, projectionInput } from "../../src/workflow/forge/projector/projection.ts";
-import { confinedCall, PROJECTION_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { confinedCall, confinedModules, PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { compileSelfProtectionConfigToSpec, resolveGuardianBinaryPath } from "../../src/filesystem/self-protection/guardian-binary.ts";
 import { narrowGuardianSpec } from "../../src/filesystem/self-protection/confined-run.ts";
 import { procfsPath } from "../../src/process/process-facts.ts";
@@ -36,6 +38,7 @@ import { emptyKeepOutFacts } from "../support/keep-out-facts.ts";
 import { requireHost } from "../support/host-requirement.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
+import { configuredRepositoryIdentity } from "../../src/workflow/forge/repository-identity.ts";
 import { memoryStore } from "./projection-store.ts";
 
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
@@ -87,11 +90,14 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   const second = computeProjection(JSON.parse(JSON.stringify(INPUT)) as ProjectionInput, CONFINEMENT);
   assert.equal(first.digest, second.digest, "two confined processes (each computing twice), one digest");
   const directory = createTempDir("projector-confined-");
+  // Each planted program's root is its own folder; a sibling written beside that folder lies outside it.
   const planted = (name: string, source: string, siblings: Readonly<Record<string, string>> = {}): ConfinedModule => {
-    const entry = join(directory, `${name}.ts`);
+    const root = join(directory, name);
+    mkdirSync(root, { recursive: true });
+    const entry = join(root, `${name}.ts`);
     writeFileSync(entry, source);
     for (const [file, text] of Object.entries(siblings)) writeFileSync(join(directory, file), text);
-    return { entry, modules: [entry], exportName: "projectText" };
+    return { entry, roots: [root], exportName: "projectText" };
   };
   const refused = (module: ConfinedModule, code: string, what: RegExp, call: () => unknown = () => deterministicCall(module, "{}", CONFINEMENT)): void => {
     assert.throws(call, (error: HarnessError) => {
@@ -123,8 +129,8 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   // The CLOCK and RANDOMNESS reach no kernel wall (the vDSO): two confined runs that answer differently are refused.
   refused(planted("clock", "export function projectText(): string { return String(Date.now()) + String(performance.now()); }"), "projection_nondeterministic", /answered differently/u);
   refused(planted("random", "export function projectText(): string { return String(Math.random()); }"), "projection_nondeterministic", /answered differently/u);
-  // The LINK refuses what the program does not declare, before anything runs.
-  refused(planted("sibling", "import { value } from './undeclared.ts';\nexport function projectText(): string { return value; }", { "undeclared.ts": "export const value = 'x';" }), "projection_import_refused", /undeclared\.ts \(imported by [^)]+\) is not a module of the confined program/u);
+  // The LINK refuses a module outside the program's roots, and any import that is not relative, before anything runs.
+  refused(planted("sibling", "import { value } from '../outside.ts';\nexport function projectText(): string { return value; }", { "outside.ts": "export const value = 'x';" }), "projection_import_refused", /outside\.ts \(imported by [^)]+\) is outside the confined program's roots/u);
   refused(planted("builtin", "import { readFileSync } from 'node:fs';\nexport function projectText(): string { return String(readFileSync); }"), "projection_import_refused", /node:fs/u);
   refused(planted("literal-dynamic", "const fs = await import('node:fs');\nexport function projectText(): string { return String(fs); }"), "projection_import_refused", /node:fs/u);
   refused(planted("bare", "import x from 'zod';\nexport function projectText(): string { return String(x); }"), "projection_import_refused", /zod/u);
@@ -169,7 +175,46 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   for (const rule of [{ path: "/home", access: ["READ_FILE"] as const }, { path: "/usr", access: ["WRITE_FILE"] as const }, { path: join(ENGINE_ROOT, "src"), access: ["READ_FILE"] as const }]) {
     assert.throws(() => narrowGuardianSpec(compiled, [rule]), (error: HarnessError) => error.code === "confined_rule_outside_floor", rule.path);
   }
-  assert.ok(PROJECTION_PROGRAM.modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || ["shared/markdown.ts", "shared/markup.ts"].some((shared) => path === join(REPOSITORY_ROOT, shared))), "the projection's program links only the source it declares");
+});
+
+test("each confined program's modules are its entry's import closure, derived, never listed: every module the entry reaches links, and only under its roots", () => {
+  for (const program of [PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM]) {
+    const modules = confinedModules(program);
+    assert.ok(modules.includes(program.entry), program.entry);
+    // tracker-status.ts's own import (the `repo:` reference) links in BOTH programs that reach it: no second list to forget.
+    for (const reached of ["workflow/tracker-status.ts", "workflow/forge/repository-reference.ts"]) assert.ok(modules.includes(join(ENGINE_ROOT, "src", reached)), `${program.exportName}: ${reached}`);
+    assert.ok(modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path.startsWith(join(REPOSITORY_ROOT, "shared/"))), `${program.exportName} links only the engine's source and shared/`);
+  }
+  for (const shared of ["shared/markdown.ts", "shared/markup.ts"]) assert.ok(confinedModules(PROJECTION_PROGRAM).includes(join(REPOSITORY_ROOT, shared)), `the projection reaches ${shared}`);
+  // Containment is decided by IDENTITY, never by spelling: a module reached through a link that leaves the root is refused,
+  // even though its spelled path lies under the root.
+  const directory = createTempDir("projector-links-");
+  const root = join(directory, "root");
+  const outside = join(directory, "outside");
+  mkdirSync(root);
+  mkdirSync(outside);
+  writeFileSync(join(outside, "secret.ts"), "export const value = 'x';\n");
+  writeFileSync(join(root, "kept.ts"), "export const value = 'y';\n");
+  symlinkSync(join(outside, "secret.ts"), join(root, "file-link.ts"));
+  symlinkSync(outside, join(root, "dir-link"));
+  symlinkSync(join(root, "kept.ts"), join(root, "inside-link.ts"));
+  writeFileSync(join(root, "reexport.ts"), "export { value } from './dir-link/secret.ts';\n");
+  let entries = 0;
+  const program = (source: string): ConfinedModule => {
+    entries += 1;
+    const entry = join(root, `entry-${String(entries)}.ts`);
+    writeFileSync(entry, `${source}\nexport function projectText(): string { return value; }\n`);
+    return { entry, roots: [root], exportName: "projectText" };
+  };
+  for (const [why, source] of [
+    ["a file link out of the root", "import { value } from './file-link.ts';"],
+    ["a directory link out of the root", "import { value } from './dir-link/secret.ts';"],
+    ["a re-export through a link", "import { value } from './reexport.ts';"],
+  ] as const) {
+    assert.throws(() => confinedModules(program(source)), (error: HarnessError) => error.code === "projection_import_refused" && /outside the confined program's roots/u.test(error.message), why);
+  }
+  // Near miss: a link that stays inside the root links.
+  assert.ok(confinedModules(program("import { value } from './inside-link.ts';")).length >= 2, "a link inside the root is inside it");
 });
 
 test("the first run creates in phase order, verifies, and its receipt names every write", async () => {
@@ -280,7 +325,7 @@ test("the input is read from the source COMMIT, never the working tree", () => {
 });
 
 test("this repository's own HEAD projects: every tracker item is an issue, every lane a label", () => {
-  const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, "https://github.com/LLM-4-People/bridlewise-testing");
+  const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, configuredRepositoryIdentity().webUrl);
   const { projection } = computeProjection(read, CONFINEMENT);
   assert.equal(projection.objects.filter((object) => object.class === "issue").length, read.items.length);
   assert.ok(read.items.length > 0);
@@ -429,4 +474,14 @@ test("writes go by phase before class: a milestone's state is written after ever
   const order = receipt.writes.map((write) => `${write.phase}:${write.class}`);
   const milestoneState = order.indexOf("state:milestone");
   assert.ok(milestoneState > order.lastIndexOf("create:issue"), `the milestone's state (a later class's earlier write would be first by class) comes after every issue create: ${order.join(" ")}`);
+});
+
+test("every issue type the projection writes is one the forge declares: each tracker item type, and MAIN-RED's", () => {
+  const declared = new Set(FORGE_ISSUE_TYPES.map((type) => type.name));
+  const items = TRACKER_ITEM_TYPES.map((type, index) => item(`TYPE-${String(index)}`, type === "Milestone" ? { type, state: null, lane: null } : { type }));
+  const red = [{ workflow: "door", commit: "a".repeat(40), conclusion: "failure" as const, runUrl: "https://github.com/owner/repo/actions/runs/1", failedTests: [{ path: "tests/a.test.ts", message: "boom", owners: [] }] }];
+  const { projection } = computeProjection({ ...input(items), mainRuns: red }, CONFINEMENT);
+  const written = [...new Set(projection.objects.filter((object) => object.class === "issue").map((object) => String(object.fields.type)))].sort();
+  assert.ok(written.includes("Bug") && TRACKER_ITEM_TYPES.every((type) => written.includes(type)), `the projection wrote every type: ${written.join(", ")}`);
+  assert.deepEqual(written.filter((type) => !declared.has(type)), [], "an issue type GitHub has no declaration for is a write the forge cannot keep: declare it in FORGE_ISSUE_TYPES (declarations.ts)");
 });

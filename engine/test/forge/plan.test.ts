@@ -16,18 +16,18 @@ import { forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
 import { forgeFileSources, syncForgeFiles } from "../../src/workflow/forge/generated-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
-import type { ForgeObject } from "../../src/workflow/forge/forge-state.ts";
+import { rulesetWithGithubDefaults, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { maintainerCli } from "../../src/workflow/forge/maintainer-cli.ts";
 import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
 import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
 import { temporaryKeyHome } from "./forge-key-home.ts";
-import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES, TRUNK } from "./forge-settings.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const ORG = "LLM-4-People";
-const REPO = "bridlewise-testing";
+const REPO = TRUNK;
 
 function contextOf(fake: FakeGithub) {
   return { client: githubClient(fake.endpoint(), memoryCredential("user:maintainer", fake.userToken("maintainer"))), organization: ORG, maxPages: 10 };
@@ -88,12 +88,12 @@ test("plan, apply, verify: create and update what differs, leave the rest, repor
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 1, installations: [{ id: 77, app_id: 1234, app_slug: "bridlewise-publisher" }] });
   // Retiring a ruleset weakens protection: refused, nothing written, until it is acknowledged by id.
   const before = fake.requests.filter((request) => request.method !== "GET").length;
-  await assert.rejects(forgeApply(context, objects, retired), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:protect-release-tags/u.test(error.message));
+  await assert.rejects(forgeApply(context, objects, retired), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && error.message.includes(`ruleset:${REPO}:protect-release-tags`));
   assert.equal(fake.requests.filter((request) => request.method !== "GET").length, before, "nothing was written");
-  const outcome = await forgeApply(context, objects, retired, new Set(["ruleset:bridlewise-testing:protect-release-tags"]));
-  assert.deepEqual(outcome.acceptedLoosening, [{ id: "ruleset:bridlewise-testing:protect-release-tags", loosening: ["deletes the ruleset"] }], "the acknowledgement is in the receipt");
+  const outcome = await forgeApply(context, objects, retired, new Set([`ruleset:${REPO}:protect-release-tags`]));
+  assert.deepEqual(outcome.acceptedLoosening, [{ id: `ruleset:${REPO}:protect-release-tags`, loosening: ["deletes the ruleset"] }], "the acknowledgement is in the receipt");
   assert.deepEqual(outcome.applied.map((applied) => `${applied.action} ${applied.kind} ${applied.key}`).sort(), [
-    "create label area:engine", "create ruleset product", "retire ruleset protect-release-tags", "update label lane:gh-1", "update repository-settings bridlewise-testing",
+    "create label area:engine", "create ruleset product", "retire ruleset protect-release-tags", "update label lane:gh-1", `update repository-settings ${REPO}`,
   ]);
   const created = (fake.objects.get(rulesets) as { name: string; bypass_actors?: { actor_id: number }[] }[]).find((ruleset) => ruleset.name === "product");
   assert.equal(created?.bypass_actors?.[0]?.actor_id, 1234, "the reference was resolved to the App's id");
@@ -111,7 +111,7 @@ test("one object's refusal is that object's (plan, permission); a budget refusal
     object("immutable-releases", REPO, { enabled: true }),
   ];
   fake.objects.set(`/repos/${ORG}/${REPO}/actions/permissions/workflow`, { default_workflow_permissions: "read" });
-  fake.refuseNext({ path: /\/actions\/permissions$/u }, { status: 403, message: "Upgrade to GitHub Pro or make this repository public to enable this feature." });
+  fake.refuseNext({ path: new RegExp(`^/repos/${ORG}/${REPO}/actions/permissions$`, "u") }, { status: 403, message: "Upgrade to GitHub Pro or make this repository public to enable this feature." });
   // The allowed-actions list answers 409 until "selected" is on (measured live): it reads as not declared yet, a create.
   objects.push(object("actions-selected", REPO, { github_owned_allowed: true, verified_allowed: false, patterns_allowed: [] }));
   fake.refuseNext({ path: /\/actions\/permissions\/selected-actions$/u }, { status: 409, message: "Selected actions are not enabled for this repository." });
@@ -200,6 +200,38 @@ test("a team's members are data: a member added in the UI is drift that apply re
   // Declaring a member grants access: a loosening, applied only with its acknowledgement.
   const widened = object("team", "reviewers", { name: "reviewers", privacy: "closed", description: "The reviewer role", members: ["newcomer"] }, { kind: "org" });
   assert.deepEqual(entry(await forgePlan(context, [widened], []), "team", "reviewers").loosening, ['members [] -> ["newcomer"]']);
+});
+
+test("a security configuration's two features read back as GitHub answers them (advanced_security only, the per-feature fields null): the declared features match, and a change of either is drift", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  const declared = { name: "baseline", code_security: "disabled", secret_protection: "enabled", secret_scanning: "enabled" };
+  // GitHub's read: advanced_security "secret_protection" (Secret Protection on, Code Security off); code_security and secret_protection null.
+  fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "secret_protection", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  const object_ = object("security-configuration", "baseline", declared, { kind: "org" });
+  assert.equal(entry(await forgePlan(contextOf(fake), [object_], []), "security-configuration", "baseline").action, "unchanged");
+  // GitHub reading both features enabled: Code Security differs from the declaration.
+  const both = fakeGithub();
+  both.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  both.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "enabled", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  assert.deepEqual(entry(await forgePlan(contextOf(both), [object_], []), "security-configuration", "baseline").differences, ["/code_security"]);
+  // Every direction is drift, for each feature. A feature GitHub reads OFF while declared ON is a tightening to apply; one
+  // read ON while declared OFF is drift too (and turning it off would be the loosening, judged by the strictness order).
+  for (const [advanced, declaredFeatures, differing] of [
+    ["disabled", { code_security: "disabled", secret_protection: "enabled" }, ["/secret_protection"]],
+    ["secret_protection", { code_security: "disabled", secret_protection: "disabled" }, ["/secret_protection"]],
+    ["code_security", { code_security: "disabled", secret_protection: "enabled" }, ["/code_security", "/secret_protection"]],
+    ["disabled", { code_security: "enabled", secret_protection: "disabled" }, ["/code_security"]],
+  ] as const) {
+    const live = fakeGithub();
+    live.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    live.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: advanced, code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+    const planned = entry(await forgePlan(contextOf(live), [object("security-configuration", "baseline", { ...declared, ...declaredFeatures }, { kind: "org" })], []), "security-configuration", "baseline");
+    assert.equal(planned.action, "update", `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    assert.deepEqual([...(planned.differences ?? [])].sort(), differing, `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    // Declared on, read off: a tightening, never a loosening.
+    if (advanced === "disabled" && declaredFeatures.secret_protection === "enabled") assert.equal(planned.loosening, undefined, "turning Secret Protection on is a tightening");
+  }
 });
 
 /** A fake GitHub that answers every kind the declarations use, statefully. */
@@ -327,7 +359,7 @@ test("barrier 1, tighten first: the baseline is created and read back BEFORE the
   assert.deepEqual([...trunk.loosening!].sort(), ["removes rule pull_request", "removes rule required_status_checks"]);
   assert.equal(trunk.moved, true, "every removed rule is carried by the baseline for this repository's kind");
   const outcome = await forgeApply(context, objects, []);
-  assert.deepEqual(outcome.movedLoosening, ["ruleset:bridlewise-testing:trunk"]);
+  assert.deepEqual(outcome.movedLoosening, [`ruleset:${REPO}:trunk`]);
   const writes = fake.requests.map((request, index) => ({ request, index })).filter(({ request }) => request.method !== "GET");
   const baselineWrite = writes.find(({ request }) => request.method === "POST" && request.path === `/orgs/${ORG}/rulesets`)!.index;
   const trunkWrite = writes.find(({ request }) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`))!.index;
@@ -359,10 +391,10 @@ test("barrier 3, acknowledgement: a weakening that is not a move is refused befo
   const plan = await forgePlan(context, weakened, []);
   assert.equal(entry(plan, "ruleset", "trunk").moved, false);
   assert.ok(entry(plan, "ruleset", "trunk").loosening!.some((reason) => reason.startsWith("adds bypass")));
-  await assert.rejects(forgeApply(context, weakened, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  await assert.rejects(forgeApply(context, weakened, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && error.message.includes(`ruleset:${REPO}:trunk`));
   assert.ok(!fake.requests.some((request) => request.method !== "GET"), "nothing was written, the baseline included");
-  const outcome = await forgeApply(context, weakened, [], new Set(["ruleset:bridlewise-testing:trunk"]));
-  assert.equal(outcome.acceptedLoosening[0]?.id, "ruleset:bridlewise-testing:trunk");
+  const outcome = await forgeApply(context, weakened, [], new Set([`ruleset:${REPO}:trunk`]));
+  assert.equal(outcome.acceptedLoosening[0]?.id, `ruleset:${REPO}:trunk`);
   // The classifier, directly: tightening and neutral changes are not loosenings (near misses).
   assert.deepEqual(looseningOf("ruleset", { enforcement: "active", rules: [{ type: "deletion" }, { type: "creation" }] }, { enforcement: "active", rules: [{ type: "deletion" }] }), []);
   assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: true, allowed_actions: "selected" }, { sha_pinning_required: false, allowed_actions: "all" }), []);
@@ -379,8 +411,8 @@ test("barrier 4, the move's premises are READ FROM GITHUB: a repository whose li
   const plan = await forgePlan(context, objects, []);
   assert.equal(entry(plan, "ruleset", "trunk").moved, true, "by the declarations, the move holds");
   assert.deepEqual(entry(plan, "custom-property-values", "kind").loosening, ['kind "tool" -> "trunk"'], "changing a set kind is not proven stricter");
-  await assert.rejects(forgeApply(context, objects, [], new Set(["custom-property-values:bridlewise-testing:kind"])),
-    (error: unknown) => isForgeError(error, "forge_tighten_unverified") && /does not include kind tool/u.test(error.message) && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  await assert.rejects(forgeApply(context, objects, [], new Set([`custom-property-values:${REPO}:kind`])),
+    (error: unknown) => isForgeError(error, "forge_tighten_unverified") && /does not include kind tool/u.test(error.message) && error.message.includes(`ruleset:${REPO}:trunk`));
   assert.ok(fake.requests.some((request) => request.method === "PATCH" && request.path.endsWith("/properties/values")), "the acknowledged kind change was sent");
   assert.ok(!fake.requests.some((request) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`)), "the trunk kept its rules: main is never left unprotected");
 });
@@ -497,9 +529,9 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).push({ id: 4242, name: "protect-release-tags", source_type: "Repository", target: "tag", enforcement: "active", rules: [] });
     fake.objects.set(`/repos/${ORG}/${REPO}/rulesets/4242`, (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).at(-1));
     await assert.rejects(run("apply", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
-    const accepted = await run("apply", "--accept-loosening", "ruleset:bridlewise-testing:protect-release-tags", "--token-env", variable);
+    const accepted = await run("apply", "--accept-loosening", `ruleset:${REPO}:protect-release-tags`, "--token-env", variable);
     assert.equal(accepted.result.status, "pass");
-    assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), ["ruleset:bridlewise-testing:protect-release-tags"]);
+    assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), [`ruleset:${REPO}:protect-release-tags`]);
     // A planted drift the apply cannot remove (a write GitHub answers but ignores): the apply's verdict is its post-apply audit, so it FAILS.
     fake.route("PATCH", /^\/repos\/[^/]+\/[^/]+\/labels\/[^/]+$/u, () => ({ status: 200, body: {} }));
     const label = (fake.objects.get(`/repos/${ORG}/${REPO}/labels`) as Record<string, unknown>[]).find((candidate) => candidate.name === "area:engine")!;
@@ -522,7 +554,7 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, notLoggedIn), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed"));
     assert.deepEqual(ghCalls.map((args) => args.slice(0, 2).join(" ")), ["auth status"], "the wired gh, and nothing else, was asked");
     const noDoor = { ...wiring, maintainerCli: recordingGh((args) => args[0] === "auth" ? { status: 0 } : { status: 1, stderr: "gh: Not Found (HTTP 404)" }) };
-    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && /bridlewise-testing/u.test(error.message));
+    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && error.message.includes(REPO));
     // Every input of apps create is the WIRED one: a section whose trunk has a name the configuration never uses, the
     // wired endpoint and key home handed to the page (recorded, not served), and the wired gh asked about that trunk.
     const wiredSettings = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "wired-trunk" } : repository) };
@@ -544,18 +576,256 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     const created = await runForgeCli(top, ["apps", "create"], () => {}, allWired);
     assert.equal(created.result.status, "pass");
     assert.ok(ghCalls.some((args) => args.includes("repos/LLM-4-People/wired-trunk/environments/door")), JSON.stringify(ghCalls));
-    assert.ok(!ghCalls.some((args) => args.some((arg) => arg.includes("bridlewise-testing"))), "the configured trunk is never asked about");
+    assert.ok(!ghCalls.some((args) => args.some((arg) => arg.includes(REPO))), "the configured trunk is never asked about");
     assert.equal(handed?.settings, wiredSettings, "the page gets the wired section");
     assert.equal(handed?.endpoint, wiredEndpoint, "the page gets the wired endpoint");
     assert.equal(handed?.keyHome, wiredKeyHome, "the page gets the wired key home");
     // And a bypass of the wired gh cannot hang: under test the real gh is refused at once, typed.
     await assert.rejects(maintainerCli(SETTINGS.webUrl, SETTINGS.maintainerCli).ready(), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed") && error.facts.underTest === true);
     // A hand edit of a generated file: refused before the credential is read or GitHub is asked.
-    writeFileSync(join(top, ".github/forge/label/bridlewise-testing.area_ci.json"), "{}\n");
+    writeFileSync(join(top, `.github/forge/label/${REPO}.area_ci.json`), "{}\n");
     const asked = fake.requests.length;
-    await assert.rejects(run("plan", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /label\/bridlewise-testing\.area_ci\.json/u.test(error.message));
+    await assert.rejects(run("plan", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && error.message.includes(`label/${REPO}.area_ci.json`));
     assert.equal(fake.requests.length, asked);
   } finally {
     delete process.env[variable];
+  }
+});
+
+test("the public configuration GitHub holds (advanced_security enabled, read back as both features on) plans no loosening: Code Security stays on, and only declared tightenings differ", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  // GitHub's answer for the live public configuration, as the 2026-10-28 apply left it (configuration 288622).
+  const live = {
+    id: 288622, name: "bridlewise-baseline", description: "GENERATED by harness sync from engine/src/workflow/forge/declarations.ts", advanced_security: "enabled", code_security: null, secret_protection: null,
+    code_scanning_default_setup: "not_set", code_scanning_default_setup_options: { runner_label: null, runner_type: "not_set" },
+    code_scanning_delegated_alert_dismissal: "disabled", dependabot_alerts: "enabled", dependabot_delegated_alert_dismissal: "disabled",
+    dependabot_security_updates: "enabled", dependency_graph: "enabled", dependency_graph_autosubmit_action: "disabled",
+    enforcement: "enforced", private_vulnerability_reporting: "enabled", secret_scanning: "enabled",
+    secret_scanning_delegated_alert_dismissal: "disabled", secret_scanning_delegated_bypass: "disabled", secret_scanning_extended_metadata: "disabled",
+    secret_scanning_generic_secrets: "disabled", secret_scanning_generic_secrets_push_protection: "disabled", secret_scanning_non_provider_patterns: "disabled",
+    secret_scanning_push_protection: "enabled", secret_scanning_validity_checks: "disabled",
+  };
+  fake.collection(`/orgs/${ORG}/code-security/configurations`, [live], "id");
+  const declared = forgeDeclarations(SOURCES).find((entry) => entry.kind === "security-configuration" && entry.key === "bridlewise-baseline")!;
+  const planned = entry(await forgePlan(contextOf(fake), [declared], []), "security-configuration", "bridlewise-baseline");
+  assert.equal(planned.loosening, undefined, `no loosening: ${JSON.stringify(planned.loosening)}`);
+  assert.ok(!(planned.differences ?? []).includes("/code_security"), "Code Security on, as GitHub holds it");
+  assert.ok(!(planned.differences ?? []).includes("/secret_protection"));
+  // What differs is declared work only: default setup pinned disabled, and Secret Protection's refinements turned on.
+  for (const difference of planned.differences ?? []) {
+    assert.ok(difference === "/code_scanning_default_setup" || difference.startsWith("/secret_scanning_"), difference);
+  }
+});
+
+test("a repository setting the organisation enforces: a contradicting declaration is refused at PLAN time, and a field GitHub locks (commit sign-off) is never written, even unchanged", async () => {
+  const world = (orgSignoff: boolean | undefined): FakeGithub => {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.objects.set(`/orgs/${ORG}`, { login: ORG, ...(orgSignoff === undefined ? {} : { web_commit_signoff_required: orgSignoff }) });
+    fake.objects.set(`/repos/${ORG}/${REPO}`, { name: REPO, merge_commit_title: "MERGE_MESSAGE", web_commit_signoff_required: true });
+    // GitHub refuses ANY repository write of the field while the organisation enforces it (2026-10-28, request 45ED:218A39).
+    fake.route("PATCH", new RegExp(`^/repos/${ORG}/${REPO}$`, "u"), (request) => {
+      const enforced = (fake.objects.get(`/orgs/${ORG}`) as Record<string, unknown>).web_commit_signoff_required === true;
+      return enforced && "web_commit_signoff_required" in (request.body as object) ? { status: 422, body: { message: "Commit signoff is enforced by the organization and cannot be disabled" } } : undefined;
+    });
+    return fake;
+  };
+  const settings = (signoff: boolean): ForgeObject => object("repository-settings", REPO, { merge_commit_title: "PR_TITLE", web_commit_signoff_required: signoff });
+  // Enforced by the organisation, declared true: planned without the field, written without it, and the apply verifies.
+  const enforced = world(true);
+  const planned = entry(await forgePlan(contextOf(enforced), [settings(true)], []), "repository-settings", REPO);
+  assert.deepEqual(planned.differences, ["/merge_commit_title"]);
+  const outcome = await forgeApply(contextOf(enforced), [settings(true)], []);
+  assert.equal(outcome.verified, true);
+  const patch = enforced.requests.find((request) => request.method === "PATCH" && request.path === `/repos/${ORG}/${REPO}`);
+  assert.ok(patch !== undefined && !("web_commit_signoff_required" in (patch.body as object)), "the locked field is never sent");
+  // Declared against the organisation: refused at plan time, typed, and an apply writes nothing.
+  const contradicted = world(true);
+  const refused = entry(await forgePlan(contextOf(contradicted), [settings(false)], []), "repository-settings", REPO);
+  assert.equal(refused.code, "forge_org_policy_contradicted");
+  assert.match(refused.message ?? "", /web_commit_signoff_required false \(the organisation's web_commit_signoff_required is true\)/u);
+  await assert.rejects(forgeApply(contextOf(contradicted), [settings(false)], []), (error: unknown) => isForgeError(error, "forge_plan_incomplete"));
+  assert.ok(!contradicted.requests.some((request) => request.method !== "GET"), "nothing written");
+  // The organisation does not enforce it YET, but the declared org settings do: the apply turns it on first, so the
+  // repository write leaves the field out too.
+  const turnedOn = world(false);
+  const objects = [object("org-settings", ORG, { web_commit_signoff_required: true }, { kind: "org" }), settings(true)];
+  await forgeApply(contextOf(turnedOn), objects, []);
+  const repositoryPatch = turnedOn.requests.find((request) => request.method === "PATCH" && request.path === `/repos/${ORG}/${REPO}`);
+  assert.ok(repositoryPatch !== undefined && !("web_commit_signoff_required" in (repositoryPatch.body as object)));
+});
+
+test("every organisation policy over a declared repository setting is judged at plan time: a weaker repository value is refused, an equal or stricter one passes", async () => {
+  const cases: readonly (readonly [string, ForgeObject["kind"], Record<string, unknown>, string, Record<string, unknown>, boolean])[] = [
+    ["Actions off", "actions-permissions", { enabled: true }, "actions/permissions", { enabled_repositories: "none" }, true],
+    ["an allowed-actions value the forge does not know", "actions-permissions", { allowed_actions: "selected" }, "actions/permissions", { allowed_actions: "enterprise_only" }, true],
+    ["a fork-approval value the forge does not know", "actions-fork-approval", { approval_policy: "first_time_contributors" }, "actions/permissions/fork-pr-contributor-approval", { approval_policy: "new_policy" }, true],
+    ["all actions under selected", "actions-permissions", { allowed_actions: "all" }, "actions/permissions", { allowed_actions: "selected" }, true],
+    ["selected actions under all", "actions-permissions", { allowed_actions: "selected" }, "actions/permissions", { allowed_actions: "all" }, false],
+    ["no SHA pinning under pinning", "actions-permissions", { sha_pinning_required: false }, "actions/permissions", { sha_pinning_required: true }, true],
+    ["SHA pinning under none", "actions-permissions", { sha_pinning_required: true }, "actions/permissions", { sha_pinning_required: false }, false],
+    ["a write token under read", "actions-workflow", { default_workflow_permissions: "write" }, "actions/permissions/workflow", { default_workflow_permissions: "read" }, true],
+    ["approving under no approving", "actions-workflow", { can_approve_pull_request_reviews: true }, "actions/permissions/workflow", { can_approve_pull_request_reviews: false }, true],
+    ["read under read", "actions-workflow", { default_workflow_permissions: "read", can_approve_pull_request_reviews: false }, "actions/permissions/workflow", { default_workflow_permissions: "read", can_approve_pull_request_reviews: false }, false],
+    ["a weaker fork approval", "actions-fork-approval", { approval_policy: "first_time_contributors_new_to_github" }, "actions/permissions/fork-pr-contributor-approval", { approval_policy: "first_time_contributors" }, true],
+    ["a stricter fork approval", "actions-fork-approval", { approval_policy: "all_external_contributors" }, "actions/permissions/fork-pr-contributor-approval", { approval_policy: "first_time_contributors" }, false],
+    ["mutable releases under enforcement", "immutable-releases", { enabled: false }, "settings/immutable-releases", { enforced_repositories: "all" }, true],
+    ["immutable releases under none", "immutable-releases", { enabled: true }, "settings/immutable-releases", { enforced_repositories: "none" }, false],
+  ];
+  for (const [name, kind, desired, orgPath, orgAnswer, refusedExpected] of cases) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.objects.set(`/orgs/${ORG}/${orgPath}`, orgAnswer);
+    const planned = entry(await forgePlan(contextOf(fake), [object(kind, REPO, desired)], []), kind, REPO);
+    assert.equal(planned.code === "forge_org_policy_contradicted", refusedExpected, `${name}: ${planned.action} ${planned.code ?? ""}`);
+  }
+  // Actions enabled for SELECTED repositories only: a repository outside the selection with Actions declared on is refused.
+  for (const [selection, refusedExpected] of [[[REPO, "other"], false], [["other"], true]] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.objects.set(`/orgs/${ORG}/actions/permissions`, { enabled_repositories: "selected", allowed_actions: "all" });
+    fake.objects.set(`/orgs/${ORG}/actions/permissions/repositories`, { total_count: selection.length, repositories: selection.map((name) => ({ name })) });
+    const planned = entry(await forgePlan(contextOf(fake), [object("actions-permissions", REPO, { enabled: true })], []), "actions-permissions", REPO);
+    assert.equal(planned.code === "forge_org_policy_contradicted", refusedExpected, selection.join(","));
+  }
+});
+
+test("only an enablement still in progress is deferred: any other write error (a 422, a 409 whose states read settled) surfaces at once, and no later object is written", async () => {
+  for (const failure of ["422", "409 settled"] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", secret_scanning: "disabled" }], "id");
+    fake.route("GET", /^\/orgs\/[^/]+\/code-security\/configurations\/31\/repositories$/u, () => ({ status: 200, body: [{ status: "enforced", repository: { id: 7, name: REPO } }] }));
+    fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => (failure === "422"
+      ? { status: 422, body: { message: "Validation Failed" } }
+      : { status: 409, body: { message: "Conflict" } }));
+    const later: string[] = [];
+    fake.route("PUT", /\/immutable-releases$/u, () => { later.push("written"); return undefined; });
+    const objects = [
+      object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" }),
+      object("immutable-releases", REPO, { enabled: true }),
+    ];
+    await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, failure === "422" ? "github_validation_failed" : "github_conflict"), failure);
+    assert.deepEqual(later, [], `${failure}: surfaced at once, never deferred past a later write`);
+  }
+});
+
+test("a security configuration GitHub is still rolling out is deferred past the other writes and continued only once its attachments read settled; still in progress, the run stops typed and retryable", async () => {
+  for (const settles of [true, false]) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", code_security: "disabled", secret_protection: "disabled", secret_scanning: "disabled" }], "id");
+    let status = "updating";
+    const order: string[] = [];
+    fake.route("GET", /^\/orgs\/[^/]+\/code-security\/configurations\/31\/repositories$/u, () => ({ status: 200, body: [{ status, repository: { id: 7, name: REPO } }] }));
+    fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => { order.push("configuration"); return undefined; });
+    // Another object's write: by then GitHub has (or has not) finished the rollout.
+    fake.route("PUT", /\/immutable-releases$/u, () => { order.push("other"); if (settles) status = "enforced"; return undefined; });
+    const objects = [
+      object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" }),
+      object("immutable-releases", REPO, { enabled: true }),
+    ];
+    if (settles) {
+      await forgeApply(contextOf(fake), objects, []);
+      assert.deepEqual(order, ["other", "configuration"], "deferred past the other writes, then written once settled");
+    } else {
+      await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, "forge_security_enablement_in_progress") && error.forgeClass === "budget" && error.retryable && new RegExp(REPO, "u").test(error.message));
+      assert.deepEqual(order, ["other"], "the configuration is never written while its rollout is in progress");
+    }
+  }
+});
+
+test("a 409 on a security configuration is judged by the attachment states read right after it: an enablement in progress is the typed refusal, any other conflict stays GitHub's", async () => {
+  for (const rollingOut of [true, false]) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", secret_scanning: "disabled" }], "id");
+    let status = "enforced";
+    fake.route("GET", /^\/orgs\/[^/]+\/code-security\/configurations\/31\/repositories$/u, () => ({ status: 200, body: [{ status, repository: { id: 7, name: REPO } }] }));
+    fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => { if (rollingOut) status = "updating"; return { status: 409, body: { message: "Another enablement event is in progress" } }; });
+    const objects = [object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" })];
+    await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, rollingOut ? "forge_security_enablement_in_progress" : "github_conflict"), String(rollingOut));
+  }
+});
+
+test("a ruleset GitHub answers with its defaults omitted reads as declared; a real non-default value for each normalised field still shows as a difference", async () => {
+  // As declared: GitHub's stored shape, every omitted default explicit (the declarations run the same normaliser).
+  const baseline = rulesetWithGithubDefaults({
+    name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+    conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }, repository_property: { include: [{ name: "kind", property_values: ["trunk"] }], exclude: [] } },
+    rules: [{ type: "pull_request", parameters: { allowed_merge_methods: ["merge"], required_approving_review_count: 0, required_reviewers: [] } }],
+  });
+  const ledger = rulesetWithGithubDefaults({ name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "update", parameters: {} }] });
+  const policy = rulesetWithGithubDefaults({ name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], rules: [
+    { type: "max_file_size", parameters: { max_file_size: 10 } }, { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**"] } },
+  ] });
+  assert.deepEqual((baseline.conditions.repository_property.include[0] as Record<string, unknown>).source, "custom", "declared explicitly");
+  // GitHub's answers (2026-10-29, live): nothing for a disabled dismissal restriction or a false update_allows_fetch_and_merge, the
+  // property's source named, ignored_file_paths added as [], and conditions null on a repository ruleset that has none.
+  const githubAnswer = (overrides: Readonly<{ dismissal?: unknown; source?: string; fetchAndMerge?: boolean; ignored?: readonly string[] }> = {}) => ({
+    baseline: { id: 1, source_type: "Organization", name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+      conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] }, repository_property: { include: [{ name: "kind", source: overrides.source ?? "custom", property_values: ["trunk"] }], exclude: [] } },
+      rules: [{ type: "pull_request", parameters: { allowed_merge_methods: ["merge"], required_approving_review_count: 0, required_reviewers: [], ...(overrides.dismissal === undefined ? {} : { dismissal_restriction: overrides.dismissal }) } }] },
+    ledger: { id: 2, source_type: "Repository", name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], conditions: null,
+      rules: [overrides.fetchAndMerge === undefined ? { type: "update" } : { type: "update", parameters: { update_allows_fetch_and_merge: overrides.fetchAndMerge } }] },
+    policy: { id: 3, source_type: "Repository", name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], conditions: null, rules: [
+      { type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: overrides.ignored ?? [] } },
+      { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**"], ignored_file_paths: [] } },
+    ] },
+  });
+  const planOf = async (answer: ReturnType<typeof githubAnswer>) => {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/rulesets`, [answer.baseline], "id", { source_type: "Organization" });
+    fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [answer.ledger, answer.policy], "id", { source_type: "Repository" });
+    return forgePlan(contextOf(fake), [
+      object("org-ruleset", "baseline", baseline, { kind: "org" }),
+      object("ruleset", "ledger", ledger),
+      object("ruleset", "content-policy", policy),
+    ], []);
+  };
+  const asGithubAnswers = await planOf(githubAnswer());
+  for (const [kind, key] of [["org-ruleset", "baseline"], ["ruleset", "ledger"], ["ruleset", "content-policy"]] as const) {
+    const planned = entry(asGithubAnswers, kind, key);
+    assert.equal(planned.action, "unchanged", `${key}: ${JSON.stringify(planned.differences)} ${JSON.stringify(planned.loosening)}`);
+  }
+  // A REAL difference still shows, field by field.
+  for (const [overrides, kind, key] of [
+    [{ dismissal: { enabled: true, allowed_actors: [{ actor_id: 9, actor_type: "Team" }] } }, "org-ruleset", "baseline"],
+    [{ source: "system" }, "org-ruleset", "baseline"],
+    [{ fetchAndMerge: true }, "ruleset", "ledger"],
+    [{ ignored: ["docs/**"] }, "ruleset", "content-policy"],
+  ] as const) {
+    const planned = entry(await planOf(githubAnswer(overrides)), kind, key);
+    assert.equal(planned.action, "update", JSON.stringify(overrides));
+  }
+});
+
+test("a DECLARED non-default value survives the ruleset normaliser and plans an update against GitHub's default, never overwritten by it", async () => {
+  const restricted = { enabled: true, allowed_actors: [{ actor_id: 9, actor_type: "Team" }] };
+  const declared = rulesetWithGithubDefaults({
+    name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+    rules: [{ type: "pull_request", parameters: { required_approving_review_count: 0, dismissal_restriction: restricted } }],
+  });
+  const policy = rulesetWithGithubDefaults({ name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], rules: [
+    { type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: ["docs/**"] } },
+  ] });
+  const ledger = rulesetWithGithubDefaults({ name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "update", parameters: { update_allows_fetch_and_merge: true } }] });
+  // The declaration keeps what it names.
+  assert.deepEqual(declared.rules[0]!.parameters.dismissal_restriction, restricted);
+  assert.deepEqual(policy.rules[0]!.parameters.ignored_file_paths, ["docs/**"]);
+  assert.equal(ledger.rules[0]!.parameters.update_allows_fetch_and_merge, true);
+  // GitHub holding the defaults (each omitted, as it answers them): every one plans an update toward the declared value.
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  fake.collection(`/orgs/${ORG}/rulesets`, [{ id: 1, source_type: "Organization", name: "baseline", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "pull_request", parameters: { required_approving_review_count: 0 } }] }], "id", { source_type: "Organization" });
+  fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [
+    { id: 2, source_type: "Repository", name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], conditions: null, rules: [{ type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: [] } }] },
+    { id: 3, source_type: "Repository", name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], conditions: null, rules: [{ type: "update" }] },
+  ], "id", { source_type: "Repository" });
+  const plan = await forgePlan(contextOf(fake), [object("org-ruleset", "baseline", declared, { kind: "org" }), object("ruleset", "content-policy", policy), object("ruleset", "ledger", ledger)], []);
+  for (const [kind, key] of [["org-ruleset", "baseline"], ["ruleset", "content-policy"], ["ruleset", "ledger"]] as const) {
+    assert.equal(entry(plan, kind, key).action, "update", key);
   }
 });

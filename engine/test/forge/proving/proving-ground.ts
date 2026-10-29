@@ -1,5 +1,5 @@
 /**
- * THE PROVING GROUND ON REAL GITHUB, as the workspace's scenarios use it
+ * THE PROVING GROUND ON REAL GITHUB, as the workspace's and the projector's scenarios use it
  * (runbook P1.11/P3.8): the forge section's one `provingGround` repository
  * (`provingGroundRepository`, never the trunk), reached as the `agent` App
  * through the one credential module (the key in the host key home, an
@@ -24,6 +24,7 @@ import { gitOutput } from "../../../src/git/tree-reader.ts";
 import { keyHomeCustody } from "../../../src/workflow/forge/app-keys.ts";
 import { configuredForge, configuredForgeClient } from "../../../src/workflow/forge/configured-forge.ts";
 import { appInstallationCredential } from "../../../src/workflow/forge/credentials.ts";
+import { publisherCredential } from "../../../src/workflow/forge/publish/product.ts";
 import { forgeEndpoint } from "../../../src/workflow/forge/forge-config.ts";
 import { githubWorkspaceForge } from "../../../src/workflow/workspace-forge-github.ts";
 import { worktreeOperationTimeouts } from "../../../src/workflow/workflow-config.ts";
@@ -38,6 +39,17 @@ export function provingGround(): ProvingGround {
     role: "agent", owner: settings.organization, repository: name, renewBeforeMs: settings.tokenRenewBeforeMs,
   });
   return Object.freeze({ owner: settings.organization, name, webUrl: settings.webUrl.replace(/\/+$/u, ""), client: configuredForgeClient(credential) });
+}
+
+/**
+ * The proving ground, reached as the PUBLISHER App: the projector's
+ * scenarios, in the publish job, with the installation token it hands in
+ * `variable` (minted there for the proving ground only; nothing is printed).
+ */
+export function publisherProvingGround(variable: string): ProvingGround {
+  const settings = configuredForge();
+  const name = provingGroundRepository(settings);
+  return Object.freeze({ owner: settings.organization, name, webUrl: settings.webUrl.replace(/\/+$/u, ""), client: configuredForgeClient(publisherCredential(variable)) });
 }
 
 /**

@@ -1,50 +1,60 @@
 /**
- * THE REPOSITORY AND ITS SITE — read from the repository's one declaration of
- * where it lives: `package.json` `repository.url` (the field the P1.10 rename
- * updates, and the one the community-file generator reads too). Nothing in the
- * site tooling, the site's pages or its configuration spells a repository
- * name or a site URL: the builder writes these values into `_config.yml`
- * (`repository_url`, `security_url`, `url`) and pages read them from there.
- *
- * The Pages URL is GitHub's rule for a project site: the owner, lower-cased,
- * under `github.io`, and the repository name as the base path.
+ * THE REPOSITORY AND ITS SITE — the coordinates the site tooling uses, read
+ * from the ONE repository identity (`engine/src/workflow/forge/repository-identity.ts`,
+ * derived from the forge section's trunk; the P1.10 rename changes that one
+ * value), through the plain JSON `harness sync` generates from it
+ * (`.github/forge/repository-identity.json`): the site tooling and the link
+ * check run with no dependency installed. That module owns the address rules, the Pages rule among them; this
+ * one only shapes them for the site. Nothing in the site tooling, the site's
+ * pages or its configuration spells a repository name or a site URL: the
+ * builder writes these values into `_config.yml` (`repository_url`,
+ * `security_url`, `url`) and pages read them from there.
  */
 import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const GITHUB_REPOSITORY_URL = /^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?$/u;
 
 /**
- * The coordinates a `package.json` text declares, or a refusal naming the
- * field: a manifest with no GitHub `repository.url` has no site.
+ * THE ONE READER of the generated repository identity (owner, name,
+ * fullName, webUrl, pagesUrl, pagesBasePath, docsUrl, organisationRepositories). A
+ * missing or malformed file is a loud failure (run harness sync), never a
+ * guess.
  */
-export function repositoryCoordinates(manifestText) {
-  const url = JSON.parse(manifestText)?.repository?.url;
-  const match = typeof url === "string" ? GITHUB_REPOSITORY_URL.exec(url) : null;
-  if (match === null) throw new Error(`package.json repository.url must be https://github.com/<owner>/<name>[.git], found ${JSON.stringify(url ?? null)}`);
-  const [, owner, name] = match;
-  const repositoryUrl = `https://github.com/${owner}/${name}`;
-  const siteOrigin = `https://${owner.toLowerCase()}.github.io`;
+export function generatedRepositoryIdentity() {
+  const path = new URL("../../.github/forge/repository-identity.json", import.meta.url);
+  const identity = JSON.parse(readFileSync(path, "utf8"));
+  const text = (value) => typeof value === "string" && value !== "";
+  const repository = (value) => typeof value === "object" && value !== null && [value.name, value.fullName, value.webUrl, value.pagesUrl, value.docsUrl].every(text);
+  // The base path is empty on the site's own host (`site`), `/name` on the forge's Pages domain.
+  if (![identity.owner, identity.name, identity.fullName, identity.webUrl, identity.pagesUrl, identity.docsUrl].every(text) || typeof identity.pagesBasePath !== "string"
+    || !Array.isArray(identity.organisationRepositories) || !identity.organisationRepositories.every(text)
+    || !repository(identity.product) || !(identity.preview === null || repository(identity.preview))) {
+    throw new Error(`${path.pathname} is not the generated repository identity: run harness sync`);
+  }
+  return Object.freeze(identity);
+}
+
+/** The site's coordinates for a repository identity (`repositoryIdentity(settings)`'s answer). */
+export function siteCoordinates(identity) {
   return Object.freeze({
-    owner,
-    name,
-    repository: `${owner}/${name}`,
-    repositoryUrl,
+    owner: identity.owner,
+    name: identity.name,
+    repository: identity.fullName,
+    repositoryUrl: identity.webUrl,
     defaultBranch: "main",
-    siteOrigin,
-    siteBaseurl: `/${name}`,
-    siteUrl: `${siteOrigin}/${name}/`,
+    siteOrigin: new URL(identity.pagesUrl).origin,
+    siteBaseurl: identity.pagesBasePath,
+    siteUrl: identity.pagesUrl,
+    // The site's own host when the trunk declares one (`site.host`), else none: its project site is on the forge's domain.
+    siteHost: identity.pagesBasePath === "" ? new URL(identity.pagesUrl).host : "",
+    docsUrl: identity.docsUrl,
+    // The product's repository and the preview repository: identities of their own (the forge section's flags).
+    productRepository: identity.product.fullName,
+    productRepositoryUrl: identity.product.webUrl,
+    previewRepositoryUrl: identity.preview === null || identity.preview === undefined ? "" : identity.preview.webUrl,
   });
 }
 
-/** The coordinates of the repository checked out at `root` (its `package.json`). */
-export function coordinatesOf(root) {
-  return repositoryCoordinates(readFileSync(join(root, "package.json"), "utf8"));
-}
-
-const COORDINATES = coordinatesOf(ROOT);
+/** This checkout's coordinates: the configured repository identity. */
+export const COORDINATES = siteCoordinates(generatedRepositoryIdentity());
 
 export const REPOSITORY = COORDINATES.repository;
 export const REPOSITORY_URL = COORDINATES.repositoryUrl;
@@ -77,7 +87,8 @@ export function repositoryFileUrl(path, kind = "blob", coordinates = COORDINATES
  * GitHub URL and its Pages URL, under the current name and every name in its
  * history (case-insensitive, as GitHub and DNS treat them), each with its
  * kind:
- * - `site`: the Pages site;
+ * - `site`: the Pages site (on the forge's Pages domain, or the site's own
+ *   host when the trunk declares one: `bridlewise.llm4people.dev`);
  * - `object`: a GitHub object with its own id (an issue, a pull request, a
  *   discussion, a commit, a release tag, a run, an advisory); GitHub keeps
  *   such a link working through a rename, and a record cites it by id;
@@ -93,8 +104,14 @@ export function spelledUrls(text, coordinates) {
   // The id ends the path (a pull request's own tabs and a run's job aside):
   // no `..` or further segment can walk from an object to a file.
   const OBJECT = /^\/(?:(?:issues|discussions|commit|security\/advisories)\/[0-9A-Za-z-]+|pull\/\d+(?:\/(?:files|commits|checks))?|actions\/runs\/\d+(?:\/job\/\d+)?|releases\/tag\/[0-9A-Za-z._-]+)\/?(?:[#?][^\s]*)?$/u;
-  return [...text.matchAll(pattern)].map((match) => ({
+  const spelled = [...text.matchAll(pattern)].map((match) => ({
     url: match[0],
     kind: match.groups.pages !== undefined ? "site" : OBJECT.test(match.groups.path ?? "") ? "object" : "repository",
   }));
+  // The site's own host (a custom domain), spelled by hand: the site's address too, whatever the path.
+  if (coordinates.siteHost !== undefined && coordinates.siteHost !== "") {
+    const host = coordinates.siteHost.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    for (const match of text.matchAll(new RegExp(`(?<![\\w.-])${host}(?![\\w-])(?:/[^\\s)"'<>\\]]*)?`, "giu"))) spelled.push({ url: match[0], kind: "site" });
+  }
+  return spelled;
 }

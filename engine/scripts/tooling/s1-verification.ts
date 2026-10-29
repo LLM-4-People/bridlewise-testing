@@ -6,7 +6,7 @@ import { parse as parseTypeScriptSource } from "@babel/parser";
 import { z } from "zod";
 
 import { hasSecondName } from "../../src/filesystem/link-containment.ts";
-import { buildCandidateManifest, candidateTestIdentity } from "./candidate-manifest.ts";
+import { buildCandidateManifest, candidateTestIdentity } from "../verification/candidate-manifest.ts";
 import { configuredExecutionAuthority, loadTestResultFromExecution } from "./test-execution.ts";
 import { candidateFormatErrorViolations } from "../verification/candidate-format.ts";
 import { loadTestInventory } from "../test-inventory.ts";

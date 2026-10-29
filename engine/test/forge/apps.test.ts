@@ -7,6 +7,7 @@
  * or the environment secret → install links → Done.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { homedir } from "node:os";
@@ -77,6 +78,7 @@ test("the forge section refuses what it must: two trunks, a duplicate name, a no
 
 test("the generated files: written from their owners, hand edits and strays are drift, and the index binds each file's sha256", () => {
   const top = createTempDir("forge-files-");
+  execFileSync("git", ["init", "-q"], { cwd: top });
   const files = forgeGeneratedFiles(SOURCES);
   assert.deepEqual([...files.keys()].filter((path) => path.startsWith(".github/forge/apps/")), [".github/forge/apps/agent.json", ".github/forge/apps/verifier.json", ".github/forge/apps/door.json", ".github/forge/apps/publisher.json"]);
   assert.ok(files.has(".github/dependabot.yml") && files.has(".github/CODEOWNERS"));
@@ -339,7 +341,7 @@ test("the Apps page end to end: host custody, install links, Done guarded by ses
     const redirect = await call(`${origin}/callback?code=code-agent&state=${agentState}`);
     assert.equal(redirect.status, 303);
     assert.equal(redirect.headers.location, new URL(url).pathname + new URL(url).search, "back to the token-bound page");
-    assert.equal(keyHomeCustody(keyHome).identity("agent").appId, agent.appId);
+    assert.equal(keyHomeCustody(keyHome).clientId("agent"), agent.clientId);
     await call(`${origin}/callback?code=code-agent&state=${agentState}`);
     const after = pageData((await call(url)).body);
     assert.equal(after.error?.code, "forge_apps_page_refused");

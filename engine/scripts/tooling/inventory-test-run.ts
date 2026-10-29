@@ -29,10 +29,10 @@ import {
   type ConcurrencyMode,
   type TestFileDuration,
 } from "../../src/workflow/test-result-collector.ts";
-import { DEFAULT_ENGINE_SUITE_WATCHDOG, DEFAULT_TEST_CPU_CLASSES, DEFAULT_TEST_HANG_BACKSTOP_MS, type SuiteWatchdog } from "../../src/workflow/workflow-config.ts";
+import { DEFAULT_ENGINE_SUITE_WATCHDOG, type SuiteWatchdog } from "../../src/workflow/workflow-config.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { networkGuardImport } from "./network-under-test.ts";
-import { engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
+import { engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
 import type { TestCpuClasses } from "./test-cpu-class.ts";
 
 type TestEvent = Readonly<{
@@ -322,11 +322,7 @@ export async function executeInventoryTestRun(
   // The default lives here rather than at the callers, because two of the
   // three callers (`scripts/coverage.ts`, `scripts/planned-node-test-evidence.ts`)
   // pass no options at all and would otherwise still run without a budget.
-  const bounds: Omit<EngineTestBounds, "files"> = deepFreeze({
-    hangBackstopMs: options.testHangBackstopMs ?? DEFAULT_TEST_HANG_BACKSTOP_MS,
-    cpuClasses: coverage ? null : options.testCpuClasses ?? DEFAULT_TEST_CPU_CLASSES,
-    repositoryRoot: resolve(root, ".."),
-  });
+  const bounds = engineTestBoundsFrom(options, root, coverage);
   const suiteWatchdog = options.engineSuiteWatchdog ?? DEFAULT_ENGINE_SUITE_WATCHDOG;
   const watchdog = { stallTimeoutMs: suiteWatchdog.stallTimeoutMs, ceilingAt: Date.now() + suiteWatchdog.hardCeilingMs };
   const reporter = options.reporter;

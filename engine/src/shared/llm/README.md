@@ -80,7 +80,7 @@ limits reuse the central root policy.
 
 Current source evidence, endpoint controls, WebSocket/steering semantics, provider
 limits and deterministic test coverage live in
-[the protocol research contract](https://github.com/LLM-4-People/bridlewise).
+[the protocol research contract][product:].
 Transport integration and provider capability tests must establish actual
 support before exposing a feature as available.
 
@@ -101,3 +101,7 @@ codes still control retry classification. Public target reads are side-effect fr
 Endpoint admission uses each operation's contract: compact service tier is a nullable enum and its cache key allows at most 64 Unicode code points; input-token personality is an optional non-null open string with the same bound, and truncation is optional/non-null. Create stream options require the final composed streaming mode. Other endpoints retain their opaque extensions. No wire normalization is performed.
 
 Native failures carry one optional observed HTTP `status`; native/SSE errors without transport status retain absence. Count-free context codes still produce ContextTooLongError. Exact misalignment policy codes take precedence over status-based authentication and remain non-retryable under the existing bad-request taxonomy. Accepted failed JSON resources remain returned resources, with native failure taxonomy in the central response_failed log.
+
+<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
+[product:]: https://github.com/LLM-4-People/bridlewise
+<!-- END GENERATED: repository links -->

@@ -47,6 +47,7 @@ import { describe, expect, test } from "vitest";
 
 import { readDecisionRecords, readTrackerItems, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
 import { itemStatuses } from "../../engine/src/workflow/tracker-status.ts";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 import {
   EVIDENCE_PATH,
   ROADMAP_BLOCKS,
@@ -97,6 +98,14 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
     }
   });
 
+  test("a `repo:` evidence reference renders through the site's one repository address and is no local path (planted)", () => {
+    const item = planted("PLANTED-RUN", { horizon: "now", evidence: "repo:actions/runs/123" });
+    const rendered = renderRoadmapPage(page, { ...sources, items: [...items, item] });
+    expect(rendered).toContain("[GitHub]({{ site.repository_url }}/actions/runs/123)");
+    expect(rendered).not.toContain("repo:actions");
+    expect(roadmapDrift(rendered, { ...sources, items: [...items, item] }, ROOT).violations.filter((violation) => violation.includes("PLANTED-RUN"))).toEqual([]);
+  });
+
   test("a hand edit inside a generated block is refused (planted)", () => {
     const handEdited = page.replace("### Where the floor stands", "### Where the floor stood");
     expect(handEdited, "the stale-summary plant did not land").not.toBe(page);
@@ -116,7 +125,7 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
   });
 
   test("a close is a claim until linked evidence proves it: shipped only by a built decision, existing tests, a recorded evidence record or this repository's own PR, run or release (planted)", () => {
-    const facts = { decisions: [{ id: "D-BUILT", status: "in-force", implementation: "done" }, { id: "D-DESIGNED", status: "in-force", implementation: "pending" }], recordedEvidence: new Set(["runs/receipt.json"]), repositoryUrl: "https://github.com/LLM-4-People/bridlewise-testing" };
+    const facts = { decisions: [{ id: "D-BUILT", status: "in-force", implementation: "done" }, { id: "D-DESIGNED", status: "in-force", implementation: "pending" }], recordedEvidence: new Set(["runs/receipt.json"]), repositoryUrl: configuredRepositoryIdentity().webUrl };
     const closed = (id: string, fields: Partial<TrackerItem> = {}): TrackerItem => planted(id, { state: "closed", resolution: "completed", closed: "2026-10-21", ...fields });
     const states = itemStatuses([
       closed("BARE"),
@@ -124,17 +133,21 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
       closed("FOREIGN-URL", { evidence: "https://example.invalid/x" }),
       closed("DOC-ANCHOR", { evidence: "docs/floor/evidence.md#guardian" }),
       closed("OTHER-REPO-PR", { evidence: "https://github.com/someone/else/pull/1" }),
+      // A `repo:` reference to an address of this repository that is not a pull request, run or release proves nothing either.
+      closed("REPO-ISSUE", { evidence: "repo:issues/5" }),
       closed("DESIGNED", { decisions: ["D-DESIGNED"] }),
       closed("BY-DECISION", { decisions: ["D-BUILT"] }),
       closed("BY-TESTS", { tests: ["tests/prevention/roadmap-status-owner.test.ts"] }),
       closed("BY-RECORD", { evidence: "evidence:runs/receipt.json" }),
-      closed("BY-PR", { evidence: "https://github.com/LLM-4-People/bridlewise-testing/pull/130" }),
-      closed("BY-RUN", { evidence: "https://github.com/LLM-4-People/bridlewise-testing/actions/runs/39690870022" }),
-      closed("BY-RELEASE", { evidence: "https://github.com/LLM-4-People/bridlewise-testing/releases/tag/v0.0.3-preview" }),
+      // A record names this repository's object through the identity (`repo:<path>`); a past absolute spelling is read as written.
+      closed("BY-PR", { evidence: "repo:pull/130" }),
+      closed("BY-RUN", { evidence: "repo:actions/runs/39690870022" }),
+      closed("BY-RELEASE", { evidence: `${facts.repositoryUrl}/releases/tag/v0.0.3-preview` }),
     ], facts);
-    for (const id of ["BARE", "UNRECORDED", "FOREIGN-URL", "DOC-ANCHOR", "OTHER-REPO-PR", "DESIGNED"]) expect(states.get(id), id).toEqual({ state: "claimed", because: "closed as completed; no linked evidence proves it" });
+    for (const id of ["BARE", "UNRECORDED", "FOREIGN-URL", "DOC-ANCHOR", "OTHER-REPO-PR", "REPO-ISSUE", "DESIGNED"]) expect(states.get(id), id).toEqual({ state: "claimed", because: "closed as completed; no linked evidence proves it" });
     for (const id of ["BY-DECISION", "BY-TESTS", "BY-RECORD", "BY-PR", "BY-RUN", "BY-RELEASE"]) expect(states.get(id)?.state, id).toBe("shipped");
-    expect(states.get("BY-PR")?.because).toBe("proven by this repository's pull request https://github.com/LLM-4-People/bridlewise-testing/pull/130");
+    expect(states.get("BY-PR")?.because).toBe(`proven by this repository's pull request ${facts.repositoryUrl}/pull/130`);
+    expect(states.get("BY-RUN")?.because).toBe(`proven by this repository's run ${facts.repositoryUrl}/actions/runs/39690870022`);
     // A hand-closed sub-item proves no progress; hand-closing every member of a milestone makes it claimed, never shipped.
     const parent = planted("PARENT", { type: "Workstream" });
     const progress = itemStatuses([parent, closed("CHILD", { parent: "PARENT", lane: "floor", milestone: null })], facts);
