@@ -16,4 +16,4 @@ Run them with:
 npm run test:public
 ```
 
-They use Node's built-in test runner. Their one third-party dependency is the `yaml` package, the repository's YAML reader, which the workflow policy parses each workflow with and the emitter's round trip reads back with. The larger prevention, cockpit, and engine suites live in the separate `bridlewise-testing` repository and have additional prerequisites.
+They use Node's built-in test runner. Their one third-party dependency is the `yaml` package, the repository's YAML reader, which the workflow policy parses each workflow with and the emitter's round trip reads back with. The larger prevention, cockpit, and engine suites live in this repository's `tests/` and `engine/test/`, and have additional prerequisites.

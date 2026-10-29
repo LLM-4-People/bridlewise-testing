@@ -251,7 +251,7 @@ const ADVANCED_SECURITY_FEATURES: Readonly<Record<string, Readonly<{ code_securi
   secret_protection: { code_security: "disabled", secret_protection: "enabled" },
   disabled: { code_security: "disabled", secret_protection: "disabled" },
 };
-const securityConfiguration: KindAdapter = {
+const securityConfigurationCollection: KindAdapter = {
   ...namedCollection<Record<string, unknown>>({
     collection: (context) => `${orgPath(context)}/code-security/configurations`,
     nameOf: (item) => String(item.name),
@@ -268,6 +268,10 @@ const securityConfiguration: KindAdapter = {
     },
   }),
 };
+const securityConfiguration: KindAdapter = {
+  ...securityConfigurationCollection,
+  update: async (context, object, body, found) => whenEnablementSettled(context, object.key, found.id, async () => securityConfigurationCollection.update(context, object, body, found)),
+};
 /**
  * WHICH REPOSITORIES a security configuration is attached to, as data
  * (`security-configuration-repositories`, keyed by the configuration's
@@ -278,6 +282,106 @@ const securityConfiguration: KindAdapter = {
  * in the UI is drift.
  */
 type AttachmentDesired = Readonly<{ repositories: readonly string[]; default_for_new_repos: string }>;
+/** Where the organisation answers each policy a repository setting is bound by. */
+export type OrgPolicySource = "organization" | "actions-permissions" | "actions-workflow" | "fork-approval" | "immutable-releases";
+/** Each policy source's path under the organisation. */
+const ORG_POLICY_PATHS: Readonly<Record<OrgPolicySource, string>> = {
+  "organization": "",
+  "actions-permissions": "/actions/permissions",
+  "actions-workflow": "/actions/permissions/workflow",
+  "fork-approval": "/actions/permissions/fork-pr-contributor-approval",
+  "immutable-releases": "/settings/immutable-releases",
+};
+const ACTIONS_BREADTH: Readonly<Record<string, number>> = { local_only: 0, selected: 1, all: 2 };
+const FORK_APPROVAL_STRICTNESS: Readonly<Record<string, number>> = { first_time_contributors_new_to_github: 0, first_time_contributors: 1, all_external_contributors: 2 };
+
+/**
+ * THE ORGANISATION'S POLICY OVER REPOSITORY SETTINGS: each repository field
+ * an organisation setting binds, with whether a declared value is allowed
+ * under the organisation's value (`allows`, judged only when the organisation
+ * answers one; `"unknown"` for a value of either side the forge does not know,
+ * which is refused, never read permissively) and whether GitHub then refuses
+ * ANY repository write of the field, even the same value (`locks`: commit
+ * sign-off, 422 "Commit signoff is enforced by the organization and cannot be
+ * disabled").
+ */
+export type OrgPolicyRule = Readonly<{
+  kind: ForgeObjectKind;
+  field: string;
+  source: OrgPolicySource;
+  orgField: string;
+  allows: (declared: unknown, org: unknown, answer: Readonly<Record<string, unknown>>, repository: string) => boolean | "unknown";
+  locks?: (org: unknown) => boolean;
+}>;
+export const ORG_POLICY_RULES: readonly OrgPolicyRule[] = Object.freeze([
+  { kind: "repository-settings", field: "web_commit_signoff_required", source: "organization", orgField: "web_commit_signoff_required", allows: (declared, org) => org !== true || declared === true, locks: (org) => org === true },
+  // Actions on for a repository the organisation does not enable them for: none, or `selected` without it.
+  { kind: "actions-permissions", field: "enabled", source: "actions-permissions", orgField: "enabled_repositories", allows: (declared, org, answer, repository) => {
+    if (declared !== true || org === "all") return true;
+    if (org === "none") return false;
+    if (org !== "selected" || !Array.isArray(answer.selected_repositories)) return "unknown";
+    return answer.selected_repositories.includes(repository);
+  } },
+  { kind: "actions-permissions", field: "allowed_actions", source: "actions-permissions", orgField: "allowed_actions", allows: (declared, org) => {
+    const [mine, theirs] = [ACTIONS_BREADTH[String(declared)], ACTIONS_BREADTH[String(org)]];
+    return mine === undefined || theirs === undefined ? "unknown" : mine <= theirs;
+  } },
+  { kind: "actions-permissions", field: "sha_pinning_required", source: "actions-permissions", orgField: "sha_pinning_required", allows: (declared, org) => org !== true || declared === true },
+  { kind: "actions-workflow", field: "default_workflow_permissions", source: "actions-workflow", orgField: "default_workflow_permissions", allows: (declared, org) => org !== "read" || declared === "read" },
+  { kind: "actions-workflow", field: "can_approve_pull_request_reviews", source: "actions-workflow", orgField: "can_approve_pull_request_reviews", allows: (declared, org) => org !== false || declared === false },
+  { kind: "actions-fork-approval", field: "approval_policy", source: "fork-approval", orgField: "approval_policy", allows: (declared, org) => {
+    const [mine, theirs] = [FORK_APPROVAL_STRICTNESS[String(declared)], FORK_APPROVAL_STRICTNESS[String(org)]];
+    return mine === undefined || theirs === undefined ? "unknown" : mine >= theirs;
+  } },
+  { kind: "immutable-releases", field: "enabled", source: "immutable-releases", orgField: "enforced_repositories", allows: (declared, org) => org !== "all" || declared === true },
+] satisfies readonly OrgPolicyRule[]);
+
+/** The organisation's answer for every policy source a rule over `kinds` reads (a source GitHub does not answer is absent). */
+export async function organisationPolicy(context: LiveContext, kinds: ReadonlySet<ForgeObjectKind>): Promise<ReadonlyMap<OrgPolicySource, Readonly<Record<string, unknown>>>> {
+  const sources = [...new Set(ORG_POLICY_RULES.filter((rule) => kinds.has(rule.kind)).map((rule) => rule.source))];
+  const answers = await Promise.all(sources.map(async (source) => [source, await getOrAbsent<Record<string, unknown>>(context, `${orgPath(context)}${ORG_POLICY_PATHS[source]}`)] as const));
+  return new Map(await Promise.all(answers.flatMap(([source, answer]) => answer === undefined ? [] : [(async () => {
+    // Actions enabled for SELECTED repositories only: the selection, by name, beside the answer.
+    if (source !== "actions-permissions" || answer.enabled_repositories !== "selected") return [source, answer] as const;
+    const selected = await list<{ name?: unknown }>(context, `${orgPath(context)}/actions/permissions/repositories`, (data) => (data as { repositories?: { name?: unknown }[] }).repositories ?? []);
+    return [source, { ...answer, selected_repositories: selected.flatMap((repository) => typeof repository.name === "string" ? [repository.name] : []) }] as const;
+  })()])));
+}
+
+/** The attachment statuses that mean GitHub is still rolling the configuration out (it refuses another change meanwhile). */
+const ENABLEMENT_IN_PROGRESS: ReadonlySet<string> = new Set(["attaching", "updating"]);
+
+/** The repositories whose attachment to configuration `id` GitHub is still rolling out. */
+async function enablementInProgress(context: LiveContext, id: unknown): Promise<readonly string[]> {
+  const path = `${orgPath(context)}/code-security/configurations/${String(id)}/repositories`;
+  const attached = await context.client.paginate<{ status?: unknown; repository?: { name?: unknown } }>({ path, query: { status: "all" } }, { maxPages: context.maxPages, perPage: 100 });
+  return attached.filter((entry) => typeof entry.status === "string" && ENABLEMENT_IN_PROGRESS.has(entry.status)).flatMap((entry) => typeof entry.repository?.name === "string" ? [entry.repository.name] : []).sort();
+}
+
+/**
+ * A write to security configuration `id`, judged by STATE: refused, typed and
+ * retryable (`forge_security_enablement_in_progress`), while any of its
+ * attachments reads in progress, and a 409 GitHub answers is judged by the
+ * states read right after it (an enablement still rolling out is the typed
+ * refusal; any other conflict stays GitHub's own). Never a timed wait or a
+ * blind retry: the apply defers the object and continues it only once the
+ * states read settled.
+ */
+async function whenEnablementSettled(context: LiveContext, key: string, id: unknown, write: () => Promise<void>): Promise<void> {
+  const refusal = (repositories: readonly string[]): ForgeError => new ForgeError("forge_security_enablement_in_progress", `GitHub is still rolling the security configuration ${key} out to ${repositories.join(", ")}.`, { key, repositories: repositories.join(",") });
+  const before = await enablementInProgress(context, id);
+  if (before.length > 0) throw refusal(before);
+  try {
+    await write();
+  } catch (error) {
+    if (isForgeError(error, "github_conflict")) {
+      const now = await enablementInProgress(context, id);
+      if (now.length > 0) throw refusal(now);
+    }
+    throw error;
+  }
+}
+
 /** The attachment statuses that mean the configuration governs the repository (or is about to). */
 const EFFECTIVE_ATTACHMENT: ReadonlySet<string> = new Set(["attached", "attaching", "enforced", "updating"]);
 const securityConfigurationRepositories: KindAdapter = {
@@ -315,9 +419,11 @@ async function attachExactly(context: LiveContext, object: ForgeObject, desired:
   };
   const path = `${orgPath(context)}/code-security/configurations/${String(configuration.id)}`;
   const extra = attached.filter((name) => !desired.repositories.includes(name));
-  if (desired.repositories.length > 0) await send(context, "POST", `${path}/attach`, { scope: "selected", selected_repository_ids: await Promise.all(desired.repositories.map(idOf)) });
-  if (extra.length > 0) await send(context, "DELETE", `${orgPath(context)}/code-security/configurations/detach`, { selected_repository_ids: await Promise.all(extra.map(idOf)) });
-  await send(context, "PUT", `${path}/defaults`, { default_for_new_repos: desired.default_for_new_repos });
+  await whenEnablementSettled(context, object.key, configuration.id, async () => {
+    if (desired.repositories.length > 0) await send(context, "POST", `${path}/attach`, { scope: "selected", selected_repository_ids: await Promise.all(desired.repositories.map(idOf)) });
+    if (extra.length > 0) await send(context, "DELETE", `${orgPath(context)}/code-security/configurations/detach`, { selected_repository_ids: await Promise.all(extra.map(idOf)) });
+    await send(context, "PUT", `${path}/defaults`, { default_for_new_repos: desired.default_for_new_repos });
+  });
 }
 
 type ProjectNode = Readonly<{ id: string; title: string; public: boolean; fields: { nodes: readonly Readonly<{ id?: string; name?: string; dataType?: string; options?: readonly Readonly<{ name: string }>[] }>[] } }>;

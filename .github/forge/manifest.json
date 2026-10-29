@@ -220,7 +220,7 @@
     },
     {
       "path": ".github/forge/repository-settings/forge-proving-ground.forge-proving-ground.json",
-      "sha256": "74d736691b9c7224885ac6b85f10f71108627e9ae353b2393497492e5cde3f94"
+      "sha256": "163017160fba5a9d1aee2fc3abbcd95723562f4e3449fb3018444090845b7b4e"
     },
     {
       "path": ".github/forge/ruleset/forge-proving-ground.proving-main.json",
@@ -377,6 +377,10 @@
     {
       "path": ".github/dependabot.yml",
       "sha256": "a9636142974b671d6a86e2c394bbd6fd1fcd31c3ea5a56d501547c63b7cbe345"
+    },
+    {
+      "path": ".github/forge/repository-identity.json",
+      "sha256": "8a3e4500a15b5a6bd312b548fcbabfb8139583f3c9b57a9bd81971ddbfe4776d"
     },
     {
       "path": ".github/CODEOWNERS",

@@ -13,11 +13,13 @@ import { buildStatus } from "../../scripts/floor/status.mjs";
 import { memoryCredential } from "../../engine/src/workflow/forge/credentials.ts";
 import { githubClient } from "../../engine/src/workflow/forge/github.ts";
 import { fakeGithub } from "../../engine/test/forge/fake-github.ts";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-/** The repository the tree declares (package.json repository.url), the one source every URL comes from. */
-const REPOSITORY = /github\.com\/([^/]+\/[^/.]+?)(?:\.git)?$/u.exec(JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).repository.url)[1];
-const BLOB = `https://github.com/${REPOSITORY}/blob/main/`;
+/** The repository identity (the forge section), the one source every URL comes from. */
+const IDENTITY = configuredRepositoryIdentity();
+const REPOSITORY = IDENTITY.fullName;
+const BLOB = `${IDENTITY.webUrl}/blob/main/`;
 
 function readJson(path) {
   return JSON.parse(readFileSync(join(ROOT, path), "utf8"));
@@ -45,7 +47,7 @@ test("the floor atlas reconciles its generated counts with tracked sources", () 
   assert.ok(atlas.decisions.length > 0);
 
   for (const entry of atlas.tests) {
-    assert.ok(entry.url.startsWith(BLOB), `${entry.url} is a file of this repository (package.json repository.url)`);
+    assert.ok(entry.url.startsWith(BLOB), `${entry.url} is a file of this repository (the repository identity)`);
     assert.ok(existsSync(join(ROOT, entry.url.slice(BLOB.length))), `${entry.url} names a file this tree holds`);
     assert.ok(entry.category);
     assert.ok(entry.disposition);
@@ -59,14 +61,13 @@ test("the one site's source is this tree's docs/, with no second repository", as
   const out = join(work, "site");
   try {
     const result = await buildSiteSource({ root: ROOT, out, baseurl: "/bridlewise" });
-    // Every coordinate the pages read is written from package.json, the one declaration.
-    const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const repositoryUrl = manifest.repository.url.replace(/\.git$/u, "");
+    // Every coordinate the pages read is written from the repository identity, the one source.
+    const repositoryUrl = IDENTITY.webUrl;
     const config = parse(readFileSync(join(out, "_config.yml"), "utf8"));
     assert.equal(config.baseurl, "/bridlewise");
     assert.equal(config.repository_url, repositoryUrl);
     assert.equal(config.security_url, `${repositoryUrl}/blob/main/SECURITY.md`);
-    assert.equal(config.url, `https://${repositoryUrl.split("/")[3].toLowerCase()}.github.io`);
+    assert.equal(config.url, new URL(IDENTITY.pagesUrl).origin);
     const layout = readFileSync(join(out, "_layouts/default.html"), "utf8");
     assert.match(layout, /assets\/floor\/floor\.css/u);
     assert.match(layout, /assets\/floor\/floor\.js/u);
