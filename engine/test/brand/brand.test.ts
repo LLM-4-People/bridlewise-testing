@@ -20,7 +20,7 @@ import { messagingViolations, readMessaging, type Messaging } from "../../src/wo
 import { readWords, type Words } from "../../scripts/brand/words.ts";
 import { CLAIMS_PAGE_BLOCK, claimsPage, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, siteFront } from "../../scripts/brand/render.ts";
 // @ts-expect-error -- the floor's status owner is plain Node ESM with no declaration file (as scripts/brand/words.ts reads repository.mjs).
-import { STATUS_CHECK_IDS } from "../../../scripts/floor/status.mjs";
+import { STATUS_CHECKS } from "../../../scripts/floor/status.mjs";
 
 const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
 const COMMIT = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -105,9 +105,9 @@ test("judging: a claim holds only while every bound check passed on the commit; 
 });
 
 test("this repository's register judged against an all-green snapshot of the floor status's own checks: every claim holds (#675)", () => {
-  // The ids are the status's own (STATUS_CHECK_IDS): a register bound to a name the status never reports
+  // The ids are the status's own (STATUS_CHECKS): a register bound to a name the status never reports
   // ("testing.ci" before this fix) retracted every claim on every deploy, green or not.
-  const ids: readonly string[] = STATUS_CHECK_IDS;
+  const ids: readonly string[] = (STATUS_CHECKS as readonly { id: string }[]).map((check) => check.id);
   const snapshot = ids.map((id) => ({ id, status: "pass", headSha: COMMIT, runUrl: null }));
   for (const j of judgeClaims(readClaims(REPOSITORY_ROOT), snapshot, COMMIT)) if (j.claim.kind === "holds-when-green") assert.equal(j.verdict, "holds", j.claim.id);
 });

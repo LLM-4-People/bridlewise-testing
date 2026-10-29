@@ -26,10 +26,10 @@ import { InputError } from "../../src/kernel/errors.ts";
 import { parseFrontMatter, readEntries } from "../../src/workflow/failure-owners.ts";
 import { DECISIONS_DIRECTORY } from "../verification/tracker-entries.ts";
 // @ts-expect-error -- the floor's status owner is plain Node ESM with no declaration file (as words.ts reads repository.mjs).
-import { STATUS_CHECK_IDS } from "../../../scripts/floor/status.mjs";
+import { STATUS_CHECKS } from "../../../scripts/floor/status.mjs";
 
 /** The check ids a binding may name: the floor status's own (`scripts/floor/status.mjs`), never a second list. */
-const CHECK_IDS: readonly string[] = STATUS_CHECK_IDS;
+const CHECK_IDS: readonly string[] = (STATUS_CHECKS as readonly { id: string }[]).map((check) => check.id);
 
 export { CLAIMS_PATH };
 export const CLAIMS_SCHEMA = "bridlewise-claims/v1";
