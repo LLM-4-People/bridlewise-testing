@@ -16,12 +16,12 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 
 ## At a glance
 
-<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
+<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (harness sync; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**0 of 56 tracked items shipped (0%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. 7 not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.
+**0 of 57 tracked items shipped (0%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. 7 not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.
 
-0 shipped · 24 claimed, unverified · 0 in progress · 31 planned · 1 blocked · 7 not planned.
+0 shipped · 24 claimed, unverified · 0 in progress · 32 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -96,7 +96,7 @@ A milestone is not "done" because a page says so. A close is a claim: an item is
 
 ---
 
-<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
+<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (harness sync; scripts/floor/roadmap-status.ts) -->
 ## M0 · Public floor online
 
 **State:** claimed — 0 of 6 members shipped, 6 claimed, 0 in progress, 0 blocked. [The record](../trackers/items/M0.md).
@@ -176,9 +176,9 @@ Carried from the hand\-kept roadmap plan when the roadmap became generated from 
 
 ## Workstreams and exit criteria
 
-The owner of this section is the tracker: every milestone, workstream, exit criterion and not-planned statement is one item file in `docs/trackers/items/` (each title below links to its record; the [task board](../trackers/TASKS.md) lists them all), and every state is computed: a close is the item's recorded claim, `shipped` only when linked evidence proves it (otherwise `claimed`), and every open state comes from what the item is blocked by, its sub-items and the decision records it carries out. Change an item, not a table; `npm run docs:roadmap` rewrites the generated blocks. Each record says where it was carried from, so a plan that was only implicit in prose is still attributable.
+The owner of this section is the tracker: every milestone, workstream, exit criterion and not-planned statement is one item file in `docs/trackers/items/` (each title below links to its record; the [task board](../trackers/TASKS.md) lists them all), and every state is computed: a close is the item's recorded claim, `shipped` only when linked evidence proves it (otherwise `claimed`), and every open state comes from what the item is blocked by, its sub-items and the decision records it carries out. Change an item, not a table; `harness sync` rewrites the generated blocks. Each record says where it was carried from, so a plan that was only implicit in prose is still attributable.
 
-<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from the tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
+<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from the tracker items (harness sync; scripts/floor/roadmap-status.ts) -->
 ### Milestone plan
 
 Each milestone group names its workstreams and exit criteria with the owner, the computed state, the exit criterion and the evidence. Each title links to its record, which carries where it was carried from, its links and its history.
@@ -296,7 +296,7 @@ Each milestone group names its workstreams and exit criteria with the owner, the
 
 Everything below is rendered from its owners: the open tracker items (the [task board](../trackers/TASKS.md) lists them) and the explicit non-proofs of [the evidence page](evidence.md). An item leaves the task board only when it closes; a non-proof disappears only when the evidence page stops naming it.
 
-<!-- BEGIN GENERATED: roadmap open work, from the tracker items and docs/floor/evidence.md (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->
+<!-- BEGIN GENERATED: roadmap open work, from the tracker items and docs/floor/evidence.md (harness sync; scripts/floor/roadmap-status.ts) -->
 ### Open task board
 
 Every open tracker item outside the milestone plan appears here, by lane. An item leaves this table only when it closes.
@@ -312,6 +312,7 @@ Every open tracker item outside the milestone plan appears here, by lane. An ite
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
+| **[FLAKY\-CONFIG\-PARENT\-CHURN](../trackers/items/FLAKY-CONFIG-PARENT-CHURN.md)** | planned | — | — |
 | **[FLAKY\-PUBLIC\-ENGINE\-GUARD\-REDS\-ON\-ROUND\-TREES](../trackers/items/FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES.md)** | planned | — | — |
 | **[FLAKY\-PUBLIC\-ENGINE\-UNDIAGNOSED](../trackers/items/FLAKY-PUBLIC-ENGINE-UNDIAGNOSED.md)** | planned | — | — |
 | **[FLAKY\-PUBLIC\-ENGINE\-UNLOGGED\-RECORDS](../trackers/items/FLAKY-PUBLIC-ENGINE-UNLOGGED-RECORDS.md)** | planned | — | — |
@@ -370,7 +371,7 @@ Deliberate non-goals, kept here with their reason.
 
 ## How this roadmap changes
 
-A milestone, workstream, exit criterion, not-planned statement or task changes in its item file under `docs/trackers/items/` (the [task board](../trackers/TASKS.md) and this page are both rendered from them); a non-proof changes in [the evidence page](evidence.md). Then run `npm run docs:roadmap` to rewrite the generated blocks. `npm run docs:roadmap -- --check` is the read-only form.
+A milestone, workstream, exit criterion, not-planned statement or task changes in its item file under `docs/trackers/items/` (the [task board](../trackers/TASKS.md) and this page are both rendered from them); a non-proof changes in [the evidence page](evidence.md). Then run `harness sync` to rewrite the generated blocks; `harness check` is the read-only form.
 
 The generated blocks are not hand-editable. The site build also refuses a page whose emitted classes have no rule in the shared stylesheet (`npm run design:coverage`), and a built-page assertion checks that this page's tables are tables rather than paragraphs, so a generator change that breaks rendering fails the deploy rather than the reader. A guard (`tests/prevention/roadmap-status-owner.test.ts`) fails when the page differs from the renderer's output, when an open roadmap item names no milestone, or when an item's evidence points at a missing file or anchor.
 

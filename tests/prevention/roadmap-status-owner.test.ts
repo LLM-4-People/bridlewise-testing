@@ -28,7 +28,7 @@
  * ── THE PLANT AND THE DRIVEN BEHAVIOR ────────────────────────────────────
  *
  * The guard regenerates the page and compares it byte for byte with the
- * committed page (`npm run docs:roadmap`). A hand edit inside a generated
+ * committed page (the generator `harness sync` runs: `ROADMAP_PAGE`). A hand edit inside a generated
  * block, an open roadmap item without a milestone, an item whose evidence
  * names a missing anchor, and a removed marker all turn it red; a state moves
  * only when its evidence does. The plants are synthetic items and texts,
@@ -84,10 +84,18 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
 
     const report = roadmapDrift(page, sources, ROOT);
     expect(report.violations, `the roadmap items do not cover their owners:\n${report.violations.join("\n")}`).toEqual([]);
-    expect(report.staleBlocks, `docs/floor/roadmap.md's generated blocks are stale: run npm run docs:roadmap (stale: ${report.staleBlocks.join(", ")})`).toEqual([]);
+    expect(report.staleBlocks, `docs/floor/roadmap.md's generated blocks are stale: run harness sync (stale: ${report.staleBlocks.join(", ")})`).toEqual([]);
 
     for (const item of [...open, ...roadmap]) expect(page, `item ${item.id} is missing from the roadmap`).toContain(`items/${item.id}.md`);
     for (const nonProof of nonProofs) expect(page, `the evidence non-proof "${nonProof.text}" is missing from the roadmap`).toContain(escapeSiteText(nonProof.text));
+  });
+
+  test("a tracker change without the page regenerated is refused: a new item leaves its blocks stale until the generator runs (planted)", () => {
+    const added = { ...sources, items: [...items, planted("ROADMAP-PLANT-NEW", { milestone: items.find((item) => item.type === "Milestone")!.id })] };
+    const stale = roadmapDrift(page, added, ROOT);
+    expect(stale.staleBlocks.length, "an added tracker item left every generated block current").toBeGreaterThan(0);
+    // The generator's own output for the new items is current again: the regeneration is the only way back.
+    expect(roadmapDrift(renderRoadmapPage(page, added), added, ROOT).staleBlocks).toEqual([]);
   });
 
   test("the #snapshot anchor and the milestone headings survive the generated tables", () => {

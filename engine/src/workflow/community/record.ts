@@ -18,8 +18,9 @@ import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
 import { HarnessError } from "../../kernel/errors.ts";
-import { TRACKER_BOARD } from "../../kernel/verification-paths.ts";
+import { ROADMAP_PAGE, TRACKER_BOARD } from "../../kernel/verification-paths.ts";
 import { isTrackerDate, readEntries, syncTrackerBoard, trackerItemSchema, trackerItems } from "../failure-owners.ts";
+import { regenerateRoadmapPage } from "../roadmap-page.ts";
 import { publishBranch, type ForgePullRequest, type ForgeTarget, type WorkspaceForge } from "../workspace-forge.ts";
 import type { IntakeRecord } from "./issue-ops.ts";
 
@@ -68,8 +69,11 @@ export function itemPath(id: string): string {
 }
 
 /**
- * Writes `record`'s item into the checkout at `root` and regenerates the task
- * board from the items: the new item is judged with every other one by the
+ * Writes `record`'s item into the checkout at `root` and regenerates every
+ * generated view of the tracker items through its one owner — the task board
+ * and the roadmap page's status blocks (`regenerateRoadmapPage`, the arm
+ * `harness sync` runs, src/workflow/roadmap-page.ts), so a record pull request
+ * never lands a stale view: the new item is judged with every other one by the
  * tracker's reader first (`tracker_item_invalid`), and an id that already has
  * a file is `community_record_exists`. Answers the paths written.
  */
@@ -82,7 +86,10 @@ export function writeIntakeRecord(root: string, record: IntakeRecord, dates: Rea
   if (!written.success) refuse("community_record_write_failed", `Failed to write ${path}: ${written.reason ?? "unknown error"}`);
   const board = syncTrackerBoard(root, true);
   if (!board.converged) refuse("community_record_board_invalid", `the task board cannot take the record: ${board.problems.join("; ")}`);
-  return [path, ...board.changed];
+  const page = regenerateRoadmapPage(root, true);
+  if (!page.converged) refuse("community_record_roadmap_invalid", `the roadmap page cannot take the record (${page.status}): ${page.changed.join(", ")}`);
+  // The arm names the blocks it rewrote; the record names the file.
+  return [path, ...board.changed, ...(page.status === "regenerated" ? [ROADMAP_PAGE.path] : [])];
 }
 
 export type RecordLanding = Readonly<{

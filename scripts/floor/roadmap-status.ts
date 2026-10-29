@@ -2,8 +2,10 @@
  * THE ROADMAP STATUS GENERATOR: `docs/floor/roadmap.md`'s status blocks,
  * rebuilt from their owners.
  *
- *   npm run docs:roadmap              # rewrite the three generated blocks
- *   npm run docs:roadmap -- --check   # exit 1 when a block is stale
+ * `harness sync` runs it on every sync (`--write --root=<repository>`), right
+ * after the task board, and `harness check` runs it read-only (`--check`):
+ * `ROADMAP_PAGE`, engine/src/kernel/verification-paths.ts. It prints one JSON
+ * result line (the generator protocol: `allCurrent`, `status`, `changed`).
  *
  * The owners are:
  *
@@ -23,8 +25,8 @@
  * (`engine/src/workflow/tracker-status.ts`), and the reason is printed beside
  * the state. A milestone's state is its members'.
  *
- * No rendered table is hand-editable: `npm run docs:roadmap` is the only
- * writer, and `tests/prevention/roadmap-status-owner.test.ts` refuses a page
+ * No rendered table is hand-editable: this generator, run by `harness sync`,
+ * is the only writer, and `tests/prevention/roadmap-status-owner.test.ts` refuses a page
  * that differs from the renderer's output or a page that omits an open item,
  * a roadmap item, or an evidence non-proof.
  *
@@ -37,7 +39,7 @@ import { fileURLToPath } from "node:url";
 
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
-import { TRACKER_BOARD } from "../../engine/src/kernel/verification-paths.ts";
+import { ROADMAP_PAGE, TRACKER_BOARD } from "../../engine/src/kernel/verification-paths.ts";
 import { readDecisionRecords, readTrackerItems, TRACKER_LANES, type DecisionRecord, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
 import { relativePath } from "../../engine/src/workflow/markdown-links.ts";
 import { itemStatuses, ROADMAP_STATES, type ItemStatus, type RoadmapState } from "../../engine/src/workflow/tracker-status.ts";
@@ -71,25 +73,25 @@ function siteSpelled(text: string): string {
   return spelled;
 }
 
-export const ROADMAP_PATH = "docs/floor/roadmap.md";
+export const ROADMAP_PATH = ROADMAP_PAGE.path;
 export const EVIDENCE_PATH = "docs/floor/evidence.md";
 const PAGE_DIRECTORY = dirname(ROADMAP_PATH);
 
 export const ROADMAP_BLOCKS = {
   milestones: {
-    begin: "<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap milestones -->",
   },
   summary: {
-    begin: "<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap summary -->",
   },
   plan: {
-    begin: "<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from the tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from the tracker items (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap workstreams and exit criteria -->",
   },
   open: {
-    begin: "<!-- BEGIN GENERATED: roadmap open work, from the tracker items and docs/floor/evidence.md (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap open work, from the tracker items and docs/floor/evidence.md (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap open work -->",
   },
 } as const;
@@ -511,12 +513,14 @@ function readSources(repositoryRoot: string): RoadmapSources {
 
 function run(argv: readonly string[]): number {
   const check = argv.includes("--check");
-  if (argv.some((argument) => argument !== "--check" && argument !== "--write")) {
-    process.stderr.write("usage: roadmap-status [--write|--check]\n");
+  const rootArgument = argv.find((argument) => argument.startsWith("--root="));
+  if (argv.some((argument) => argument !== "--check" && argument !== "--write" && argument !== rootArgument)) {
+    process.stderr.write("usage: roadmap-status [--write|--check] [--root=<repository>]\n");
     return 1;
   }
   const write = !check;
-  const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+  // The repository to judge: the one `harness sync` names, else this script's own.
+  const repositoryRoot = rootArgument === undefined ? resolve(dirname(fileURLToPath(import.meta.url)), "../..") : resolve(rootArgument.slice("--root=".length));
   const pagePath = join(repositoryRoot, ROADMAP_PATH);
   const page = readFileSync(pagePath, "utf8");
   const sources = readSources(repositoryRoot);
