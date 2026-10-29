@@ -165,7 +165,7 @@ test("the floor status reports the product branch of this repository", async () 
 
 test("each workflow run at the source commit reports its jobs' own conclusions; a run at another commit, or a failed read, reports none", async () => {
   const commit = repoInfo(ROOT).commit;
-  const run = (id, name, headSha) => ({ id, name, path: `.github/workflows/${id}.yml`, status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
+  const run = (id, name, headSha) => ({ id, name, path: `.github/workflows/${id}.yml`, status: "completed", conclusion: "success", head_sha: headSha, head_branch: "main", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
   const job = (name, conclusion) => ({ id: name.length, name, status: "completed", conclusion, html_url: `https://example.invalid/jobs/${name}` });
   const { requested, client } = forgeClient((request) => {
     if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [run(11, "CI", commit), run(12, "CodeQL", "0".repeat(40)), run(13, "Secret scan", commit)] } };
@@ -192,7 +192,7 @@ test("each workflow run at the source commit reports its jobs' own conclusions; 
 
 test("the checks are read from the runs AT the source commit: none there is not-run, a run still going is unknown, no answer is unknown (#675)", async () => {
   const commit = repoInfo(ROOT).commit;
-  const run = (id, name, status) => ({ id, name, path: `.github/workflows/${id}.yml`, event: "push", status, conclusion: status === "completed" ? "success" : null, head_sha: commit, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
+  const run = (id, name, status, headBranch = "main", conclusion = status === "completed" ? "success" : null, createdAt = "2026-01-01T00:00:00Z") => ({ id, name, path: `.github/workflows/${id}.yml`, event: headBranch === "main" ? "push" : "merge_group", status, conclusion, head_sha: commit, head_branch: headBranch, created_at: createdAt, updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
   const statuses = async (runs) => {
     const queries = [];
     const { client } = forgeClient((request) => {
@@ -210,13 +210,16 @@ test("the checks are read from the runs AT the source commit: none there is not-
   };
   assert.deepEqual(await statuses({ body: { workflow_runs: [run(1, "CI", "completed"), run(2, "CodeQL", "in_progress"), run(3, "Secret scan", "completed")] } }), { ci: "pass", codeql: "unknown", docs: "not-run", secret: "pass" });
   assert.deepEqual(await statuses({ status: 500, body: { message: "boom" } }), { ci: "unknown", codeql: "unknown", docs: "unknown", secret: "unknown" });
+  // main's commit is the merge queue's commit: the queue's runs there (newer, red, or the only one) report the queue, not main.
+  const queue = "gh-readonly-queue/main/pr-1-0123456789abcdef0123456789abcdef01234567";
+  assert.deepEqual(await statuses({ body: { workflow_runs: [run(1, "CI", "completed"), run(4, "CI", "completed", queue, "failure", "2026-01-02T00:00:00Z"), run(5, "Docs links", "completed", queue)] } }), { ci: "pass", codeql: "not-run", docs: "not-run", secret: "not-run" });
 });
 
 test("a run with more jobs than the page bound holds says so in its own words, never as an API that did not answer", async () => {
   const commit = repoInfo(ROOT).commit;
   const path = (page) => `/repos/${REPOSITORY}/actions/runs/21/jobs?filter=latest&per_page=100&page=${page}`;
   const { client } = forgeClient((request) => {
-    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [{ id: 21, name: "CI", status: "completed", conclusion: "success", head_sha: commit, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: "https://example.invalid/runs/21" }] } };
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [{ id: 21, name: "CI", status: "completed", conclusion: "success", head_sha: commit, head_branch: "main", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: "https://example.invalid/runs/21" }] } };
     if (request.path.endsWith("/actions/runs/21/jobs")) {
       const page = Number(request.query.get("page") ?? "1");
       return { body: { total_count: 300, jobs: [{ id: page, name: `job ${page}`, status: "completed", conclusion: "success", html_url: "https://example.invalid/j" }] }, link: `<${path(page + 1)}>; rel="next"` };

@@ -13,13 +13,14 @@ import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";
 
-import { REBUILD_WORKFLOWS, rebuildDecision } from "../../scripts/floor/rebuild-gate.mjs";
+import { REBUILD_TRIGGER, REBUILD_WORKFLOWS, rebuildDecision } from "../../scripts/floor/rebuild-gate.mjs";
 import { SITE_WORKFLOW, STATUS_WORKFLOWS } from "../../scripts/floor/status.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const WORKFLOW = join(ROOT, ".github/workflows/pages.yml");
 const TIP = "a".repeat(40);
-const run = (id, name, status = "completed", updatedAt = `2026-01-01T00:0${String(id)}:00Z`) => ({ id, name, status, updatedAt });
+const QUEUE = "gh-readonly-queue/main/pr-1-0123456789abcdef0123456789abcdef01234567";
+const run = (id, name, status = "completed", updatedAt = `2026-01-01T00:0${String(id)}:00Z`, headBranch = "main") => ({ id, name, headBranch, status, updatedAt });
 const finished = () => REBUILD_WORKFLOWS.map((name, index) => run(index + 1, name));
 const decide = (runId, runs, mainHead = TIP) => rebuildDecision({ runId, mainHead, runs, branch: "main" });
 
@@ -47,6 +48,15 @@ test("two completions that finish together pick one between them: the later fini
   assert.deepEqual([decide(9, ordered).build, decide(8, ordered).build], [true, false]);
 });
 
+test("the merge queue's runs at the tip count for nothing: one finishing last, or still going, never holds the rebuild back", () => {
+  // main's tip IS the queue's commit, so the queue's runs sit at it too; their completion fires nothing on main.
+  const runs = finished();
+  const queueLast = [...runs, run(70, REBUILD_WORKFLOWS[0], "completed", "2026-01-01T00:59:00Z", QUEUE)];
+  assert.equal(decide(runs.at(-1).id, queueLast).build, true, "the last run on main rebuilds, though a queue run finished after it");
+  assert.match(decide(70, queueLast).reason, /^run 70 is not a status run at main's tip/u, "and the queue run itself is no status run");
+  assert.equal(decide(runs.at(-1).id, [...runs, run(71, REBUILD_WORKFLOWS[0], "in_progress", "2026-01-01T00:59:00Z", QUEUE)]).build, true, "a queue run still going blocks nothing");
+});
+
 test("the completed run is finished whatever a lagging list says, and then it is the last", () => {
   const runs = finished();
   const lagging = runs.map((entry, index) => (index === 0 ? { ...entry, status: "in_progress" } : entry));
@@ -66,9 +76,8 @@ test("the workflow rebuilds on every workflow the status reads but its own, and 
   const workflow = parse(readFileSync(WORKFLOW, "utf8"));
   assert.equal(workflow.name, SITE_WORKFLOW, "the status names the site's workflow as GitHub does");
   assert.deepEqual([...REBUILD_WORKFLOWS].sort(), STATUS_WORKFLOWS.filter((name) => name !== SITE_WORKFLOW).sort());
-  assert.deepEqual([...workflow.on.workflow_run.workflows].sort(), [...REBUILD_WORKFLOWS].sort(), "a status workflow's completion that rebuilds nothing would leave its verdict stale");
-  assert.deepEqual(workflow.on.workflow_run.types, ["completed"]);
-  assert.deepEqual(workflow.on.workflow_run.branches, ["main"]);
+  // The trigger IS the gate's definition: every run the gate counts fires it, and it fires on nothing the gate ignores.
+  assert.deepEqual(workflow.on.workflow_run, { workflows: [...REBUILD_TRIGGER.workflows], types: ["completed"], branches: [...REBUILD_TRIGGER.branches] });
   assert.ok("push" in workflow.on && "pull_request" in workflow.on, "the push build stays");
 
   const gate = workflow.jobs["rebuild-gate"];

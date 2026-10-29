@@ -8,7 +8,7 @@ import {
   workflowRuns,
 } from "../../engine/src/workflow/forge/repository-reads.ts";
 import { repoInfo } from "./files.mjs";
-import { REPOSITORY } from "./repository.mjs";
+import { DEFAULT_BRANCH, REPOSITORY } from "./repository.mjs";
 
 export const STATUS_SCHEMA = "bridlewise-floor-status/v1";
 
@@ -27,6 +27,21 @@ const REQUIRED = [
 export const STATUS_WORKFLOWS = Object.freeze(REQUIRED.map((definition) => definition.workflow));
 /** The site's own workflow (`.github/workflows/pages.yml`). */
 export const SITE_WORKFLOW = REQUIRED.find((definition) => definition.id === "pages").workflow;
+
+/**
+ * THE RUNS THAT REPORT MAIN'S COMMIT: a status workflow's run on `main`
+ * itself (a push, a schedule, a dispatch). The merge queue's run at the same
+ * commit (its branch is `gh-readonly-queue/…`) proves the queue's candidate,
+ * and its completion fires nothing on `main`. The status, the rebuild
+ * trigger and the rebuild gate (`rebuild-gate.mjs`) all count these runs
+ * and no other.
+ */
+export const MAIN_RUN_BRANCHES = Object.freeze([DEFAULT_BRANCH]);
+
+/** Whether `run` (`{ headBranch }`) reports main's commit ({@link MAIN_RUN_BRANCHES}). */
+export function reportsMain(run) {
+  return MAIN_RUN_BRANCHES.includes(run.headBranch);
+}
 
 function durationMs(run) {
   if (!run?.createdAt || !run?.updatedAt) return null;
@@ -178,7 +193,7 @@ export async function buildStatus({
   const dependencies = settled(dependencyResult);
   const releases = settled(releasesResult);
   const product = settled(productResult);
-  const latest = runs.ok ? latestByWorkflow(runs.value) : new Map();
+  const latest = runs.ok ? latestByWorkflow(runs.value.filter(reportsMain)) : new Map();
 
   const checks = REQUIRED.map((definition) => checkFromRun(definition, latest.get(definition.workflow), source.commit, runs.ok));
   // Each job's own conclusion, for every workflow run at the source commit, so a claim can be bound to the
