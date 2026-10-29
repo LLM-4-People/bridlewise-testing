@@ -648,7 +648,7 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
   try {
     const answers = await reproduceFlake(request, topRepository, testPathOf, async (revision, files) => {
       await checkout.moveTo(resolveCommit(topRepository, revision === "parent" ? `${request.fix}^` : request.fix));
-      return runTests(checkout.path, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
+      return runReproductionTests(checkout.path, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
     }, (record, bytes) => writeRecordFile(flakeReproductionFileName(record.identity, record.fix.commit), bytes), {
       runs: request.statistical ? statisticalRunsOf(request, config) : deterministicRuns(request.preload, significance, deterministicShims),
       preloadSha256,
@@ -681,7 +681,11 @@ export function statisticalRunsOf(request: Pick<FlakeReproductionRequest, "runs"
 }
 
 /** One run of `files` in `checkout` under the request's conditions, read by this checkout's reproduction reporter. */
-async function runTests(
+/**
+ * ONE RUN of the named tests' files in `checkout`, as a reproduction runs them: through the one test-execution door
+ * (confined), the report on the run's result channel. Exported for the live suite's canary of this route.
+ */
+export async function runReproductionTests(
   checkout: string,
   engineRelative: string,
   request: FlakeReproductionRequest,
@@ -695,7 +699,7 @@ async function runTests(
   const output = "/dev/fd/3";
   const world = createShimWorld(tmpdir(), ENGINE_ROOT);
   try {
-    return await runInWorld(checkout, engineRelative, request, preloadFile, files, supervisor, watchdog, output, shimEnvironment(process.env, request, world, output));
+    return await runInWorld(checkout, engineRelative, request, preloadFile, files, supervisor, watchdog, shimEnvironment(process.env, request, world, output));
   } finally {
     removeOwnedTemporaryDirectory(world.root);
   }
@@ -710,7 +714,6 @@ async function runInWorld(
   files: readonly string[],
   supervisor: string,
   watchdog: Readonly<{ hardCeilingMs: number; killGraceMs: number }>,
-  output: string,
   environment: Record<string, string>,
 ): Promise<ReproductionRun> {
   // Everything the run prints is echoed AND kept: the attempt keeps it as evidence.
@@ -733,7 +736,7 @@ async function runInWorld(
     : [`--test-name-pattern=^(?:${names.join("|")})$`];
   // THROUGH THE ONE TEST-EXECUTION DOOR, CONFINED, each suite's test runner directly (its report on the result channel).
   const [command, args] = request.suite === "engine"
-    ? [process.execPath, ["--experimental-strip-types", "--test", ...preload, ...order, ...only, "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${reporter}`, `--test-reporter-destination=${output}`, ...files]] as const
+    ? [process.execPath, ["--experimental-strip-types", "--test", ...preload, ...order, ...only, "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${reporter}`, "--test-reporter-destination=stdout", ...files]] as const
     : vitestCommand(checkout, ["run", ...files, ...order, "--reporter=default", `--reporter=${reporter}`]);
   const stopDuring = new AbortController();
   const alongside = request.during === null ? undefined

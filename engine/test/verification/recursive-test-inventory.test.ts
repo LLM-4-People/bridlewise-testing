@@ -1035,8 +1035,9 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
         // HOSTILE-REAL moved to the live suite (`live/s1-b0{2,3}-hostile-real.test.ts`).
         // 10 -> 13 (2026-10-29, decision TEST-CONFINEMENT-SELF-BIND): the heavy-run admission and long-task runner
         // tests moved to the live suite (they need the host's user service manager).
-        count: 13,
-        sha256: "d57de876301489d5f4741ab589657250bd34b238a627ed4639f49f1d0c707c32",
+        // 13 -> 14 (2026-10-29): `live/door-canaries.test.ts` (the door's canary through each runner's real entry).
+        count: 14,
+        sha256: "fd94c977b1202b667b3b38ee047be40968d6461f360f4313e663cc8bb6d85375",
       },
     },
     maximumDepth: 32,

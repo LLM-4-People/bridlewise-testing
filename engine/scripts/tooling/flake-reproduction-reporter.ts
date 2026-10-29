@@ -8,6 +8,8 @@
  * owners the engine ledger's rows are written with, so a reproduced digest
  * and a recorded one say the same thing.
  */
+import { writeFileSync } from "node:fs";
+
 import { failureDigest, failureLocation, skippedIdentity } from "../../src/shared/run-history.ts";
 import { extractTestResultError, testErrorStatement } from "../../src/workflow/test-result-collector.ts";
 import { sourceIdForFile } from "./inventory-test-run.ts";
@@ -15,6 +17,9 @@ import { sourceIdForFile } from "./inventory-test-run.ts";
 type ReporterEvent = Readonly<{ type: string; data?: Readonly<{ name?: string; file?: string; skip?: unknown; todo?: unknown; details?: Readonly<{ error?: unknown }> }> }>;
 
 type Outcome = Readonly<{ outcome: "failed"; digest: string; location: string | null }> | Readonly<{ outcome: "passed" | "skipped" }>;
+
+/** The run's result channel: descriptor 3 of a run the one test-execution door started with a result reader. */
+const RESULT_CHANNEL = 3;
 
 export default async function* flakeReproductionReporter(source: AsyncIterable<ReporterEvent>): AsyncGenerator<string> {
   const root = process.cwd();
@@ -37,5 +42,7 @@ export default async function* flakeReproductionReporter(source: AsyncIterable<R
       }
     }
   }
-  yield `${JSON.stringify(outcomes)}\n`;
+  // Written to the run's result channel itself, descriptor 3 (the one test-execution door's pipe; node's file
+  // destination fsyncs, which a pipe refuses); nothing is yielded to the destination.
+  writeFileSync(RESULT_CHANNEL, `${JSON.stringify(outcomes)}\n`);
 }
