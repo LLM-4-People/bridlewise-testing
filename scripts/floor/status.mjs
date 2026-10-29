@@ -23,6 +23,11 @@ const REQUIRED = [
   { id: "pages", label: "Pages", workflow: "Docs site", required: false },
 ];
 
+/** The workflows the status reads, by name (the names GitHub reports and `on.workflow_run` matches). */
+export const STATUS_WORKFLOWS = Object.freeze(REQUIRED.map((definition) => definition.workflow));
+/** The site's own workflow (`.github/workflows/pages.yml`). */
+export const SITE_WORKFLOW = REQUIRED.find((definition) => definition.id === "pages").workflow;
+
 function durationMs(run) {
   if (!run?.createdAt || !run?.updatedAt) return null;
   const start = Date.parse(run.createdAt);
@@ -31,18 +36,24 @@ function durationMs(run) {
   return end - start;
 }
 
-function checkFromRun(definition, run, repositoryCommit) {
+/**
+ * One workflow's check at `repositoryCommit` from its latest run there.
+ * `runsRead` is whether GitHub answered the run list: no run in an answer is
+ * a workflow that did not run at this commit (`not-run`); no answer at all
+ * says nothing (`unknown`). A run still going is `unknown` too.
+ */
+function checkFromRun(definition, run, repositoryCommit, runsRead) {
   if (!run) {
     return {
       id: definition.id,
       label: definition.label,
-      status: "unknown",
+      status: runsRead ? "not-run" : "unknown",
       required: definition.required,
       conclusion: null,
       headSha: null,
       runUrl: null,
       durationMs: null,
-      note: "No run was returned for this workflow.",
+      note: runsRead ? "This workflow did not run at this commit." : "The API did not answer for the workflow runs.",
     };
   }
   let status = "unknown";
@@ -153,7 +164,9 @@ export async function buildStatus({
   const [runsResult, codeResult, dependencyResult, releasesResult, productResult] = offline
     ? [offlineResult, offlineResult, offlineResult, offlineResult, offlineResult]
     : await Promise.allSettled([
-        workflowRuns(client, REPOSITORY),
+        // The runs AT the source commit: the newest run of a workflow may be
+        // a pull request's or the merge queue's, which proves nothing here.
+        workflowRuns(client, REPOSITORY, source.commit),
         countOpenAlerts(client, REPOSITORY, "code-scanning"),
         countOpenAlerts(client, REPOSITORY, "dependabot"),
         listReleases(client, REPOSITORY, maxPages),
@@ -167,7 +180,7 @@ export async function buildStatus({
   const product = settled(productResult);
   const latest = runs.ok ? latestByWorkflow(runs.value) : new Map();
 
-  const checks = REQUIRED.map((definition) => checkFromRun(definition, latest.get(definition.workflow), source.commit));
+  const checks = REQUIRED.map((definition) => checkFromRun(definition, latest.get(definition.workflow), source.commit, runs.ok));
   // Each job's own conclusion, for every workflow run at the source commit, so a claim can be bound to the
   // job that proves it (a workflow passing says nothing about which of its jobs ran what). A run at another
   // commit, or offline, has no jobs to report; a read that fails says so, never an empty list.

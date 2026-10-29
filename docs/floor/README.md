@@ -36,6 +36,16 @@ All published pages use `layout: default`, `title`, `description`, and `permalin
 
 A release snapshot is built at release time with `source --baseurl <base>/v/<version> --release <version>` (whole, floor data included), then Jekyll, and attached to the release; the Pages build only merges it.
 
+### The rebuild when the checks finish
+
+A push to `main` builds the site at once, while that commit's checks are still running, so that build's claims and status are judged early. When a workflow the status reads (CI, CodeQL, Docs links, Secret scan) completes, the Docs site workflow runs again. `scripts/floor/rebuild-gate.mjs` decides whether that completion rebuilds `main`'s tip, using only trusted data: the tip as GitHub reports it and the completed run's id, never the run's head, which a fork's pull request controls.
+
+- While a status workflow's run at the tip is still going, the gate does nothing. That run's own completion runs the gate again, so nothing polls or sleeps.
+- When every run at the tip has finished, only the completion that finished last rebuilds. A tie goes to the later finish, then the higher run id.
+- A run at another commit, or a fork's run, rebuilds nothing.
+
+So a burst of completions builds once, and no main build is cancelled. The status reads the runs at the source commit only; the newest run of any branch proves nothing about it.
+
 ### The deploy order, and its one override
 
 A deploy publishes only a commit that is the live site's commit or descends from it (`scripts/floor/deploy-order.mjs`, run in the deploy queue). An ancestor of the live commit is skipped as superseded. A relation the check cannot establish is refused with a typed code: `site_deploy_history_rewritten` (GitHub no longer holds the live commit, as after the history rewrite of runbook P6), `site_deploy_diverged`, or `site_deploy_published_unknown` (no recent deployment published a site). The one way out is recorded: dispatch the Docs site workflow from `main` with `supersede_published` set to the exact commit the refusal names (or `unknown`). That run waits for the `pages-override` environment's reviewer, and its record holds who asked, for which commit, and why it was refused. An override naming any other commit is refused (`site_deploy_override_mismatch`). Use `layout: default`, `title`, `description`, and `permalink` on hand-written pages and `relative_url` for site links; do not hardcode `baseurl` or the repository name. One layout, one design layer: do not add a separate layout or token system.

@@ -190,6 +190,28 @@ test("each workflow run at the source commit reports its jobs' own conclusions; 
   assert.equal(check("docs").jobs, null, "no run, no jobs");
 });
 
+test("the checks are read from the runs AT the source commit: none there is not-run, a run still going is unknown, no answer is unknown (#675)", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const run = (id, name, status) => ({ id, name, path: `.github/workflows/${id}.yml`, event: "push", status, conclusion: status === "completed" ? "success" : null, head_sha: commit, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
+  const statuses = async (runs) => {
+    const queries = [];
+    const { client } = forgeClient((request) => {
+      if (request.path.endsWith("/actions/runs")) {
+        queries.push(request.query.get("head_sha"));
+        return runs;
+      }
+      if (request.path.endsWith("/jobs")) return { body: { total_count: 0, jobs: [] } };
+      if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+      return { body: [] };
+    });
+    const status = await buildStatus({ root: ROOT, client, maxPages: 5, now: new Date("2026-01-01T00:00:00.000Z") });
+    assert.deepEqual(queries, [commit], "the run list is asked for this commit's runs, never the newest of any branch");
+    return Object.fromEntries(status.checks.filter((check) => ["ci", "codeql", "docs", "secret"].includes(check.id)).map((check) => [check.id, check.status]));
+  };
+  assert.deepEqual(await statuses({ body: { workflow_runs: [run(1, "CI", "completed"), run(2, "CodeQL", "in_progress"), run(3, "Secret scan", "completed")] } }), { ci: "pass", codeql: "unknown", docs: "not-run", secret: "pass" });
+  assert.deepEqual(await statuses({ status: 500, body: { message: "boom" } }), { ci: "unknown", codeql: "unknown", docs: "unknown", secret: "unknown" });
+});
+
 test("a run with more jobs than the page bound holds says so in its own words, never as an API that did not answer", async () => {
   const commit = repoInfo(ROOT).commit;
   const path = (page) => `/repos/${REPOSITORY}/actions/runs/21/jobs?filter=latest&per_page=100&page=${page}`;
