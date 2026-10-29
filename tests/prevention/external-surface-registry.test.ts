@@ -326,7 +326,7 @@ function audit(tree: Tree): Finding[] {
   const universeRaw = raw["universe"];
   const workflows = isRecord(universeRaw) ? stringArray(universeRaw["workflows"]) : null;
   const build = isRecord(universeRaw) ? stringArray(universeRaw["build"]) : null;
-  // Local composite actions (`.github/actions/<name>/action.yml`): steps a
+  // Local composite actions (`.github/actions/<name>/action.yml` or `.yaml`): steps a
   // workflow calls, scanned and declared exactly like a workflow's own.
   const actionsRaw = isRecord(universeRaw) && "actions" in universeRaw ? stringArray(universeRaw["actions"]) : [];
   if (actionsRaw === null) findings.push({ rule: "registry-schema", detail: "the action universe must be a list of paths" });
@@ -482,7 +482,7 @@ function audit(tree: Tree): Finding[] {
   }
   const actualActions = tree
     .list(".github/actions")
-    .map((name) => `.github/actions/${name}/action.yml`)
+    .flatMap((name) => ACTION_FILES.map((file) => `.github/actions/${name}/${file}`))
     .filter((path) => tree.has(path));
   for (const path of actualActions) {
     if (!localActions.includes(path)) {
@@ -556,7 +556,10 @@ function audit(tree: Tree): Finding[] {
     const text = tree.read(path);
     for (const use of scanUses(text)) {
       if (use.ref.startsWith("./.github/actions/")) {
-        const target = `${use.ref.slice(2)}/action.yml`;
+        // GitHub reads a local action's action.yml, or its action.yaml; one folder holding both is ambiguous.
+        const present = ACTION_FILES.map((file) => `${use.ref.slice(2)}/${file}`).filter((path) => tree.has(path));
+        if (present.length > 1) findings.push({ rule: "local-action-undeclared", detail: `${use.ref} holds both ${present.join(" and ")}; keep one` });
+        const target = present[0] ?? `${use.ref.slice(2)}/${ACTION_FILES[0]}`;
         if (!localActions.includes(target) || !tree.has(target)) {
           findings.push({ rule: "local-action-undeclared", detail: `${path}:${use.line} calls ${use.ref}, which is not a local action in the enumerated universe` });
         }
@@ -1238,6 +1241,9 @@ function audit(tree: Tree): Finding[] {
   return findings;
 }
 
+/** The file names GitHub reads a local action from, in its order. */
+const ACTION_FILES = ["action.yml", "action.yaml"] as const;
+
 function workflowUniverseIncludes(workflows: readonly string[], path: string): boolean {
   return workflows.includes(path);
 }
@@ -1324,6 +1330,9 @@ describe("external surfaces — plants fail for the defect they name", () => {
   test("a local composite action is in the universe: an undeclared one is refused, its steps are read, and every call site is declared", () => {
     const rogue = "name: Rogue\ndescription: x\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: true\n";
     expectRule(planted({ ".github/actions/rogue/action.yml": rogue }), "workflow-universe", ".github/actions/rogue/action.yml");
+    expectRule(planted({ ".github/actions/rogue/action.yaml": rogue }), "workflow-universe", ".github/actions/rogue/action.yaml");
+    const setupFile = ".github/actions/site-build-setup/action.yaml";
+    expectRule(planted({ [setupFile]: LIVE.read(".github/actions/site-build-setup/action.yml") }), "local-action-undeclared", "holds both");
     const setup = LIVE.read(".github/actions/site-build-setup/action.yml");
     expectRule(planted({ ".github/actions/site-build-setup/action.yml": `${setup}\n    - uses: example/hidden-action@v1\n` }), "action-pin", "example/hidden-action@v1");
     const ci = LIVE.read(".github/workflows/ci.yml");

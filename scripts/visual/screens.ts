@@ -47,14 +47,19 @@ const TYPES: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /** A static server for a built site under its base path, on a free loopback port. */
-/** Where the server answers the freeze sheet: outside the site's base, on its origin. */
-const FREEZE_PATH = "/__visual-freeze.css";
+/**
+ * Where the server answers the freeze sheet: INSIDE the site's base path, so
+ * the site's own path policy (`*:*<base>/`) admits it as one of the site's
+ * files and the pictures are taken under the policy the site ships, with no
+ * exception. Derived from the base, never spelled.
+ */
+const freezePath = (base: string): string => `${base}/__visual-freeze.css`;
 
 async function serve(siteRoot: string, baseurl: string): Promise<{ server: Server; origin: string }> {
   const base = baseurl.replace(/\/+$/u, "");
   const server = createServer((request, response) => {
     const path = decodeURIComponent(new URL(request.url ?? "/", "http://site").pathname);
-    if (path === FREEZE_PATH) { response.writeHead(200, { "content-type": TYPES[".css"] }).end(FREEZE_CSS); return; }
+    if (path === freezePath(base)) { response.writeHead(200, { "content-type": TYPES[".css"] }).end(FREEZE_CSS); return; }
     if (!path.startsWith(`${base}/`) && path !== base) { response.writeHead(404).end(); return; }
     let file = join(siteRoot, path.slice(base.length));
     if (!file.startsWith(siteRoot)) { response.writeHead(403).end(); return; }
@@ -80,12 +85,13 @@ async function context(browser: Browser, shot: Shot): Promise<BrowserContext> {
   return ctx;
 }
 
-async function settle(page: Page, url: string): Promise<void> {
+async function settle(page: Page, origin: string, base: string, path: string): Promise<void> {
+  const url = `${origin}${base}${path}`;
   const response = await page.goto(url, { waitUntil: "networkidle" });
   if (response === null || !response.ok()) throw new VisualRefusal("visual_page_missing", `${url} answered ${String(response?.status() ?? "nothing")}`);
   // A same-origin sheet, not an inline <style>: the page's policy refuses
   // inline styles, and the pictures are taken under the policy the site ships.
-  await page.addStyleTag({ url: `${new URL(url).origin}${FREEZE_PATH}` });
+  await page.addStyleTag({ url: `${origin}${freezePath(base)}` });
   await page.evaluate(async () => { await document.fonts.ready; });
 }
 
@@ -156,13 +162,13 @@ export async function run(options: RunOptions): Promise<Readonly<{ comparisons: 
       const name = shotName(shot);
       const ctx = await context(browser, shot);
       const page = await ctx.newPage();
-      await settle(page, `${head.origin}${prefix}${shot.page}`);
+      await settle(page, head.origin, prefix, shot.page);
       const first = await picture(page);
-      await settle(page, `${head.origin}${prefix}${shot.page}`);
+      await settle(page, head.origin, prefix, shot.page);
       const second = await picture(page);
       let before: Buffer | null = null;
       try {
-        await settle(page, `${base.origin}${prefix}${shot.page}`);
+        await settle(page, base.origin, prefix, shot.page);
         before = await picture(page);
       } catch (error) {
         if (!(error instanceof VisualRefusal && error.code === "visual_page_missing")) throw error;
