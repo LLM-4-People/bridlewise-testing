@@ -18,6 +18,8 @@
  */
 import { describe, expect, test, vi } from "vitest";
 
+import { threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
+
 import { createRegistration, type ProbeLine } from "../../src/cockpit/boot/probes.ts";
 
 const WARM_BOOT_CLIENT_OVERHEAD_MS = 100; // half the §1.5 200ms warm budget
@@ -43,7 +45,13 @@ describe("cockpit latency budget — client-side boot overhead", () => {
     );
 
     const lines: ProbeLine[] = [];
-    const t0 = performance.now();
+    // Judged without a wall clock (NO-LOAD-BLOCK), in two halves a busy host
+    // cannot fail: the registration COMPLETES WITH NO TIMER ADVANCED (only
+    // microtasks run, so no debounce, retry timer or poll sits on the warm
+    // path), and its compute, this thread's CPU work, fits the budget. The
+    // clock (Date) stays real: each line's `ms` is a real measurement.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "setImmediate", "clearImmediate"] });
+    const t0 = threadCpuWorkMs();
     let doneMs = -1;
     const reg = createRegistration({
       onLine: (l) => lines.push(l),
@@ -51,10 +59,14 @@ describe("cockpit latency budget — client-side boot overhead", () => {
         throw new Error("warm signed-in boot must not gate");
       },
       onComplete: () => {
-        doneMs = performance.now() - t0;
+        doneMs = threadCpuWorkMs() - t0;
       },
     });
-    await reg.start();
+    const started = reg.start();
+    for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+    expect(doneMs, "the registration completed with no timer advanced").toBeGreaterThanOrEqual(0);
+    vi.useRealTimers();
+    await started;
 
     expect(doneMs).toBeGreaterThanOrEqual(0);
     expect(doneMs).toBeLessThan(WARM_BOOT_CLIENT_OVERHEAD_MS);

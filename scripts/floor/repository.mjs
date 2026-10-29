@@ -1,50 +1,57 @@
 /**
- * THE REPOSITORY AND ITS SITE — read from the repository's one declaration of
- * where it lives: `package.json` `repository.url` (the field the P1.10 rename
- * updates, and the one the community-file generator reads too). Nothing in the
- * site tooling, the site's pages or its configuration spells a repository
- * name or a site URL: the builder writes these values into `_config.yml`
- * (`repository_url`, `security_url`, `url`) and pages read them from there.
- *
- * The Pages URL is GitHub's rule for a project site: the owner, lower-cased,
- * under `github.io`, and the repository name as the base path.
+ * THE REPOSITORY AND ITS SITE — the coordinates the site tooling uses, read
+ * from the ONE repository identity (`engine/src/workflow/forge/repository-identity.ts`,
+ * derived from the forge section's trunk; the P1.10 rename changes that one
+ * value), through the plain JSON `harness sync` generates from it
+ * (`.github/forge/repository-identity.json`): the site tooling and the link
+ * check run with no dependency installed. That module owns the address rules, the Pages rule among them; this
+ * one only shapes them for the site. Nothing in the site tooling, the site's
+ * pages or its configuration spells a repository name or a site URL: the
+ * builder writes these values into `_config.yml` (`repository_url`,
+ * `security_url`, `url`) and pages read them from there.
  */
 import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const GITHUB_REPOSITORY_URL = /^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?$/u;
 
 /**
- * The coordinates a `package.json` text declares, or a refusal naming the
- * field: a manifest with no GitHub `repository.url` has no site.
+ * THE ONE READER of the generated repository identity (owner, name,
+ * fullName, webUrl, pagesUrl, pagesBasePath, organisationRepositories). A
+ * missing or malformed file is a loud failure (run harness sync), never a
+ * guess.
  */
-export function repositoryCoordinates(manifestText) {
-  const url = JSON.parse(manifestText)?.repository?.url;
-  const match = typeof url === "string" ? GITHUB_REPOSITORY_URL.exec(url) : null;
-  if (match === null) throw new Error(`package.json repository.url must be https://github.com/<owner>/<name>[.git], found ${JSON.stringify(url ?? null)}`);
-  const [, owner, name] = match;
-  const repositoryUrl = `https://github.com/${owner}/${name}`;
-  const siteOrigin = `https://${owner.toLowerCase()}.github.io`;
+export function generatedRepositoryIdentity() {
+  const path = new URL("../../.github/forge/repository-identity.json", import.meta.url);
+  const identity = JSON.parse(readFileSync(path, "utf8"));
+  const text = (value) => typeof value === "string" && value !== "";
+  const repository = (value) => typeof value === "object" && value !== null && [value.name, value.fullName, value.webUrl, value.pagesUrl].every(text);
+  if (![identity.owner, identity.name, identity.fullName, identity.webUrl, identity.pagesUrl, identity.pagesBasePath].every(text)
+    || !Array.isArray(identity.organisationRepositories) || !identity.organisationRepositories.every(text)
+    || !repository(identity.product) || !(identity.preview === null || repository(identity.preview))) {
+    throw new Error(`${path.pathname} is not the generated repository identity: run harness sync`);
+  }
+  return Object.freeze(identity);
+}
+
+/** The site's coordinates for a repository identity (`repositoryIdentity(settings)`'s answer). */
+export function siteCoordinates(identity) {
   return Object.freeze({
-    owner,
-    name,
-    repository: `${owner}/${name}`,
-    repositoryUrl,
+    owner: identity.owner,
+    name: identity.name,
+    repository: identity.fullName,
+    repositoryUrl: identity.webUrl,
     defaultBranch: "main",
-    siteOrigin,
-    siteBaseurl: `/${name}`,
-    siteUrl: `${siteOrigin}/${name}/`,
+    siteOrigin: new URL(identity.pagesUrl).origin,
+    siteBaseurl: identity.pagesBasePath,
+    siteUrl: identity.pagesUrl,
+    // The product's repository and site, and the preview repository: identities of their own (the forge section's flags).
+    productRepository: identity.product.fullName,
+    productRepositoryUrl: identity.product.webUrl,
+    productSiteUrl: identity.product.pagesUrl,
+    previewRepositoryUrl: identity.preview === null || identity.preview === undefined ? "" : identity.preview.webUrl,
   });
 }
 
-/** The coordinates of the repository checked out at `root` (its `package.json`). */
-export function coordinatesOf(root) {
-  return repositoryCoordinates(readFileSync(join(root, "package.json"), "utf8"));
-}
-
-const COORDINATES = coordinatesOf(ROOT);
+/** This checkout's coordinates: the configured repository identity. */
+export const COORDINATES = siteCoordinates(generatedRepositoryIdentity());
 
 export const REPOSITORY = COORDINATES.repository;
 export const REPOSITORY_URL = COORDINATES.repositoryUrl;
