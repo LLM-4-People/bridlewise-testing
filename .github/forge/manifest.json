@@ -60,7 +60,7 @@
     },
     {
       "path": ".github/forge/repository-settings/bridlewise-testing.bridlewise-testing.json",
-      "sha256": "818060500cdfac81a5b573d08d9271a483a82efd1d76797d8cb4fd33ce0684dc"
+      "sha256": "1022d35f9f70ee6c3ac0076c095c71d30c9bdb614e90850c732c3d1971789a52"
     },
     {
       "path": ".github/forge/actions-permissions/bridlewise-testing.bridlewise-testing.json",
@@ -227,6 +227,22 @@
       "sha256": "9ea8ea0adae12b40c0a3b1edda3b328ebfaf8fa55421539caa54adefec6b57be"
     },
     {
+      "path": ".github/forge/pages/bridlewise-testing.bridlewise-testing.json",
+      "sha256": "d23123fabb3f8e68fe646378e556ea42c3dccafac75a65c066fda2466845b9c8"
+    },
+    {
+      "path": ".github/forge/pages/forge-proving-ground.forge-proving-ground.json",
+      "sha256": "5286e8b75d72a543f58f3c5859f4fce2aadecebac46d10cbfcfa20ee126116b7"
+    },
+    {
+      "path": ".github/forge/pages/LLM-4-People.github.io.LLM-4-People.github.io.json",
+      "sha256": "fa80ac763a9905312e65af1ad88cb78c4190bc3a662361ac8ce6c04c5f3a48ba"
+    },
+    {
+      "path": ".github/forge/app-installation/LLM-4-People.github.io.publisher.json",
+      "sha256": "a2687e9b788256409db21a4e5a050e612e95d151c2ceae3ede09b8db5160edd1"
+    },
+    {
       "path": ".github/forge/label/bridlewise-testing.area_engine.json",
       "sha256": "6f3b9a76df847460b4be4f0c1e77a2ee75d1e132226b7ee6af8455009bee6f7b"
     },
@@ -380,7 +396,7 @@
     },
     {
       "path": ".github/forge/repository-identity.json",
-      "sha256": "341d4aa1ffb0641e3bdc020462f55a805cc9e5621ff47f606e308487bc7e7a1a"
+      "sha256": "1aad935dadab601cbd0406cb9768e1772348b4e79c22c19764411339753ec109"
     },
     {
       "path": ".github/CODEOWNERS",
