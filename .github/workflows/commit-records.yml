@@ -4,7 +4,9 @@ name: Commit records
 # sign-off of its committer, every identity trailer readable, and nobody's
 # personal identity on an agent commit (engine/scripts/verification/sign-off.ts);
 # and every test it takes off the test surface named in a `Test-deleted: <path>`
-# trailer (engine/scripts/verification/test-deletions.ts). Each is the judge the
+# trailer (engine/scripts/verification/test-deletions.ts); and nothing a commit
+# adds names a host's home, is a raw text dump over the bound, or is a .ts file
+# that is not TypeScript (engine/scripts/verification/added-content.ts). Each is the judge the
 # commit-msg hook asks too. The steps check out the BASE and run the base's
 # judges over the branch's commits, which are only fetched as objects.
 #
@@ -101,4 +103,18 @@ jobs:
           case "$EVENT" in
             pull_request) node scripts/verification/test-deletions.ts --range "$PR_BASE..$PR_HEAD" ;;
             merge_group) node scripts/verification/test-deletions.ts --range "$GROUP_BASE..$GROUP_HEAD" ;;
+          esac
+
+      - name: What every commit adds names no host's home, is no raw dump, keeps TypeScript TypeScript
+        working-directory: engine
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) node scripts/verification/added-content.ts --range "$PR_BASE..$PR_HEAD" ;;
+            merge_group) node scripts/verification/added-content.ts --range "$GROUP_BASE..$GROUP_HEAD" ;;
           esac

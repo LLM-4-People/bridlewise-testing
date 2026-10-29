@@ -300,8 +300,9 @@ test("a dotted account name is not a documented placeholder", () => {
 test("repeated slashes and JSON slash escapes name the same forbidden path", () => {
   const lines = [
     `checkout: ${HOME}/leakuser/work\n`,
-    '{"home":"\\/home\\/leakuser\\/work"}\n',
-    '{"home":"\\u002fhome\\u002fleakuser\\u002fwork"}\n',
+    // The escaped spellings, assembled: no committed line spells a decodable home path.
+    `{"home":"\\/home\\/${"leak"}user\\/work"}\n`,
+    `{"home":"\\u002fhome\\u002f${"leak"}user\\u002fwork"}\n`,
   ];
   for (const line of lines) {
     const dir = repoWith({ "src/config.json": line });
