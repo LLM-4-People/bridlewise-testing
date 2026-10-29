@@ -43,10 +43,6 @@ const DECLARED: Readonly<Record<string, Readonly<{ count: number; reason: string
     count: 1,
     reason: "the fatal path after an uncaught exception: the process state is broken, so it ends at once, as Node's default does",
   },
-  "engine/src/process/worker-bootstrap.ts": {
-    count: 1,
-    reason: "inside a worker thread `process.exit()` ends that thread alone (no platform shutdown); a worker whose entry failed to load stops",
-  },
   "engine/src/intelligence/farm-child.ts": {
     count: 1,
     reason: "the escalation of a forked child whose farm left: it drains first, and only a child still held open after the bound is ended",
