@@ -795,6 +795,14 @@ static int probe_confinement(void) {
             mount(NULL, checkout_root, NULL, MS_REMOUNT | MS_BIND, NULL) == 0 || umount2("/", MNT_DETACH) == 0) {
             errno = 0; refuse_confinement("the read-only mounts could be remounted or detached"); _exit(CONFINEMENT_REFUSED);
         }
+        /* THE LOCK, proven where it matters (round 2, #17): this probe is never exec'd, so it keeps every capability
+         * of the namespace it ends in. "/" is a mount root; only the locking namespace's MNT_LOCK_READONLY keeps a
+         * process with CAP_SYS_ADMIN from clearing its read-only flag (a checkout path that is no mount root answers
+         * EINVAL either way, so it proves nothing). */
+        struct mount_attr clear_read_only = {.attr_clr = MOUNT_ATTR_RDONLY};
+        if (syscall(SYS_mount_setattr, AT_FDCWD, "/", 0, &clear_read_only, sizeof(clear_read_only)) == 0) {
+            errno = 0; refuse_confinement("the root mount's read-only flag could be cleared: the mounts are not locked"); _exit(CONFINEMENT_REFUSED);
+        }
         /* The run's cgroup root refuses a write to its own interface files (nsdelegate): cgroup.freeze is one every
          * non-root cgroup has, and freezing itself would be the least of it (memory.max, pids.max, cgroup.kill). */
         char freeze[PATH_MAX];

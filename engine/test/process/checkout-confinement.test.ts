@@ -190,10 +190,14 @@ test("EACH ISOLATION HOLDS ON ITS OWN: a host SysV queue is out of reach (IPC na
     `ipcrm -q ${queue} 2>/dev/null; echo host_queue_removed=$?`,
     `[ ! -e ${shm} ]; echo shm_fresh=$?`,
     `[ -z "$(ls -A ${JSON.stringify(socketDir)})" ]; echo abs_socket_folder_masked=$?`,
+    // The mask is read-only itself: nothing can be bound or planted in its place (round 2, #16).
+    // The run owns the mask's tmpfs, so its mode alone would not hold: it could chmod it first.
+    `(chmod 0755 ${JSON.stringify(socketDir)} && : > ${JSON.stringify(join(socketDir, "planted"))}) 2>/dev/null; echo socket_mask_written=$?`,
   ].join("\n"));
   refused(stdout, "host_queue_removed");
   taken(stdout, "shm_fresh");
   taken(stdout, "abs_socket_folder_masked");
+  refused(stdout, "socket_mask_written");
   // The native supervisor with a descriptor of its caller's beyond 0–3: the command sees none of it.
   const scratch = createTempDir("confinement-fds-scratch-");
   const extra = join(createTempDir("confinement-fds-"), "held");
@@ -298,6 +302,23 @@ test("each writable-place refusal holds on its own: a link, a non-directory, a l
   linkSync(join(checkout, "tracked.txt"), join(checkout, "state", "alias.txt"));
   refusedWith(probe(join(checkout, "state")), "more than one name");
   unlinkSync(join(checkout, "state", "alias.txt"));
+  // A link ON THE WAY (round 2, #16): a real final folder reached through a link inside the checkout, to a folder
+  // outside it. Only the canonical-path check catches it (O_NOFOLLOW sees the final folder only).
+  mkdirSync(join(root, "outside-target", "place"), { recursive: true });
+  symlinkSync(join(root, "outside-target"), join(checkout, "lnk"));
+  refusedWith(probe(join(checkout, "lnk", "place")), "resolves through a link");
+  // The run's own roots: a scratch root inside the checkout, and a checkout or scratch root not named canonically.
+  const roots = (checkoutRoot: string, scratchRoot: string): Readonly<{ status: number | null; stderr: string }> => {
+    const run = spawnSync(SUPERVISOR, ["--probe-confinement", "--checkout", checkoutRoot, "--scratch", scratchRoot], { encoding: "utf8" });
+    return { status: run.status, stderr: run.stderr };
+  };
+  mkdirSync(join(checkout, "inner-scratch"));
+  refusedWith(roots(checkout, join(checkout, "inner-scratch")), "the scratch root must lie outside the checkout");
+  symlinkSync(checkout, join(root, "co-link"));
+  refusedWith(roots(join(root, "co-link"), scratch), "the checkout must be named by its canonical path");
+  const scratchLink = join(createTempDir("confinement-native-scratch-link-"), "scratch-link");
+  symlinkSync(scratch, scratchLink);
+  refusedWith(roots(checkout, scratchLink), "the scratch root must be named by its canonical path");
 });
 
 test("a pathname socket bound INSIDE the checkout, outside its writable places, cannot be masked without hiding the checkout: the run is refused (125)", async (t) => {
