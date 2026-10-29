@@ -51,7 +51,7 @@ import { commandExitCode, parseHarnessCommandResult, renderCommandAnswer, takeOu
 // workflow operational defaults — no configurables outside
 // the config owner).
 import { SUBPROCESS_BOUNDS, DEFAULT_TIMELINE_COMMAND_LIMIT, INVENTORY_HASH_PREVIEW_HEX, worktreeOperationTimeouts } from "./workflow-config.ts";
-import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline } from "../git/index-baseline.ts";
+import { checkIndexBaseline, indexBaselineDrift, INDEX_RECORD_VERB, recordIndexBaseline, repairIndexToBaseline, stagePaths } from "../git/index-baseline.ts";
 import { clearDeclaredDeletions, declareDeletions, declaredDeletionsStatus } from "../git/declared-deletions.ts";
 import { communityFilesInput, syncCommunityFiles } from "./community/health-files.ts";
 import { EVIDENCE_VERBS, ingestEvidence, materializeEvidence, syncEvidenceIgnore, trackedTop, verifyEvidence } from "./evidence-store.ts";
@@ -627,6 +627,18 @@ export function harnessIndex(root: string, argv: readonly string[]): HarnessComm
   if (verb === "record") return wrapResult("index", recordIndexBaseline(root), { status: "pass" });
   if (verb === "repair") return wrapResult("index", repairIndexToBaseline(root), { status: "pass" });
   throw new InputError(`unknown index subcommand: ${verb ?? "(none)"} (supported: ${INDEX_VERBS.join(", ")})`, "command_unavailable");
+}
+
+/**
+ * `harness stage [--] [path…]`: THE way to stage (src/git/index-baseline.ts
+ * `stagePaths`): every tracked file the working tree changed, plus each new
+ * path named (repository-relative, from the top). Nothing unnamed is ever
+ * staged; a missing path, a folder, a drifted index or a protected staged
+ * blob refuses before the index is touched.
+ */
+export function harnessStage(root: string, argv: readonly string[]): HarnessCommandResult {
+  const paths = argv[0] === "--" ? argv.slice(1) : argv;
+  return wrapResult("stage", stagePaths(root, paths), { status: "pass" });
 }
 
 /** The verbs of `harness index`. */
@@ -2055,7 +2067,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community",
+  "format", "index", "stage", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2230,6 +2242,8 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
       answer = { result: wrapResult("format", output, { status: !write && output.changedFiles.length > 0 ? "fail" : "pass" }) };
     } else if (subcommand === "index") {
       answer = { result: harnessIndex(root, rest) };
+    } else if (subcommand === "stage") {
+      answer = { result: harnessStage(root, rest) };
     } else if (subcommand === "deletions") {
       answer = { result: harnessDeletions(root, rest) };
     } else if (subcommand === "frozen") {

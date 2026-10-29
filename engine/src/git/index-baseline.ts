@@ -44,6 +44,14 @@
  *   never lost. It refuses when a blob to restore is missing from the store
  *   (`index_baseline_objects_missing`), before touching the index.
  *
+ * - {@link stagePaths} (`harness stage [path…]`) is THE way to stage: exactly
+ *   the tracked files the working tree changed plus the new paths NAMED,
+ *   each by its literal path, never anything unnamed (no `git add -A`, no
+ *   directory, no pathspec magic). It refuses a named path that does not
+ *   exist or is a folder, a drifted index, and a change over a protected
+ *   staged blob (staging it would drop the only copy), before touching the
+ *   index.
+ *
  * The record's digest is a self-consistency check against a torn or garbled
  * file, not a MAC: an edit that recomputes it is accepted. `git restore
  * --staged`, `git reset` and `git rm --cached` of a protected path are the
@@ -51,7 +59,7 @@
  * index) lives in the process documentation (docs/process/WORKFLOW.md).
  */
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { lstatSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -287,4 +295,56 @@ export function indexBaselineSummary(root: string): string {
   if (state.state === "unrecorded") return "unrecorded";
   if (state.state === "clean") return `clean: ${String(state.protected)} protected staged blob(s)`;
   return `drifted: lost ${state.lost.join(", ")}`;
+}
+
+/** Why a named path cannot be staged as it is spelled, or null: a repository-relative path, literal, inside the checkout. */
+function unstageablePathSpelling(path: string): string | null {
+  if (path.length === 0 || path.startsWith("-")) return "is not a path";
+  if (path.startsWith("/") || path.startsWith(":")) return "is not repository-relative (an absolute path or pathspec magic)";
+  if (path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) return "is not a normalized repository-relative path";
+  return null;
+}
+
+/**
+ * THE WAY TO STAGE (see the header): the tracked files the working tree
+ * changed (`git diff --name-only`: edits and deletions) plus `named` (new
+ * paths, repository-relative as git prints them from the top, whatever the
+ * current folder), each by its literal path. Refuses, before touching the
+ * index: a named path badly spelled, missing or a folder (a folder would
+ * stage files nobody named); a drifted index (repair it first); a change over
+ * a protected staged blob (staging it would drop the blob that exists nowhere
+ * else). Answers what it staged.
+ */
+export function stagePaths(root: string, named: readonly string[]): Readonly<{ staged: readonly string[] }> {
+  const top = topLevel(root);
+  for (const path of named) {
+    const spelling = unstageablePathSpelling(path);
+    if (spelling !== null) throw new HarnessError(`stage: "${path}" ${spelling}; name each new file by its path from the repository top`, "stage_path_invalid", false, { path });
+    let isDirectory: boolean;
+    try {
+      isDirectory = lstatSync(join(top, path)).isDirectory();
+    } catch {
+      throw new HarnessError(`stage: ${path} does not exist in ${top}; name each new file by its path from the repository top`, "stage_path_missing", false, { path });
+    }
+    if (isDirectory) throw new HarnessError(`stage: ${path} is a folder; staging it would stage files nobody named, so name each new file in it`, "stage_path_directory", false, { path });
+  }
+  assertIndexAtBaseline(top);
+  const modified = gitNulRecords(top, ["diff", "--name-only", "-z"], "directory");
+  const recorded = readBaseline(indexBaselinePath(top));
+  if (recorded !== null) {
+    const changing = new Set(modified);
+    const atRisk = classify(top, recorded).held.filter((entry) => changing.has(entry.path)).map((entry) => entry.path);
+    if (atRisk.length > 0) {
+      throw new HarnessError(
+        `stage: ${JSON.stringify(atRisk)} hold a protected staged blob that exists nowhere else, and the working tree changed them since; staging would drop it. ` +
+          "Work in a workspace (npm run ws -- create), or commit the staged blob first",
+        "stage_protected_entry",
+        false,
+        { paths: atRisk.join(",") },
+      );
+    }
+  }
+  const staged = [...new Set([...modified, ...named])];
+  if (staged.length > 0) git(top, ["--literal-pathspecs", "add", "--pathspec-from-file=-", "--pathspec-file-nul"], { input: `${staged.join("\0")}\0` });
+  return { staged };
 }

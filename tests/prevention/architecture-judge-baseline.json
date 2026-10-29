@@ -195,10 +195,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:src/git/index-baseline.ts:pure:child-process,filesystem-write,git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:src/git/repository-ownership.ts:pure:child-process,filesystem-read,git",
       "reason": "#563"
     },
@@ -788,18 +784,6 @@
     },
     {
       "key": "architecture-effect-owner:src/git/ignored-copies.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/index-baseline.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/index-baseline.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/index-baseline.ts:node:fs:filesystem-write",
       "reason": "#563"
     },
     {
@@ -3160,10 +3144,6 @@
     },
     {
       "key": "production-effect-api:git/declared-deletions.ts:rmSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/index-baseline.ts:rmSync",
       "reason": "#563"
     },
     {

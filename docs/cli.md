@@ -125,6 +125,7 @@ These verbs are for maintainers of the development floor. They assume the privat
 | `harness workspace create/validate/merge` | Create an isolated worktree, run the gates, and land it |
 | `harness promote` | Inspect or apply the development-floor promotion profile |
 | `harness release` | Ask the product's release train whether a release departs (`plan`), write its notes (`notes`), or assemble its assets (`assemble`) |
+| `harness stage [path…]` | Stage every tracked file you changed plus each new file named (`npm run stage -- <path>…`); nothing unnamed, never a folder |
 | `harness deletions` | Declare a deliberate deletion so the commit guard can judge it |
 | `harness evidence` | Ingest or materialize evidence manifests |
 | `harness frozen` | Inspect or accept frozen records |
