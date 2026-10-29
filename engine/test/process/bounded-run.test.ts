@@ -8,17 +8,18 @@
  */
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { isProcessAlive } from "../../src/process/process-facts.ts";
+import { isProcessAlive, procfsDocument } from "../../src/process/process-facts.ts";
 import { boundedEnding, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
 import { runCpuBounded } from "../../src/process/supervised-run.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 /** Tight bounds for the runner's tests: a 400 ms CPU budget, a 600 ms stall window under a 5% CPU floor, read every 50 ms; a 2 min hang backstop. */
-const TIGHT: SubprocessBounds = { cpuBudgetMs: 400, minimumCpuRate: 0.05, stallMs: 600, hangBackstopMs: 120_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
+const TIGHT: SubprocessBounds = { cpuBudgetMs: 400, stallMs: 600, hangBackstopMs: 120_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
 const NODE = process.execPath;
 const ENV = { PATH: process.env["PATH"] ?? "" };
 
@@ -141,35 +142,57 @@ test("the kernel backstop: a process that LEFT the group (setsid, NB-1) is still
   assert.equal(readFileSync(record, "utf8").trim(), String(128 + constants.signals.SIGXCPU), "the escapee's burner was ended by the kernel's CPU-time limit (SIGXCPU), not its own cap");
 });
 
-test("the endings no budget decides, each pinned (review findings 2 and 3): SIGXCPU is `cpu-rlimit`; a poller under the CPU floor is a stall; a run past the wall backstop is hung", async () => {
+test("the endings no budget decides, each pinned: SIGXCPU is `cpu-rlimit`; a poller doing any CPU work is progressing, never stalled; a run past the wall backstop is hung", async () => {
   const dir = createTempDir("bounded-endings-");
-  // Finding 2: a command the kernel's CPU limit ends (SIGXCPU) ends `cpu-rlimit`, worded as the kernel's limit, never `exited`.
+  // A command the kernel's CPU limit ends (SIGXCPU) ends `cpu-rlimit`, worded as the kernel's limit, never `exited`.
   const xcpu = await runCpuBounded(NODE, ["-e", `process.kill(process.pid, "SIGXCPU"); ${QUIET}`], { cwd: dir, env: ENV, bounds: TIGHT });
   assert.equal(xcpu.ending, "cpu-rlimit");
   assert.match(boundedEnding(xcpu, TIGHT), /CPU-time limit of 2 s of CPU work \(RLIMIT_CPU, the kernel backstop\) and was ended by SIGXCPU/u);
-  // Finding 3: a poller that wakes every 200 ms for 2 ms of work (~1% of a core) prints nothing and is NOT progressing
-  // under the 5% floor: it is stalled within the window. Without the floor every tick counts and it runs its whole life.
-  const poller = await runCpuBounded(NODE, ["-e", `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; setInterval(() => { const until = used() + 2; while (used() < until) {} }, 200); setTimeout(() => process.exit(0), 10_000);`], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 1_500 } });
-  assert.equal(poller.ending, "stalled", `a 1% poller is not working (${String(poller.cpuMs)} ms of CPU)`);
-  assert.match(boundedEnding(poller, { ...TIGHT, stallMs: 1_500 }), /less than 5% of a core's CPU work for 1500 ms \(stalled\)/u);
+  // ANY CPU work is progress (no rate: a rate is a load threshold, and a busy host would judge the command): a
+  // poller that wakes every 200 ms for 2 ms of work (about 1% of a core) prints nothing, outlives the stall window,
+  // and exits: under any rate floor it would be stopped.
+  const poller = await runCpuBounded(NODE, ["-e", `const used = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; }; setInterval(() => { const until = used() + 2; while (used() < until) {} }, 200); setTimeout(() => process.exit(0), 2_500);`], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 1_000 } });
+  assert.equal(poller.ending, "exited", `a poller doing CPU work is progressing (${String(poller.cpuMs)} ms of CPU)`);
   // The hang backstop, the one wall bound: a run that keeps printing (progress) is still stopped at it, as hung.
   const chatty = await runCpuBounded(NODE, ["-e", `setInterval(() => console.log("."), 100); setTimeout(() => process.exit(0), 10_000);`], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, hangBackstopMs: 1_000 } });
   assert.equal(chatty.ending, "hung");
   assert.match(boundedEnding(chatty, { ...TIGHT, hangBackstopMs: 1_000 }), /^HUNG: it was still running at the 1 s hang backstop \(wall\)/u);
 });
 
+test("NO-LOAD: a busy command a loaded host starves of its core is NEVER stalled (its run-queue wait is not held against it); a blocked one is", async () => {
+  const dir = createTempDir("bounded-starved-");
+  // One CPU this process may use; the command and the load are pinned to it.
+  const allowed = /Cpus_allowed_list:\s*(\d+)/u.exec(procfsDocument("self", "status") ?? "")?.[1] ?? "0";
+  const ready = join(dir, "ready");
+  // The command: lowest priority, busy for 5 s of wall time, printing nothing. Once the load starts it gets almost
+  // no CPU (no clock tick for seconds): only its wait on the run queue explains the silence.
+  const command = `require("node:os").setPriority(19); require("node:fs").writeFileSync(${JSON.stringify(ready)}, "x"); const end = Date.now() + 5_000; while (Date.now() < end) {}`;
+  const run = runCpuBounded("taskset", ["-c", allowed, NODE, "-e", command], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 1_500, hangBackstopMs: 60_000 } });
+  while (!existsSync(ready)) await new Promise((resolve) => setTimeout(resolve, 20));
+  const hogs = Array.from({ length: 8 }, () => spawn("taskset", ["-c", allowed, NODE, "-e", "const end = Date.now() + 6_000; while (Date.now() < end) {}"], { stdio: "ignore" }));
+  try {
+    const starved = await run;
+    assert.equal(starved.ending, "exited", "a command starved of its core by load is working, never stalled");
+  } finally {
+    for (const hog of hogs) hog.kill("SIGKILL");
+  }
+  // Blocked (asleep on nothing, never waiting for a core): it IS a stall, worded as one.
+  const blocked = await runCpuBounded(NODE, ["-e", QUIET], { cwd: dir, env: ENV, bounds: TIGHT });
+  assert.equal(blocked.ending, "stalled");
+  assert.match(boundedEnding(blocked, TIGHT), /no output and no CPU work for 600 ms of the time it could run \(stalled\)/u);
+});
+
 test("the work-bounded run's bounds, each pinned by a test a mutation turns red (S1, S2, P1, G1)", async () => {
   const dir = createTempDir("bounded-bounds-");
   // S1: a missing, non-finite or zero bound is refused at call time, before anything runs (never a hang).
   const marker = join(dir, "ran");
-  for (const name of ["cpuBudgetMs", "minimumCpuRate", "stallMs", "hangBackstopMs", "pollMs", "killGraceMs", "outputBytes"] as const) {
+  for (const name of ["cpuBudgetMs", "stallMs", "hangBackstopMs", "pollMs", "killGraceMs", "outputBytes"] as const) {
     for (const value of [undefined, Number.NaN, 0]) {
       const bounds = { ...TIGHT, [name]: value } as unknown as SubprocessBounds;
       await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes(name), `${name}=${String(value)}`);
     }
   }
   await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds: { ...TIGHT, pollMs: TIGHT.stallMs } }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes("pollMs"));
-  await assert.rejects(runCpuBounded(NODE, ["-e", `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "x")`], { cwd: dir, env: ENV, bounds: { ...TIGHT, minimumCpuRate: 1.5 } }), (error: Error & { code?: string }) => error.code === "cpu_bounds_invalid" && error.message.includes("minimumCpuRate"));
   assert.equal(existsSync(marker), false, "nothing was spawned under an invalid bound");
   // S2: CPU is progress: a child busy for four stall windows of CPU, printing nothing, exits; it is never stalled.
   const busy = await runCpuBounded(NODE, ["-e", burn(1_200)], { cwd: dir, env: ENV, bounds: { ...TIGHT, cpuBudgetMs: 60_000, stallMs: 300 } });

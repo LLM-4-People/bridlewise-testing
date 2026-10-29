@@ -22,7 +22,7 @@
  */
 
 import { frozenRecordsMessage, syncFrozenRecords } from "../src/workflow/record-links.ts";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -333,7 +333,7 @@ async function guardStagedTree(): Promise<void> {
       if (compileLegs) await refuseUncompilableStagedTree(stagedTree);
       const checked = factsLeg && existsSync(join(stagedTree, engineRelative, ROOT_POLICY.sourcePath));
       // `harness check` over the staged engine includes the frozen step; without it, the frozen step runs alone.
-      if (checked) refuseStaleGeneratedFacts(join(stagedTree, engineRelative));
+      if (checked) await refuseStaleGeneratedFacts(join(stagedTree, engineRelative));
       else refuseStaleFrozenRecords(stagedTree);
     } catch (error) {
       process.stderr.write(
@@ -461,18 +461,25 @@ function refuseStaleFrozenRecords(stagedTree: string): void {
 
 /**
  * `harness check --skip-typecheck` over the staged engine, run by the STAGED
- * checker itself (the check's own code may be part of the commit).
+ * checker itself (the check's own code may be part of the commit), through
+ * the one bounded run like every harness subprocess: its process group by its
+ * CPU work, a stall and the one hang backstop, never unbounded. A run a bound
+ * stopped is no verdict: the commit is refused, naming how it ended.
  */
-function refuseStaleGeneratedFacts(engineRoot: string): void {
-  const check = spawnSync(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "check", "--skip-typecheck"], {
-    cwd: engineRoot, env: directoryGitEnvironment(), encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
+async function refuseStaleGeneratedFacts(engineRoot: string): Promise<void> {
+  const bounds = subprocessBounds(loadPinnedConfigSnapshotIfPresent()?.document ?? {});
+  const check = await runCpuBounded(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "check", "--skip-typecheck"], {
+    cwd: engineRoot, env: directoryGitEnvironment(), bounds,
   });
-  const payload = check.stdout.trim().split("\n").at(-1) ?? "";
+  const stdout = check.stdout.toString("utf8");
+  const stderr = check.stderr.toString("utf8");
+  if (check.ending !== "exited") throw new Error(`harness check did not finish: ${boundedEnding(check, bounds)}`);
+  const payload = stdout.trim().split("\n").at(-1) ?? "";
   let result: { allPassed?: unknown } & Record<string, unknown>;
   try {
     result = parseHarnessCommandResult(JSON.parse(payload)).result as typeof result;
   } catch {
-    throw new Error(`harness check produced no result payload (status ${String(check.status)}): ${`${check.stdout}${check.stderr}`.trim().split("\n").slice(-8).join("\n")}`);
+    throw new Error(`harness check produced no result payload (status ${String(check.status)}): ${`${stdout}${stderr}`.trim().split("\n").slice(-8).join("\n")}`);
   }
   const steps = Object.values(result).filter((step): step is Readonly<{ step?: unknown; status?: unknown }> => typeof step === "object" && step !== null && "step" in step);
   if (result.allPassed === true) {

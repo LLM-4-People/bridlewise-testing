@@ -219,8 +219,7 @@ Every step the harness runs as a subprocess is bounded by its work, never by how
 | Setting | Default | What it bounds |
 |---|---:|---|
 | `cpuBudgetMs` | `1800000` (30 min) | The CPU time a step and every process it started may use together. Past it, the step is stopped as over budget. |
-| `minimumCpuRate` | `0.05` (5% of a core) | How busy a step that prints nothing must be to count as working. The rate is averaged since its last progress. |
-| `stallMs` | `1800000` (30 min) | How long a step may print nothing and stay under `minimumCpuRate` before it is stopped as stalled. |
+| `stallMs` | `1800000` (30 min) | How long a step may print nothing and do no CPU work at all before it is stopped as stalled. Only the time it could have run counts: time it spent waiting for a busy machine's processor is never held against it. |
 | `hangBackstopMs` | `7200000` (2 h) | The one limit on elapsed time. A step still running at it is stopped as hung, however busy it is. |
 | `pollMs` | `1000` | How often a step's CPU time and output are read. Must be shorter than `stallMs`. |
 | `killGraceMs` | `5000` | The time between asking a stopped step to exit and ending it, along with every process it started. |

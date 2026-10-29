@@ -114,16 +114,16 @@ export const DEFAULT_GIT_COMMIT_TIMEOUT_MS = 30_000;
 // - its process group's CPU time, many times the heaviest step's measured
 //   work, so it ends a runaway, never a slow host; the kernel's RLIMIT_CPU
 //   backs it per process, just past it (`kernelCpuLimit`);
-// - a STALL: no output and CPU work under a floor (by default 5% of a core)
-//   for the stall window (by default 30 minutes): a step waiting on nothing,
-//   or a poller, is not working;
+// - a STALL: no output and no CPU work at all for the stall window (by
+//   default 30 minutes) of the time it could run: its wait for a busy host's
+//   core is never counted, so a step waiting on nothing is stopped and a
+//   starved one never is;
 // - the hang backstop, the one wall bound left: very large, and a step that
 //   reaches it is reported HUNG, with how it ended, never retried here;
 // - the output it may print (`harness check`'s payload is ~75 KB).
 /** The defaults of `harness.subprocessBounds`, each a documented setting (src/kernel/config-contracts.ts; the settings room's harness rows). */
 const DEFAULT_SUBPROCESS_BOUNDS: SubprocessBounds = Object.freeze({
   cpuBudgetMs: 1_800_000,
-  minimumCpuRate: 0.05,
   stallMs: 1_800_000,
   hangBackstopMs: 7_200_000,
   pollMs: 1_000,
@@ -136,7 +136,6 @@ export function subprocessBounds(document: Pick<ConfigDocument, "harness">): Sub
   const configured = document.harness?.subprocessBounds;
   return Object.freeze({
     cpuBudgetMs: configured?.cpuBudgetMs ?? DEFAULT_SUBPROCESS_BOUNDS.cpuBudgetMs,
-    minimumCpuRate: configured?.minimumCpuRate ?? DEFAULT_SUBPROCESS_BOUNDS.minimumCpuRate,
     stallMs: configured?.stallMs ?? DEFAULT_SUBPROCESS_BOUNDS.stallMs,
     hangBackstopMs: configured?.hangBackstopMs ?? DEFAULT_SUBPROCESS_BOUNDS.hangBackstopMs,
     pollMs: configured?.pollMs ?? DEFAULT_SUBPROCESS_BOUNDS.pollMs,

@@ -82,17 +82,6 @@ const ROWS = [
     unit: "milliseconds",
   },
   {
-    id: "subprocessMinimumCpuRate",
-    configPath: "harness.subprocessBounds.minimumCpuRate",
-    name: "How busy a silent harness step must be to count as working",
-    description:
-      "A step that prints nothing is still working while it uses at least this share of one processor core, averaged since it last made progress. Below it, the step counts as stalled. Lower = a step that mostly waits is given more time; higher = a step that only wakes now and then is stopped sooner. Takes effect on the next run.",
-    default: SUBPROCESS_DEFAULTS.minimumCpuRate,
-    min: 0.001,
-    max: 1,
-    unit: "fraction",
-  },
-  {
     id: "subprocessStallMs",
     configPath: "harness.subprocessBounds.stallMs",
     name: "How long a harness step may make no progress",

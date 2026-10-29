@@ -878,7 +878,7 @@ test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REF
   const driver = join(root, "drive.ts");
   writeFileSync(driver, [
     `import { runTypecheckLeg, typecheckLegRefusal } from ${JSON.stringify(pathToFileURL(leg).href)};`,
-    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuBudgetMs: 60_000, minimumCpuRate: 0.05, stallMs: 60_000, hangBackstopMs: 250, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 });`,
+    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuBudgetMs: 60_000, stallMs: 60_000, hangBackstopMs: 250, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 });`,
     "process.stdout.write(JSON.stringify({ ending: outcome.run.ending, status: outcome.run.status, refusal: typecheckLegRefusal(outcome) }));",
     "",
   ].join("\n"));

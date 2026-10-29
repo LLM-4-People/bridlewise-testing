@@ -84,7 +84,7 @@ test("workspace-cli source: the workspace command resolves its timeouts from the
 
 test("the harness subprocess bounds are SETTINGS: harness.subprocessBounds is read field by field, an unset field is its declared default, the shipped file states every default, and an impossible value is refused by the schema", () => {
   const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});
-  assert.deepEqual(DEFAULT_SUBPROCESS_BOUNDS, { cpuBudgetMs: 1_800_000, minimumCpuRate: 0.05, stallMs: 1_800_000, hangBackstopMs: 7_200_000, pollMs: 1_000, killGraceMs: 5_000, outputBytes: 268_435_456 }, "an absent section answers the declared defaults");
+  assert.deepEqual(DEFAULT_SUBPROCESS_BOUNDS, { cpuBudgetMs: 1_800_000, stallMs: 1_800_000, hangBackstopMs: 7_200_000, pollMs: 1_000, killGraceMs: 5_000, outputBytes: 268_435_456 }, "an absent section answers the declared defaults");
   const one = subprocessBounds({ harness: { subprocessBounds: { stallMs: 123_456 } } });
   assert.equal(one.stallMs, 123_456, "a configured field is the value every consumer gets");
   assert.deepEqual({ ...one, stallMs: DEFAULT_SUBPROCESS_BOUNDS.stallMs }, DEFAULT_SUBPROCESS_BOUNDS, "the fields left unset keep their defaults");
@@ -93,7 +93,7 @@ test("the harness subprocess bounds are SETTINGS: harness.subprocessBounds is re
   assert.deepEqual(configuredSubprocessBounds(), DEFAULT_SUBPROCESS_BOUNDS);
   const schema = getConfigDocumentSchema();
   const shipped = loadPinnedConfigSnapshot().document;
-  for (const [field, value] of [["minimumCpuRate", 0], ["minimumCpuRate", 1.5], ["stallMs", 0], ["hangBackstopMs", -1], ["pollMs", 1.5], ["outputBytes", 1], ["unknownBound", 1]] as const) {
+  for (const [field, value] of [["minimumCpuRate", 0.05], ["stallMs", 0], ["hangBackstopMs", -1], ["pollMs", 1.5], ["outputBytes", 1], ["unknownBound", 1]] as const) {
     const document = { ...shipped, harness: { ...shipped.harness, subprocessBounds: { ...shipped.harness?.subprocessBounds, [field]: value } } };
     assert.equal(schema.safeParse(document).success, false, `harness.subprocessBounds.${field} = ${String(value)} is refused`);
   }

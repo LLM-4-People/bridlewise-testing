@@ -11,9 +11,9 @@
  *
  * - its process GROUP's CPU time (`cpuBudgetMs`), members and reaped children,
  *   vanished members kept;
- * - a STALL: no output, and CPU below a declared floor (`minimumCpuRate` of
- *   one core, averaged since its last progress), for `stallMs`. A poller that
- *   wakes for a moment every few seconds is not progressing;
+ * - a STALL: no output and no CPU work at all for `stallMs` of the time it
+ *   COULD run (the time it waited on a run queue for a core is never counted:
+ *   a busy host starves a process, it does not stall it);
  * - the output it may hold (`outputBytes`);
  * - one very large WALL backstop (`hangBackstopMs`), the only wall bound left:
  *   a run still going at it is HUNG, never slow;
@@ -37,9 +37,7 @@ import { ownCpuTimeLimit } from "./process-facts.ts";
 export type SubprocessBounds = Readonly<{
   /** Its process group's CPU time (the members' own and their reaped children's), in ms. */
   cpuBudgetMs: number;
-  /** The CPU rate (a share of one core, 0 < rate <= 1), averaged since its last progress, below which it is not progressing. */
-  minimumCpuRate: number;
-  /** A stall: no output and CPU below `minimumCpuRate` for this long. */
+  /** A stall: no output and no CPU work for this long of the time it could run (its run-queue wait excluded). */
   stallMs: number;
   /** The one wall bound: a run still going at it is hung. */
   hangBackstopMs: number;
@@ -51,7 +49,7 @@ export type SubprocessBounds = Readonly<{
   outputBytes: number;
 }>;
 
-const POSITIVE_BOUNDS = ["cpuBudgetMs", "minimumCpuRate", "stallMs", "hangBackstopMs", "pollMs", "killGraceMs", "outputBytes"] as const;
+const POSITIVE_BOUNDS = ["cpuBudgetMs", "stallMs", "hangBackstopMs", "pollMs", "killGraceMs", "outputBytes"] as const;
 
 /**
  * Refuses bounds no run can keep (`cpu_bounds_invalid`), before anything runs: a missing bound compares false
@@ -64,7 +62,6 @@ export function assertSubprocessBounds(bounds: SubprocessBounds | undefined): as
   });
   if (invalid.length > 0) throw new InputError(`a bounded run needs every bound as a positive finite number; missing or invalid: ${invalid.join(", ")}`, "cpu_bounds_invalid");
   const valid = bounds as SubprocessBounds;
-  if (valid.minimumCpuRate > 1) throw new InputError(`a bounded run's minimumCpuRate is a share of one core (at most 1), not ${String(valid.minimumCpuRate)}`, "cpu_bounds_invalid");
   // A watch no more frequent than the stall window cannot see a stall end before it is judged one.
   if (valid.pollMs >= valid.stallMs) throw new InputError(`a bounded run must read its group more often than its stall window: pollMs ${String(valid.pollMs)} is not below stallMs ${String(valid.stallMs)}`, "cpu_bounds_invalid");
 }
@@ -132,7 +129,7 @@ export function boundedEnding(
   switch (run.ending) {
     case "cpu-exhausted": return `its process group spent its CPU budget of ${String(bounds.cpuBudgetMs)} ms${used} and was stopped`;
     case "cpu-rlimit": return `a process of it spent its CPU-time limit of ${String(kernelCpuLimit(bounds).soft)} s of CPU work (RLIMIT_CPU, the kernel backstop) and was ended by ${run.signal ?? "SIGXCPU"}`;
-    case "stalled": return `it produced no output and less than ${String(bounds.minimumCpuRate * 100)}% of a core's CPU work for ${String(bounds.stallMs)} ms (stalled) and was stopped`;
+    case "stalled": return `it produced no output and no CPU work for ${String(bounds.stallMs)} ms of the time it could run (stalled) and was stopped`;
     case "hung": return `HUNG: it was still running at the ${String(bounds.hangBackstopMs / 1000)} s hang backstop (wall) and was stopped`;
     case "output-exceeded": return `its output passed ${String(bounds.outputBytes)} bytes and it was stopped`;
     case "unmeasurable": return "procfs cannot measure its process group's CPU time, so its budget could not be judged and it was stopped";

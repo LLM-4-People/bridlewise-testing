@@ -508,12 +508,12 @@ test("the harness's bounds are named when they fire: the group's CPU budget, the
   const ended = { status: null, signal: null, cpuMs: 1_800_123, startError: null } as const;
   assert.match(boundedEnding({ ...ended, ending: "cpu-exhausted" }, DEFAULT_SUBPROCESS_BOUNDS), /its process group spent its CPU budget of 1800000 ms \(1800123 ms used\) and was stopped/u);
   assert.match(boundedEnding({ ...ended, ending: "cpu-rlimit", signal: "SIGXCPU" }, DEFAULT_SUBPROCESS_BOUNDS), new RegExp(`spent its CPU-time limit of ${String(kernelCpuLimit(DEFAULT_SUBPROCESS_BOUNDS).soft)} s of CPU work \\(RLIMIT_CPU, the kernel backstop\\) and was ended by SIGXCPU`, "u"));
-  assert.match(boundedEnding({ ...ended, ending: "stalled" }, DEFAULT_SUBPROCESS_BOUNDS), /no output and less than 5% of a core's CPU work for 1800000 ms \(stalled\)/u);
+  assert.match(boundedEnding({ ...ended, ending: "stalled" }, DEFAULT_SUBPROCESS_BOUNDS), /no output and no CPU work for 1800000 ms of the time it could run \(stalled\)/u);
   assert.match(boundedEnding({ ...ended, ending: "hung" }, DEFAULT_SUBPROCESS_BOUNDS), /^HUNG: it was still running at the 7200 s hang backstop \(wall\)/u);
 });
 
 /** Bounds small enough for a fixture to reach each one (every fixture also ENDS ON ITS OWN, so a bound mutated away fails by name). */
-const SMALL: SubprocessBounds = { cpuBudgetMs: 60_000, minimumCpuRate: 0.05, stallMs: 60_000, hangBackstopMs: 120_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
+const SMALL: SubprocessBounds = { cpuBudgetMs: 60_000, stallMs: 60_000, hangBackstopMs: 120_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
 
 /** A fixture body that burns `cpuMs` of its own CPU (user plus system), then runs `after`. */
 function burnFor(cpuMs: number, after = ""): string {
@@ -555,11 +555,11 @@ test("BOUND 1 is BINDING: the kernel's CPU-time limit is set, hard as well as so
   }
 });
 
-test("BOUND 2, the stall: a step with no output and CPU under the floor is stopped and reported hung (script_subprocess_hung)", async () => {
+test("BOUND 2, the stall: a step with no output and no CPU work is stopped and reported hung (script_subprocess_hung)", async () => {
   const { dir, script } = boundedFixture("sleeps", "setTimeout(() => {}, 30_000);\n");
   try {
     await assert.rejects(runScriptSubprocess(dir, script, [], { bounds: { ...SMALL, stallMs: 300 } }), (error: unknown) => {
-      assert.match((error as Error).message, /ended without a status payload: it produced no output and less than 5% of a core's CPU work for 300 ms \(stalled\) and was stopped/u);
+      assert.match((error as Error).message, /ended without a status payload: it produced no output and no CPU work for 300 ms of the time it could run \(stalled\) and was stopped/u);
       assert.equal((error as { code?: unknown }).code, "script_subprocess_hung");
       return true;
     });

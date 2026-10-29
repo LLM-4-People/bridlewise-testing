@@ -158,7 +158,7 @@ test("EVERY SUPERVISOR AN ADMITTED RUN STARTS RUNS UNDER ITS CAPS: a cgroup scop
   writeFileSync(script, [
     `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
     `const { superviseCommand } = await import(${JSON.stringify(SUPERVISOR_OWNER)});`,
-    `const lock = admitInstrumentRun(process.argv[2], "a capped run", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuBudgetMs: 72_000, minimumCpuRate: 0.05, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 1_000, killGraceMs: 2_000, outputBytes: 1_048_576 });`,
+    `const lock = admitInstrumentRun(process.argv[2], "a capped run", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuBudgetMs: 72_000, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 1_000, killGraceMs: 2_000, outputBytes: 1_048_576 });`,
     "let out = '';",
     `await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
     "lock.release();",
@@ -186,7 +186,7 @@ test("NO UNCAPPED PATH (the #362 review's plant): a child the admitting process 
   writeFileSync(script, [
     `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
     `const { spawnSync } = await import("node:child_process");`,
-    `const lock = admitInstrumentRun(process.argv[2], "a run with a direct child", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuBudgetMs: 72_000, minimumCpuRate: 0.05, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 1_000, killGraceMs: 2_000, outputBytes: 1_048_576 });`,
+    `const lock = admitInstrumentRun(process.argv[2], "a run with a direct child", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuBudgetMs: 72_000, stallMs: 600_000, hangBackstopMs: 600_000, pollMs: 1_000, killGraceMs: 2_000, outputBytes: 1_048_576 });`,
     `const probe = ${JSON.stringify(probe)};`,
     `const direct = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", probe, process.argv[2]], { encoding: "utf8" });`,
     `const escaped = spawnSync("systemd-run", ["--user", "--scope", "--quiet", "--collect", process.execPath, "--experimental-strip-types", "--input-type=module", "-e", probe, process.argv[2]], { encoding: "utf8" });`,

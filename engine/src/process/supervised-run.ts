@@ -307,18 +307,18 @@ export type CpuBoundedRun = Readonly<{
 }>;
 
 /**
- * The CPU a process group has used since it started, accounted from
- * {@link processGroupMembers} samples taken every poll: each member's latest
- * sample counts; a member that has VANISHED keeps its last sample unless its
- * parent is a live member (whose reaped-child time now holds it), so the
- * leader reaped by this process, or an orphan reaped by init, never takes
- * its work out of the total. The total is a plain SUM over every member's
- * last sample — never a running maximum, which would mask a member whose
- * work went missing.
+ * The group's accumulated work, sampled: its CPU time (clock ticks, members and reaped children: the budget),
+ * the time its threads ran and waited for a core (the scheduler's exact ns: the stall judgement), each live
+ * member's own plus the last sample of every member that vanished (a vanished member's CPU is kept unless its
+ * parent is a live member, whose reaped-child time now holds it; its run and wait time are always kept), and
+ * whether any member is runnable right now.
  */
-function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ cpuMs: number; members: number }> }> {
-  const last = new Map<string, Readonly<{ ppid: number; cpuMs: number }>>();
-  const gone = new Map<string, number>();
+function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ cpuMs: number; runMs: number; waitMs: number; runnable: boolean; members: number }> }> {
+  const last = new Map<string, Readonly<{ ppid: number; cpuMs: number; runMs: number; waitMs: number }>>();
+  const goneCpu = new Map<string, number>();
+  const goneRun = new Map<string, number>();
+  const goneWait = new Map<string, number>();
+  const sum = (values: Iterable<number>): number => [...values].reduce((total, value) => total + value, 0);
   return {
     sample: () => {
       const members = processGroupMembers(pgid);
@@ -326,13 +326,21 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
       const livePids = new Set(members.map((member) => member.pid));
       for (const [key, seen] of last) {
         if (live.has(key)) continue;
-        // Vanished: its time is in a live parent's reaped-child time, or it is kept here.
-        if (!livePids.has(seen.ppid)) gone.set(key, seen.cpuMs);
+        // Vanished: its CPU is in a live parent's reaped-child time, or it is kept here; its run and wait are kept here.
+        if (!livePids.has(seen.ppid)) goneCpu.set(key, seen.cpuMs);
+        goneRun.set(key, seen.runMs);
+        goneWait.set(key, seen.waitMs);
         last.delete(key);
       }
-      for (const [key, member] of live) last.set(key, { ppid: member.ppid, cpuMs: member.cpuMs });
-      const cpuMs = [...last.values()].reduce((sum, member) => sum + member.cpuMs, 0) + [...gone.values()].reduce((sum, value) => sum + value, 0);
-      return { cpuMs, members: members.length };
+      for (const [key, member] of live) last.set(key, { ppid: member.ppid, cpuMs: member.cpuMs, runMs: member.runMs, waitMs: member.waitMs });
+      const held = [...last.values()];
+      return {
+        cpuMs: sum(held.map((member) => member.cpuMs)) + sum(goneCpu.values()),
+        runMs: sum(held.map((member) => member.runMs)) + sum(goneRun.values()),
+        waitMs: sum(held.map((member) => member.waitMs)) + sum(goneWait.values()),
+        runnable: members.some((member) => member.runnable),
+        members: members.length,
+      };
     },
   };
 }
@@ -349,9 +357,9 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
  * vanished: {@link groupCpuAccountant}) and its output are read; the GROUP is
  * stopped — only through the owned-process `terminate`, by its process group
  * — when it spent `cpuBudgetMs`, when its output passed `outputBytes`, when it
- * produced no output and less than `minimumCpuRate` of a core's CPU (averaged
- * since its last progress) for `stallMs` (a grandchild holding the pipe
- * asleep, or a poller that wakes for a moment now and then, is a stall), when
+ * produced no output and no CPU work for `stallMs` of the time it COULD run
+ * (its run-queue wait taken out: a process a busy host starves is never a
+ * stall; a grandchild holding the pipe asleep is one), when
  * it is still running at `hangBackstopMs` of wall time (hung), or when procfs
  * cannot measure a group whose leader still runs. After a stop, a pipe still
  * open past `killGraceMs` is let go: only a process OUTSIDE the group can hold
@@ -372,7 +380,7 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
 export async function runCpuBounded(
   command: string,
   args: readonly string[],
-  options: Readonly<{ cwd: string; env?: Readonly<Record<string, string>>; input?: Buffer; bounds: SubprocessBounds }>,
+  options: Readonly<{ cwd: string; env?: Readonly<Record<string, string | undefined>>; input?: Buffer; bounds: SubprocessBounds }>,
 ): Promise<CpuBoundedRun> {
   const { bounds } = options;
   assertSubprocessBounds(bounds);
@@ -436,14 +444,20 @@ export async function runCpuBounded(
     }));
   };
   const startedAt = Date.now();
-  // Progress is new output, or CPU work since the last progress at least `minimumCpuRate` of a core over the
-  // time since then (an average, so a poller that wakes for a tick now and then never counts as working).
+  // Progress is new output, or ANY work since the last progress (CPU time, or the scheduler's exact run time:
+  // a slice too short for a clock tick still counts). The no-progress window counts only time the group COULD
+  // have run: an interval it spent waiting for a core (its run-queue wait grew), or one it ends runnable but
+  // not yet scheduled (the kernel adds a wait only when the thread next runs), never counts. A process a busy
+  // host starves is never judged stalled: a load threshold would judge the host, not the command.
   let progressCpuMs = 0;
-  let progressAt = startedAt;
+  let progressRunMs = 0;
+  let idleMs = 0;
+  let lastWaitMs = 0;
+  let lastPollAt = startedAt;
   let lastOutputBytes = 0;
   const watch = setInterval(guarded("process.cpu-bounded.watch", () => {
     if (stopping !== undefined || closed || owned === undefined || accountant === undefined) return;
-    const { cpuMs: read, members } = accountant.sample();
+    const { cpuMs: read, runMs, waitMs, runnable, members } = accountant.sample();
     // A leader procfs cannot see while Node still holds it running: no budget can be judged.
     if (members === 0 && leaderRunning() && isProcessIdentityLive(owned)) {
       stop("unmeasurable");
@@ -454,10 +468,16 @@ export async function runCpuBounded(
     if (read > bounds.cpuBudgetMs) stop("cpu-exhausted");
     else if (outputBytes > bounds.outputBytes) stop("output-exceeded");
     else if (now - startedAt >= bounds.hangBackstopMs) stop("hung");
-    else if (outputBytes > lastOutputBytes || (read > progressCpuMs && read - progressCpuMs >= bounds.minimumCpuRate * (now - progressAt))) {
+    else if (outputBytes > lastOutputBytes || read > progressCpuMs || runMs > progressRunMs) {
       progressCpuMs = read;
-      progressAt = now;
-    } else if (now - progressAt >= bounds.stallMs) stop("stalled");
+      progressRunMs = runMs;
+      idleMs = 0;
+    } else {
+      if (!runnable) idleMs += Math.max(0, now - lastPollAt - (waitMs - lastWaitMs));
+      if (idleMs >= bounds.stallMs) stop("stalled");
+    }
+    lastWaitMs = waitMs;
+    lastPollAt = now;
     lastOutputBytes = outputBytes;
   }), bounds.pollMs);
   try {

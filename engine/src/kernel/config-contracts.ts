@@ -1648,7 +1648,6 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),
     subprocessBounds: z.strictObject({
       cpuBudgetMs: z.number().int().min(1_000).max(86_400_000).optional(),
-      minimumCpuRate: z.number().gt(0).max(1).optional(),
       stallMs: z.number().int().min(1_000).max(86_400_000).optional(),
       hangBackstopMs: z.number().int().min(1_000).max(604_800_000).optional(),
       pollMs: z.number().int().min(10).max(60_000).optional(),

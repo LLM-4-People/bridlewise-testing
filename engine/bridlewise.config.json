@@ -895,7 +895,6 @@
     "commandRetryBackoffMs": 60000,
     "subprocessBounds": {
       "cpuBudgetMs": 1800000,
-      "minimumCpuRate": 0.05,
       "stallMs": 1800000,
       "hangBackstopMs": 7200000,
       "pollMs": 1000,

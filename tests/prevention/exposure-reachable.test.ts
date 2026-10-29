@@ -1567,7 +1567,6 @@ describe("exposure is declared and reachable", () => {
       ["harness.commandErroredRetries", "next-run", 2, "retries"],
       ["harness.commandRetryBackoffMs", "next-run", 60000, "milliseconds"],
       ["harness.subprocessBounds.cpuBudgetMs", "next-run", 1800000, "milliseconds"],
-      ["harness.subprocessBounds.minimumCpuRate", "next-run", 0.05, "fraction"],
       ["harness.subprocessBounds.stallMs", "next-run", 1800000, "milliseconds"],
       ["harness.subprocessBounds.hangBackstopMs", "next-run", 7200000, "milliseconds"],
       ["harness.subprocessBounds.pollMs", "next-run", 1000, "milliseconds"],
