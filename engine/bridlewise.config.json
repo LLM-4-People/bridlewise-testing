@@ -1189,6 +1189,9 @@
         "site": {
           "host": "bridlewise.llm4people.dev",
           "docsPath": "/docs/"
+        },
+        "pages": {
+          "build": "workflow"
         }
       },
       {
@@ -1223,7 +1226,23 @@
         "name": "forge-proving-ground",
         "kind": "none",
         "visibility": "public",
-        "provingGround": true
+        "provingGround": true,
+        "pages": {
+          "build": "workflow"
+        }
+      },
+      {
+        "name": "LLM-4-People.github.io",
+        "kind": "none",
+        "visibility": "public",
+        "pages": {
+          "build": "legacy",
+          "branch": "main",
+          "path": "/"
+        },
+        "apps": [
+          "publisher"
+        ]
       }
     ],
     "maintainerCli": {
@@ -1273,6 +1292,14 @@
       },
       {
         "context": "Generated values and harness check",
+        "integrationId": 15368
+      },
+      {
+        "context": "Rendered pages",
+        "integrationId": 15368
+      },
+      {
+        "context": "Commit records",
         "integrationId": 15368
       }
     ],
