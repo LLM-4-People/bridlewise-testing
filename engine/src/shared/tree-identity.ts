@@ -48,16 +48,15 @@
  * over the measured paths — the bytes the dev server actually serves —
  * hashed through the canonical digest owner, never a subprocess.
  */
-import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, type Dirent, type Stats } from "node:fs";
 import { join } from "node:path";
 
 import { sha256 } from "../kernel/integrity.ts";
-import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { stripRegeneratedPins, suiteRegeneratedPaths } from "../workflow/hash-binding-registry.ts";
 import { workingTreeId } from "../git/working-copy.ts";
 import { handleError } from "./debug/debug-system.ts";
 import { readRepositoryHeadSha } from "./run-history.ts";
+import { gitOutput, localGitRepository } from "../git/git-door.ts";
 
 export { readRepositoryHeadSha };
 
@@ -277,14 +276,8 @@ function readStatusPorcelain(
   untracked: "all" | "no",
 ): readonly string[] | null {
   try {
-    const out = execFileSync("git", ["status", "--porcelain", `--untracked-files=${untracked}`], {
-      cwd: repositoryRoot,
-      encoding: "utf8",
-      timeout: 30_000,
-      // A dirty tree's porcelain can be large (one line per untracked file).
-      // The bound is the single owner's git-output limit, not a local number.
-      maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
-    });
+    // A dirty tree's porcelain can be large (one line per untracked file): the door's git-output bound holds it.
+    const out = gitOutput(localGitRepository(repositoryRoot), ["status", "--porcelain", `--untracked-files=${untracked}`], { environment: "inherited" }).stdout.toString("utf8");
     return out.split("\n").filter((line) => line.trim().length > 0);
   } catch {
     return null;

@@ -29,7 +29,6 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,16 +41,10 @@ import { withRecordingContext } from "../engine/src/timeline/recording-context.t
 
 import { measureNoiseFloor, timeSync, BUDGET, ms, bytes } from "./lib/stats.ts";
 import { Reporter, BENCH_OUT_DIR } from "./lib/report.ts";
+import { benchGitHead } from "./lib/machine.ts";
 
 const SUITE = "ledger";
 
-function gitHead(): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 type Rig = {
   readonly dir: string;
@@ -117,7 +110,7 @@ function effectEvent(i: number): Parameters<ReturnType<typeof createTimelineReco
 async function main(): Promise<void> {
   const targetEvents = Number(process.argv[2] ?? 2000);
   const noise = measureNoiseFloor();
-  const reporter = new Reporter(gitHead());
+  const reporter = new Reporter(benchGitHead());
   console.log(`noise floor (timer overhead p50): ${(noise * 1000).toFixed(2)}µs\n`);
 
   // ── L3: chain hashing alone, no I/O ───────────────────────────────────

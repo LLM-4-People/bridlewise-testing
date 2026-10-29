@@ -23,7 +23,6 @@
  * Run: node --experimental-strip-types bench/redaction.bench.ts [profile]
  */
 
-import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 import { redactForUserDisplay } from "../server/redaction.ts";
@@ -31,21 +30,15 @@ import { buildFixture, assertReadTargetsPristine } from "./fixtures/scale.ts";
 import { measureNoiseFloor, timeSync, BUDGET, ms, bytes } from "./lib/stats.ts";
 import { Reporter, BENCH_OUT_DIR } from "./lib/report.ts";
 import { REDACTION_CHAT_SCAN_LIMIT } from "./bench-config.ts";
+import { benchGitHead } from "./lib/machine.ts";
 
 const SUITE = "redaction";
 
-function gitHead(): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 async function main(): Promise<void> {
   const profileName = process.argv[2] ?? "real";
   const noise = measureNoiseFloor();
-  const reporter = new Reporter(gitHead());
+  const reporter = new Reporter(benchGitHead());
   console.log(`noise floor: ${(noise * 1000).toFixed(2)}µs\n`);
 
   const fx = buildFixture(profileName);

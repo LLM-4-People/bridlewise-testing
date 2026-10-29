@@ -40,11 +40,12 @@
 //     than silently dropped — that is a finding about the tree, not a reason
 //     to say nothing.
 
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { walk as ownedSourceWalk } from "./source-walk.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+import { runCpuBoundedSync } from "../../src/process/bounded-run-sync.ts";
+import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 /**
  * The two TREES a run here can write to, and where their tests live.
@@ -287,11 +288,12 @@ function main(): void {
         ? ["npx", ["vitest", "run", ...files, "--reporter=dot"]]
         : ["node", ["--experimental-strip-types", "--test", ...files]];
     process.stdout.write(`\n[consumer-plants] ${repository.name}: ${command} ${args.join(" ")}\n`);
-    try {
-      execFileSync(command, args, { cwd: repository.root, stdio: "inherit" });
-    } catch {
+    const run = runCpuBoundedSync(command, args, { cwd: repository.root, bounds: configuredSubprocessBounds() });
+    process.stdout.write(run.stdout);
+    process.stderr.write(run.stderr);
+    if (run.ending !== "exited" || run.status !== 0) {
       failed += 1;
-      process.stdout.write(`[consumer-plants] ${repository.name}: FAILED\n`);
+      process.stdout.write(`[consumer-plants] ${repository.name}: FAILED (${run.ending === "exited" ? `exit ${String(run.status)}` : run.ending})\n`);
     }
   }
   process.stdout.write(

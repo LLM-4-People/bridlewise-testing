@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +29,7 @@ import {
 } from "./verification/safe-repository-reader.ts";
 import { shouldExcludeExperiment } from "../src/shared/source-scan.ts";
 import { bootstrapProcess, isEntryPoint } from "../src/runtime/cli-debug.ts";
+import { gitOutput, localGitRepository } from "../src/git/git-door.ts";
 import {
   assertTestSurfaceConservation,
   buildTestSurfaceScope,
@@ -715,9 +715,9 @@ function gitTrackedRecognizableTestPaths(root: string): readonly string[] | unde
   // tracks nothing in lists nothing. `NESTED` distinguishes the two empty
   // answers below, because an empty listing at the TOP of a work tree is a
   // broken index and an empty listing in a nested directory is a fixture.
-  const toplevel = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8" });
+  const toplevel = gitOutput(localGitRepository(root), ["rev-parse", "--show-toplevel"], { environment: "inherited", allowed: "any" });
   if (toplevel.status !== 0) return undefined;
-  const nested = resolve(toplevel.stdout.trim()) !== resolve(root);
+  const nested = resolve(toplevel.stdout.toString("utf8").trim()) !== resolve(root);
 
   const patterns = ROOT_POLICY.verification.testDiscovery.recognizableSourcePatterns;
   const matchers = [

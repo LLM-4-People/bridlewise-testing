@@ -10,11 +10,11 @@
  * (`Lesson:`, `Test-deleted:`) is matched exactly, because `git log --grep` is case-sensitive;
  * an identity trailer is judged by any spelling of its key ({@link trailersOf}).
  */
-import { execFileSync } from "node:child_process";
+import { gitOutput, localGitRepository } from "../../src/git/git-door.ts";
 
 /** git at `root`, its stdout as text (`input` on its stdin). */
 export function gitText(root: string, args: readonly string[], input?: string): string {
-  return execFileSync("git", args, { cwd: root, encoding: "utf8", ...(input === undefined ? {} : { input }) });
+  return gitOutput(localGitRepository(root), args, { environment: "inherited", ...(input === undefined ? {} : { input: Buffer.from(input, "utf8") }) }).stdout.toString("utf8");
 }
 
 /** Every trailer of git's parsed lines (`Key: value`, one per line), key and value as written. */

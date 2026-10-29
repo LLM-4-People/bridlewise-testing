@@ -236,6 +236,14 @@ const STATIC_PROCESS_MEMBERS = new Set([
   "resourceUsage", "stderr", "stdout", "threadCpuUsage", "uptime", "version",
 ]);
 const READ_ONLY_PROCESS_VERSION_CAPABILITIES = new Set(["icu", "unicode"]);
+/**
+ * Process members a governed source may READ but never write, call or mutate:
+ * `execArgv` (the worker bootstrap reads whether its parent ran on eval input).
+ * A write, a delete, an update or a mutating method call on one is
+ * `process-member-write-unmodeled`.
+ */
+const READ_ONLY_PROCESS_MEMBERS = new Set(["execArgv"]);
+const ARRAY_MUTATING_METHODS = new Set(["copyWithin", "fill", "pop", "push", "reverse", "shift", "sort", "splice", "unshift"]);
 const UNREGISTERED_POLICY_DEFINITION_MARKERS = new Set([
   "directeffectentrypoint", "directeffectgateway", "rawentrypoint", "unregisteredentrypoint",
 ]);
@@ -680,9 +688,15 @@ function inspectGovernedAstMember(
       if (!context.allowedEffectIdentifiers.has("env")) {
         context.violations.push(`environment-configuration-source:${context.effectLabel}`);
       }
+    } else if (READ_ONLY_PROCESS_MEMBERS.has(memberName)) {
+      if (callTarget) context.violations.push(`process-member-write-unmodeled:${context.effectLabel}`);
     } else if (!STATIC_PROCESS_MEMBERS.has(memberName)) {
       context.violations.push(`process-member-unmodeled:${context.effectLabel}`);
     }
+  } else if (callTarget && object && isMemberAstNode(object) && isReadOnlyProcessMember(object, scope) &&
+    ARRAY_MUTATING_METHODS.has(String(memberName))) {
+    // `process.execArgv.push(…)`: a read-only member mutated through its own method.
+    context.violations.push(`process-member-write-unmodeled:${context.effectLabel}`);
   } else if (objectIdentity === "process-versions") {
     if (context.path !== "src/runtime-capabilities.ts" ||
       !isExactReadOnlyProcessVersionCapability(member, scope) || callTarget) {
@@ -712,9 +726,24 @@ function inspectProcessVersionCapabilityMutation(
     : node.type === "UpdateExpression" || node.type === "UnaryExpression" && node.operator === "delete"
       ? astNode(node.argument)
       : undefined;
-  if (target && astContainsExactProcessVersionCapability(target, scope)) {
+  if (target && (astContainsExactProcessVersionCapability(target, scope) || astContainsReadOnlyProcessMember(target, scope))) {
     context.violations.push(`process-member-write-unmodeled:${context.effectLabel}`);
   }
+}
+
+/** Whether `member` is `process.<a read-only member>` (see {@link READ_ONLY_PROCESS_MEMBERS}). */
+function isReadOnlyProcessMember(member: TypeScriptAstNode, scope: StaticAstScope): boolean {
+  const object = unwrapAstExpression(astNode(member.object));
+  const name = staticAstMemberName(member, scope);
+  return object !== undefined && resolveAstIntrinsicIdentity(object, scope) === "process" && name !== UNKNOWN_AST_VALUE && READ_ONLY_PROCESS_MEMBERS.has(name);
+}
+
+/** Whether a write target holds `process.<a read-only member>` or a part of one (`process.execArgv[0]`). */
+function astContainsReadOnlyProcessMember(root: TypeScriptAstNode, scope: StaticAstScope): boolean {
+  for (let node: TypeScriptAstNode | undefined = root; node !== undefined && isMemberAstNode(node); node = unwrapAstExpression(astNode(node.object))) {
+    if (isReadOnlyProcessMember(node, scope)) return true;
+  }
+  return false;
 }
 
 function astContainsExactProcessVersionCapability(

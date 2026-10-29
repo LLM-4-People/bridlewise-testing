@@ -11,7 +11,8 @@
  */
 import { HarnessError } from "../kernel/errors.ts";
 import { GIT_OBJECT_NAME_PATTERN } from "./git-port.ts";
-import { gitNulRecords, type GitEnvironment } from "./repository-ownership.ts";
+import { gitNulRecords } from "./repository-ownership.ts";
+import { type GitEnvironment } from "./git-door.ts";
 
 /** One index entry, as `git ls-files --stage` states it. */
 export type IndexEntry = Readonly<{ path: string; mode: string; objectId: string; stage: number }>;

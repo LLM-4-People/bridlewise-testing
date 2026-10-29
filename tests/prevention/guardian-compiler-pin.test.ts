@@ -49,7 +49,7 @@ describe("the guardian compiler pin", () => {
   test("the Node build helper does not carry its own compiler search list", () => {
     const build = readFileSync(BUILD, "utf8");
     expect(build).not.toMatch(/\[['"]cc['"],\s*['"]gcc['"],\s*['"]clang['"]\]/u);
-    expect(build).toContain("spawnSync('make'");
+    expect(build).toContain("runCpuBoundedSync('make'");
   });
 
   test("both workflows probe the declared compiler from the runner image and never spell it again", () => {

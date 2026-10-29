@@ -20,7 +20,7 @@ import { admitHarnessKeyHome } from "../../../src/filesystem/self-protection/key
 import { HarnessError } from "../../../src/kernel/errors.ts";
 import { loadPinnedConfigSnapshot } from "../../../src/kernel/config.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../../../src/git/worktree-port.ts";
-import { gitOutput } from "../../../src/git/tree-reader.ts";
+import { gitOutput } from "../../../src/git/git-door.ts";
 import { keyHomeCustody } from "../../../src/workflow/forge/app-keys.ts";
 import { configuredForge, configuredForgeClient } from "../../../src/workflow/forge/configured-forge.ts";
 import { appInstallationCredential } from "../../../src/workflow/forge/credentials.ts";

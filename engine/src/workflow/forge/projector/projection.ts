@@ -15,7 +15,8 @@
  */
 import { HarnessError } from "../../../kernel/errors.ts";
 import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../../kernel/integrity.ts";
-import { commitTreeReader, gitOutput, isAncestor, resolveRevision, type GitRepository, type TreeReader } from "../../../git/tree-reader.ts";
+import { commitTreeReader, isAncestor, resolveRevision, type TreeReader } from "../../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../../git/git-door.ts";
 import { decisionRecords, itemStatusFacts, openBoardRows, ownersOf, trackerItemsOf, treeEntries, type TrackerItem } from "../../failure-owners.ts";
 import { LABELS_PATH, readLabels } from "../../community/labels.ts";
 import { mainHealth } from "./main-runs.ts";

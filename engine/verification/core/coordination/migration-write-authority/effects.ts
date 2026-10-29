@@ -25,7 +25,6 @@
  * `backend.fence` before invoking the effect.
  */
 
-import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
@@ -53,6 +52,8 @@ import {
   type TargetState,
 } from "./contracts.ts";
 import { pathIdentityFromStat } from "./internal.ts";
+import { runCpuBoundedSync } from "../../../../src/process/bounded-run-sync.ts";
+import { subprocessBounds } from "../../../../src/workflow/workflow-config.ts";
 
 // ---------------------------------------------------------------------------
 // Adapter configuration
@@ -189,14 +190,16 @@ function runGit(
   const fullArgs: string[] = ["-C", adapter.worktreeRoot];
   for (const override of adapter.config.configurationOverrides) fullArgs.push("-c", override);
   fullArgs.push(...args);
-  const result = spawnSync(adapter.gitExecutablePath, fullArgs, {
+  // One bounded run in the adapter's CLOSED environment; a run the bounds stopped answers no status.
+  const run = runCpuBoundedSync(adapter.gitExecutablePath, fullArgs, {
+    cwd: process.cwd(),
     env,
-    encoding: "buffer",
     input: stdin,
-    maxBuffer: 16 * 1024 * 1024,
+    bounds: { ...subprocessBounds({}), outputBytes: 16 * 1024 * 1024 },
   });
-  const stdout = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.alloc(0);
-  const stderr = Buffer.isBuffer(result.stderr) ? result.stderr.toString("utf8") : "";
+  const result = { status: run.ending === "exited" ? run.status : null, signal: run.signal };
+  const stdout = run.stdout;
+  const stderr = run.ending === "exited" ? run.stderr.toString("utf8") : `${run.stderr.toString("utf8")}(the run ended ${run.ending})`;
   // Intentionally not frozen: the result carries a Buffer, which cannot be
   // deep-frozen (ArrayBuffer views with elements throw). This is an internal,
   // short-lived value, not a contract type.

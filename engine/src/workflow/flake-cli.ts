@@ -54,7 +54,7 @@ import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, PRIVATE_STATE_DIRECTORY_MODE, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
 import { flakeCauseContentKeys, judgeCauseChange, parseFlakeCause } from "../git/flake-cause-fixes.ts";
-import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../git/git-door.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
 import { configuredSubprocessBounds, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { resolveRepositoryRegistry, workspaceRootOf } from "./repository-registry.ts";
@@ -68,7 +68,7 @@ import { holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold 
 import { superviseCommand } from "../process/supervised-run.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { isSensitiveKeyName } from "../privacy/secret-signals.ts";
-import { directoryGitEnvironment } from "../git/repository-ownership.ts";
+import { directoryGitEnvironment } from "../git/git-door.ts";
 import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
 import { temporaryRootKeepOutRefusal } from "../filesystem/temporary-root.ts";
 import {

@@ -413,7 +413,10 @@ export async function runCpuBounded(
   child.stderr.on("data", guarded("process.cpu-bounded.stderr", collect(stderr)));
   // A command that exits before reading all its input ends the pipe: its status says why, never this write.
   child.stdin.on("error", guarded("process.cpu-bounded.stdin", (error: Error) => void stderr.push(Buffer.from(`(stdin: ${error.message})\n`))));
-  child.stdin.end(options.input ?? Buffer.alloc(0));
+  // With no input nothing is written: the pipe is only closed, so a command that already closed its end never
+  // sees a write (an empty write raced a fast exit into EPIPE, noted in the command's own stderr).
+  if (options.input !== undefined && options.input.length > 0) child.stdin.end(options.input);
+  else child.stdin.end();
   // Taken at once, while the child is ours and alive; a child that already ended needs no watch.
   const leaderRunning = (): boolean => child.exitCode === null && child.signalCode === null;
   let owned: OwnedProcess | undefined;

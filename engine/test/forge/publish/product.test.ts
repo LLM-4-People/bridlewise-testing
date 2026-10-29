@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { GitRepository } from "../../../src/git/tree-reader.ts";
+import type { GitRepository } from "../../../src/git/git-door.ts";
 import { VERIFICATION_PATHS } from "../../../src/kernel/verification-paths.ts";
 import { githubWorkspaceForge } from "../../../src/workflow/workspace-forge-github.ts";
 import { isForgeError } from "../../../src/workflow/forge/codes.ts";
@@ -31,6 +31,7 @@ import { testGitIdentityEnvironment } from "../../support/test-git-identity.ts";
 import { PROFILE_NAME, PROFILE_PATH, SOURCE, TARGET, json, type PromotionFixture } from "../../workflow/promotion/promotion-fixture.ts";
 import { apply, documentOf, fixtureRun, landing } from "../../workflow/promotion/apply-support.ts";
 import { gitForge, type GitForge } from "./git-forge.ts";
+import { subprocessBounds } from "../../../src/workflow/workflow-config.ts";
 
 const REPOSITORY = "owner/product-repo";
 const BRANCH = "product";
@@ -63,7 +64,7 @@ function world(prefix: string): World {
   git(["read-tree", `${target}^{tree}`], env);
   for (const path of ["app.ts", "new.ts"]) git(["update-index", "--add", "--cacheinfo", `100644,${git(["rev-parse", `${source}:${path}`])},${path}`], env);
   const commit = git(["commit-tree", git(["write-tree"], env), "-p", target, "-p", source, "-m", `promote main ${source.slice(0, 8)}\n\nProjected-From: ${source}\nPromotion-Profile: main-to-product@0123456`]);
-  return { forge, local: { root, executable: "git", timeoutMs: 30_000 }, source, target, commit, git: (args) => git(args) };
+  return { forge, local: { root, executable: "git", bounds: subprocessBounds({}) }, source, target, commit, git: (args) => git(args) };
 }
 
 async function refusedWith(code: string, run: () => Promise<unknown>): Promise<PromotionError> {

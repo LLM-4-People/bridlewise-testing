@@ -1,10 +1,11 @@
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
 import { HarnessError, InputError, SecurityError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
+import { runCpuBoundedSync } from "../process/bounded-run-sync.ts";
+import { subprocessBounds } from "../workflow/workflow-config.ts";
 import {
   compilePinnedProcessProfile,
   runPinnedProcess,
@@ -1124,24 +1125,11 @@ export function resolveGitExecutable(override?: string): string {
     }
     return override;
   }
-  const isWindows = process.platform === "win32";
-  const lookup = isWindows ? "where" : "which";
-  const pathResult = spawnSync(lookup, ["git"], { encoding: "utf8" });
-  if (pathResult.status === 0 && pathResult.stdout) {
-    const resolved = pathResult.stdout.split(/\r?\n/u)[0]!.trim();
-    if (isAbsolute(resolved)) return resolved;
-  }
-  const fallbacks = isWindows
-    ? [
-      "C:\\Program Files\\Git\\bin\\git.exe",
-      "C:\\Program Files (x86)\\Git\\bin\\git.exe",
-      "C:\\Program Files\\Git\\cmd\\git.exe",
-    ]
-    : ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"];
-  for (const candidate of fallbacks) {
-    if (existsSync(candidate)) return candidate;
-  }
-  throw new InputError("Git executable not found", "git_executable_not_found");
+  // PATH's git, as the shell finds it (`command -v`), asked as one bounded run: one probe, no per-OS list.
+  const found = runCpuBoundedSync("sh", ["-c", "command -v git"], { cwd: process.cwd(), bounds: subprocessBounds({}) });
+  const resolved = found.ending === "exited" && found.status === 0 ? found.stdout.toString("utf8").split("\n")[0]!.trim() : "";
+  if (!isAbsolute(resolved)) throw new InputError("Git executable not found on PATH", "git_executable_not_found");
+  return resolved;
 }
 
 export function defaultOperationContext(

@@ -85,7 +85,6 @@
  * question is asked of the git being committed (the hook's environment).
  */
 
-import { spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -104,6 +103,7 @@ import { gitNulRecords, trackedFiles } from "../../src/git/repository-ownership.
 import { auditEvent } from "../../src/shared/debug/debug-system.ts";
 import { PROMOTION_TRIGGER_HOOK, isPromotionTriggerHookText, promotionTriggerHookText } from "../../src/workflow/promotion/trigger-hook.ts";
 import { SHIPPED_HOOK_FILES } from "../../src/kernel/verification-paths.ts";
+import { gitOutput, localGitRepository } from "../../src/git/git-door.ts";
 
 /**
  * One staged deletion the rule paired with ignored copies, and what its
@@ -504,7 +504,7 @@ export type HookInstallation = Readonly<{
  * reader both suites' installation checks use).
  */
 export function readHookInstallations(root: string): readonly HookInstallation[] {
-  const configured = spawnSync("git", ["config", "--get", "core.hooksPath"], { cwd: root, encoding: "utf8" });
+  const configured = gitOutput(localGitRepository(root), ["config", "--get", "core.hooksPath"], { environment: "inherited", allowed: "any" });
   const tracked = new Set(trackedFiles(root) ?? []);
   return SHIPPED_HOOKS.map((hook) => {
     const path = `${HOOKS_DIRECTORY}/${hook}`;
@@ -513,7 +513,7 @@ export function readHookInstallations(root: string): readonly HookInstallation[]
     return Object.freeze({
       root,
       hook,
-      hooksPath: configured.status === 0 ? configured.stdout.trim() : null,
+      hooksPath: configured.status === 0 ? configured.stdout.toString("utf8").trim() : null,
       present,
       tracked: tracked.has(path),
       executable: present && (stats!.mode & 0o100) !== 0,

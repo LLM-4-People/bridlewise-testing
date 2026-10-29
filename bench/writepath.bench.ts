@@ -23,7 +23,6 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { execFileSync } from "node:child_process";
 import { openSync, writeSync, fsyncSync, closeSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,21 +31,15 @@ import { randomUUID } from "node:crypto";
 import { buildFixture, assertReadTargetsPristine } from "./fixtures/scale.ts";
 import { measureNoiseFloor, timeSync, BUDGET, ms } from "./lib/stats.ts";
 import { Reporter, BENCH_OUT_DIR } from "./lib/report.ts";
+import { benchGitHead } from "./lib/machine.ts";
 
 const SUITE = "writepath";
 
-function gitHead(): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 async function main(): Promise<void> {
   const profileName = process.argv[2] ?? "real";
   const noise = measureNoiseFloor();
-  const reporter = new Reporter(gitHead());
+  const reporter = new Reporter(benchGitHead());
   console.log(`noise floor: ${(noise * 1000).toFixed(2)}µs\n`);
 
   // ── W0: is fsync real, and on WHICH filesystem? ───────────────────────

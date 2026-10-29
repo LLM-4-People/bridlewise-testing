@@ -22,7 +22,6 @@
  */
 
 import { frozenRecordsMessage, syncFrozenRecords } from "../src/workflow/record-links.ts";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,7 +37,8 @@ import { createWorkingCopy } from "../src/git/working-copy.ts";
 import { FLAKE_CAUSE_TRAILER, flakeCauseTrailerProblems } from "../src/git/flake-cause-fixes.ts";
 import { configuredGitRepository } from "../src/git/worktree-port.ts";
 import { indexBaselineDrift } from "../src/git/index-baseline.ts";
-import { directoryGitEnvironment, indexFilePath, repositoryToplevel } from "../src/git/repository-ownership.ts";
+import { indexFilePath, repositoryToplevel } from "../src/git/repository-ownership.ts";
+import { directoryGitEnvironment, gitOutput, localGitRepository } from "../src/git/git-door.ts";
 import { ensurePrivateStateDirectory, ownedTemporaryName, PRIVATE_STATE_DIRECTORY_MODE, sweepAbandonedTemporaries } from "../src/filesystem/private-state.ts";
 import { statePath } from "../src/kernel/product-identity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
@@ -218,7 +218,7 @@ async function guardStagedTree(): Promise<void> {
     // detection git names only the new path, and a move of an engine source to
     // `attic/x.txt` selected neither leg while the tree no longer compiled
     // (wf1a-correctness §3). The old path is a deletion; deletions are listed.
-    stagedAll = execFileSync("git", ["diff", "--cached", "--name-only", "--no-renames", "-z"], { cwd: root, encoding: "utf8" })
+    stagedAll = gitOutput(localGitRepository(root), ["diff", "--cached", "--name-only", "--no-renames", "-z"], { environment: "inherited" }).stdout.toString("utf8")
       .split("\0")
       .filter((name) => name.length > 0);
     staged = stagedAll
@@ -395,11 +395,12 @@ function materializeStagedTree(repositoryRoot: string): string {
  * deleted, a guarded hook whose staged text no longer hands over to the guard.
  */
 function hookIntegrityProblems(repositoryRoot: string): readonly string[] {
-  const hooks = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-path", "hooks"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
+  const repository = localGitRepository(repositoryRoot);
+  const hooks = gitOutput(repository, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"], { environment: "inherited" }).stdout.toString("utf8").trim();
   const relativeHooks = relative(repositoryRoot, hooks).split(sep).join("/");
   if (relativeHooks.startsWith("..") || relativeHooks.length === 0) return [];
   const guarded = new Set<string>(SHIPPED_HOOKS.map((hook) => `${relativeHooks}/${hook}`));
-  const fields = execFileSync("git", ["diff", "--cached", "--raw", "--no-renames", "--no-abbrev", "-z"], { cwd: repositoryRoot, encoding: "utf8" }).split("\0");
+  const fields = gitOutput(repository, ["diff", "--cached", "--raw", "--no-renames", "--no-abbrev", "-z"], { environment: "inherited" }).stdout.toString("utf8").split("\0");
   const problems: string[] = [];
   for (let index = 0; index + 1 < fields.length; index += 2) {
     const [oldMode, newMode, , newObject] = fields[index]!.replace(/^:/u, "").split(" ");
@@ -411,7 +412,7 @@ function hookIntegrityProblems(repositoryRoot: string): readonly string[] {
       problems.push(`${path}: removes the execute bit (mode ${newMode ?? "?"})`);
     } else if (guarded.has(path) && newMode !== "100755") {
       problems.push(`${path}: staged as mode ${newMode ?? "?"}, not an executable file`);
-    } else if (guarded.has(path) && !hookTextIsCanonical(execFileSync("git", ["cat-file", "blob", newObject!], { cwd: repositoryRoot, encoding: "utf8" }), path.slice(relativeHooks.length + 1))) {
+    } else if (guarded.has(path) && !hookTextIsCanonical(gitOutput(repository, ["cat-file", "blob", newObject!], { environment: "inherited" }).stdout.toString("utf8"), path.slice(relativeHooks.length + 1))) {
       problems.push(`${path}: its staged text is not canonical: it no longer ${canonicalHookDuty(path.slice(relativeHooks.length + 1))}`);
     }
   }
@@ -543,7 +544,7 @@ function warnOnRedBaseline(): void {
         const latestJudged = judged[judged.length - 1];
         if (latestJudged?.headSha !== undefined) {
           try {
-            const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+            const head = gitOutput(localGitRepository(root), ["rev-parse", "HEAD"], { environment: "inherited" }).stdout.toString("utf8").trim();
             if (head !== latestJudged.headSha) {
               staleness =
                 ` (measured at ${latestJudged.headSha.slice(0, 9)}, HEAD is now ${head.slice(0, 9)} — ` +

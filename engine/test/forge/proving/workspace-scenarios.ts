@@ -22,7 +22,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { configuredGitRepository } from "../../../src/git/worktree-port.ts";
-import { gitOutput } from "../../../src/git/tree-reader.ts";
+import { gitOutput } from "../../../src/git/git-door.ts";
 import { loadPinnedConfigSnapshot } from "../../../src/kernel/config.ts";
 
 import { generateId } from "../../../src/kernel/integrity.ts";

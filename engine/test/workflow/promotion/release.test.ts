@@ -341,8 +341,9 @@ test("the SBOM's bytes do not depend on the host's locale: every order is by UTF
   const here = releaseSbom(fixture.repository, due, SBOM_LOCATION);
   // Estonian collation puts z before t, so a locale-aware order would reorder these.
   const script = `import { releaseSbom } from ${JSON.stringify(new URL("../../../src/workflow/promotion/release-sbom.ts", import.meta.url).href)};
+import { subprocessBounds } from ${JSON.stringify(new URL("../../../src/workflow/workflow-config.ts", import.meta.url).href)};
 const [root, version, commit] = process.argv.slice(1);
-process.stdout.write(releaseSbom({ root, executable: "git", timeoutMs: 60000 }, { version, product: { commit } }, ${JSON.stringify(SBOM_LOCATION)}));`;
+process.stdout.write(releaseSbom({ root, executable: "git", bounds: subprocessBounds({}) }, { version, product: { commit } }, ${JSON.stringify(SBOM_LOCATION)}));`;
   for (const locale of ["en_US.UTF-8", "et_EE.UTF-8"]) {
     const run = spawnSync(process.execPath, ["--input-type=module", "-e", script, fixture.root, due.version, due.product.commit], { encoding: "utf8", env: { ...process.env, LC_ALL: locale, LANG: locale } });
     assert.equal(run.status, 0, run.stderr);

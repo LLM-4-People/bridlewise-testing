@@ -11,6 +11,7 @@ The `engine/test/fixtures/` folder of the development surface.
 - `recursive-test-inventory/`
 - `s1-verifier/`
 - `s2/`
+- `worker-entries/`
 
 ## Where it lives and what consumes it
 

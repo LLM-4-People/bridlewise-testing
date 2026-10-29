@@ -28,7 +28,6 @@
  * Run: node --experimental-strip-types bench/history-page.bench.ts [profile]
  */
 
-import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 import { chatHistoryToView, chatHistoryPageToView, chatMessagePageToView } from "../server/routes/views.ts";
@@ -37,6 +36,7 @@ import { serverConfig } from "../server/config.ts";
 import { buildFixture, assertReadTargetsPristine } from "./fixtures/scale.ts";
 import { measureNoiseFloor, timeSync, ms, bytes, type Stats } from "./lib/stats.ts";
 import { Reporter, BENCH_OUT_DIR } from "./lib/report.ts";
+import { benchGitHead } from "./lib/machine.ts";
 
 const SUITE = "history-page";
 
@@ -58,13 +58,6 @@ function oneShot(value: number, noiseFloorMs: number): Stats {
   };
 }
 
-function gitHead(): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 /** Everything the route does between the database and the socket. */
 function serialize(view: unknown): string {
@@ -74,7 +67,7 @@ function serialize(view: unknown): string {
 async function main(): Promise<void> {
   const profileName = process.argv[2] ?? "heavy";
   const noise = measureNoiseFloor();
-  const reporter = new Reporter(gitHead());
+  const reporter = new Reporter(benchGitHead());
   console.log(`noise floor: ${(noise * 1000).toFixed(2)}µs`);
 
   const fx = buildFixture(profileName);

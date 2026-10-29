@@ -63,7 +63,8 @@ import { generatorReport, printedRecord, repositoryGeneratorArm, runScriptSubpro
 import { regenerateRoadmapPage } from "./roadmap-page.ts";
 import { syncTrackerBoard, type TrackerBoardReport } from "./failure-owners.ts";
 import { engineAndCheckoutRoots, repositoryToplevel } from "../git/repository-ownership.ts";
-import { gitOutput, workingTreeReader } from "../git/tree-reader.ts";
+import { workingTreeReader } from "../git/tree-reader.ts";
+import { gitOutput } from "../git/git-door.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry } from "./repository-registry.ts";
 import { convergeBound, convergeUntilStable, unconsumedCommands, type ConvergenceReport } from "./checkout-setup.ts";

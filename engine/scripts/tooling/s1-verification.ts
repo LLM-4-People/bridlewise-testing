@@ -200,6 +200,34 @@ const ALLOWED_PRODUCTION_BUILTINS = new Set([
   "node:child_process", "node:crypto", "node:fs", "node:os", "node:path", "node:perf_hooks",
   "node:process", "node:readline", "node:sqlite", "node:test", "node:url", "node:util",
 ]);
+/**
+ * Builtins the production graph admits ONLY in their owner modules (engine-relative),
+ * each with its reason: no other production module may import them.
+ */
+const OWNER_SCOPED_PRODUCTION_BUILTINS: Readonly<Record<string, Readonly<{ owners: readonly string[]; reason: string }>>> = Object.freeze({
+  "node:worker_threads": {
+    owners: ["src/process/bounded-run-sync.ts", "src/process/worker-bootstrap.ts"],
+    reason: "the one bounded run answers a synchronous caller (the git door) from one worker thread, started through the one worker bootstrap",
+  },
+});
+/**
+ * Production modules whose ONE non-literal module load is gated, each with its reason.
+ */
+const GATED_NONLITERAL_LOADS: Readonly<Record<string, string>> = Object.freeze({
+  "src/process/worker-bootstrap.ts": "the prelude imports a thread's entry only when it is in DECLARED_WORKER_ENTRIES, refused typed (worker_entry_undeclared) otherwise",
+});
+
+/** The production graph's violation for `specifier` imported by `source` (engine-relative), or `undefined` when admitted. */
+export function productionBuiltinViolation(specifier: string, source: string): string | undefined {
+  if (ALLOWED_PRODUCTION_BUILTINS.has(specifier)) return undefined;
+  if (OWNER_SCOPED_PRODUCTION_BUILTINS[specifier]?.owners.includes(source) === true) return undefined;
+  return `production-effect-builtin:${specifier}`;
+}
+
+/** The production graph's violation for a non-literal module load in `source` (engine-relative), or `undefined` when it is a gated one. */
+export function nonliteralLoadViolation(source: string): string | undefined {
+  return Object.hasOwn(GATED_NONLITERAL_LOADS, source) ? undefined : `nonliteral-module-load:${source}`;
+}
 const ALLOWED_PRODUCTION_DEPENDENCIES = new Set(["zod", "@babel/parser"]);
 const FORBIDDEN_DEPENDENCY_PARTS = Object.freeze(["ai-sdk", "openai", "anthropic", "codex"]);
 const FORBIDDEN_DEPENDENCY_NAMES = new Set(["ai", "@ai-sdk/openai-compatible"]);
@@ -2009,7 +2037,10 @@ function verifyProductionGraph(root: string, violations: string[]): void {
       continue;
     }
     for (const moduleLoad of analyzeStaticSource(source, path).moduleAcquisitions) {
-      if (moduleLoad.specifier === null) violations.push(`nonliteral-module-load:${relative(root, path)}`);
+      if (moduleLoad.specifier === null) {
+        const violation = nonliteralLoadViolation(relative(root, path).split(sep).join("/"));
+        if (violation !== undefined) violations.push(violation);
+      }
       else inspectSpecifier(moduleLoad.specifier, path, root, pending, violations);
     }
   }
@@ -2027,7 +2058,8 @@ function inspectSpecifier(
   violations: string[],
 ): void {
   if (specifier.startsWith("node:")) {
-    if (!ALLOWED_PRODUCTION_BUILTINS.has(specifier)) violations.push(`production-effect-builtin:${specifier}`);
+    const violation = productionBuiltinViolation(specifier, relative(root, sourcePath).split(sep).join("/"));
+    if (violation !== undefined) violations.push(violation);
     return;
   }
   if (!specifier.startsWith(".")) {

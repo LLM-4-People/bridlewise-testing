@@ -29,7 +29,7 @@
 import { spawnSync } from "node:child_process";
 import { devNull } from "node:os";
 
-import { directoryGitEnvironment } from "../../engine/src/git/repository-ownership.ts";
+import { directoryGitEnvironment } from "../../engine/src/git/git-door.ts";
 import { createTempDir } from "./temp-dir.ts";
 import { TEST_GIT_IDENTITY } from "../../engine/test/support/test-git-identity.ts";
 

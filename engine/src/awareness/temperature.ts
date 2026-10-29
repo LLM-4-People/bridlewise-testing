@@ -35,7 +35,7 @@
 // percentiles via options.
 
 import { deepFreeze } from "../kernel/integrity.ts";
-import { percentileOf } from "../shared/git-churn.ts";
+import { percentileOf } from "../shared/stats.ts";
 import { DEFAULT_TEMPERATURE_BOUNDARIES } from "./config.ts";
 
 export type TemperatureClass = "O" | "B" | "A" | "F" | "G" | "K" | "M";

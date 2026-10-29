@@ -21,6 +21,7 @@ import { regenerateRoadmapPage } from "../../src/workflow/roadmap-page.ts";
 import { intakeItemText, itemPath, landIntakeRecord, recordBranch, writeIntakeRecord } from "../../src/workflow/community/record.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { forgeAt, initTempRepo, rawGit } from "../workspaces/workspace-test-support.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 const REPOSITORY = dirname(fileURLToPath(new URL("../../", import.meta.url)));
 const DATES = { opened: "2026-10-21", closed: "2026-10-22" };
@@ -93,7 +94,7 @@ test("landing publishes a signed twin on intake/<id> and opens one ready pull re
   const forge = forgeAt(bare);
   const landing = {
     forge,
-    repository: { root, executable: resolveGitExecutable(), timeoutMs: 30_000 },
+    repository: { root, executable: resolveGitExecutable(), bounds: subprocessBounds({}) },
     git: configuredWorktreeGitPort({}),
     target: { remote: "origin", remoteUrl: bare, trunk: "main" },
     fetchMs: 30_000,

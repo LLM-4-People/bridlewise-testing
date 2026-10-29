@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { gitOutput, localGitRepository } from "../../engine/src/git/git-door.ts";
 
 const SKIP_DIRECTORIES = new Set([
   ".git",
@@ -121,15 +121,9 @@ export function parseDossier(text) {
 export function repoInfo(root) {
   if (!root) return { commit: null, committedAt: null };
   try {
-    const commit = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    const committedAt = execFileSync(
-      "git",
-      ["-C", root, "show", "-s", "--format=%cI", "HEAD"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    ).trim();
+    const repository = localGitRepository(root);
+    const commit = gitOutput(repository, ["rev-parse", "HEAD"], { environment: "inherited" }).stdout.toString("utf8").trim();
+    const committedAt = gitOutput(repository, ["show", "-s", "--format=%cI", "HEAD"], { environment: "inherited" }).stdout.toString("utf8").trim();
     return { commit: commit || null, committedAt: committedAt || null };
   } catch {
     return { commit: null, committedAt: null };

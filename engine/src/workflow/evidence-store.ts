@@ -84,7 +84,7 @@ import { schemaId, statePath } from "../kernel/product-identity.ts";
 import { withFileLock } from "../filesystem/file-lock.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { auditEvent } from "../shared/debug/debug-system.ts";
-import { gitOutput } from "../git/tree-reader.ts";
+import { gitOutput } from "../git/git-door.ts";
 import { configuredGitRepository } from "../git/worktree-port.ts";
 import { ownedFiles, presentTrackedFiles, requiredRepositoryToplevel } from "../git/repository-ownership.ts";
 

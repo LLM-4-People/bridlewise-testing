@@ -25,7 +25,8 @@
  * No external imports; stdlib only.
  */
 
-import { spawnSync } from 'node:child_process';
+import { runCpuBoundedSync } from '../src/process/bounded-run-sync.ts';
+import { subprocessBounds } from '../src/workflow/workflow-config.ts';
 import { existsSync, statSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -59,11 +60,12 @@ let ensuredSupervisor: string | undefined;
 
 export function ensureTestProcessSupervisor(): string {
   if (ensuredSupervisor !== undefined) return ensuredSupervisor;
-  const result = spawnSync('make', ['--no-print-directory', '-C', guardianDir, 'test_process_supervisor'], {
-    encoding: 'utf8',
+  const result = runCpuBoundedSync('make', ['--no-print-directory', '-C', guardianDir, 'test_process_supervisor'], {
+    cwd: guardianDir,
+    bounds: subprocessBounds({}),
   });
-  if (result.error || result.status !== 0) {
-    throw Object.assign(new Error(`The native test supervisor could not be built: ${result.stderr || String(result.error)}`), {
+  if (result.ending !== 'exited' || result.status !== 0) {
+    throw Object.assign(new Error(`The native test supervisor could not be built (${result.ending}): ${result.stderr.toString('utf8')}`), {
       code: 'test_process_supervisor_build_failed',
     });
   }
@@ -83,11 +85,13 @@ function main(): void {
     return;
   }
 
-  // 2. Run make all (inherit stdio so compiler errors are visible).
-  const mk = spawnSync('make', ['all'], { cwd: guardianDir, stdio: 'inherit' });
-  if (mk.status !== 0) {
+  // 2. Run make all as one bounded run; its output is printed so compiler errors are visible.
+  const mk = runCpuBoundedSync('make', ['all'], { cwd: guardianDir, bounds: subprocessBounds({}) });
+  process.stdout.write(mk.stdout);
+  process.stderr.write(mk.stderr);
+  if (mk.ending !== 'exited' || mk.status !== 0) {
     console.error(
-      `landlock-guardian build: make failed with exit ${mk.status ?? 'null'}`,
+      `landlock-guardian build: make failed (${mk.ending}, exit ${mk.status ?? 'null'})`,
     );
     process.exitCode = 3;
     return;

@@ -14,7 +14,8 @@
  * per-module versioning exists (#101).
  */
 import { escapeMarkdownText } from "../../../../shared/markup.ts";
-import { commitTreeReader, gitOutput, type GitRepository } from "../../git/tree-reader.ts";
+import { commitTreeReader } from "../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../git/git-door.ts";
 import type { ReleasePlan, ReleaseSettings } from "./release-train.ts";
 import { DISPLAY_COMMIT_ID_LENGTH } from "../workflow-config.ts";
 

@@ -36,11 +36,10 @@
  * baseline against `HEAD` (`engine/scripts/commit-guard.ts`), so a commit
  * cannot grow a list the suite would then take as the new floor.
  */
-import { execFileSync, spawnSync } from "node:child_process";
 
 import { InputError } from "../../src/kernel/errors.ts";
 import { schemaId } from "../../src/kernel/product-identity.ts";
-import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { gitOutput, localGitRepository } from "../../src/git/git-door.ts";
 
 /** The schema a ratchet baseline declares (what makes a file one: the commit guard finds baselines by it). */
 export const RATCHET_SCHEMA = schemaId("ratchet-baseline", 1);
@@ -107,13 +106,14 @@ export function committedRatchetBaseline(repositoryRoot: string, id: string): Ra
  */
 export function gitBlob(repositoryRoot: string, spec: string): string | undefined {
   assertRepository(repositoryRoot);
-  if (spawnSync("git", ["cat-file", "-e", spec], { cwd: repositoryRoot, stdio: "ignore" }).status !== 0) return undefined;
-  return execFileSync("git", ["show", spec], { cwd: repositoryRoot, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
+  const repository = localGitRepository(repositoryRoot);
+  if (gitOutput(repository, ["cat-file", "-e", spec], { environment: "inherited", allowed: "any" }).status !== 0) return undefined;
+  return gitOutput(repository, ["show", spec], { environment: "inherited" }).stdout.toString("utf8");
 }
 
 /** Refuses (`ratchet_repository_missing`) a root outside any git repository: "nothing committed" must never be how a missing repository reads. */
 function assertRepository(repositoryRoot: string): void {
-  if (spawnSync("git", ["rev-parse", "--git-dir"], { cwd: repositoryRoot, stdio: "ignore" }).status !== 0) {
+  if (gitOutput(localGitRepository(repositoryRoot), ["rev-parse", "--git-dir"], { environment: "inherited", allowed: "any" }).status !== 0) {
     throw new InputError(`${repositoryRoot} is not inside a git repository, so a committed baseline cannot be read`, "ratchet_repository_missing");
   }
 }
@@ -179,9 +179,9 @@ export function ratchetFailure(baselinePath: string, verdict: RatchetVerdict): s
 function baselinesIn(repositoryRoot: string, tree: string): ReadonlyMap<string, RatchetBaseline> {
   assertRepository(repositoryRoot);
   const args = tree === "index" ? ["grep", "--cached", "-l", "-z", "--fixed-strings", RATCHET_SCHEMA, "--", "*.json"] : ["grep", "-l", "-z", "--fixed-strings", RATCHET_SCHEMA, tree, "--", "*.json"];
-  const listed = spawnSync("git", args, { cwd: repositoryRoot, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
+  const listed = gitOutput(localGitRepository(repositoryRoot), args, { environment: "inherited", allowed: "any" });
   const baselines = new Map<string, RatchetBaseline>();
-  for (const entry of (listed.status === 0 ? listed.stdout : "").split("\0").filter((listedPath) => listedPath.length > 0)) {
+  for (const entry of (listed.status === 0 ? listed.stdout.toString("utf8") : "").split("\0").filter((listedPath) => listedPath.length > 0)) {
     // `git grep <commit>` names each match `<commit>:<path>`; the index's are bare paths.
     const spec = tree === "index" ? `:${entry}` : entry;
     const text = gitBlob(repositoryRoot, spec);
@@ -214,7 +214,7 @@ function grownAgainst(baseline: RatchetBaseline, committed: CommittedBaselines):
  * not hold is refused, never read as "no baseline there".
  */
 export function ratchetGrowthSince(repositoryRoot: string, base: string): readonly Readonly<{ id: string; grown: readonly string[] }>[] {
-  const known = spawnSync("git", ["cat-file", "-e", `${base}^{commit}`], { cwd: repositoryRoot, encoding: "utf8" });
+  const known = gitOutput(localGitRepository(repositoryRoot), ["cat-file", "-e", `${base}^{commit}`], { environment: "inherited", allowed: "any" });
   if (known.status !== 0) throw new InputError(`the base ${base} is not in this clone: fetch it before judging growth`, "ratchet_base_unknown");
   const current = baselinesIn(repositoryRoot, "HEAD");
   const committed = committedBaselines(repositoryRoot, base, current);

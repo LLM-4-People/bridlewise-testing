@@ -39,7 +39,8 @@
  */
 import { deepFreeze } from "../../kernel/integrity.ts";
 import type { ConfigDocument, ReleaseTrainMode } from "../../kernel/config-contracts.ts";
-import { commitTreeReader, gitOutput, resolveRevision, type GitRepository } from "../../git/tree-reader.ts";
+import { commitTreeReader, resolveRevision } from "../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../git/git-door.ts";
 import { compareSemver, isValidSemver, parseSemver } from "../../extensions/semver.ts";
 import { PromotionError } from "./codes.ts";
 import { loadPromotionProfiles, selectPromotionProfile } from "./profile.ts";

@@ -333,11 +333,11 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
     ));
 
     const existingChildProcessRoot = makeRuntimeCandidate();
-    // A module that already imports `spawn` (recorded-command.ts and the guard
-    // runner test-guards.ts no longer do: they run only through the supervisor,
-    // wf-1b3a-design M3, LAND-OC-FIX round 12).
+    // A builder module given a direct `spawn` of git (no module imports `spawn`
+    // for git any more: every git process goes through the one git door, #653).
     const spawner = "scripts/commit-guard.ts";
     appendCandidateSource(existingChildProcessRoot, spawner, [
+      'import { spawn } from "node:child_process";',
       'void spawn("git", ["status", "--short"]);',
     ].join("\n"));
     const existingChildProcess = verifyS1Structure(existingChildProcessRoot).violations;

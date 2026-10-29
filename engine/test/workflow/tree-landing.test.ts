@@ -17,7 +17,7 @@ import test from "node:test";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
 import { gitBlobId } from "../../src/kernel/integrity.ts";
-import { directoryGitEnvironment } from "../../src/git/repository-ownership.ts";
+import { directoryGitEnvironment } from "../../src/git/git-door.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { WorktreeGitError, WorktreeGitTimeout, type PushOutcome, type WorktreeGitPort } from "../../src/git/worktree-port.ts";
 import { LandingError, commitCandidate, createCandidate, landingGitFailure, pushVerdict, remoteFailureClass, runLandingPhase } from "../../src/workflow/tree-landing.ts";

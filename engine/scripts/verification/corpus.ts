@@ -35,7 +35,6 @@
  * writes the file atomically. `verify` recomputes the same digest, so editing
  * a hash by hand refuses instead of passing.
  */
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -57,6 +56,7 @@ import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
 import { CORPUS_ENGINE_ROOT, CORPUS_FETCH_COMMAND, CORPUS_ROOT } from "./corpus-root.ts";
 import { parsePathPolicySourceManifest } from "../generation/repository-path-unicode.ts";
+import { gitOutput, localGitRepository } from "../../src/git/git-door.ts";
 
 /** Repository-relative path the tests resolve the corpus at (owned by `corpus-root.ts`). */
 export { CORPUS_ROOT };
@@ -479,7 +479,7 @@ export function cacheReadme(manifest: CorpusManifest): string {
 }
 
 function git(args: readonly string[], cwd: string): Buffer {
-  return execFileSync("git", args, { cwd, encoding: "buffer", maxBuffer: 256 * 1024 * 1024 }) as Buffer;
+  return gitOutput(localGitRepository(cwd), args, { environment: "inherited" }).stdout;
 }
 
 /**
@@ -491,9 +491,9 @@ function git(args: readonly string[], cwd: string): Buffer {
  * connection on, git gives up), which ends a silent host, a dead connection
  * and a stalled transfer alike, in a typed refusal naming the host — never a
  * retry. Upstreams are https only (`publicUpstream`), so the detector always
- * applies. There is deliberately no process timeout on top: killing `git`
- * leaves its remote helper holding the output pipe, and the synchronous call
- * then waits for the helper anyway (measured: the test hung).
+ * applies. There is no wall timeout on top: the step is one bounded run
+ * through the git door, which stops git and its remote helper together, as
+ * one process group, by their work.
  */
 export type CorpusNetworkBound = Readonly<{ stallBytesPerSecond: number; stallSeconds: number }>;
 export const CORPUS_NETWORK_BOUND: CorpusNetworkBound = Object.freeze({
@@ -516,19 +516,14 @@ function networkGit(args: readonly string[], cwd: string, member: Readonly<{ nam
     "-c", `http.lowSpeedTime=${String(bound.stallSeconds)}`,
     ...args,
   ];
-  try {
-    return execFileSync("git", bounded, {
-      cwd, encoding: "buffer", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
-    }) as Buffer;
-  } catch (error) {
-    const failure = error as { stderr?: Buffer };
-    const detail = (failure.stderr?.toString("utf8") ?? "").trim().split("\n").filter((line) => line.length > 0).at(-1) ?? "";
-    const host = upstreamHost(member.upstream);
-    if (/too slow|timed out|timeout/iu.test(detail)) {
-      refuse("corpus_fetch_stalled", `fetching ${member.name} from ${host} stalled below ${String(bound.stallBytesPerSecond)} B/s for ${String(bound.stallSeconds)} s: ${detail}`);
-    }
-    refuse("corpus_fetch_failed", `fetching ${member.name} from ${host} failed: ${detail || (error as Error).message}`);
+  const answer = gitOutput(localGitRepository(cwd), bounded, { environment: "inherited", allowed: "any" });
+  if (answer.status === 0) return answer.stdout;
+  const detail = answer.stderr.toString("utf8").trim().split("\n").filter((line) => line.length > 0).at(-1) ?? "";
+  const host = upstreamHost(member.upstream);
+  if (/too slow|timed out|timeout/iu.test(detail)) {
+    refuse("corpus_fetch_stalled", `fetching ${member.name} from ${host} stalled below ${String(bound.stallBytesPerSecond)} B/s for ${String(bound.stallSeconds)} s: ${detail}`);
   }
+  refuse("corpus_fetch_failed", `fetching ${member.name} from ${host} failed (status ${String(answer.status)}): ${detail}`);
 }
 
 function gitText(args: readonly string[], cwd: string): string {

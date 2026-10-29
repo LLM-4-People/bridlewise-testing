@@ -46,12 +46,11 @@
  * (`headVersions`).
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
-import { ROOT_POLICY } from "../kernel/root-policy.ts";
+import { gitOutput, localGitRepository, type GitEnvironment } from "./git-door.ts";
 
 /**
  * The versioned-only rule set: every population below uses exactly this, and
@@ -70,41 +69,14 @@ export type RepositoryOwnership = Readonly<{
 }>;
 
 /**
- * The process environment minus every `GIT_*` variable, for commands that
- * CREATE or drive a second repository (the working-copy builder, checkout
- * setup): an inherited `GIT_DIR` or `GIT_INDEX_FILE` (git exports them to
- * hooks) would point those commands at the source's git instead of the copy's.
- * The readers above deliberately honour the environment: inside a hook the
- * index being committed IS the answer, and a test may plant an index this way.
- */
-export function directoryGitEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(base).filter(([name]) => !name.startsWith("GIT_")));
-}
-
-/**
  * Whether git accepts `ref` as a ref name (`git check-ref-format`, the one
  * authority on ref syntax: a name ending in git's lock suffix, `a..b` or `x.`
  * pass a character class and fail git's own rules). A question about the name alone, so no repository
  * is involved. The one owner (the snapshot names, the promotion profile's refs).
  */
 export function gitAcceptsRefName(ref: string): boolean {
-  return spawnSync("git", ["check-ref-format", ref], { env: directoryGitEnvironment() }).status === 0;
+  return gitOutput(localGitRepository(process.cwd()), ["check-ref-format", ref], { allowed: "any" }).status === 0;
 }
-
-/**
- * Which git a question is asked of:
- *
- * - `inherited`: the caller's `GIT_*` count. Inside a hook they ARE the
- *   answer (git exports `GIT_INDEX_FILE` for `commit -a`, `GIT_DIR` for a
- *   linked worktree or `--git-dir`, `GIT_WORK_TREE` for `--work-tree`).
- * - `directory`: git is asked about the directory alone ({@link directoryGitEnvironment}).
- *   A question about ANOTHER place than the hook's repository must be asked
- *   this way: with the hook's `GIT_DIR` and no `GIT_WORK_TREE`, git takes the
- *   current directory for the top of the work tree, so `--show-toplevel` from
- *   `<top>/engine` answers `<top>/engine` (wf1b-correctness §2 N1: the commit
- *   guard located its engine at "" in every linked worktree).
- */
-export type GitEnvironment = "inherited" | "directory";
 
 /**
  * THE ROOTS A CHECKOUT'S TOOLS KEEP STATE UNDER (journals, recovery): the
@@ -118,11 +90,6 @@ export function engineAndCheckoutRoots(engineRoot: string): readonly string[] {
   return [...new Set([engineRoot, ...(top === undefined ? [] : [top])])];
 }
 
-/** The process environment a git question of `environment` runs with. */
-export function gitProcessEnvironment(environment: GitEnvironment): NodeJS.ProcessEnv {
-  return environment === "directory" ? directoryGitEnvironment() : process.env;
-}
-
 /**
  * The top of the git working tree containing `root`, or `undefined` outside
  * one. Asked from the nearest ancestor git can enter: a root that lists but
@@ -131,10 +98,8 @@ export function gitProcessEnvironment(environment: GitEnvironment): NodeJS.Proce
  * exists to notice such a root.
  */
 export function repositoryToplevel(root: string, environment: GitEnvironment): string | undefined {
-  const toplevel = spawnSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd: nearestEnterableDirectory(resolve(root)), encoding: "utf8", env: gitProcessEnvironment(environment),
-  });
-  return toplevel.status === 0 ? resolve(toplevel.stdout.trim()) : undefined;
+  const toplevel = gitOutput(localGitRepository(nearestEnterableDirectory(resolve(root))), ["rev-parse", "--show-toplevel"], { environment, allowed: "any" });
+  return toplevel.status === 0 ? resolve(toplevel.stdout.toString("utf8").trim()) : undefined;
 }
 
 /**
@@ -154,9 +119,7 @@ export function requiredRepositoryToplevel(root: string, code: string, environme
  * directory, shared ones (refs, objects, hooks) in the common one.
  */
 export function gitPath(root: string, name: string, environment: GitEnvironment): string {
-  return execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-path", name], {
-    cwd: resolve(root), encoding: "utf8", env: gitProcessEnvironment(environment),
-  }).trim();
+  return gitOutput(localGitRepository(resolve(root)), ["rev-parse", "--path-format=absolute", "--git-path", name], { environment }).stdout.toString("utf8").trim();
 }
 
 /**
@@ -179,8 +142,8 @@ export function indexFilePath(root: string, environment: GitEnvironment): string
  */
 export function pendingCommitParents(root: string, environment: GitEnvironment): readonly string[] {
   const head = headCommit(root, environment);
-  const merge = spawnSync("git", ["rev-parse", "-q", "--verify", "MERGE_HEAD^{commit}"], { cwd: root, encoding: "utf8", env: gitProcessEnvironment(environment) });
-  return Object.freeze([...(head === null ? [] : [head]), ...(merge.status === 0 ? [merge.stdout.trim()] : [])]);
+  const merge = gitOutput(localGitRepository(root), ["rev-parse", "-q", "--verify", "MERGE_HEAD^{commit}"], { environment, allowed: "any" });
+  return Object.freeze([...(head === null ? [] : [head]), ...(merge.status === 0 ? [merge.stdout.toString("utf8").trim()] : [])]);
 }
 
 /**
@@ -190,12 +153,18 @@ export function pendingCommitParents(root: string, environment: GitEnvironment):
  * cannot answer is a typed refusal, never a guess.
  */
 export function headCommit(top: string, environment: GitEnvironment): string | null {
-  const answer = spawnSync("git", ["rev-parse", "-q", "--verify", "HEAD^{commit}"], { cwd: top, encoding: "utf8", env: gitProcessEnvironment(environment) });
-  if (answer.status === 0) return answer.stdout.trim();
-  if (answer.status === 1 && answer.error === undefined) return null;
-  // A spawn that failed itself (EAGAIN under load, ENOENT) has no stderr: its error code is the reason.
-  const reason = answer.error === undefined ? (answer.stderr ?? "").trim() : `git did not run (${(answer.error as NodeJS.ErrnoException).code ?? answer.error.message})`;
-  throw new HarnessError(`git could not name HEAD in ${top}: ${reason}`, "repository_head_unreadable");
+  // Every exit status is read here; a git that never started (ENOENT under a vanished directory), or one the
+  // bounds stopped, is this reader's typed refusal too, with the door's words for why.
+  let answer: ReturnType<typeof gitOutput>;
+  try {
+    answer = gitOutput(localGitRepository(top), ["rev-parse", "-q", "--verify", "HEAD^{commit}"], { environment, allowed: "any" });
+  } catch (error) {
+    if (error instanceof HarnessError && error.code === "tree_reader_git_failed") throw new HarnessError(`git could not name HEAD in ${top}: ${error.message}`, "repository_head_unreadable");
+    throw error;
+  }
+  if (answer.status === 0) return answer.stdout.toString("utf8").trim();
+  if (answer.status === 1) return null;
+  throw new HarnessError(`git could not name HEAD in ${top}: ${answer.stderr.toString("utf8").trim()}`, "repository_head_unreadable");
 }
 
 /** An index entry git keeps apart from the disk: its flag, and what the index holds for it. */
@@ -222,7 +191,7 @@ export function flaggedIndexEntries(top: string, paths: readonly string[]): Read
     const flag = tag === "S" || tag === "s" ? "skip-worktree" : tag !== tag.toUpperCase() ? "assume-unchanged" : undefined;
     const entry = stages.get(path);
     if (flag === undefined || entry === undefined) continue;
-    const bytes = execFileSync("git", ["cat-file", "blob", entry.oid], { cwd: top, env: gitProcessEnvironment("inherited"), maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
+    const bytes = gitOutput(localGitRepository(top), ["cat-file", "blob", entry.oid], { environment: "inherited" }).stdout;
     flagged.set(path, Object.freeze({ flag, mode: entry.mode, bytes }));
   }
   return flagged;
@@ -242,9 +211,8 @@ export type RepositoryRefIdentity = Readonly<{ branch: string | null; head: stri
 export function repositoryRefIdentity(root: string): RepositoryRefIdentity | undefined {
   const top = repositoryToplevel(resolve(root), "directory");
   if (top === undefined) return undefined;
-  const named = spawnSync("git", ["symbolic-ref", "-q", "HEAD"], { cwd: top, encoding: "utf8", env: gitProcessEnvironment("directory") });
-  if (named.error !== undefined) throw named.error;
-  return Object.freeze({ branch: named.status === 0 ? named.stdout.trim() : null, head: headCommit(top, "directory") });
+  const named = gitOutput(localGitRepository(top), ["symbolic-ref", "-q", "HEAD"], { allowed: "any" });
+  return Object.freeze({ branch: named.status === 0 ? named.stdout.toString("utf8").trim() : null, head: headCommit(top, "directory") });
 }
 
 /** What moved between two readings of {@link repositoryRefIdentity}, said in words; empty when nothing did. */
@@ -265,8 +233,8 @@ export function repositoryRefChanges(before: RepositoryRefIdentity | undefined, 
  * commit (`reset --soft`). `null` when this checkout keeps no HEAD reflog.
  */
 export function headMoves(top: string, environment: GitEnvironment): number | null {
-  const answer = spawnSync("git", ["rev-list", "--walk-reflogs", "--count", "HEAD"], { cwd: top, encoding: "utf8", env: gitProcessEnvironment(environment) });
-  const count = answer.status === 0 ? Number.parseInt(answer.stdout.trim(), 10) : Number.NaN;
+  const answer = gitOutput(localGitRepository(top), ["rev-list", "--walk-reflogs", "--count", "HEAD"], { environment, allowed: "any" });
+  const count = answer.status === 0 ? Number.parseInt(answer.stdout.toString("utf8").trim(), 10) : Number.NaN;
   return Number.isSafeInteger(count) && count > 0 ? count : null;
 }
 
@@ -328,11 +296,7 @@ const STRICT_UTF8 = new TextDecoder("utf-8", { fatal: true });
  * refused rather than mangled into a replacement character that names no file.
  */
 export function gitNulRecords(cwd: string, argv: readonly string[], environment: GitEnvironment): readonly string[] {
-  const listed = execFileSync("git", [...argv], {
-    cwd,
-    env: gitProcessEnvironment(environment),
-    maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
-  });
+  const listed = gitOutput(localGitRepository(cwd), argv, { environment }).stdout;
   let text: string;
   try {
     text = STRICT_UTF8.decode(listed);
@@ -348,11 +312,9 @@ export function gitNulRecords(cwd: string, argv: readonly string[], environment:
  * nothing, as HEAD in a repository with no commit).
  */
 export function revisionFileText(top: string, rev: string, path: string, environment: GitEnvironment): string | null {
-  const env = gitProcessEnvironment(environment);
-  const held = spawnSync("git", ["cat-file", "-e", `${rev}:${path}`], { cwd: top, env, stdio: "ignore" });
-  if (held.error !== undefined) throw held.error;
-  if (held.status !== 0) return null;
-  return STRICT_UTF8.decode(execFileSync("git", ["cat-file", "blob", `${rev}:${path}`], { cwd: top, env, maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes }));
+  const repository = localGitRepository(top);
+  if (gitOutput(repository, ["cat-file", "-e", `${rev}:${path}`], { environment, allowed: "any" }).status !== 0) return null;
+  return STRICT_UTF8.decode(gitOutput(repository, ["cat-file", "blob", `${rev}:${path}`], { environment }).stdout);
 }
 
 function listPaths(cwd: string, argv: readonly string[]): readonly string[] {

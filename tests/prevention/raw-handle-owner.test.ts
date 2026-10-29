@@ -179,6 +179,11 @@ const LEGACY_RAW_HANDLE_SITES: ReadonlyArray<Readonly<{
     why: "execute_command's model-chosen command child: the child IS the command (the engine twin of landlock-runner's server-side boundary); its lifecycle is the command's own",
   },
   {
+    file: modulePathMatching("process/bounded-run-sync.ts"),
+    what: "new Worker(",
+    why: "the one bounded run's synchronous bridge: one unreferenced worker per asking thread, started on first use and living as long as that thread, in engine code the server's registry cannot reach (import direction is server→engine only); it holds no work between runs",
+  },
+  {
     file: modulePathMatching("tools/concurrent/worker-pool.ts"),
     what: "new Worker(",
     why: "the ENGINE CLI runtime's tool-concurrency pool — the web server's executor path never crosses it (architecture-manifest is its only in-repo importer), and engine cannot import the server registry",
@@ -284,7 +289,7 @@ describe("A. source-scan — raw standing handles appear ONLY in registry-regist
 
 describe("B. the legacy list is counted and argued — it cannot grow quietly", () => {
   test("the legacy list holds exactly the declared count", () => {
-    expect(LEGACY_RAW_HANDLE_SITES.length, "a new legacy site must argue for itself HERE, in this count").toBe(12);
+    expect(LEGACY_RAW_HANDLE_SITES.length, "a new legacy site must argue for itself HERE, in this count").toBe(13);
   });
 
   test("every legacy entry carries a real justification (not an empty apology)", () => {

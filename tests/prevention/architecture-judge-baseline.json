@@ -71,19 +71,11 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:scripts/verification/lesson-trailers.ts:pure:child-process,git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:scripts/verification/measurement-contract.ts:pure:filesystem-read",
       "reason": "#563"
     },
     {
       "key": "architecture-effect-boundary:scripts/verification/pattern-liveness.ts:pure:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:scripts/verification/ratchet.ts:pure:child-process,git",
       "reason": "#563"
     },
     {
@@ -99,15 +91,7 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:scripts/verification/staged-move-loss.ts:pure:child-process,filesystem-read,git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:src/awareness/engine.ts:pure:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:src/awareness/git-command-runner.ts:pure:child-process,git",
       "reason": "#563"
     },
     {
@@ -188,26 +172,6 @@
     },
     {
       "key": "architecture-effect-boundary:src/git/declared-deletions.ts:pure:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:src/git/ignored-copies.ts:pure:child-process,filesystem-read,git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:src/git/index-baseline.ts:pure:child-process,filesystem-write,git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:src/git/repository-ownership.ts:pure:child-process,filesystem-read,git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:src/git/tree-reader.ts:pure:child-process,filesystem-read,git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:src/git/working-copy.ts:pure:child-process,filesystem-read,filesystem-write,git",
       "reason": "#563"
     },
     {
@@ -307,10 +271,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:src/shared/tree-identity.ts:pure:child-process,filesystem-read,git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:src/tools/concurrent/long-task-runner.ts:pure:child-process,filesystem-read,git",
       "reason": "#563"
     },
@@ -364,10 +324,6 @@
     },
     {
       "key": "architecture-effect-boundary:src/workflow/promotion/apply.ts:pure:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-boundary:src/workflow/promotion/context.ts:pure:child-process,filesystem-read,git",
       "reason": "#563"
     },
     {
@@ -443,27 +399,11 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:scripts/bootstrap-hooks.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/bootstrap-hooks.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:scripts/bootstrap-hooks.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
     {
       "key": "architecture-effect-owner:scripts/build-bundle.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/commit-guard.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/commit-guard.ts:node:child_process:child-process",
       "reason": "#563"
     },
     {
@@ -483,23 +423,7 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:scripts/test-inventory.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/test-inventory.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:scripts/tooling/artifact-manifest.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/tooling/candidate-checkout.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/tooling/candidate-checkout.ts:node:child_process:child-process",
       "reason": "#563"
     },
     {
@@ -508,14 +432,6 @@
     },
     {
       "key": "architecture-effect-owner:scripts/tooling/compile-cache.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/tooling/migration-write-authority-genesis.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/tooling/migration-write-authority-genesis.ts:node:child_process:child-process",
       "reason": "#563"
     },
     {
@@ -548,18 +464,6 @@
     },
     {
       "key": "architecture-effect-owner:scripts/verification/architecture.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/consumer-plants.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/corpus.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/corpus.ts:node:child_process:child-process",
       "reason": "#563"
     },
     {
@@ -599,27 +503,11 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:scripts/verification/lesson-trailers.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/lesson-trailers.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:scripts/verification/measurement-contract.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
     {
       "key": "architecture-effect-owner:scripts/verification/pattern-liveness.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/ratchet.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/ratchet.ts:node:child_process:child-process",
       "reason": "#563"
     },
     {
@@ -639,31 +527,11 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:scripts/verification/staged-move-loss.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/staged-move-loss.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:scripts/verification/staged-move-loss.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:scripts/verification/tsconfig-include-liveness.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
     {
       "key": "architecture-effect-owner:src/awareness/engine.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/awareness/git-command-runner.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/awareness/git-command-runner.ts:node:child_process:child-process",
       "reason": "#563"
     },
     {
@@ -775,66 +643,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:src/git/ignored-copies.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/ignored-copies.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/ignored-copies.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/index-baseline.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/index-baseline.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/index-baseline.ts:node:fs:filesystem-write",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/repository-ownership.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/repository-ownership.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/repository-ownership.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/tree-reader.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/tree-reader.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/tree-reader.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/working-copy.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/working-copy.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/git/working-copy.ts:node:fs:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:src/intelligence/farm-child.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
@@ -939,10 +747,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:src/shared/git-churn.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:src/shared/long-task-timing.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
@@ -964,18 +768,6 @@
     },
     {
       "key": "architecture-effect-owner:src/shared/run-history.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/shared/tree-identity.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/shared/tree-identity.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/shared/tree-identity.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
     {
@@ -1056,18 +848,6 @@
     },
     {
       "key": "architecture-effect-owner:src/workflow/promotion/apply.ts:node:fs:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/workflow/promotion/context.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/workflow/promotion/context.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/workflow/promotion/context.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
     {
@@ -1199,43 +979,11 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/effects.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/effects.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/repository-facts.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:verification/core/coordination/migration-write-authority/repository-facts.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:scripts/tooling/migration-write-authority-genesis.ts:node:child_process:dynamic-executable-spawnSync",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:scripts/verification/consumer-plants.ts:node:child_process:dynamic-executable-execFileSync",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-unmodeled:src/filesystem/self-protection/confined-run.ts:node:child_process:dynamic-executable-spawnSync",
       "reason": "#563"
     },
     {
       "key": "architecture-effect-unmodeled:src/filesystem/self-protection/guardian-binary.ts:node:child_process:dynamic-executable-spawnSync",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:src/git/git-adapter.ts:node:child_process:dynamic-executable-spawnSync",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:src/git/tree-reader.ts:node:child_process:dynamic-executable-spawnSync",
       "reason": "#563"
     },
     {
@@ -1267,10 +1015,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-unmodeled:src/shared/git-churn.ts:node:child_process:dynamic-executable-execSync",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-unmodeled:src/shared/memory/retrieval/embeddings.ts:dynamic-import",
       "reason": "#563"
     },
@@ -1288,10 +1032,6 @@
     },
     {
       "key": "architecture-effect-unmodeled:src/tools/concurrent/long-task-wrapper.mjs:node:child_process:dynamic-executable-spawn",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:src/workflow/promotion/context.ts:node:child_process:dynamic-executable-spawnSync",
       "reason": "#563"
     },
     {
@@ -1316,14 +1056,6 @@
     },
     {
       "key": "architecture-effect-unmodeled:verification/benchmarks/storage/s3-sqlite-adapter-benchmark/superseded/v1-7ee3f532-7a58ace4/expanded-runner/verification/benchmarks/storage/s3-sqlite-adapter-benchmark/install-check.mjs:node:child_process:dynamic-executable-spawnSync",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:verification/core/coordination/migration-write-authority/effects.ts:node:child_process:dynamic-executable-spawnSync",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:verification/core/coordination/migration-write-authority/repository-facts.ts:node:child_process:dynamic-executable-spawnSync",
       "reason": "#563"
     },
     {
@@ -2096,10 +1828,6 @@
     },
     {
       "key": "environment-configuration-source:filesystem/user-folders.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "environment-configuration-source:git/repository-ownership.ts",
       "reason": "#563"
     },
     {
@@ -2951,10 +2679,6 @@
       "reason": "#563"
     },
     {
-      "key": "process-member-unmodeled:filesystem/checkout-write-door.ts",
-      "reason": "#563"
-    },
-    {
       "key": "process-member-unmodeled:filesystem/file-lock.ts",
       "reason": "#563"
     },
@@ -2983,10 +2707,6 @@
       "reason": "#563"
     },
     {
-      "key": "process-member-unmodeled:scripts/tooling/coverage.ts",
-      "reason": "#563"
-    },
-    {
       "key": "process-member-unmodeled:scripts/tooling/inventory-test-run.ts",
       "reason": "#563"
     },
@@ -3012,10 +2732,6 @@
     },
     {
       "key": "process-member-unmodeled:workflow/promotion/release-cli.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "process-member-unmodeled:workflow/promotion/trigger.ts",
       "reason": "#563"
     },
     {
@@ -3140,42 +2856,6 @@
     },
     {
       "key": "production-effect-api:git/declared-deletions.ts:rmSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/index-baseline.ts:rmSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:chmodSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:copyFileSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:mkdirSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:renameSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:rmSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:symlinkSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:utimesSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:git/working-copy.ts:writeFileSync",
       "reason": "#563"
     },
     {
@@ -3391,23 +3071,11 @@
       "reason": "#563"
     },
     {
-      "key": "standalone-runtime-sink-unmodeled:scripts/tooling/verification/command-effect-inventory.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "standalone-runtime-sink-unmodeled:scripts/verification/consumer-plants.ts",
-      "reason": "#563"
-    },
-    {
       "key": "standalone-runtime-sink-unmodeled:src/filesystem/self-protection/confined-run.ts",
       "reason": "#563"
     },
     {
       "key": "standalone-runtime-sink-unmodeled:src/filesystem/self-protection/guardian-binary.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "standalone-runtime-sink-unmodeled:src/git/tree-reader.ts",
       "reason": "#563"
     },
     {
@@ -3423,10 +3091,6 @@
       "reason": "#563"
     },
     {
-      "key": "standalone-runtime-sink-unmodeled:src/shared/git-churn.ts",
-      "reason": "#563"
-    },
-    {
       "key": "standalone-runtime-sink-unmodeled:src/shared/workflow/e2e-runner.mjs",
       "reason": "#563"
     },
@@ -3436,10 +3100,6 @@
     },
     {
       "key": "standalone-runtime-sink-unmodeled:src/tools/concurrent/long-task-wrapper.mjs",
-      "reason": "#563"
-    },
-    {
-      "key": "standalone-runtime-sink-unmodeled:src/workflow/promotion/context.ts",
       "reason": "#563"
     }
   ]

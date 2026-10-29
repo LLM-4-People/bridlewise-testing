@@ -34,7 +34,6 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 import { DbClient } from "../server/db/client.ts";
@@ -42,16 +41,10 @@ import { createNoopDbCrypto } from "../server/db-crypto.ts";
 import { buildFixture, assertReadTargetsPristine, fixtureKeyHome, type FixtureHandle } from "./fixtures/scale.ts";
 import { measureNoiseFloor, timeSync, summarize, BUDGET, ms, bytes } from "./lib/stats.ts";
 import { Reporter, BENCH_OUT_DIR } from "./lib/report.ts";
+import { benchGitHead } from "./lib/machine.ts";
 
 const SUITE = "db";
 
-function gitHead(): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 /** Chat ids in a fixture sorted by message count, so we can pick sizes. */
 function chatSizes(
@@ -84,7 +77,7 @@ function jsonBytes(value: unknown): number {
 async function main(): Promise<void> {
   const profileName = process.argv[2] ?? "real";
   const noise = measureNoiseFloor();
-  const reporter = new Reporter(gitHead());
+  const reporter = new Reporter(benchGitHead());
   console.log(`noise floor (timer overhead p50): ${ms(noise)}\n`);
 
   const fx = buildFixture(profileName);

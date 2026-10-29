@@ -40,7 +40,6 @@
  * `.git/config`, and is one by identity, may name its own root and this
  * harness's guard ({@link throwawayReading}).
  */
-import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 
@@ -53,6 +52,8 @@ import { pendingCommitParents, repositoryToplevel } from "../../src/git/reposito
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { collapsedPathText, HOME_PATH_PLACEHOLDERS, publicationPrivacyFindings } from "../../src/privacy/secret-signals.ts";
 import { COMMIT_GUARD_PATH, COMMIT_GUARD_REPOSITORY_PATH } from "./staged-move-loss.ts";
+import { gitOutput, localGitRepository } from "../../src/git/git-door.ts";
+import { readBlobs } from "../../src/git/tree-reader.ts";
 
 const POLICY = ROOT_POLICY.verification.addedContent;
 const OVERSIZED_TEXT_EXEMPTIONS: ReadonlySet<string> = new Set(POLICY.oversizedTextExemptions);
@@ -117,8 +118,8 @@ export function localIdentity(): LocalIdentity {
 }
 
 function gitText(root: string, args: readonly string[]): Readonly<{ status: number | null; text: string }> {
-  const answer = spawnSync("git", args, { cwd: root, encoding: "utf8" });
-  return { status: answer.status, text: (answer.stdout ?? "").trim() };
+  const answer = gitOutput(localGitRepository(root), args, { environment: "inherited", allowed: "any" });
+  return { status: answer.status, text: answer.stdout.toString("utf8").trim() };
 }
 
 /**
@@ -237,8 +238,8 @@ export function changeProblems(files: readonly ChangedFile[], local: LocalIdenti
 }
 
 function git(root: string, args: readonly string[]): Buffer {
-  const answer = spawnSync("git", args, { cwd: root, maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
-  if (answer.status !== 0) throw new HarnessError(`git ${args[0] ?? ""} failed: ${(answer.stderr ?? Buffer.alloc(0)).toString("utf8").trim()}`, "added_content_git_failed");
+  const answer = gitOutput(localGitRepository(root), args, { environment: "inherited", allowed: "any" });
+  if (answer.status !== 0) throw new HarnessError(`git ${args[0] ?? ""} failed: ${answer.stderr.toString("utf8").trim()}`, "added_content_git_failed");
   return answer.stdout;
 }
 
@@ -285,10 +286,13 @@ export function changedFiles(root: string, parents: readonly string[], tree: Tre
 /** Every file of a commit's tree (or the index), every line counted as added: the retroactive judgement. */
 export function treeFiles(root: string, commit: string | null): readonly ChangedFile[] {
   const listing = (commit === null ? git(root, ["ls-files", "-z"]) : git(root, ["ls-tree", "-r", "-z", "--name-only", commit])).toString("utf8");
-  return listing.split("\0").filter((path) => path.length > 0).map((path) => {
-    const bytes = git(root, ["cat-file", "blob", commit === null ? `:${path}` : `${commit}:${path}`]);
+  const paths = listing.split("\0").filter((path) => path.length > 0);
+  // One batched read of every blob (the one git door's batch reader), never a process per file.
+  const blobs = readBlobs(localGitRepository(root), paths.map((path) => commit === null ? `:${path}` : `${commit}:${path}`));
+  return paths.map((path, index) => {
+    const bytes = blobs[index]!;
     const text = bytes.toString("utf8");
-    return { path, bytes, addedLines: text.split("\n").map((line, index) => ({ line: index + 1, text: line })) };
+    return { path, bytes, addedLines: text.split("\n").map((line, at) => ({ line: at + 1, text: line })) };
   });
 }
 

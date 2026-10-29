@@ -1,99 +1,44 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { resolveGitExecutable } from "../../src/git/git-adapter.ts";
 
 /**
- * INVARIANT #75: resolveGitExecutable must use `where` on win32 and `which`
- * otherwise, with Windows-specific fallback paths tried on win32. The
- * platform check is read at CALL time (not module load), so mocking
- * process.platform directly affects the resolution path.
- *
- * On a Linux test machine, mocking platform to "win32" makes the function
- * try `where git` (which does not exist on Linux → fails) and Windows fallback
- * paths (C:\\Program Files\\Git\\... → do not exist on Linux), so it throws
- * InputError("Git executable not found"). This proves the Windows code path
- * was taken — `which git` would have succeeded on Linux.
+ * ONE WAY TO FIND GIT (the user's standing rule: one package, probe, never
+ * branch per host or OS): `resolveGitExecutable` with no override asks the
+ * shell once (`command -v git`, as one bounded run) and answers the absolute
+ * path it names. There is no per-OS lookup command and no list of guessed
+ * install paths. A PATH that holds no git is the typed refusal
+ * `git_executable_not_found`, never a silent substitute. An override must
+ * name an existing absolute path.
  */
 
-const ORIGINAL_PLATFORM = process.platform;
-
-function setPlatform(value: string): void {
-  Object.defineProperty(process, "platform", { value, configurable: true, writable: true });
-}
-
-function restorePlatform(): void {
-  setPlatform(ORIGINAL_PLATFORM);
-}
-
-test("GitExecutable: source uses where on win32 and which otherwise", () => {
-  // Read the source at test time and verify the platform-conditional lookup.
-  const source = readFileSync(join(process.cwd(), "src", "git", "git-adapter.ts"), "utf8");
-  assert.ok(
-    /const\s+isWindows\s*=\s*process\.platform\s*===\s*"win32"/.test(source),
-    "resolveGitExecutable must check process.platform === 'win32'",
-  );
-  assert.ok(
-    /const\s+lookup\s*=\s*isWindows\s*\?\s*"where"\s*:\s*"which"/.test(source),
-    "resolveGitExecutable must use 'where' on Windows and 'which' otherwise",
-  );
-});
-
-test("GitExecutable: source defines Windows-specific fallback paths", () => {
-  const source = readFileSync(join(process.cwd(), "src", "git", "git-adapter.ts"), "utf8");
-  assert.ok(
-    source.includes("C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe") ||
-    source.includes("C:\\Program Files\\Git\\bin\\git.exe"),
-    "resolveGitExecutable must try Windows fallback paths (C:\\Program Files\\Git\\...)",
-  );
-  assert.ok(
-    /isWindows\s*\?/.test(source),
-    "fallback paths must be gated on isWindows",
-  );
-});
-
-test("GitExecutable: win32 platform tries 'where' (not 'which') and throws when not found", () => {
-  try {
-    setPlatform("win32");
-    // On Linux, `where` does not exist (spawnSync fails) and the Windows
-    // fallback paths don't exist on the filesystem. So resolveGitExecutable
-    // must throw InputError("Git executable not found"). If it had used
-    // `which`, it would have succeeded (git is installed on the test machine).
-    assert.throws(
-      () => resolveGitExecutable(),
-      (error: unknown) => {
-        if (!(error instanceof Error)) return false;
-        return /not found/i.test(error.message);
-      },
-      "on win32 (mocked), resolveGitExecutable must throw because 'where' and Windows paths don't exist on Linux",
-    );
-  } finally {
-    restorePlatform();
-  }
-});
-
-test("GitExecutable: default platform resolves git successfully", () => {
-  // On the real (Linux) platform, `which git` succeeds and returns a path.
-  // This is the contrast that proves the win32 test took a different branch.
+test("GitExecutable: PATH's git, found by one shell probe, as an absolute path", () => {
   const resolved = resolveGitExecutable();
-  assert.ok(resolved.length > 0, "resolveGitExecutable must return a path on Linux");
-  assert.ok(
-    resolved.includes("git"),
-    `the resolved path must contain 'git', got: ${resolved}`,
-  );
+  assert.ok(isAbsolute(resolved), `expected an absolute path, got ${resolved}`);
+  assert.ok(resolved.endsWith("git"), `expected a git binary, got ${resolved}`);
 });
 
-test("GitExecutable: explicit override bypasses platform lookup", () => {
-  // An explicit override returns immediately regardless of platform.
-  setPlatform("win32");
-  try {
-    // Use a path we know exists: node itself (as a stand-in).
-    const { execPath } = process;
-    const resolved = resolveGitExecutable(execPath);
-    assert.equal(resolved, execPath, "explicit override must be returned verbatim");
-  } finally {
-    restorePlatform();
-  }
+test("GitExecutable: a PATH that holds no git is the typed refusal, never a guessed install path", () => {
+  // A process whose PATH holds no git (its environment is fixed when it starts, as its bounded run's thread's is).
+  const adapter = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "git", "git-adapter.ts")).href;
+  const script = `const { resolveGitExecutable } = await import(${JSON.stringify(adapter)}); try { resolveGitExecutable(); console.log("found"); } catch (error) { console.log(error.code); }`;
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", env: { ...process.env, PATH: "/nonexistent-bridlewise-path" } });
+  assert.equal(child.stdout.trim().split("\n").at(-1), "git_executable_not_found", child.stderr);
+});
+
+test("GitExecutable: an override must be an existing absolute path", () => {
+  assert.throws(() => resolveGitExecutable("relative/git"), (error: unknown) => (error as { code?: string }).code === "git_executable_invalid");
+  assert.throws(() => resolveGitExecutable("/nonexistent-bridlewise/git"), (error: unknown) => (error as { code?: string }).code === "git_executable_invalid");
+  assert.equal(resolveGitExecutable(process.execPath), process.execPath, "an existing absolute override is taken as given");
+});
+
+test("GitExecutable: the source holds no per-OS branch and no guessed install paths", () => {
+  const source = readFileSync(join(import.meta.dirname, "..", "..", "src", "git", "git-adapter.ts"), "utf8");
+  const resolver = source.slice(source.indexOf("export function resolveGitExecutable"), source.indexOf("export function defaultOperationContext"));
+  assert.doesNotMatch(resolver, /process\.platform|win32|Program Files|homebrew/u);
 });

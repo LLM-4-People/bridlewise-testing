@@ -31,7 +31,7 @@ import { deepFreeze } from "../kernel/integrity.ts";
 import { schemaId } from "../kernel/product-identity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { declaredCauseFixes, ignoredCauseEvidenceMessage } from "../git/flake-cause-fixes.ts";
-import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../git/git-door.ts";
 import { configuredGitRepository } from "../git/worktree-port.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
 import {

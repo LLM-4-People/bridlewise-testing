@@ -72,6 +72,7 @@ The `engine/test/prevention/` folder of the development surface.
 - `round4-residual.test.ts` — the `round4-residual.test` module.
 - `serial-concurrency-tier.test.ts` — two-tier serial-phase concurrency model prevention test.
 - `source-structure-owner.test.ts` — tHE STRUCTURAL SCOPE OWNER, DRIVEN — and its brand proven by the.
+- `spawn-owners.test.ts` — one door for every process (#653): no tracked non-test module takes a value from `node:child_process` outside the declared owners, or holds a form the scan cannot read (a computed specifier, a `binding`/`_linkedBinding` call on `process` however reached, `vm`, an eval'd worker or one whose options are not an inline object literal, `cluster`, an unparsable module) outside the declared unreadable loaders; no declared entry is stale; each form has planted cases and an in-test mutation (with the form switched off its case is not seen); a type-only import, a comment or a fixture string is not a spawn. A consistency aid: the boundary against hostile code is #634's kernel confinement.
 - `split-idiom-delimiter-mismatch.test.ts` — the `split-idiom-delimiter-mismatch.test` module.
 - `static-literal-extraction-cache.test.ts` — prevention test for the filesystem-backed static-literal extraction cache + the harness sync --with-bundle workflow improvement.
 - `subprocess-mock.test.ts` — prevention test for the shared subprocess mock helper.

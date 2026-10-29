@@ -11,7 +11,7 @@
  */
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ROOT_POLICY } from "../../kernel/root-policy.ts";
-import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../git/git-door.ts";
 
 type TrailerKey = keyof typeof ROOT_POLICY.workflow.promotion.trailers;
 

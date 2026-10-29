@@ -302,15 +302,20 @@ test("startDetached: a background run's stderr lands in the open log its caller 
 });
 
 test("ONE way to the supervisor: ensureTestProcessSupervisor builds once per process, and nothing else names the binary (#293)", () => {
-  // Once per process: a second call runs no make (counted in a child whose spawnSync is wrapped).
+  // Once per process: a second call runs no make. The child's PATH leads to a `make` that counts its runs in a
+  // file, then runs the real one (the build is a bounded run, so the count is taken where the process starts).
   const owner = pathToFileURL(new URL("../../guardian/build.ts", import.meta.url).pathname).href;
-  const script = `import cp from "node:child_process";import {syncBuiltinESMExports} from "node:module";
-    let makes=0;const real=cp.spawnSync;cp.spawnSync=(command,...rest)=>{if(command==="make")makes++;return real(command,...rest);};syncBuiltinESMExports();
-    const {ensureTestProcessSupervisor}=await import(${JSON.stringify(owner)});
-    const first=ensureTestProcessSupervisor(),second=ensureTestProcessSupervisor();console.log(JSON.stringify({makes,same:first===second}));`;
-  const child = spawnSync(process.execPath, ["--no-warnings", "--input-type=module", "-e", script], { encoding: "utf8" });
+  const shims = createTempDir("supervisor-make-shim-");
+  const counter = join(shims, "makes");
+  const realMake = spawnSync("sh", ["-c", "command -v make"], { encoding: "utf8" }).stdout.trim();
+  writeFileSync(join(shims, "make"), `#!/bin/sh\necho run >> ${JSON.stringify(counter)}\nexec ${JSON.stringify(realMake)} "$@"\n`);
+  chmodSync(join(shims, "make"), 0o755);
+  const script = `const {ensureTestProcessSupervisor}=await import(${JSON.stringify(owner)});
+    const first=ensureTestProcessSupervisor(),second=ensureTestProcessSupervisor();console.log(JSON.stringify({same:first===second}));`;
+  const child = spawnSync(process.execPath, ["--no-warnings", "--input-type=module", "-e", script], { encoding: "utf8", env: { ...process.env, PATH: `${shims}:${process.env["PATH"] ?? ""}` } });
   assert.equal(child.status, 0, child.stderr);
-  assert.deepEqual(JSON.parse(child.stdout.trim().split("\n").at(-1)!), { makes: 1, same: true });
+  assert.deepEqual(JSON.parse(child.stdout.trim().split("\n").at(-1)!), { same: true });
+  assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "make ran once for two calls");
   assert.ok(statSync(ensureTestProcessSupervisor()).isFile());
   // Nothing else spells the binary's path: the only way to it is the function that builds it first.
   const repository = new URL("../../../", import.meta.url).pathname;
