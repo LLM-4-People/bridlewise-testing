@@ -24,7 +24,7 @@
 // a clean shutdown (kill the child, write a "killed" result, exit).
 
 import { spawn } from "node:child_process";
-import { writeFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 
 // The unit's process is a top-level program: the one process bootstrap first
@@ -102,8 +102,11 @@ function finish(result, reason) {
     stderr: stderr.length <= 200000 ? stderr : stderr.slice(0, 200000) + "\n[truncated]",
     finishedAt: Date.now(),
   };
+  // Published WHOLE: written beside the result, then renamed over it, so no reader ever sees a torn file.
   try {
-    writeFileSync(resultFile, JSON.stringify(payload));
+    const staged = `${resultFile}.${String(process.pid)}.tmp`;
+    writeFileSync(staged, JSON.stringify(payload));
+    renameSync(staged, resultFile);
   } catch (e) {
     log(`ERROR writing result: ${e.message}`);
   }
