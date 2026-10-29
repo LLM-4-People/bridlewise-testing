@@ -41,7 +41,7 @@ import { boxFigureInline, boxFigureViolations, partBarInline } from "../../share
 import { DECISIONS_DIRECTORY, decisionStatus } from "../../engine/scripts/verification/tracker-entries.ts";
 import { readEntries } from "../../engine/src/workflow/failure-owners.ts";
 import { escapeHtml } from "../../shared/markup.ts";
-import { SITE_FONT_PATH, sitePolicies } from "../../shared/site-page.ts";
+import { SITE_FONT_DISPLAY, SITE_FONT_PATH, sitePolicies } from "../../shared/site-page.ts";
 import { readNames, readTokenOwner, themeColor, tokenSheet } from "../../shared/token-reader.ts";
 import { SHARED_CSS } from "./design-coverage.mjs";
 
@@ -126,6 +126,7 @@ export function writeSiteDesign({ root, outRoot, baseurl }) {
     themeAttribute: THEME_ATTRIBUTE,
     lead: LEAD_THEME,
     fontUrl: (url) => `${fontsUrl}/${url.split("/").pop()}`,
+    fontDisplay: SITE_FONT_DISPLAY,
     banner: `GENERATED from ${TOKEN_OWNER} by scripts/floor/site-design.mjs: edit the owner, never this file.`,
   }) + markRules());
 

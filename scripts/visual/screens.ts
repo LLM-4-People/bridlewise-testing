@@ -87,6 +87,13 @@ async function context(browser: Browser, shot: Shot): Promise<BrowserContext> {
 
 async function settle(page: Page, origin: string, base: string, path: string): Promise<void> {
   const url = `${origin}${base}${path}`;
+  // The site's faces are font-display: optional: a face not ready at the
+  // first paint leaves the fallback for that view. The page is loaded once
+  // first, to its load event and until every face it uses has loaded
+  // (document.fonts.ready), so the picture is taken with every face already
+  // in this context's cache, on every host: events, not a quiet network.
+  await page.goto(url, { waitUntil: "load" });
+  await page.evaluate(async () => { await document.fonts.ready; });
   const response = await page.goto(url, { waitUntil: "networkidle" });
   if (response === null || !response.ok()) throw new VisualRefusal("visual_page_missing", `${url} answered ${String(response?.status() ?? "nothing")}`);
   // A same-origin sheet, not an inline <style>: the page's policy refuses
@@ -103,7 +110,8 @@ async function picture(page: Page): Promise<Buffer> {
 /** Changed pixels between two PNGs, counted (and a diff painted) in the browser's canvas. */
 async function difference(page: Page, before: Buffer, after: Buffer): Promise<{ changed: number; total: number; diff: string }> {
   return page.evaluate(async ([a, b]) => {
-    const load = async (data: string): Promise<ImageBitmap> => createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+    // Decoded in the page from the base64 itself: no request of any kind.
+    const load = async (data: string): Promise<ImageBitmap> => createImageBitmap(new Blob([Uint8Array.from(atob(data), (char) => char.charCodeAt(0))], { type: "image/png" }));
     const [left, right] = [await load(a!), await load(b!)];
     const width = Math.max(left.width, right.width);
     const height = Math.max(left.height, right.height);
