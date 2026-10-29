@@ -56,7 +56,7 @@ test("work INSIDE an excluded entry leaves the root snapshot unchanged; replacin
 
 test("the parent check is IDENTITY: a sibling the surface excludes, made mid-read, is the same directory and no change (FLAKY-CONFIG-PARENT-CHURN)", () => {
   const root = createTempDir("config-parent-sibling-");
-  writeFileSync(join(root, "bridlewise.config.json"), "{}\n");
+  writeFileSync(join(root, "held.json"), "{}\n");
   mkdirSync(join(root, "src"));
   const before = directorySnapshot(root);
   // What a concurrent test did on a fresh checkout: the state directory made beside the config, and work inside it.
@@ -80,12 +80,12 @@ test("the parent check is IDENTITY: a swapped directory (a different one renamed
   const parent = createTempDir("config-parent-swap-");
   const engine = join(parent, "engine");
   mkdirSync(engine);
-  writeFileSync(join(engine, "bridlewise.config.json"), "{}\n");
+  writeFileSync(join(engine, "held.json"), "{}\n");
   const before = directorySnapshot(engine);
   // The same name, the same entries, another directory.
   const impostor = join(parent, "impostor");
   mkdirSync(impostor);
-  writeFileSync(join(impostor, "bridlewise.config.json"), "{}\n");
+  writeFileSync(join(impostor, "held.json"), "{}\n");
   renameSync(engine, join(parent, "engine-old"));
   renameSync(impostor, engine);
   const after = directorySnapshot(engine);

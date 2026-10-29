@@ -21,6 +21,7 @@ import { mkTempDir } from "../support/temp-dir.ts";
 import { memoryState } from "../../src/shared/exposure/registrations/memory.ts";
 import { contextState } from "../../src/shared/exposure/registrations/context.ts";
 import { searchState } from "../../src/shared/exposure/registrations/search.ts";
+import { fixtureConfigPath } from "../support/fixture-config-store.ts";
 
 /**
  * CUSTOMIZATION LIVENESS — every rendered control must CHANGE BEHAVIOUR.
@@ -59,7 +60,7 @@ installCustomizationConfigStore({
   // own temp world: the store is in-memory and never writes it, but the
   // store contract declares the path so the write lock is never keyed on a
   // guess.
-  configFilePath: join(mkTempDir("exposure-liveness-config-"), "bridlewise.config.json"),
+  configFilePath: fixtureConfigPath(mkTempDir("exposure-liveness-config-")),
   readDocument: () => JSON.parse(JSON.stringify(livenessConfigDoc)) as Record<string, unknown>,
   writeDocument: (next) => {
     livenessConfigDoc = next;

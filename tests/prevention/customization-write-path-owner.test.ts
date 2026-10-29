@@ -44,10 +44,22 @@ import {
 import { setSchemaCustomization } from "../../server/schema/ui-schema.ts";
 import { NotFoundError, SettingValueRefusedError } from "../../server/kernel/errors.ts";
 import { ConfigWriteLockTimeout } from "../../engine/src/kernel/errors.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
 
 import { modulePath } from "../helpers/module-resolver.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
 type Value = number | string | boolean | Readonly<Record<string, unknown>>;
+
+/**
+ * The config path this suite's stores name: a file in its OWN fixture root,
+ * never the real `bridlewise.config.json`. A store's writes take the config
+ * write lock, which lives in the state folder BESIDE the config path
+ * (engine/src/kernel/config-write-lock.ts): named by the real path, the lock
+ * created `engine/.bridlewise` on a fresh checkout mid-shard, which changed
+ * the engine folder's identity under every concurrent reader of the real
+ * config (`config_parent_changed`, FLAKY-CONFIG-PARENT-CHURN).
+ */
+const FIXTURE_CONFIG = fixtureConfigPath(createTempDir("customization-write-path-"));
 
 beforeAll(() => {
   // Config-bound customizations write through the installed config store.
@@ -58,7 +70,7 @@ beforeAll(() => {
   // need.
   let doc: Record<string, unknown> = {};
   installCustomizationConfigStore({
-    configFilePath: serverConfig.harnessConfigPath,
+    configFilePath: FIXTURE_CONFIG,
     readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
     writeDocument: (next) => {
       doc = next;
@@ -227,7 +239,7 @@ describe("customization write path — every registered option is validated", ()
     expect(configBound, "a config-bound customization must exist to probe the write layer").toBeDefined();
     const probeValue = configBound!.current();
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: FIXTURE_CONFIG,
       readDocument: () => ({}),
       writeDocument: () => {
         throw new ConfigWriteLockTimeout(
@@ -254,7 +266,7 @@ describe("customization write path — every registered option is validated", ()
       // isolation from the real config file.
       let doc: Record<string, unknown> = {};
       installCustomizationConfigStore({
-        configFilePath: serverConfig.harnessConfigPath,
+        configFilePath: FIXTURE_CONFIG,
         readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
         writeDocument: (next) => {
           doc = next;

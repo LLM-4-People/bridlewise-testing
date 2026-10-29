@@ -18,8 +18,9 @@ import {
 } from "../../server/kernel/canonical.ts";
 import { readConfigRaw } from "../../server/kernel/harness-config.ts";
 import { withConfigDocumentSnapshot } from "../../engine/src/shared/exposure/config-binding.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
 import { NotFoundError } from "../../server/kernel/errors.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
 
 /** The values surface is per caller; these arms read it as an admin sees it. */
 const ADMIN_VIEWER = { isAdmin: true } as const;
@@ -38,7 +39,7 @@ beforeEach(() => {
   // served values still mirror the real file.
   let doc: Record<string, unknown> = readConfigRaw();
   installCustomizationConfigStore({
-    configFilePath: serverConfig.harnessConfigPath,
+    configFilePath: fixtureConfigPath(createTempDir("ui-schema-builder-config-")),
     readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
     writeDocument: (next) => {
       doc = next;
@@ -164,7 +165,7 @@ describe("buildUiSchemaValues", () => {
     let doc: Record<string, unknown> = readConfigRaw();
     let reads = 0;
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("ui-schema-builder-config-")),
       readDocument: () => {
         reads += 1;
         return JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
@@ -189,7 +190,7 @@ describe("buildUiSchemaValues", () => {
     let doc: Record<string, unknown> = readConfigRaw();
     let reads = 0;
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("ui-schema-builder-config-")),
       readDocument: () => {
         reads += 1;
         return JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
@@ -218,7 +219,7 @@ describe("buildUiSchemaValues", () => {
     let reads = 0;
     let refusing = false;
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("ui-schema-builder-config-")),
       readDocument: () => {
         reads += 1;
         if (refusing) throw failure;
@@ -259,7 +260,7 @@ describe("buildUiSchemaValues", () => {
     const doc: Record<string, unknown> = readConfigRaw();
     let reads = 0;
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("ui-schema-builder-config-")),
       readDocument: () => {
         reads += 1;
         // A good document with ONE bad leaf: reading the victim's path throws.

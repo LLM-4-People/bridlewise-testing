@@ -9,11 +9,12 @@ import {
   listCustomizations,
 } from "../../server/kernel/canonical.ts";
 import { readConfigRaw } from "../../server/kernel/harness-config.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
 import { servedSettingsIdsTheRawDetectorWouldCorrupt } from "../helpers/egress-id-corpus.ts";
 import { createTestUser } from "../helpers/multi-user.ts";
 import { startHttpTestServer, type HttpTestServer } from "../helpers/http-server.ts";
 import { makeJsonRequest } from "../helpers/json-request.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
 
 /**
  * Integration test: real HTTP server with the schema routes registered.
@@ -37,7 +38,7 @@ beforeAll(async () => {
   // route's read-back still reflects the write.
   let doc: Record<string, unknown> = readConfigRaw();
   installCustomizationConfigStore({
-    configFilePath: serverConfig.harnessConfigPath,
+    configFilePath: fixtureConfigPath(createTempDir("routes-schema-config-")),
     readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
     writeDocument: (next) => {
       doc = next;

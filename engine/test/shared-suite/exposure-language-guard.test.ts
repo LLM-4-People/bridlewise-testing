@@ -26,6 +26,8 @@ import {
   registeredModuleNames,
   resetAllRegistrations,
 } from "../../src/shared/exposure/registrations/index.ts";
+import { fixtureConfigPath } from "../support/fixture-config-store.ts";
+import { mkTempDir } from "../support/temp-dir.ts";
 
 /**
  * SERVED-LANGUAGE GUARD + REGISTRATION ENRICHMENT — mutation-tested.
@@ -804,7 +806,7 @@ test("enrichment sweep: every config-bound control's declared default is its own
   // — the same contract default the row serves here — is what runs.
   const empty: Record<string, unknown> = {};
   installCustomizationConfigStore({
-    configFilePath: createEngineCustomizationConfigStore().configFilePath,
+    configFilePath: fixtureConfigPath(mkTempDir("exposure-language-guard-config-")),
     readDocument: () => empty,
     writeDocument: () => {},
   });
