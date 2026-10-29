@@ -105,4 +105,4 @@ async function main() {
   console.log("Results written to exp446-llm-results.json");
 }
 
-main().catch(e => { console.error("FATAL:", e); process.exit(1); });
+main().catch(e => { console.error("FATAL:", e); process.exitCode = 1; });

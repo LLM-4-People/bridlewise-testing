@@ -373,7 +373,7 @@ test("a commit runs the hooks with a projected environment; every other operatio
   const port = createWorktreeGitPort({ exec: makeExec(() => ok(`${SHA_A}\n`), captured) });
   assert.deepEqual(port.commit({ cwd: "/wt", message: "merge: workspace w (w)", timeoutMs: 5 }), { commit: SHA_A, output: `${SHA_A}` }, "the commit and what it printed");
   assert.equal(captured[0]!.hooks, true);
-  assert.deepEqual(captured[0]!.args, ["-c", "gc.auto=0", "-C", "/wt", "commit", "-q", "-m", "merge: workspace w (w)"]);
+  assert.deepEqual(captured[0]!.args, ["-c", "gc.auto=0", "-C", "/wt", "commit", "-q", "--signoff", "-m", "merge: workspace w (w)"]);
   assert.equal(captured[1]!.hooks, undefined, "the rev-parse after it runs no hook");
   assert.throws(() => port.commit({ cwd: "/wt", message: "a\0b", timeoutMs: 5 }), InputError);
 });

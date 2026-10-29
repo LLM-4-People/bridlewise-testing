@@ -25,23 +25,6 @@ Each detector is one module, exported through the `index.ts` barrel.
 - `xenova-transformers.d.ts` — the minimal type declaration for the
   optional `@xenova/transformers` peer dependency.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/quality-packs/prevention/`.
-
-- `ast-helpers.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/hermetic-skips.ts`, `engine/src/intelligence/file-slice.ts`, `engine/src/intelligence/quick-view.ts` and 15 more.
-- `async-effect-normalizer.ts` is consumed by `engine/src/quality-packs/prevention/duplicate-body-detector.ts`.
-- `duplicate-body-detector.ts` is consumed by `engine/src/editor/monotone-complexity-guard.ts`, `engine/src/quality-packs/prevention/index.ts`.
-- `duplicate-body-types.ts` is consumed by `engine/src/quality-packs/prevention/duplicate-body-detector.ts`.
-- `duplicated-literals-detector.ts` is consumed by `engine/src/quality-packs/prevention/index.ts`.
-- `embedding-provider.ts` is consumed by `engine/src/quality-packs/prevention/duplicate-body-detector.ts`, `engine/src/quality-packs/prevention/index.ts`.
-- `esm-cjs-detector.ts` is consumed by `engine/src/quality-packs/prevention/index.ts`.
-- `index.ts` is consumed by `engine/src/quality-packs/typescript-pack.ts`.
-- `le-chatelier-bandaid.ts` is consumed by nothing yet.
-- `novel-principles-config.ts` is consumed by `engine/src/quality-packs/prevention/le-chatelier-bandaid.ts`, `engine/src/quality-packs/prevention/tierra-dead-code.ts`.
-- `tierra-dead-code.ts` is consumed by nothing yet.
-- `xenova-transformers.d.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

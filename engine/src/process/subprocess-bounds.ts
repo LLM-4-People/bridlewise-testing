@@ -81,17 +81,24 @@ export function kernelCpuLimit(bounds: SubprocessBounds): Readonly<{ soft: numbe
 }
 
 /**
+ * How the invocation answers a command it cannot find (on the run's own `PATH`, or as a path): this status,
+ * with this one line on stderr, before anything is exec'd. The bounded run reads it as `unstarted`
+ * (`ENOENT`), as a spawn of a missing command answers; the shell does the lookup, so no file is read here.
+ */
+export const COMMAND_NOT_FOUND = Object.freeze({ status: 127, marker: "bounded-run: command not found" });
+
+/**
  * `command args…` under the kernel CPU limit: the soft limit first (it may not exceed the hard one), then the
  * hard one, then `exec`, so the command is the process spawned (its pid, its group). A limit this process
  * already holds that is TIGHTER is kept (a run nested in an admitted run never asks for more than it holds,
  * and is never refused for it). A host refusing the limit refuses the run: the shell exits non-zero before
- * the command starts, never a run unbounded.
+ * the command starts, never a run unbounded. A command the shell cannot find is {@link COMMAND_NOT_FOUND}.
  */
 export function cpuLimitedInvocation(command: string, args: readonly string[], bounds: SubprocessBounds): Readonly<{ command: string; args: readonly string[] }> {
   const { soft, hard } = kernelCpuLimit(bounds);
   return {
     command: "/bin/sh",
-    args: ["-c", 'cap() { held=$(ulimit -H -t); if [ "$held" = unlimited ] || [ "$held" -gt "$1" ]; then echo "$1"; else echo "$held"; fi; }; ulimit -S -t "$(cap "$1")" && ulimit -H -t "$(cap "$2")" && shift 2 && exec "$@"', "sh",
+    args: ["-c", `cap() { held=$(ulimit -H -t); if [ "$held" = unlimited ] || [ "$held" -gt "$1" ]; then echo "$1"; else echo "$held"; fi; }; ulimit -S -t "$(cap "$1")" && ulimit -H -t "$(cap "$2")" && shift 2 && { command -v -- "$1" >/dev/null 2>&1 || { printf '%s\\n' '${COMMAND_NOT_FOUND.marker}' >&2; exit ${String(COMMAND_NOT_FOUND.status)}; }; } && exec "$@"`, "sh",
       String(soft), String(hard), command, ...args],
   };
 }

@@ -36,9 +36,7 @@
  * handed in: this layer runs processes, it builds nothing.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { accessSync, constants as fsConstants, statSync } from "node:fs";
 import { constants } from "node:os";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
@@ -46,7 +44,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { isProcessAlive, isProcessGroupAlive, isProcessIdentityLive, ownedAnnouncement, ownedChild, processGroupMembers, terminate, type OwnedProcess, type ProcessIdentity } from "./process-facts.ts";
 import { adoptIntoOwnedInstrumentLock } from "./instrument-lock-adoption.ts";
 import { guarded } from "./fault-policy.ts";
-import { assertSubprocessBounds, cpuLimitedInvocation, type BoundedEnding, type SubprocessBounds } from "./subprocess-bounds.ts";
+import { assertSubprocessBounds, COMMAND_NOT_FOUND, cpuLimitedInvocation, type BoundedEnding, type SubprocessBounds } from "./subprocess-bounds.ts";
 
 /** The signal a receipt's negative status names (`-15` → `SIGTERM`), or null for an exit status. */
 function signalOfStatus(status: number): NodeJS.Signals | null {
@@ -340,31 +338,6 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
 }
 
 /**
- * `command` as the file it names: a path is taken as it is; a bare name is looked up on the `PATH` the run
- * is given (the environment the command itself sees), the first executable file wins. Undefined when there
- * is none: the run is `unstarted` with `ENOENT`, as a spawn of a missing command answers.
- */
-function resolvedCommand(command: string, cwd: string, env: Readonly<Record<string, string>>): string | undefined {
-  const executable = (path: string): boolean => {
-    try {
-      accessSync(path, fsConstants.X_OK);
-      return statSync(path).isFile();
-    } catch (error) {
-      // Absent, not executable, or under a file: this candidate is not the command.
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT" || code === "EACCES" || code === "ENOTDIR") return false;
-      throw error;
-    }
-  };
-  if (command.includes("/")) {
-    const path = isAbsolute(command) ? command : resolve(cwd, command);
-    return executable(path) ? path : undefined;
-  }
-  return (env["PATH"] ?? "").split(delimiter).filter((directory) => directory.length > 0)
-    .map((directory) => resolve(cwd, join(directory, command))).find(executable);
-}
-
-/**
  * THE ONE BOUNDED SUBPROCESS RUN: `command` bounded by its WORK under
  * {@link SubprocessBounds} (src/process/subprocess-bounds.ts), as a PROCESS
  * GROUP: the command leads a group of its own (`detached`), exec'd under the
@@ -399,16 +372,13 @@ function resolvedCommand(command: string, cwd: string, env: Readonly<Record<stri
 export async function runCpuBounded(
   command: string,
   args: readonly string[],
-  options: Readonly<{ cwd: string; env: Readonly<Record<string, string>>; input?: Buffer; bounds: SubprocessBounds }>,
+  options: Readonly<{ cwd: string; env?: Readonly<Record<string, string>>; input?: Buffer; bounds: SubprocessBounds }>,
 ): Promise<CpuBoundedRun> {
   const { bounds } = options;
   assertSubprocessBounds(bounds);
-  const executable = resolvedCommand(command, options.cwd, options.env);
-  if (executable === undefined) {
-    return Object.freeze({ ending: "unstarted", status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cpuMs: null, startError: "ENOENT" });
-  }
-  const invocation = cpuLimitedInvocation(executable, args, bounds);
-  const child = spawn(invocation.command, [...invocation.args], { cwd: options.cwd, env: options.env, detached: true, stdio: ["pipe", "pipe", "pipe"] });
+  const invocation = cpuLimitedInvocation(command, args, bounds);
+  // No `env`: the command inherits this process's environment (a child the harness runs as itself).
+  const child = spawn(invocation.command, [...invocation.args], { cwd: options.cwd, ...(options.env === undefined ? {} : { env: options.env }), detached: true, stdio: ["pipe", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let outputBytes = 0;
@@ -493,6 +463,9 @@ export async function runCpuBounded(
   try {
     const end = await ended;
     if (stopped !== undefined) await stopped;
+    // The shell found no such command (on the run's PATH, or as a path): it never started.
+    const missing = stopping === undefined && exitStatus?.status === COMMAND_NOT_FOUND.status && Buffer.concat(stderr).toString("utf8").trim() === COMMAND_NOT_FOUND.marker;
+    if (missing) return Object.freeze({ ending: "unstarted", status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cpuMs, startError: "ENOENT" });
     return Object.freeze({
       ending: end.error !== undefined ? "unstarted" : stopping ?? (exitStatus?.signal === "SIGXCPU" ? "cpu-rlimit" : "exited"),
       status: exitStatus?.status ?? null,

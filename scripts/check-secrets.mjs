@@ -348,14 +348,14 @@ for (const path of staleReviewedEntries(gplCarriers)) {
   report(path, 0, "gpl-allowlist-stale", "a reviewed GPL-text entry whose file carries no GPL-licence text: remove the entry");
 }
 
+// The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
 if (findings.length === 0) {
   console.log("secret scan: clean");
-  process.exit(0);
+} else {
+  for (const f of findings) {
+    const location = f.line > 0 ? `${f.path}:${f.line}` : f.path;
+    console.error(`${location}: ${f.rule}: ${f.detail}`);
+  }
+  console.error(`\nsecret scan: ${findings.length} finding(s)`);
+  process.exitCode = 1;
 }
-
-for (const f of findings) {
-  const location = f.line > 0 ? `${f.path}:${f.line}` : f.path;
-  console.error(`${location}: ${f.rule}: ${f.detail}`);
-}
-console.error(`\nsecret scan: ${findings.length} finding(s)`);
-process.exit(1);

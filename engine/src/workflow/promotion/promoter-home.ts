@@ -257,7 +257,7 @@ async function homeRun(
     supervisor: runner.supervisor,
     command: process.execPath,
     args: [join(homeEngine, engine.entry), ...engine.command, ...formatPromoteArguments({ ...request, profile: profile.name, source: context.source })],
-    hardCeilingMs: applyCeilingMs(context, runner, generatedOutputPaths(placement.home).size),
+    hardCeilingMs: applyCeilingMs(context, runner, generatedOutputPaths().size),
     killGraceMs: runner.killGraceMs,
     cwd: context.top,
     env: promoterHomeEnvironment(process.env, homeEngine),

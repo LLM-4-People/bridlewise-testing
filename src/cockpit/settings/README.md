@@ -14,19 +14,9 @@ The settings surface: the setting sheet and settings index — adjust-in-place o
 - `SettingSheet.svelte` — THE SETTING SHEET — the one sheet primitive.
 - `DiagnosticModesSection.svelte` — DIAGNOSTIC MODES — positive inclusion switches, saved through the canonical exclusion-list door.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/settings/`.
-
-- `local-prefs.ts` is consumed by `src/cockpit/rooms/EditorRoom.svelte`, `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/SettingSheet.svelte`, `src/cockpit/settings/open.ts`, `src/state/ui-control.ts`.
-- `open.ts` is consumed by `src/cockpit/Cockpit.svelte`, `src/cockpit/lens/LensCallout.svelte`.
-- `settings-config.ts` is consumed by `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/McpServersSection.svelte`, `src/cockpit/settings/ProvidersSection.svelte`, `src/cockpit/settings/SettingSheet.svelte`.
-- `settings-data.ts` is consumed by `src/cockpit/lens/lens-callout-data.ts`, `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/DiagnosticModesSection.svelte`, `src/cockpit/settings/ProvidersSection.svelte`, `src/cockpit/settings/SettingSheet.svelte`, `src/cockpit/settings/local-prefs.ts` and 2 more.
-- `settings-feed.ts` is consumed by `src/cockpit/rooms/SettingsRoom.svelte`, `src/cockpit/settings/DiagnosticModesSection.svelte`, `src/cockpit/settings/SettingSheet.svelte`, `src/cockpit/settings/open.ts`.
-
-<!-- /consumers:generated -->
 
 ## Shared editing behavior
 

@@ -8,13 +8,6 @@ The flow dev harness: a standalone mount of the flow for development verificatio
 - `main.ts` — Dev harness entry — mounts the flow standalone.
 - `synthetic.ts` — SYNTHETIC beats — dev-harness + perf-test fixture only.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/flow/dev/`.
-
-- `main.ts` is consumed by nothing yet.
-- `synthetic.ts` is consumed by `src/cockpit/flow/dev/DevHarness.svelte`.
-
-<!-- /consumers:generated -->
