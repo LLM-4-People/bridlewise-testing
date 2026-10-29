@@ -193,7 +193,8 @@ function provingGrounds(settings: ForgeSettings): readonly ForgeObject[] {
     const scope: ForgeScope = { kind: "repo", repository: repository.name };
     return [
       // Merge commits only, as on the trunk (MERGE_ONLY): its queue lands merge commits, and its buttons may not offer another method.
-      object("repository-settings", scope, repository.name, { ...MERGE_ONLY.settings, delete_branch_on_merge: true, allow_update_branch: false }),
+      // DCO for web commits on every repository (U-7), as the organisation enforces it.
+      object("repository-settings", scope, repository.name, { ...MERGE_ONLY.settings, delete_branch_on_merge: true, allow_update_branch: false, web_commit_signoff_required: true }),
       object("ruleset", scope, "proving-main", {
         name: "proving-main", target: "branch", enforcement: "active", bypass_actors: [],
         conditions: rulesetConditions(["~DEFAULT_BRANCH"]),
