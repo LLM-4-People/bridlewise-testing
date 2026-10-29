@@ -9,7 +9,7 @@
  * objects (`names`) lets the plan report the ones nobody declared.
  */
 import { ForgeError, isForgeError } from "./codes.ts";
-import type { ForgeObject, ForgeObjectKind, ForgeScope } from "./forge-state.ts";
+import { rulesetWithGithubDefaults, type ForgeObject, type ForgeObjectKind, type ForgeScope } from "./forge-state.ts";
 import type { ForgeClient, ForgeRequest } from "./port.ts";
 
 export type LiveContext = Readonly<{ client: ForgeClient; organization: string; maxPages: number }>;
@@ -516,6 +516,7 @@ const rulesetOf = (base: (context: LiveContext, scope: ForgeScope) => string, so
   itemPath: (context, scope, id) => `${base(context, scope)}/rulesets/${String(id)}`,
   updateMethod: "PUT",
   detailed: true,
+  normalize: rulesetWithGithubDefaults,
 });
 
 const repoBase = (context: LiveContext, scope: ForgeScope): string => repoPath(context, repositoryOf({ scope }));

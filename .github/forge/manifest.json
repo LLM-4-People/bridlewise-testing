@@ -188,7 +188,7 @@
     },
     {
       "path": ".github/forge/org-ruleset/org.baseline.json",
-      "sha256": "69fb2b1b2fda0754dd6f9433c0ca40e3b4a6176da56b006460987e6085399d1c"
+      "sha256": "0b06ca6a3b80ec02e683b7c3cb0d0114d76df28acf2afb688e8e7d0460a8c9f0"
     },
     {
       "path": ".github/forge/ruleset/bridlewise-testing.trunk.json",
@@ -216,7 +216,7 @@
     },
     {
       "path": ".github/forge/ruleset/bridlewise-coordination.content-policy.json",
-      "sha256": "a5e8ad56f3b8b74525caecfe7a2178b63061e9f1afe8e753de7c43a56f45e6d9"
+      "sha256": "8eb040ac742abbeb1df8cde494ff41c3adb7f7a169f91c1bd50df4b535c52a5b"
     },
     {
       "path": ".github/forge/repository-settings/forge-proving-ground.forge-proving-ground.json",
