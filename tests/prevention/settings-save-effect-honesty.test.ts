@@ -20,12 +20,13 @@ import {
   installCustomizationConfigStore,
 } from "../../server/kernel/canonical.ts";
 import { settingsSaveConsequence } from "../../server/blocks/settings.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
 
 beforeEach(() => {
   let doc: Record<string, unknown> = {};
   installCustomizationConfigStore({
-    configFilePath: serverConfig.harnessConfigPath,
+    configFilePath: fixtureConfigPath(createTempDir("settings-save-effect-config-")),
     readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
     writeDocument: (next) => {
       doc = next;

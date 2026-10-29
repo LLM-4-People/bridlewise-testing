@@ -67,6 +67,7 @@ import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { engineConfigDocumentPath, readConfigDocumentRawIfPresent } from "../../kernel/config.ts";
 import { withConfigWriteLock } from "../../kernel/config-write-lock.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
+import { checkoutUnderTestHolding } from "../../filesystem/checkout-write-door.ts";
 import { describeSchemaIssues } from "../../kernel/errors.ts";
 import type { CustomizationValue } from "./customization.ts";
 
@@ -94,6 +95,25 @@ let installedStore: CustomizationConfigStore | undefined;
  */
 export function installCustomizationConfigStore(store: CustomizationConfigStore): void {
   installedStore = store;
+}
+
+/**
+ * UNDER TEST, a store whose config lies inside the checkout under test is
+ * refused at its first write, whatever spelled it (a literal path, a shorthand
+ * or spread store, a computed key, the engine's own store factory): the write
+ * lock it takes lives in the state folder beside that config, inside the live
+ * harness, under every concurrent reader of the real config
+ * (FLAKY-CONFIG-PARENT-CHURN). A test names a config in its own fixture
+ * (engine/test/support/fixture-config-store.ts). Outside a test this is a no-op.
+ */
+function refuseStoreInsideCheckoutUnderTest(configFilePath: string): void {
+  const checkout = checkoutUnderTestHolding(configFilePath);
+  if (checkout === undefined) return;
+  throw new InputError(
+    `a test's customization store names ${configFilePath}, inside the checkout under test (${checkout}): its config write lock would be made beside the real config; name a config in the test's own fixture folder`,
+    "customization_store_checkout_under_test",
+    { configFilePath, checkout },
+  );
 }
 
 /** Test hook: drop the installed store so a fresh install is required. */
@@ -495,6 +515,7 @@ export function writeConfigCustomization(configPath: string, value: Customizatio
   // the lock, so no concurrent writer's cycle can interleave between the
   // read and the write (the lost-update window — the compose must see a
   // committed document, never another writer's mid-cycle state).
+  refuseStoreInsideCheckoutUnderTest(store.configFilePath);
   withConfigWriteLock(store.configFilePath, () => {
     const current = store.readDocument();
     if (sameConfigValue(readPathValue(current, configPath), value)) {

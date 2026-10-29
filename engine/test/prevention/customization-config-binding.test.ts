@@ -28,6 +28,7 @@ import {
 import { InputError } from "../../src/kernel/errors.ts";
 import { GIT_COMMIT_TIMEOUT_MAX_MS } from "../../src/kernel/config-contracts.ts";
 import { mkTempDir } from "../support/temp-dir.ts";
+import { fixtureConfigPath } from "../support/fixture-config-store.ts";
 
 /**
  * CONFIG BINDING — every published customization bound to a config path is
@@ -79,7 +80,7 @@ function memoryStore(initial: Record<string, unknown>): CustomizationConfigStore
     // nothing to a file, and the lock keyed on the declared path stays
     // vacuous — the declaration exists so the store contract cannot lie
     // about which file a host persists to.
-    configFilePath: join(mkTempDir("config-binding-memory-store-"), "bridlewise.config.json"),
+    configFilePath: fixtureConfigPath(mkTempDir("config-binding-memory-store-")),
     readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
     writeDocument: (next) => {
       writes.push(JSON.parse(JSON.stringify(next)) as Record<string, unknown>);
@@ -793,7 +794,7 @@ function refusingStore(failure: Error): CustomizationConfigStore & { readonly re
     get reads() {
       return reads;
     },
-    configFilePath: join(mkTempDir("config-binding-refusing-store-"), "bridlewise.config.json"),
+    configFilePath: fixtureConfigPath(mkTempDir("config-binding-refusing-store-")),
     readDocument: () => {
       reads += 1;
       throw failure;
@@ -808,7 +809,7 @@ test("config binding: a snapshot answers every read from ONE reading of the docu
   let reads = 0;
   const store = memoryStore({ memory: { trimThreshold: 0.62 } });
   installCustomizationConfigStore({
-    configFilePath: store.configFilePath,
+    configFilePath: fixtureConfigPath(mkTempDir("config-binding-snapshot-store-")),
     readDocument: () => {
       reads += 1;
       return store.readDocument();

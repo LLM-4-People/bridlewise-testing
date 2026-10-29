@@ -95,6 +95,7 @@ import {
   DEFAULT_RESOURCE_SAMPLER_ENABLED,
   DEFAULT_RESOURCE_SAMPLER_INTERVAL_MS,
 } from "../../engine/src/performance/performance-config.ts";
+import { configStoreAt } from "../../engine/test/support/fixture-config-store.ts";
 
 const CONFIG_DOCUMENT_SCHEMA = getConfigDocumentSchema();
 
@@ -1048,11 +1049,7 @@ describe("harness-config writer — byte-identity on same-value writes (no door 
     withConfigWriteLock(realConfigPath, () => {
       const before = readFileSync(realConfigPath, "utf8");
       try {
-        installCustomizationConfigStore({
-          configFilePath: realConfigPath,
-          readDocument: readConfigRaw,
-          writeDocument: writeConfigRaw,
-        });
+        installCustomizationConfigStore(configStoreAt(realConfigPath, readConfigRaw, writeConfigRaw));
         registerAllExposure();
         const row = getCustomization(GATE_ROW_ID);
         expect(row?.configPath, "the drive-16 row must resolve through the real registry").toBeDefined();
