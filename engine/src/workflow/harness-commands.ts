@@ -804,8 +804,8 @@ function deadCommandsStep(root: string): CheckStepResult {
     step: "dead-commands",
     status: dead.length === 0 ? "pass" : "fail",
     message: dead.length === 0
-      ? `every registry command is run by a workspace phase or a promotion profile (${String(Object.keys(isolation.commands).length)} commands)`
-      : `registry commands no workspace phase and no promotion profile runs (dead config: remove them, or run them): ${dead.join(", ")}`,
+      ? `every registry command is run by a workspace phase, a promotion profile or the dependency adoption (${String(Object.keys(isolation.commands).length)} commands)`
+      : `registry commands no workspace phase, no promotion profile and no dependency adoption runs (dead config: remove them, or run them): ${dead.join(", ")}`,
     details: { dead },
   });
 }
@@ -2054,7 +2054,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community",
+  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community", "deps",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2205,6 +2205,9 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "workspace") {
       const { runWorkspaceCli } = await import("./workspace-cli.ts");
       answer = { result: await runWorkspaceCli(root, rest) };
+    } else if (subcommand === "deps") {
+      const { runDepsCli } = await import("./deps-cli.ts");
+      answer = { result: await runDepsCli(root, rest) };
     } else if (subcommand === "promote") {
       // Exit code: the class of the answer's code (src/workflow/promotion/codes.ts); its own report.
       const { runPromoteCli } = await import("./promotion/promote-cli.ts");

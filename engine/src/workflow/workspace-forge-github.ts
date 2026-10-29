@@ -236,6 +236,23 @@ export function forgeRepositoryOfRemote(remoteUrl: string, webUrl: string): Gith
  * custody on first use and renewed in memory; nothing is read or minted
  * until a forge call is made).
  */
+/**
+ * THE AGENT'S FORGE CLIENT on the trunk repository: the agent App's installation token, minted from the key home on
+ * the first signature (a command that never reaches the forge needs no App key). The workspace forge and the
+ * dependency adoption (`harness deps adopt`) both act through it, never through a second credential.
+ */
+export function configuredAgentForgeClient(): ForgeClient {
+  const settings = configuredForge();
+  const identity = repositoryIdentity(settings);
+  let admitted: AppKeyCustody | undefined;
+  const custody: AppKeyCustody = Object.freeze({
+    clientId: (role: ForgeAppRole) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).clientId(role),
+    signRs256: (role: ForgeAppRole, data: Uint8Array) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).signRs256(role, data),
+  });
+  const credential = appInstallationCredential(forgeEndpoint(settings), custody, { role: "agent", owner: identity.owner, repository: identity.name, renewBeforeMs: settings.tokenRenewBeforeMs });
+  return configuredForgeClient(credential);
+}
+
 export function githubWorkspaceForgeFactory(landTargets: readonly string[]): WorkspaceForgeFactory {
   return (target) => {
     const settings = configuredForge();
@@ -250,13 +267,6 @@ export function githubWorkspaceForgeFactory(landTargets: readonly string[]): Wor
         { remote: target.remote, trunkRepository: trunkUrl, landTargets: landTargets.join(",") },
       );
     }
-    // The key home is admitted on the first signature, not here: a workspace that never reaches the forge needs no App key.
-    let admitted: AppKeyCustody | undefined;
-    const custody: AppKeyCustody = Object.freeze({
-      clientId: (role: ForgeAppRole) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).clientId(role),
-      signRs256: (role: ForgeAppRole, data: Uint8Array) => (admitted ??= keyHomeCustody(admitHarnessKeyHome([]))).signRs256(role, data),
-    });
-    const credential = appInstallationCredential(forgeEndpoint(settings), custody, { role: "agent", owner: identity.owner, repository: identity.name, renewBeforeMs: settings.tokenRenewBeforeMs });
-    return githubWorkspaceForge(configuredForgeClient(credential), { owner: identity.owner, name: identity.name });
+    return githubWorkspaceForge(configuredAgentForgeClient(), { owner: identity.owner, name: identity.name });
   };
 }

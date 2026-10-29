@@ -2676,6 +2676,10 @@ const ROOT_POLICY_VALUE = {
       // reports the signature valid and made by GitHub (scripts/verification/sign-off.ts); the field alone proves nothing.
       webFlowCommitter: { name: "GitHub", email: "noreply@github.com" },
     },
+    // THE DEPENDABOT APP whose pull requests `harness deps adopt` re-applies (src/workflow/deps-adopt.ts): known
+    // by GitHub's numeric user id of its bot account and the account type, never by its login (a string anyone's
+    // display could imitate). `gh api users/dependabot%5Bbot%5D` answers both.
+    dependabot: { userId: 49699333, type: "Bot" },
     /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs
      * (src/shared/flake-reproduction.ts; written by `harness flake
