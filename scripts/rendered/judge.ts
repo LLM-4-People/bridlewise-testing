@@ -115,10 +115,13 @@ function instrumentFrame(binding: string): void {
     return;
   }
   // The page's own layout shifts, summed (the layout-shift row reads them). The
-  // judge stops counting while it changes the viewport and the media itself
-  // (judgeStates) and counts again through the page's future (judgeFuture):
-  // a judge resizing a page is not the page shifting.
-  const shift = { value: 0, counting: true, set: (on: boolean): void => { void on; } };
+  // count opens once the page is ready as it loaded (judgeStates): a shift
+  // made while it loads, a web font's swap among them, lands when the host
+  // lets it, so counting it judged the host, not the page (#632). The judge
+  // stops counting while it changes the viewport and the media itself, and
+  // counts again through the page's future (judgeFuture): a judge resizing a
+  // page is not the page shifting.
+  const shift = { value: 0, counting: false, set: (on: boolean): void => { void on; } };
   scope.__renderedShift = shift;
   try {
     const add = (entries: readonly PerformanceEntry[]): void => {
@@ -461,14 +464,18 @@ async function countShifts(page: Page, counting: boolean): Promise<void> {
 
 export async function judgeStates(page: Page, surface: Surface, restore: RenderRestore | null, rules?: readonly PageRule[], states: readonly RenderState[] = statesOf(surface)): Promise<readonly string[]> {
   const findings: string[] = [];
-  // The load is over once the page is ready as it loaded; the judge's own
-  // viewport and media changes that follow are not the page shifting. The
-  // page's clock holds still while the judge changes it, so what the page
-  // does next (a timer, a frame) happens after, where its shifts count again.
-  // The page's clock first runs one step on (its load's own timers fire and
-  // count) and then holds; a frame is drawn so those shifts are made before
-  // the count is switched off.
+  // The load is over once the page is ready as it loaded (its requests done,
+  // its fonts settled) and a frame is drawn: the count opens there, and what
+  // the load moved before it, a late web font's swap among them, is not
+  // counted (#632). The judge's own viewport and media changes that follow
+  // are not the page shifting either. The page's clock holds still while the
+  // judge changes it, so what the page does next (a timer, a frame) happens
+  // after, where its shifts count again. The page's clock first runs one
+  // step on (its load's own timers fire and count) and then holds; a frame is
+  // drawn so those shifts are made before the count is switched off.
   await ready(page);
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  await countShifts(page, true);
   await page.clock.pauseAt((await page.evaluate(() => Date.now())) + STEP_MS);
   await ready(page);
   await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });

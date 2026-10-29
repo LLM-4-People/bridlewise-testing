@@ -107,6 +107,21 @@ function steady(response: ServerResponse): void {
   response.on("close", () => clearInterval(tick));
 }
 
+/**
+ * The proof's late face: a vendored face served LATE_FACE_MS after it is asked
+ * for, so the page paints in its fallback first and swaps when it arrives, as
+ * a web font does on a loaded host (#632). Deterministic: the delay is the
+ * server's, not the host's. Sized up (size-adjust) so the swap moves the
+ * block below it by about the shift #632 saw (0.22 against 0.24).
+ */
+const LATE_FACE_PATH = "/proof/late-face.woff2";
+const LATE_FACE_MS = 1500;
+function lateFace(response: ServerResponse): void {
+  const timer = setTimeout(() => servedFont(OTHER_FILE!)(response), LATE_FACE_MS);
+  response.on("close", () => clearTimeout(timer));
+}
+const LATE_FACE_TEXT = "The model brings the strength. The harness holds the reins. ".repeat(6);
+
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
   { name: "a part hidden from another stylesheet, by element", head: "<style>svg circle { opacity: 0 }</style>", rule: "brand-mark" },
@@ -229,6 +244,7 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "a web font that arrives after the first paint and reflows the text", head: `<style>@font-face { font-family: "Late Proof"; src: url("${LATE_FACE_PATH}") format("woff2"); font-display: swap; size-adjust: 250% } #late { font: 16px/normal "Late Proof", serif }</style>`, body: `<div id="late">${LATE_FACE_TEXT}</div><section style="height: 70vh"><p>Below the late text, filling the window.</p></section>`, rule: "layout-shift", only: ["layout-shift"] },
   { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
   // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.
   // Every animation frame, as an animated list does (not a task-queue loop as fast as the browser runs it: that hogs the browser itself).
@@ -265,7 +281,7 @@ async function prove(executable: string | null): Promise<readonly string[]> {
     CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
       only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
-    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady, ...Object.fromEntries(FACES.flatMap((face) => face.files).map((file) => [file, servedFont(file)])) });
+    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady, [LATE_FACE_PATH]: lateFace, ...Object.fromEntries(FACES.flatMap((face) => face.files).map((file) => [file, servedFont(file)])) });
     const browser = await launchBrowser(executable);
     try {
       // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
