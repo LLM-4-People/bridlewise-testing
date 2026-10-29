@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "good first issue",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "good first issue",
+    "color": "5fc78e",
+    "description": "Small, well-scoped, with a clear acceptance check"
+  }
+}

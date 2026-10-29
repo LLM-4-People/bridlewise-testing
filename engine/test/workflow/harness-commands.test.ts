@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync, writeFileSync, mkdirSync, readFileSync, appendFileSync, symlinkSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync, mkdirSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -12,9 +12,10 @@ import {
   harnessSync,
   runBundleBuildStep,
   syncPassVerdict,
-  regenerateReadmeConsumers,
   regenerateWebBudgetPopulation,
   webBudgetPopulationStep,
+  regenerateServiceWorkerDigest,
+  serviceWorkerDigestStep,
   harnessNewModule,
   runArchitectureCheck,
   runInventoryCheck,
@@ -31,6 +32,7 @@ import {
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_MODULES_PATH, architectureModulesText } from "../../src/workflow/architecture-module-entries.ts";
 import { HARNESS_COMMAND_SCHEMA_VERSION, parseHarnessCommandResult, resultHasFail, type HarnessCommandResult } from "../../src/workflow/command-result.ts";
 import { collectTestResults } from "../../src/workflow/test-result-collector.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
@@ -39,7 +41,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { README_CONSUMER_BLOCK, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
+import { SERVICE_WORKER_DIGEST, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -223,63 +225,9 @@ test("HarnessCommands: harnessRegenerate produces valid result", () => {
   assert.equal(result.result.pinAuthorities.status, "current");
   // The ratchet arm (a2b-design H2): every registered baseline is judged
   // against its guard's scan, and on a synced tree none holds debt that fell.
-  assert.deepEqual(result.result.ratchetBaselines.results.map((arm) => arm.id), Object.keys(ROOT_POLICY_AT_LOAD.verification.ratchetBaselines));
+  // The policy's baselines, then the architecture judge's at its fixed path in code (never a policy entry).
+  assert.deepEqual(result.result.ratchetBaselines.results.map((arm) => arm.id), [...Object.keys(ROOT_POLICY_AT_LOAD.verification.ratchetBaselines), "architecture-judge"]);
   assert.equal(result.result.ratchetBaselines.converged, true, `the ratchet arm must converge on this tree: ${JSON.stringify(result.result.ratchetBaselines.results)}`);
-  // The README consumer arm (WF-DEL leftover): the generator really runs as
-  // the sync's subprocess, over every marked README, and a synced tree is current.
-  assert.equal(result.result.readmeConsumers.status, "current", `the README consumer arm must converge on this tree: ${JSON.stringify(result.result.readmeConsumers)}`);
-  assert.ok(result.result.readmeConsumers.readmes > 0, "the README consumer arm judged no README");
-});
-
-test("HarnessCommands: the README consumer arm drives the generator — a check finds a stale block and names it, a write regenerates it, and a missing generator with marked READMEs is STALE, never converged by absence", () => {
-  // A synthetic repository: `engine/src/feature/` holds a module, its
-  // consumer, and a README whose generated block is empty (stale); the
-  // generator is the real one (its folder linked in, so it resolves its own
-  // imports from this checkout).
-  const repository = createTempDir("readme-consumers-arm-");
-  try {
-    const feature = join(repository, "engine", "src", "feature");
-    mkdirSync(feature, { recursive: true });
-    writeFileSync(join(feature, "provider.ts"), "export const provided = 1;\n");
-    writeFileSync(join(feature, "user.ts"), 'import { provided } from "./provider.ts";\nexport const used = provided;\n');
-    const readme = join(feature, "README.md");
-    const before = `# feature\n\n${README_CONSUMER_BLOCK.begin}\n${README_CONSUMER_BLOCK.end}\n`;
-    writeFileSync(readme, before);
-    // A marked README OUTSIDE the resolver's product roots (wf-del2-design D2:
-    // `shared/README.md` was a generated output nobody regenerated): the one
-    // selection makes the generator project it too.
-    mkdirSync(join(repository, "shared"), { recursive: true });
-    writeFileSync(join(repository, "shared", "lib.ts"), "export const shared = 1;\n");
-    writeFileSync(join(feature, "shared-user.ts"), 'import { shared } from "../../../shared/lib.ts";\nexport const again = shared;\n');
-    const sharedReadme = join(repository, "shared", "README.md");
-    writeFileSync(sharedReadme, before.replace("feature", "shared"));
-    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
-    const engineRoot = join(repository, "engine");
-
-    // THE POPULATION, NOT THE CHECKER'S EXISTENCE: two marked READMEs wait,
-    // and the generator is absent. The old arm asserted `absent`/converged
-    // here — the checker's absence read as the subject's absence.
-    const missing = regenerateReadmeConsumers(engineRoot, false);
-    assert.deepEqual(
-      [missing.status, missing.converged, missing.readmes],
-      ["stale", false, 2],
-      "a missing generator with marked READMEs must be STALE and name the population it abandons",
-    );
-    assert.match(missing.changed[0] ?? "", /tests\/helpers\/readme-consumers\.ts \(missing; 2 marked README\(s\) still need it\)/u);
-
-    mkdirSync(join(repository, "tests"), { recursive: true });
-    symlinkSync(join(ROOT, "..", "tests", "helpers"), join(repository, "tests", "helpers"));
-    const stale = regenerateReadmeConsumers(engineRoot, false);
-    assert.deepEqual([stale.status, stale.converged, [...stale.changed].sort()], ["stale", false, ["engine/src/feature/README.md", "shared/README.md"]], JSON.stringify(stale));
-    assert.equal(readFileSync(readme, "utf8"), before, "a check wrote the README");
-    const written = regenerateReadmeConsumers(engineRoot, true);
-    assert.deepEqual([written.status, written.converged, [...written.changed].sort()], ["regenerated", true, ["engine/src/feature/README.md", "shared/README.md"]], JSON.stringify(written));
-    assert.match(readFileSync(readme, "utf8"), /`provider\.ts` is consumed by `engine\/src\/feature\/user\.ts`/u);
-    assert.match(readFileSync(sharedReadme, "utf8"), /`lib\.ts` is consumed by `engine\/src\/feature\/shared-user\.ts`/u);
-    assert.deepEqual(regenerateReadmeConsumers(engineRoot, false), { status: "current", converged: true, readmes: 2, changed: [] });
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
 });
 
 test("HarnessCommands: the web budget population arm — check refuses a stale count by name, sync writes the derived count, then check passes", () => {
@@ -335,40 +283,56 @@ test("HarnessCommands: the web budget population arm — check refuses a stale c
   }
 });
 
-test("HarnessCommands: the README consumer arm is absent ONLY when the tree carries no marked README at all", () => {
-  // The positive absence: no marked README is a population of zero, so there
-  // is nothing to generate. This is the one state `absent` may describe; it
-  // is not the state a missing generator describes when READMEs are waiting.
-  const repository = createTempDir("readme-consumers-none-");
+test("HarnessCommands: the service worker digest arm — check refuses a hand-edited digest by name, sync re-derives it, then check passes", () => {
+  // The WIRING, with a stand-in generator at the arm's own path speaking the
+  // one protocol (the real digest is proved beside its owner,
+  // tests/prevention/pwa.test.ts, hand edit included). The stand-in derives
+  // "abc", finds a hand-typed "hand" in the worker, writes only with --write,
+  // and judges the tree the arm names with --root.
+  const repository = createTempDir("service-worker-digest-arm-");
   try {
-    mkdirSync(join(repository, "engine"), { recursive: true });
+    const engineRoot = join(repository, "engine");
+    mkdirSync(engineRoot, { recursive: true });
+    const generator = join(repository, SERVICE_WORKER_DIGEST.generator);
+    mkdirSync(join(generator, ".."), { recursive: true });
+    const worker = join(repository, SERVICE_WORKER_DIGEST.path);
+    mkdirSync(join(worker, ".."), { recursive: true });
+    writeFileSync(worker, 'const ASSETS_DIGEST = "hand";\n');
+    writeFileSync(generator, [
+      'import { readFileSync, writeFileSync } from "node:fs";',
+      'import { join } from "node:path";',
+      'const root = process.argv.find((a) => a.startsWith("--root="))?.slice("--root=".length);',
+      'if (root === undefined) { process.stdout.write("{}\\n"); process.exit(2); }',
+      `const file = join(root, ${JSON.stringify(SERVICE_WORKER_DIGEST.path)});`,
+      'const derived = \'const ASSETS_DIGEST = "abc";\\n\';',
+      'let out;',
+      'if (readFileSync(file, "utf8") === derived) out = { allCurrent: true, status: "current", changed: [] };',
+      'else if (process.argv.includes("--write")) { writeFileSync(file, derived); out = { allCurrent: true, status: "regenerated", changed: ["public/sw.js"] }; }',
+      'else out = { allCurrent: false, status: "stale", changed: ["public/sw.js"] };',
+      'process.stdout.write(JSON.stringify(out) + "\\n");',
+      "process.exitCode = out.allCurrent ? 0 : 1;",
+      "",
+    ].join("\n"));
     execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
-    assert.deepEqual(
-      regenerateReadmeConsumers(join(repository, "engine"), false),
-      { status: "absent", converged: true, readmes: 0, changed: [] },
-      "a tree with no marked README has nothing to converge",
-    );
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
-});
 
-test("HarnessCommands: the README consumer arm reads the generator's LAST line; no JSON result line is the typed readme_consumers_no_result", () => {
-  // wf-del2-correctness NEW-11: `JSON.parse(stdout)` of the whole output
-  // turned any line an import printed into an untyped SyntaxError.
-  const repository = createTempDir("readme-consumers-protocol-");
-  try {
-    mkdirSync(join(repository, "engine"), { recursive: true });
-    mkdirSync(join(repository, "tests", "helpers"), { recursive: true });
-    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
-    const generator = join(repository, README_CONSUMER_BLOCK.generator);
-    const answer = { allCurrent: true, status: "current", readmes: 3, bootstrapped: 0, changed: [] };
-    writeFileSync(generator, `console.log("an import said something");\nconsole.log(${JSON.stringify(JSON.stringify(answer))});\n`);
-    assert.deepEqual(regenerateReadmeConsumers(join(repository, "engine"), false), { status: "current", converged: true, readmes: 3, changed: [] });
-    writeFileSync(generator, `console.log("no result at all");\n`);
-    assert.throws(() => regenerateReadmeConsumers(join(repository, "engine"), false), (error: unknown) => (error as { code?: string }).code === "readme_consumers_no_result");
-    writeFileSync(generator, `console.log("[1, 2]");\n`);
-    assert.throws(() => regenerateReadmeConsumers(join(repository, "engine"), false), (error: unknown) => (error as { code?: string }).code === "readme_consumers_no_result");
+    // A hand-edited digest: the check step FAILS, naming the worker, and writes nothing.
+    const stale = regenerateServiceWorkerDigest(engineRoot, false);
+    assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["public/sw.js"]]);
+    const step = serviceWorkerDigestStep(stale);
+    assert.equal(step.step, "service-worker-digest");
+    assert.equal(step.status, "fail");
+    assert.match(step.message, /public\/sw\.js's cache digest differs from the assets it caches \(run harness sync\)/u);
+    assert.equal(readFileSync(worker, "utf8"), 'const ASSETS_DIGEST = "hand";\n', "a check wrote the worker");
+    // Sync: the derived digest is written, and the step passes after it.
+    const written = regenerateServiceWorkerDigest(engineRoot, true);
+    assert.deepEqual([written.status, written.converged], ["regenerated", true]);
+    assert.equal(readFileSync(worker, "utf8"), 'const ASSETS_DIGEST = "abc";\n', "sync did not write the derived digest");
+    const current = regenerateServiceWorkerDigest(engineRoot, false);
+    assert.deepEqual(current, { status: "current", converged: true, changed: [] });
+    assert.equal(serviceWorkerDigestStep(current).status, "pass");
+    // No generator in the tree (a product-only tree): converged by absence.
+    rmSync(generator);
+    assert.deepEqual(regenerateServiceWorkerDigest(engineRoot, false), { status: "absent", converged: true, changed: [] });
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }
@@ -389,8 +353,16 @@ test("HarnessCommands: harnessNewModule throws on empty path", () => {
   assert.throws(() => harnessNewModule(ROOT, ""), /module path/);
 });
 
+/** A scratch engine root for `harness new-module`: it carries the (empty) architecture module entries the registrar reads. */
+function newModuleRoot(prefix: string): string {
+  const root = createTempDir(prefix);
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(join(root, ARCHITECTURE_MODULES_PATH), architectureModulesText({ defaults: [{ directory: "src/", realm: "runtime", layer: "domain", owner: "fixture" }], entries: [] }));
+  return root;
+}
+
 test("HarnessCommands: harnessNewModule creates a module file", () => {
-  const tmpDir = createTempDir("harness-newmod-");
+  const tmpDir = newModuleRoot("harness-newmod-");
   try {
     const result = harnessNewModule(tmpDir, "src/test-module.ts");
     assert.equal(result.command, "new-module");
@@ -404,7 +376,7 @@ test("HarnessCommands: harnessNewModule creates a module file", () => {
 });
 
 test("HarnessCommands: harnessNewModule with existing file does not create", () => {
-  const tmpDir = createTempDir("harness-newmod-exist-");
+  const tmpDir = newModuleRoot("harness-newmod-exist-");
   try {
     mkdirSync(join(tmpDir, "src"), { recursive: true });
     writeFileSync(join(tmpDir, "src", "existing.ts"), `export const X = 1;\n`);
@@ -416,7 +388,7 @@ test("HarnessCommands: harnessNewModule with existing file does not create", () 
 });
 
 test("HarnessCommands: harnessNewModule prepends src/ when not prefixed", () => {
-  const tmpDir = createTempDir("harness-newmod-prefix-");
+  const tmpDir = newModuleRoot("harness-newmod-prefix-");
   try {
     const result = harnessNewModule(tmpDir, "my-module.ts");
     assert.equal(result.result.modulePath, "src/my-module.ts");
@@ -426,7 +398,7 @@ test("HarnessCommands: harnessNewModule prepends src/ when not prefixed", () => 
 });
 
 test("HarnessCommands: harnessNewModule does not prepend for scripts/ or verification/", () => {
-  const tmpDir = createTempDir("harness-newmod-scripts-");
+  const tmpDir = newModuleRoot("harness-newmod-scripts-");
   try {
     const result = harnessNewModule(tmpDir, "scripts/my-script.ts");
     assert.equal(result.result.modulePath, "scripts/my-script.ts");
@@ -714,7 +686,7 @@ test("HarnessCommands: 2 consecutive harnessRegenerate calls are consistent (det
 });
 
 test("HarnessCommands: harnessNewModule template has valid TypeScript", () => {
-  const tmpDir = createTempDir("harness-template-");
+  const tmpDir = newModuleRoot("harness-template-");
   try {
     harnessNewModule(tmpDir, "src/my-mod.ts");
     const content = readFileSync(join(tmpDir, "src", "my-mod.ts"), "utf8");
@@ -726,7 +698,7 @@ test("HarnessCommands: harnessNewModule template has valid TypeScript", () => {
 });
 
 test("HarnessCommands: harnessNewModule handles nested paths", () => {
-  const tmpDir = createTempDir("harness-nested-");
+  const tmpDir = newModuleRoot("harness-nested-");
   try {
     harnessNewModule(tmpDir, "src/deep/nested/module.ts");
     assert.ok(readFileSync(join(tmpDir, "src", "deep", "nested", "module.ts"), "utf8").length > 0);
@@ -765,25 +737,25 @@ test("HarnessCommands: harnessRegister structure, integrity, timestamp, and zero
   const parsed = new Date(result.generatedAt);
   assert.ok(!Number.isNaN(parsed.getTime()));
   assert.equal(result.result.registrarReport.driftedModules, 0);
-  assert.equal(result.result.registrarReport.unregisteredModules, 0);
+  assert.equal(result.result.registrarReport.entriesCurrent, true);
 });
 
 test("HarnessCommands: harnessRegister write=false does not modify manifest", () => {
-  const before = readFileSync(join(ROOT, "src/architecture-manifest.ts"), "utf8");
+  const before = readFileSync(join(ROOT, ARCHITECTURE_MODULES_PATH), "utf8");
   registerReadOnly();
-  const after = readFileSync(join(ROOT, "src/architecture-manifest.ts"), "utf8");
+  const after = readFileSync(join(ROOT, ARCHITECTURE_MODULES_PATH), "utf8");
   assert.equal(before, after);
 });
 
-test("HarnessCommands: harnessRegister on temp project detects unregistered modules", () => {
-  const tmpDir = createTempDir("harness-register-");
+test("HarnessCommands: harnessRegister on a temp project: a new module needs no decision, a decision whose file is gone drifts", () => {
+  const tmpDir = newModuleRoot("harness-register-");
   try {
-    mkdirSync(join(tmpDir, "src"), { recursive: true });
     writeFileSync(join(tmpDir, "src", "mod.ts"), `export const X = 1;\n`);
-    mkdirSync(join(tmpDir, "test"), { recursive: true });
-    writeFileSync(join(tmpDir, "test", "t.test.ts"), `import test from "node:test";\ntest("t", () => {});\n`);
-    const result = harnessRegister(tmpDir, { write: false });
-    assert.ok(result.result.registrarReport.unregisteredModules >= 1);
+    const plain = harnessRegister(tmpDir, { write: false });
+    assert.equal(plain.result.registrarReport.totalSourceModules, 2, "the census holds the new module (and the decisions file itself)");
+    assert.equal(plain.result.registrarReport.driftedModules, 0, "a plain new module is classified by its folder: nothing to register");
+    writeFileSync(join(tmpDir, ARCHITECTURE_MODULES_PATH), architectureModulesText({ defaults: [{ directory: "src/", realm: "runtime", layer: "domain", owner: "fixture" }], entries: [{ path: "src/gone.ts", owner: "other" }] }));
+    assert.deepEqual(harnessRegister(tmpDir, { write: false }).result.registrarReport.drift.map((module) => module.path), ["src/gone.ts"]);
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -796,7 +768,7 @@ test("HarnessCommands: harnessRegister determinism - same root produces same rep
   const r2 = harnessRegister(ROOT, { write: false });
   assert.equal(r1.command, r2.command);
   assert.equal(r1.result.registrarReport.driftedModules, r2.result.registrarReport.driftedModules);
-  assert.equal(r1.result.registrarReport.unregisteredModules, r2.result.registrarReport.unregisteredModules);
+  assert.equal(r1.result.registrarReport.totalSourceModules, r2.result.registrarReport.totalSourceModules);
 });
 
 // ---------------------------------------------------------------------------
@@ -807,43 +779,27 @@ test("HarnessCommands: harnessRegister determinism - same root produces same rep
 // reported "fail". The status must come from the POST-WRITE outcome.
 // ---------------------------------------------------------------------------
 
-test("HarnessCommands: harnessRegister write passes after fully correcting drift and auto-registering new modules", () => {
-  // Full working copy: every manifest module present, so the only drift is
-  // the one mutation introduced below and it is field-correctable.
+test("HarnessCommands: harnessRegister write passes and writes nothing for a new module or a changed export", () => {
   const copy = createRepositoryWorkingCopy("harness-register-write-", { include: engineGeneratorPopulation });
   const tmpDir = copy.engineRoot;
   try {
-    // Introduce exactly one drifted module: an extra export makes the
-    // computed registration disagree with the (copied) manifest entry.
+    const entriesPath = join(tmpDir, ARCHITECTURE_MODULES_PATH);
+    const before = readFileSync(entriesPath, "utf8");
+    // A module's exports are derived by the check, never registered (#221):
+    // a new export changes nothing the registrar owns.
     appendFileSync(join(tmpDir, "src", "kernel/errors.ts"), "export const REGISTER_WRITE_DRIFT_PROBE = 1;\n");
+    const unchanged = harnessRegister(tmpDir, { write: true });
+    assert.equal(unchanged.result.registrarReport.driftedModules, 0);
+    assert.equal(unchanged.status, "pass");
+    assert.equal(readFileSync(entriesPath, "utf8"), before);
 
-    const corrected = harnessRegister(tmpDir, { write: true });
-    assert.equal(corrected.result.registrarReport.driftedModules, 1);
-    assert.ok(corrected.result.registrarReport.postWrite !== null);
-    assert.equal(corrected.result.registrarReport.postWrite!.clean, true);
-    assert.equal(corrected.result.registrarReport.postWrite!.driftedModules, 0);
-    // The core regression: pre-fix drift (1 module) must NOT fail the run —
-    // the correction succeeded, so the status is pass.
-    assert.equal(corrected.status, "pass");
-    // The manifest on disk now carries the corrected export count.
-    const manifestAfter = readFileSync(join(tmpDir, "src", "architecture-manifest.ts"), "utf8");
-    const driftedEntry = corrected.result.registrarReport.drift.find((entry) => entry.path === engineModuleSourceRelative("kernel/errors.ts"));
-    assert.ok(driftedEntry);
-    assert.ok(manifestAfter.includes(`exportCount: ${driftedEntry!.exportCount}`));
-
-    // An unregistered module is now AUTO-REGISTERED by the write — the run
-    // must pass because the auto-registration adds the missing entry.
+    // A new module is a module the day it lands: classified by its folder, nothing is written (#221).
     writeFileSync(join(tmpDir, "src", "register-write-unregistered.ts"), "export const UNREGISTERED_PROBE = 2;\n");
-    const withUnregistered = harnessRegister(tmpDir, { write: true });
-    assert.equal(withUnregistered.result.registrarReport.unregisteredModules, 1);
-    assert.ok(withUnregistered.result.registrarReport.postWrite !== null);
-    assert.equal(withUnregistered.result.registrarReport.postWrite!.addedModules, 1);
-    assert.equal(withUnregistered.result.registrarReport.postWrite!.unregisteredModules, 0);
-    assert.equal(withUnregistered.result.registrarReport.postWrite!.clean, true);
-    assert.equal(withUnregistered.status, "pass");
-    // The manifest now contains a block for the auto-registered file.
-    const manifestAfterAdd = readFileSync(join(tmpDir, "src", "architecture-manifest.ts"), "utf8");
-    assert.ok(manifestAfterAdd.includes(`path: "src/register-write-unregistered.ts"`), "unregistered file must be auto-registered");
+    const withNew = harnessRegister(tmpDir, { write: true });
+    assert.equal(withNew.result.registrarReport.driftedModules, 0);
+    assert.equal(withNew.result.registrarReport.postWrite?.clean, true);
+    assert.equal(withNew.status, "pass");
+    assert.equal(readFileSync(entriesPath, "utf8"), before, "a plain new module writes nothing");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
@@ -856,19 +812,18 @@ test("HarnessCommands: harnessRegister write on a zero-drift project passes and 
   // can only be proven by running the real writer over the real manifest. It
   // used to run at this repository's own root, snapshotting and restoring
   // what it touched — and when the property broke it rewrote
-  // `src/architecture-manifest.ts`, the root policy and a traceability
+  // the architecture manifest, the root policy and a traceability
   // manifest for every concurrent test to read until the restore landed. A
   // working copy holds exactly the owned bytes, so it proves the same
   // property, and a write it makes lands where nothing else reads it.
   const copy = createRepositoryWorkingCopy("harness-register-zero-drift-", { include: engineGeneratorPopulation });
   try {
-    const manifestPath = join(copy.engineRoot, "src", "architecture-manifest.ts");
-    const before = readFileSync(manifestPath, "utf8");
+    const entriesPath = join(copy.engineRoot, ARCHITECTURE_MODULES_PATH);
+    const before = readFileSync(entriesPath, "utf8");
     const result = harnessRegister(copy.engineRoot, { write: true });
-    assert.equal(readFileSync(manifestPath, "utf8"), before);
+    assert.equal(readFileSync(entriesPath, "utf8"), before);
     assert.equal(result.result.registrarReport.driftedModules, 0);
-    assert.equal(result.result.registrarReport.unregisteredModules, 0);
-    assert.deepEqual(result.result.registrarReport.postWrite, { addedModules: 0, removedModules: 0, driftedModules: 0, unregisteredModules: 0, clean: true });
+    assert.deepEqual(result.result.registrarReport.postWrite, { removedModules: 0, markedModules: 0, clean: true });
     assert.equal(result.status, "pass");
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
@@ -1264,7 +1219,7 @@ test("HarnessCommands: harnessRegenerate write=false skips the auto-add step", (
   assert.deepEqual(result.result.dispositionAutoAdd.addedPaths, []);
 });
 
-test("HarnessCommands: harnessRegenerate write=true auto-adds missing disposition entries for new test files", () => {
+test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qualified test file", () => {
   // Repository-local working copy: the safe repository reader (used by the
   // test-inventory subprocess) rejects roots under mounted-ancestor /tmp
   // (safe_path_root_ancestor_mountpoint), so fixtures that exercise it must
@@ -1274,30 +1229,21 @@ test("HarnessCommands: harnessRegenerate write=true auto-adds missing dispositio
   const copy = createRepositoryWorkingCopy("regen-autodispo-", { include: engineGeneratorPopulation });
   const fixtureRoot = copy.engineRoot;
   try {
-    // Create a new recognizable test file that is absent from the copied
-    // dispositions manifest. Regenerate must register it automatically.
+    const manifestPath = join(fixtureRoot, "traceability", "test-surface-dispositions.json");
+    const before = readFileSync(manifestPath, "utf8");
+    // A new qualified Node test file is canonical by default: nothing is written (#221).
     const newFile = "test/workflow/regen-autodispo-fixture.test.ts";
     writeFileSync(join(fixtureRoot, newFile), `import test from "node:test";\ntest("fixture", () => {});\n`);
-    // The copy has its own index, and a new test source must be in it before
-    // the heal registers it (test_surface_source_untracked otherwise).
+    // The copy has its own index, and a new test source must be in it (test_surface_source_untracked otherwise).
     execFileSync("git", ["add", "-N", "--", newFile], { cwd: fixtureRoot });
-
     const result = harnessRegenerate(fixtureRoot, { write: true });
-
     assert.equal(result.command, "regenerate");
-    assert.equal(result.result.dispositionAutoAdd.status, "added");
-    assert.equal(result.result.dispositionAutoAdd.addedCount, 1);
-    assert.deepEqual([...result.result.dispositionAutoAdd.addedPaths], [newFile]);
-    // The manifest on disk now carries the auto-registered entry with the
-    // canonical disposition for a qualified js/ts test source.
-    const manifestAfter = JSON.parse(readFileSync(join(fixtureRoot, "traceability", "test-surface-dispositions.json"), "utf8")) as {
-      entries: ReadonlyArray<{ path: string; disposition: string }>;
-    };
-    const added = manifestAfter.entries.find((entry) => entry.path === newFile);
-    assert.ok(added, "auto-add wrote the new entry to the manifest");
-    assert.equal(added!.disposition, "canonical-node-test");
-    // A second regenerate on the healed fixture is a no-op for the auto-add
-    // step (idempotent): the manifest already covers every recognizable file.
+    assert.equal(result.result.dispositionAutoAdd.status, "current");
+    assert.equal(result.result.dispositionAutoAdd.addedCount, 0);
+    assert.equal(readFileSync(manifestPath, "utf8"), before, "adding a test rewrites nothing here");
+    // (A recognizable source OUTSIDE the qualified patterns is an exception the auto-heal records as pending, and the
+    // conservation pin of the non-canonical set then refuses until it is restated: auto-heal.test.ts and the
+    // conservation tests own that.)
     const second = harnessRegenerate(fixtureRoot, { write: true });
     assert.equal(second.result.dispositionAutoAdd.status, "current");
     assert.equal(second.result.dispositionAutoAdd.addedCount, 0);

@@ -37,22 +37,34 @@ import { stripTypeScriptTypes } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { engineConfigDocumentPath } from "../../../kernel/config.ts";
 import { HarnessError } from "../../../kernel/errors.ts";
 import { deepFreeze } from "../../../kernel/integrity.ts";
+import { identityOverlapIndex, resolveLocation } from "../../../filesystem/path-identity.ts";
 import { admitInstrumentRun, instrumentLockPath, type PerRunCaps } from "../../../process/instrument-lock.ts";
-import { ownCgroupMemoryEvents } from "../../../process/process-facts.ts";
 import { readTestExecutionConfig } from "../../test-result-collector.ts";
 import { SUBPROCESS_BOUNDS } from "../../workflow-config.ts";
 import { runConfinedNode } from "../../../filesystem/self-protection/confined-run.ts";
 import type { KeepOutFacts } from "../../../filesystem/self-protection/keep-out.ts";
+import { keyHomeLocation, openStoreRegistry } from "../../../filesystem/self-protection/key-home.ts";
+import { DEFAULT_PROJECTION_CPU_SECONDS } from "../../workflow-config.ts";
 import { debugLog } from "../../../shared/debug/debug-system.ts";
 
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-/** What a confined call runs: `entry` and every module it may import (absolute paths), and the function it calls (text in, text out). */
+/**
+ * What a confined call runs: `entry`, the ROOTS its modules must lie under,
+ * and the function it calls (text in, text out). The modules are never
+ * listed by hand: they are the entry's relative-import closure
+ * ({@link confinedModules}), so a module the entry comes to import is linked
+ * without a second list to keep in step. The link refuses a module outside
+ * the roots, and any import that is not relative (a builtin, a package): the
+ * program is pure source, and the kernel confinement (V-26) refuses every
+ * reach outside its input whatever the source tries.
+ */
 export type ConfinedModule = Readonly<{
   entry: string;
-  modules: readonly string[];
+  roots: readonly string[];
   exportName: string;
 }>;
 
@@ -63,6 +75,9 @@ export type ProjectorConfinement = Readonly<{
   cpuSeconds: number;
   run: Readonly<{ lockPath: string; perRun: PerRunCaps }>;
 }>;
+
+/** The engine's source and the repository's `shared/` (the one Markdown parser lives there): the roots of the harness's own confined programs. */
+const HARNESS_PROGRAM_ROOTS = Object.freeze([SOURCE_ROOT, resolve(SOURCE_ROOT, "..", "..", "shared")]);
 
 /**
  * The confinement of THIS checkout's harness at `harnessRoot`: the host's
@@ -78,51 +93,45 @@ export function configuredConfinement(harnessRoot: string, keepOut: ProjectorCon
   return deepFreeze({ harnessRoot, keepOut, cpuSeconds, run: { lockPath: instrumentLockPath(instrumentLock, harnessRoot), perRun: instrumentLock.perRun } });
 }
 
-/** The projection's program: `project.ts`'s `projectText`, and the pure modules it is allowed to load. */
+/**
+ * THE HOST'S CONFINEMENT of a projection run outside a test: the engine at
+ * `engineRoot`, the host's own keep-out facts (its configuration document and
+ * every store its key home registers), the default CPU ceiling, and the
+ * per-run caps of the run it is admitted in ({@link configuredConfinement}).
+ * The roadmap feed and the live proving scenarios both compute through it.
+ */
+export function hostConfinement(engineRoot: string): ProjectorConfinement {
+  return configuredConfinement(resolve(engineRoot), { hostPaths: [engineConfigDocumentPath()], registry: openStoreRegistry(keyHomeLocation()) }, DEFAULT_PROJECTION_CPU_SECONDS);
+}
+
+/** The projection's program: `project.ts`'s `projectText`, and the pure modules it imports. */
 export const PROJECTION_PROGRAM: ConfinedModule = Object.freeze({
   entry: join(SOURCE_ROOT, "workflow/forge/projector/project.ts"),
-  modules: Object.freeze([
-    "workflow/forge/projector/project.ts",
-    "workflow/forge/projector/model.ts",
-    "workflow/markdown-links.ts",
-    "workflow/tracker-status.ts",
-    "kernel/product-identity.ts",
-    "kernel/ordered.ts",
-    // The one Markdown parser and the one markup owner, at the repository's root (pure, no import).
-    "../../shared/markdown.ts",
-    "../../shared/markup.ts",
-  ].map((path) => join(SOURCE_ROOT, path))),
+  roots: HARNESS_PROGRAM_ROOTS,
   exportName: "projectText",
 });
 
-/** The roadmap feed's program: `roadmap-feed.ts`'s `roadmapFeedText`, the state owner, the product's schema names and the kernel's one key order. */
+/** The roadmap feed's program: `roadmap-feed.ts`'s `roadmapFeedText`, and the pure modules it imports (the state owner among them). */
 export const ROADMAP_FEED_PROGRAM: ConfinedModule = Object.freeze({
   entry: join(SOURCE_ROOT, "workflow/forge/projector/roadmap-feed.ts"),
-  modules: Object.freeze([
-    "workflow/forge/projector/roadmap-feed.ts",
-    "workflow/tracker-status.ts",
-    "kernel/product-identity.ts",
-    "kernel/ordered.ts",
-  ].map((path) => join(SOURCE_ROOT, path))),
+  roots: HARNESS_PROGRAM_ROOTS,
   exportName: "roadmapFeedText",
 });
 
 /** A static or literal dynamic import's specifier: `from "x"`, `import "x"`, `import("x")`. */
 const SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])([^"'\n]+)\2/gu;
 
-/**
- * The one program for `module` and `input`: every declared module linked into
- * a `data:` URL (types stripped, relative imports rewritten), and a loader
- * that calls `exportName(input)` and writes its text answer to stdout.
- */
-function linkProgram(module: ConfinedModule, input: string): string {
-  const allowed = new Set(module.modules.map((path) => resolve(path)));
+/** Every module of `module`'s program, linked: its path and its `data:` URL (types stripped, relative imports rewritten). */
+function linkModules(module: ConfinedModule): ReadonlyMap<string, string> {
+  // Containment is decided by IDENTITY (the one path-identity owner), never by a path's spelling.
+  const identity = identityOverlapIndex();
+  const roots = module.roots.map((root) => resolveLocation(resolve(root), "a confined program's root"));
   const urls = new Map<string, string>();
   const refuse = (message: string): never => { throw new HarnessError(`projection_import_refused: ${message}`, "projection_import_refused"); };
   const link = (path: string, chain: readonly string[]): string => {
     const known = urls.get(path);
     if (known !== undefined) return known;
-    if (!allowed.has(path)) refuse(`${path} (imported by ${chain.at(-1) ?? "the entry"}) is not a module of the confined program`);
+    if (!roots.some((root) => identity.atOrUnder(resolveLocation(path, "a confined program's module"), root))) refuse(`${path} (imported by ${chain.at(-1) ?? "the entry"}) is outside the confined program's roots (${roots.join(", ")})`);
     if (chain.includes(path)) refuse(`${path} imports itself through ${chain.join(" → ")}`);
     const code = stripTypeScriptTypes(readFileSync(path, "utf8")).replace(SPECIFIER, (_whole, lead: string, quote: string, specifier: string) => {
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) refuse(`${specifier} (imported by ${path}) is not a module of the confined program`);
@@ -132,7 +141,23 @@ function linkProgram(module: ConfinedModule, input: string): string {
     urls.set(path, url);
     return url;
   };
-  const entry = link(resolve(module.entry), []);
+  link(resolve(module.entry), []);
+  return urls;
+}
+
+/** The modules of `module`'s program: the entry's relative-import closure, each under its roots (a refusal otherwise). */
+export function confinedModules(module: ConfinedModule): readonly string[] {
+  return [...linkModules(module).keys()];
+}
+
+/**
+ * The one program for `module` and `input`: every module of the program
+ * linked into a `data:` URL, and a loader that calls `exportName(input)` and
+ * writes its text answer to stdout.
+ */
+function linkProgram(module: ConfinedModule, input: string): string {
+  const entry = linkModules(module).get(resolve(module.entry))!;
+  const refuse = (message: string): never => { throw new HarnessError(`projection_import_refused: ${message}`, "projection_import_refused"); };
   const name = module.exportName;
   if (!/^[A-Za-z_$][\w$]*$/u.test(name)) refuse(`${name} is not an export name`);
   return [
@@ -150,16 +175,22 @@ function linkProgram(module: ConfinedModule, input: string): string {
 export function confinedCall(module: ConfinedModule, input: string, confinement: ProjectorConfinement): string {
   const program = linkProgram(module, input);
   // The one runner door: admitted at once under the per-run caps (or borrowing the run this process is inside); the program is born in its scope.
+  // A run cut at its memory cap is the admission owner's own refusal at release (`run_memory_cap_exceeded`, read from the scope's memory.events).
   const hold = admitInstrumentRun(confinement.run.lockPath, `projection: ${module.exportName}`, confinement.run.perRun, SUBPROCESS_BOUNDS);
   let result: ReturnType<typeof runConfinedNode>;
-  let oomKilled = false;
   try {
-    const oomBefore = ownCgroupMemoryEvents()?.oom_kill;
-    result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program, cpuSeconds: confinement.cpuSeconds });
-    const oomAfter = ownCgroupMemoryEvents()?.oom_kill;
-    oomKilled = oomBefore !== undefined && oomAfter !== undefined && oomAfter > oomBefore;
-  } finally {
-    hold.release();
+    try {
+      result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program, cpuSeconds: confinement.cpuSeconds });
+    } catch (error) {
+      hold.release(error);
+      throw error;
+    }
+    // Released with the program's own ending, which a memory refusal carries.
+    hold.release(result.status === "ok" ? undefined : `the confined ${module.exportName} ended ${result.status === "refused" ? `refused (${result.code})` : `with status ${String(result.exitCode)}${result.signal === null ? "" : ` by ${result.signal}`}`}`);
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "run_memory_cap_exceeded") throw error;
+    debugLog("forge", "warn", `confined ${module.exportName} refused: projection_memory_exhausted`, () => ({ entry: module.entry }));
+    throw new HarnessError(`projection_memory_exhausted: the admitted run's memory cap ended it (${(error as Error).message})`, "projection_memory_exhausted");
   }
   if (result.status === "ok") return result.stdout;
   const fail = (code: string, message: string): never => {
@@ -167,8 +198,6 @@ export function confinedCall(module: ConfinedModule, input: string, confinement:
     throw new HarnessError(`${code}: ${message}`, code);
   };
   if (result.status === "refused") return fail("projection_confinement_refused", `${result.code}: ${result.message}`);
-  // Killed while the run's OOM count rose: its memory, the run's `MemoryMax` (the cgroup's own count, never a guess from the signal alone).
-  if (result.signal === "SIGKILL" && oomKilled) return fail("projection_memory_exhausted", "the kernel's OOM killer ended it at the admitted run's memory cap (MemoryMax)");
   if (result.signal === "SIGKILL" || result.signal === "SIGXCPU") return fail("projection_cpu_exhausted", `the program spent its ${String(confinement.cpuSeconds)} CPU seconds and the kernel ended it (${result.signal})`);
   // The line that names the failure: the boundary's EACCES/EPERM, else the error node printed, else its last word.
   const lines = result.stderr.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);

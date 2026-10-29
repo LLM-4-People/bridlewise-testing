@@ -39,7 +39,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { readRunCpu } from "../../src/shared/run-cpu.ts";
+import { requireRunCpuMs } from "../../src/shared/run-cpu.ts";
 import type { TestExecutionConfig } from "../../src/kernel/config-contracts.ts";
 import { classCeilingMs } from "../../src/workflow/workflow-config.ts";
 
@@ -72,18 +72,6 @@ export function deadClassFiles(classes: TestCpuClasses, repositoryRoot: string):
   return dead.length === 0 ? null : `${TEST_CPU_CLASSES_SITE} names test files that do not exist (${dead.join(", ")}); a class must name the files it was measured for`;
 }
 
-/** This process's CPU work so far (its own and its reaped children's), in ms. */
-function cpuWorkMs(): number {
-  const reading = readRunCpu();
-  if (reading === null) {
-    throw new Error(
-      "test-cpu-class: this process's CPU work is unreadable (no /proc/self/stat), so no test here can be judged; " +
-        "a judgement with no measurement behind it would pass everything",
-    );
-  }
-  return reading.totalCpuMs;
-}
-
 /** The verdict on one test's work, or null when it is within its class. */
 export function cpuCeilingFailure(
   classes: TestCpuClasses,
@@ -98,6 +86,29 @@ export function cpuCeilingFailure(
     `(${TEST_CPU_CLASSES_SITE}); its wall time, ${String(wallMs)} ms, is recorded and not judged. ` +
     `Do less work, or declare the file in a class whose ceiling was measured for it.`
   );
+}
+
+/**
+ * THE HEADROOM SIGNAL: the tests whose CPU work this run was over their
+ * class's ceiling divided by the headroom factor — tests normally running
+ * that close to their ceiling have less than the headroom every class is
+ * meant to give, and one slower host takes them over it (#615: 60.2 s
+ * against the default's 60 s). A signal, never a failure: a failing line at
+ * half the ceiling would only move the flake to that line. Each one is
+ * fixed by a measured class (`testExecution.testCpuClasses`). `fileOf`
+ * turns a reading's test file into the repository path the classes name.
+ */
+export function thinHeadroom(
+  classes: TestCpuClasses,
+  readings: readonly Readonly<{ identity: string; cpuMs: number }>[],
+  fileOf: (identity: string) => string,
+): readonly Readonly<{ identity: string; cpuMs: number; className: string; ceilingMs: number }>[] {
+  return readings.flatMap((reading) => {
+    const judged = cpuClassOf(classes, fileOf(reading.identity));
+    return reading.cpuMs > judged.ceilingMs / classes.headroomFactor
+      ? [{ identity: reading.identity, cpuMs: reading.cpuMs, className: judged.name, ceilingMs: judged.ceilingMs }]
+      : [];
+  }).toSorted((left, right) => right.cpuMs - left.cpuMs);
 }
 
 /** The two per-test hooks of a runner (vitest's or node:test's), each given that runner's own context. */
@@ -128,13 +139,13 @@ export function installTestCpuJudgement<Context extends object>(
 ): void {
   const starts = new WeakMap<Context, Readonly<{ cpuMs: number; wallMs: number }>>();
   hooks.beforeEach((context) => {
-    starts.set(context, { cpuMs: cpuWorkMs(), wallMs: performance.now() });
+    starts.set(context, { cpuMs: requireRunCpuMs(), wallMs: performance.now() });
   });
   hooks.afterEach((context) => {
     const start = starts.get(context);
     if (start === undefined) throw new Error("test-cpu-class: an afterEach ran with no beforeEach reading for its test, so this test's work is unmeasured");
     starts.delete(context);
-    const reading = { cpuMs: Math.max(0, cpuWorkMs() - start.cpuMs), wallMs: Math.round(performance.now() - start.wallMs) };
+    const reading = { cpuMs: Math.max(0, requireRunCpuMs() - start.cpuMs), wallMs: Math.round(performance.now() - start.wallMs) };
     record?.(context, reading);
     const failure = cpuCeilingFailure(classes, fileOf(context), reading.cpuMs, reading.wallMs);
     if (failure !== null) throw new Error(failure);

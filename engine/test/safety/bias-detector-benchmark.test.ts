@@ -24,6 +24,7 @@ import {
   type MemoryFact,
 } from "../../src/safety/bias-detector.ts";
 import { resolveBiasConfig, BIAS_TYPES, type BiasConfig, type BiasType } from "../../src/safety/bias-config.ts";
+import { cpuWorkOf } from "../../src/shared/run-cpu.ts";
 import { BIAS_MEMORY_FACTS, triggerBiasType } from "./synthetic-source-fixtures.ts";
 
 const BCFG: BiasConfig = resolveBiasConfig();
@@ -357,18 +358,18 @@ test("exp461-bias 10× HARDER: 5000 no-bias controls — 0% false flag", () => {
 test("bias-detector perf: per-detection latency < 5ms, memory bounded", () => {
   const memBefore = process.memoryUsage().rss;
   const N = 1000;
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < N; i++) {
-    const det = freshDetector();
-    det.recordSearch({ turn: i, query: `q${i}`, stance: "for", hypothesisId: "h1" });
-    det.detect();
-  }
-  const t1 = process.hrtime.bigint();
+  // CPU work, never wall time (NO-LOAD-BLOCK): a loaded host makes this wait, never work more.
+  const totalMs = cpuWorkOf(() => {
+    for (let i = 0; i < N; i++) {
+      const det = freshDetector();
+      det.recordSearch({ turn: i, query: `q${i}`, stance: "for", hypothesisId: "h1" });
+      det.detect();
+    }
+  });
   const memAfter = process.memoryUsage().rss;
-  const totalMs = Number(t1 - t0) / 1e6;
   const perMs = totalMs / N;
   const memDeltaMb = (memAfter - memBefore) / 1024 / 1024;
-  console.log(`    perf: ${N} bias detections in ${totalMs.toFixed(1)}ms (${perMs.toFixed(3)}ms/detect), RSS delta ${memDeltaMb.toFixed(2)}MB`);
+  console.log(`    perf: ${N} bias detections in ${totalMs.toFixed(1)}ms of CPU work (${perMs.toFixed(3)}ms/detect), RSS delta ${memDeltaMb.toFixed(2)}MB`);
   assert.ok(perMs < 5, `per-detection latency < 5ms (got ${perMs.toFixed(3)}ms)`);
   assert.ok(memDeltaMb < 50, `RSS delta < 50MB (got ${memDeltaMb.toFixed(2)}MB)`);
 });

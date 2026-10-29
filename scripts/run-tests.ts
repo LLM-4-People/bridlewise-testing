@@ -58,7 +58,7 @@
  * Usage: `npm test` (any arguments are passed through to vitest).
  */
 
-import { testProcessSupervisorBinary } from "../engine/guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../engine/guardian/build.ts";
 import { superviseCommand, supervisedEndingLines, type SupervisedCommand } from "../engine/src/process/supervised-run.ts";
 import { reportLauncherStop, watchLauncher } from "../engine/scripts/tooling/launcher-watch.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../engine/src/filesystem/temporary-root.ts";
@@ -205,7 +205,7 @@ export async function superviseRun(
     }, options.watchIntervalMs ?? WATCH_INTERVAL_MS)
     : () => undefined;
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(),
+    supervisor: ensureTestProcessSupervisor(),
     command,
     args,
     hardCeilingMs: watchdog.hardCeilingMs,
@@ -258,12 +258,15 @@ async function main(): Promise<void> {
   const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../engine/", import.meta.url)));
   if (keptOut !== undefined) {
     process.stderr.write(`[run-tests] REFUSED (temporary_root_kept_out) — ${keptOut}\n`);
-    process.exit(1);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
+    process.exitCode = 1;
+    return;
   }
   const watchdog = readWebSuiteWatchdog();
   if ("missing" in watchdog) {
     process.stderr.write(`[run-tests] ${watchdog.missing}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   const strays = strayVitest();
   if (strays.length > 0) {
@@ -271,6 +274,10 @@ async function main(): Promise<void> {
       `[run-tests] ${String(strays.length)} orphaned vitest process(es) of this project are still running (not stopped: this run did not start them): ${strays.join(", ")}\n`,
     );
   }
+  // The native supervisor vitest runs under is BUILT HERE, before the run, as the engine runner builds it: every
+  // later caller (this runner's launch, a test's nested run) only resolves it, so nothing compiles into the live
+  // tree mid-run (#293).
+  ensureTestProcessSupervisor();
   // HEAVY-RUN ADMISSION (engine/src/process/instrument-lock.ts): the whole web
   // suite (or any run of the configured number of files) is admitted at once,
   // and this process enters the run's caps (its cgroup scope and CPU-time
@@ -294,16 +301,21 @@ async function main(): Promise<void> {
   if (runForInvocation(history, invocationId) !== undefined) {
     if (tree === null || readMeasuredTree(projectDir) !== tree) {
       process.stderr.write("[run-tests] current qualification tree changed or is unreadable\n");
-      process.exit(1);
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
     }
     try { finalizeQualifiedRun(history, invocationId, tree, qualificationTerminal(invocationId, tree, run.terminal, run.ending)); }
     catch {
       process.stderr.write("[run-tests] current qualification finalization refused\n");
-      process.exit(1);
+      instrumentLock.release();
+      process.exitCode = 1;
+      return;
     }
   }
-  instrumentLock.release();
-  process.exit(completion.kind === "pass" ? run.exitCode : 1);
+  // A failing run hands its failure to the release, so a run cut at its memory cap is refused WITH it.
+  instrumentLock.release(completion.kind === "pass" && run.exitCode === 0 ? undefined : `the web suite ended: ${completion.kind === "pass" ? `exit code ${String(run.exitCode)}` : completion.message}`);
+  process.exitCode = completion.kind === "pass" ? run.exitCode : 1;
 }
 
 // Only run when invoked as a script, so the tests above can import the

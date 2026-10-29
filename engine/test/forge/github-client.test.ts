@@ -87,7 +87,7 @@ test("paginate follows the Link header and refuses a list longer than its bound"
   assert.deepEqual(all.map((label) => label.name), ["l0", "l1", "l2", "l3", "l4", "l5", "l6"]);
   assert.equal(fake.requests.filter((request) => request.path === "/repos/o/r/labels").length, 3);
   assert.equal(fake.requests.at(-1)!.query.get("page"), "3");
-  const facts = await refusedWith("forge_request_invalid", () => forge.paginate({ path: "/repos/o/r/labels" }, { maxPages: 2, perPage: 3 }));
+  const facts = await refusedWith("forge_list_oversized", () => forge.paginate({ path: "/repos/o/r/labels" }, { maxPages: 2, perPage: 3 }));
   assert.equal(facts.maxPages, 2);
   // A wrapped list names where its items are.
   fake.objects.set("/repos/o/r/actions/runs", { total_count: 1, workflow_runs: [{ id: 1 }] });
@@ -139,6 +139,27 @@ test("every refusal is classified once, with the facts to act on", async () => {
   assert.match(String(details.facts.errors), /already_exists/u);
   assert.equal(details.retryable, false);
   assert.equal(classifyGithubAnswer(503, new Headers(), "", "GET", "/x").retryable, true);
+});
+
+test("GitHub's own words are carried in a refusal's text, its facts and its warning log: a 400's message and each validation error (resource, field, code)", async (t) => {
+  const fake = fakeGithub();
+  const forge = githubClient(fake.endpoint(), memoryCredential("user:maintainer", fake.userToken("maintainer")));
+  const lines: string[] = [];
+  t.mock.method(process.stderr, "write", (chunk: unknown) => { lines.push(String(chunk)); return true; });
+  fake.route("POST", /^\/orgs\/o\/code-security\/configurations$/u, () => ({ status: 400, body: { message: "Invalid request.", errors: [{ resource: "CodeSecurityConfiguration", field: "secret_scanning", code: "invalid" }], documentation_url: "https://docs.github.com/rest" } }));
+  let refusal: unknown;
+  try { await forge.rest({ method: "POST", path: "/orgs/o/code-security/configurations", body: { name: "x" } }); } catch (error) { refusal = error; }
+  t.mock.restoreAll();
+  assert.ok(isForgeError(refusal, "github_validation_failed"));
+  const error = refusal as Error & { facts: Record<string, unknown> };
+  assert.match(error.message, /GitHub: "Invalid request\."/u, "GitHub's message is in the text");
+  assert.match(error.message, /"field":"secret_scanning"/u, "the refused field is in the text");
+  assert.match(String(error.facts.errors), /"code":"invalid"/u);
+  const logged = lines.find((line) => line.includes("github_validation_failed"));
+  // The log owner's redaction masks the word "secret" even inside a field name; the field and code still show.
+  assert.ok(logged !== undefined && logged.includes("_scanning") && logged.includes("invalid") && logged.includes("Invalid request."), `the warning line names GitHub's words: ${String(logged)}`);
+  // A refusal with no words of GitHub's adds none.
+  assert.doesNotMatch(classifyGithubAnswer(503, new Headers(), "", "GET", "/x").message, /GitHub:/u);
 });
 
 test("a redirect (a renamed repository) is never followed: github_moved", async () => {

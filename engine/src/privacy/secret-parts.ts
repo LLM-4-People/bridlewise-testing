@@ -150,10 +150,10 @@ type SecretPart = Readonly<{ place: string; start: number; end: number; credenti
 /** A URL's `scheme://` prefix. */
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//iu;
 
-type Span = Readonly<{ start: number; end: number }>;
+export type Span = Readonly<{ start: number; end: number }>;
 
 /** A URL's components as offsets into the text that spells it. */
-type UrlSplit = Readonly<{ userinfo?: Span; path: Span; query?: Span; fragment?: Span }>;
+export type UrlSplit = Readonly<{ userinfo?: Span; path: Span; query?: Span; fragment?: Span }>;
 
 /**
  * THE ONE RAW URL SPLITTER: the components of a URL as `text` SPELLS them —
@@ -166,7 +166,7 @@ type UrlSplit = Readonly<{ userinfo?: Span; path: Span; query?: Span; fragment?:
  * parser's reading too); the fragment starts at the first `#`. Undefined
  * when `text` does not start with `scheme://`.
  */
-function splitUrl(text: string): UrlSplit | undefined {
+export function splitUrl(text: string): UrlSplit | undefined {
   const scheme = URL_SCHEME.exec(text);
   if (scheme === null) return undefined;
   const hash = text.indexOf("#");

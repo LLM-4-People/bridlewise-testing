@@ -685,72 +685,6 @@ export const duplicateLogicCheck: QualityCheck = deepFreeze({
   },
 });
 
-export const schemaDriftCheck: QualityCheck = deepFreeze({
-  id: "schema-drift",
-  description: "Detect architecture-manifest hash drift (declared vs actual exports)",
-  category: "schema-drift",
-  defaultSeverity: "error",
-  run(context: QualityContext): readonly Diagnostic[] {
-    const diagnostics: Diagnostic[] = [];
-    const files = context.files;
-    const manifestSource = files["src/architecture-manifest.ts"];
-    if (manifestSource === undefined) return deepFreeze(diagnostics);
-    const manifestExports = extractSymbols("src/architecture-manifest.ts", manifestSource);
-    const declaredExportCount = manifestExports.exports.filter(
-      (e) => e.kind === "declared" || e.kind === "default",
-    ).length;
-    if (declaredExportCount === 0) return deepFreeze(diagnostics);
-    const hashRegex = /namesSha256:\s*"([0-9a-f]{64})"/gu;
-    const matches = [...manifestSource.matchAll(hashRegex)];
-    for (const match of matches) {
-      const lineNum = manifestSource.slice(0, match.index ?? 0).split("\n").length;
-      const nearbyModule = findModuleNameNearLine(manifestSource, lineNum);
-      if (nearbyModule === null) continue;
-      const moduleSource = files[`src/${nearbyModule}.ts`] ?? files[`src/${nearbyModule}/index.ts`];
-      if (moduleSource === undefined) continue;
-      const actualExports = extractSymbols(`src/${nearbyModule}.ts`, moduleSource);
-      const actualCount = actualExports.exports.filter(
-        (e) => e.kind === "declared" || e.kind === "default",
-      ).length;
-      const declaredCount = extractExportCountNearLine(manifestSource, lineNum);
-      if (declaredCount !== null && actualCount !== declaredCount) {
-        diagnostics.push(createDiagnostic({
-          packId: PACK_ID,
-          checkId: "schema-drift",
-          category: "schema-drift",
-          severity: "error",
-          code: "manifest_export_count_drift",
-          message: `Module '${nearbyModule}' declared exportCount=${declaredCount} but actual is ${actualCount}`,
-          filePath: "src/architecture-manifest.ts",
-          line: lineNum,
-          column: 0,
-          symbol: nearbyModule,
-          autoFixable: false,
-        }));
-      }
-    }
-    return deepFreeze(diagnostics);
-  },
-});
-
-function findModuleNameNearLine(source: string, line: number): string | null {
-  const lines = source.split("\n");
-  for (let i = Math.min(line - 1, lines.length - 1); i >= Math.max(0, line - 20); i--) {
-    const match = lines[i]?.match(/id:\s*"([^"]+)"/u);
-    if (match) return match[1]!;
-  }
-  return null;
-}
-
-function extractExportCountNearLine(source: string, line: number): number | null {
-  const lines = source.split("\n");
-  for (let i = line - 1; i < Math.min(line + 3, lines.length); i++) {
-    const match = lines[i]?.match(/exportCount:\s*(\d+)/u);
-    if (match) return parseInt(match[1]!, 10);
-  }
-  return null;
-}
-
 export const configOutsideContractCheck: QualityCheck = deepFreeze({
   id: "config-outside-contract",
   description: "Detect hardcoded values that should be in the central configuration contract",
@@ -974,7 +908,6 @@ export const typescriptPack: QualityPack = deepFreeze({
     duplicateBodyCheck,
     esmCjsMismatchCheck,
     duplicatedLiteralsCheck,
-    schemaDriftCheck,
     configOutsideContractCheck,
   ],
 });

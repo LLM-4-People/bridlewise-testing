@@ -37,22 +37,17 @@ export function procfsPath(...segments: readonly string[]): string {
 }
 
 /**
- * One kernel document's text (a procfs or cgroupfs file), or `undefined`
- * when it cannot be read (the process exited, is not ours, or the filesystem
- * or controller is absent): a fact about the system is never an exception.
+ * One procfs document's text, or `undefined` when it cannot be read (the
+ * process exited, is not ours, or there is no procfs): a fact about the
+ * system is never an exception.
  */
-function kernelDocument(path: string): string | undefined {
+export function procfsDocument(...segments: readonly string[]): string | undefined {
   try {
-    return readFileSync(path, "utf8");
+    return readFileSync(procfsPath(...segments), "utf8");
   } catch {
-    // The process exited, is not ours to read, or the controller is absent: it contributes no facts.
+    // The process exited, or is not ours to read: it contributes no facts.
     return undefined;
   }
-}
-
-/** One procfs document's text, or `undefined` when it cannot be read. */
-export function procfsDocument(...segments: readonly string[]): string | undefined {
-  return kernelDocument(procfsPath(...segments));
 }
 
 /** THIS process's cgroup v2 path (the unified `0::` line of `/proc/self/cgroup`), or `undefined` when it cannot be read. */
@@ -60,26 +55,22 @@ export function ownCgroupPath(): string | undefined {
   return procfsDocument("self", "cgroup")?.split("\n").find((line) => line.startsWith("0::"))?.slice(3);
 }
 
-/** Where the cgroup v2 hierarchy is mounted: THE one spelling of it. */
-const CGROUP_V2_ROOT = "/sys/fs/cgroup";
-
 /**
- * The kernel's memory events of THIS process's own cgroup and its
- * descendants (`memory.events`: `max`, the times usage met `MemoryMax`;
- * `oom_kill`, the processes the OOM killer ended), or `undefined` when there
- * is no cgroup v2 memory controller to read. A child that ended by SIGKILL
- * while `oom_kill` rose was ended for its memory (the run's `MemoryMax`), not
- * for its CPU.
+ * One interface file of THIS process's own cgroup v2 (`/sys/fs/cgroup` +
+ * `ownCgroupPath()` + `name`, e.g. `memory.swap.max`), trimmed; `undefined`
+ * when the process has no cgroup v2 path or the file does not exist (the
+ * controller or the accounting is absent on this host).
  */
-export function ownCgroupMemoryEvents(): Readonly<Record<string, number>> | undefined {
+export function ownCgroupFile(name: string): string | undefined {
   const path = ownCgroupPath();
-  // No cgroup or no memory controller here: there is no count to compare, and none is invented.
-  const events = path === undefined ? undefined : kernelDocument(join(CGROUP_V2_ROOT, path, "memory.events"));
-  if (events === undefined) return undefined;
-  return Object.freeze(Object.fromEntries(events.split("\n").filter((line) => line.includes(" ")).map((line) => {
-    const [name, count] = line.split(" ");
-    return [name!, Number(count)];
-  })));
+  if (path === undefined) return undefined;
+  try {
+    return readFileSync(`/sys/fs/cgroup${path}/${name}`, "utf8").trim();
+  } catch (error) {
+    // Absent is an answer (the caller refuses on it); any other failure is loud.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
 }
 
 /** THIS process's CPU-time limit in force (`/proc/self/limits`), soft and hard, as written there (seconds, or "unlimited"); `undefined` when unreadable. */

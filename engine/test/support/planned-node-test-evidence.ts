@@ -12,7 +12,7 @@ import {
 import { dirname, resolve } from "node:path";
 
 import { buildCandidateManifest, candidateTestIdentity } from
-  "../../scripts/tooling/candidate-manifest.ts";
+  "../../scripts/verification/candidate-manifest.ts";
 import {
   buildPlannedNodeTestInventory,
   createPlannedNodeTestCorpusBinding,

@@ -23,26 +23,42 @@ import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { workingTreeReader } from "../../git/tree-reader.ts";
+import { readLabels } from "../community/labels.ts";
 import { COMMUNITY_DIRECTORY, readIntake, readRoles, type CommunityRoles } from "../community/sources.ts";
 import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError } from "./codes.ts";
+import { jsonText } from "./forge-state.ts";
 import { forgeDeclarations, type DeclarationSources } from "./declarations.ts";
-import { trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import type { ForgeSettings } from "./forge-config.ts";
+import { repositoryIdentity, repositoryIdentityCopies, type RepositoryIdentity } from "./repository-identity.ts";
 import { CODEOWNERS_FILE, codeownersFile, DEPENDABOT_FILE, dependabotFile, forgeTreeFacts, isDependencyLockfile, type ForgeTreeFacts } from "./repository-files.ts";
 
 /** Where the generated files live, relative to the repository top. */
 const FORGE_FILES_DIRECTORY = ".github/forge";
 const INDEX_FILE = "manifest.json";
+
+/**
+ * The repository identity as plain JSON, generated: a dependency-free reader
+ * (`scripts/repository-links.ts`, run by the docs-link check before any
+ * install) reads this file, never the engine module.
+ */
+const REPOSITORY_IDENTITY_FILE = `${FORGE_FILES_DIRECTORY}/repository-identity.json`;
+
+function repositoryIdentityFile(identity: RepositoryIdentity): string {
+  return jsonText({
+    schemaVersion: schemaId("forge-repository-identity", 1),
+    generator: "harness sync (engine/src/workflow/forge/generated-files.ts, from repository-identity.ts); never edit by hand",
+    owner: identity.owner, name: identity.name, fullName: identity.fullName, webUrl: identity.webUrl, pagesUrl: identity.pagesUrl, pagesBasePath: identity.pagesBasePath, docsUrl: identity.docsUrl,
+    organisationRepositories: identity.organisationRepositories,
+    product: identity.product,
+    preview: identity.preview ?? null,
+  });
+}
 const INDEX_SCHEMA = schemaId("forge-generated-files", 1);
 
 /** The local callback every App manifest redirects to (the Apps page, `apps-page.ts`). */
 export function appsPageOrigin(settings: ForgeSettings): string {
   return `http://127.0.0.1:${String(settings.appsPage.port)}`;
-}
-
-/** The trunk's web URL. */
-function trunkWebUrl(settings: ForgeSettings): string {
-  return `${settings.webUrl.replace(/\/$/u, "")}/${settings.organization}/${trunkRepository(settings).name}`;
 }
 
 /**
@@ -52,7 +68,7 @@ function trunkWebUrl(settings: ForgeSettings): string {
  */
 export function appManifest(role: ForgeAppRole, settings: ForgeSettings): Readonly<Record<string, unknown>> {
   const app = FORGE_APPS[role];
-  const home = trunkWebUrl(settings);
+  const home = repositoryIdentity(settings).webUrl;
   return deepFreeze({
     name: app.name,
     url: home,
@@ -65,10 +81,6 @@ export function appManifest(role: ForgeAppRole, settings: ForgeSettings): Readon
     request_oauth_on_install: false,
     setup_on_update: false,
   });
-}
-
-function jsonText(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 /** Everything the generated files are a function of. */
@@ -90,7 +102,7 @@ export function forgeFilesInput(path: string): boolean {
 
 export function forgeFileSources(top: string, settings: ForgeSettings): ForgeFileSources {
   const facts = forgeTreeFacts(workingTreeReader(top), settings);
-  return deepFreeze({ settings, intake: readIntake(top), roles: readRoles(top), workflowActions: facts.workflowActions, facts });
+  return deepFreeze({ settings, intake: readIntake(top), roles: readRoles(top), labels: readLabels(top), workflowActions: facts.workflowActions, facts });
 }
 
 /** Every generated file, by its repository-relative path, with its exact bytes (the index last). */
@@ -102,6 +114,7 @@ export function forgeGeneratedFiles(sources: ForgeFileSources): ReadonlyMap<stri
   }
   const files = new Map<string, string>([...forge].map(([path, text]) => [`${FORGE_FILES_DIRECTORY}/${path}`, text]));
   files.set(DEPENDABOT_FILE, dependabotFile(sources.settings, sources.facts));
+  files.set(REPOSITORY_IDENTITY_FILE, repositoryIdentityFile(repositoryIdentity(sources.settings)));
   files.set(CODEOWNERS_FILE, codeownersFile(sources.settings, sources.roles));
   const entries = [...files].map(([path, text]) => ({ path, sha256: sha256(text) }));
   files.set(`${FORGE_FILES_DIRECTORY}/${INDEX_FILE}`, jsonText({
@@ -135,11 +148,11 @@ function filesUnder(directory: string): readonly string[] {
 
 /**
  * Compare the generated files under `top` with their owners' bytes
- * (`sources`, from {@link forgeFileSources}); with `write`, write what
- * differs and remove what under `.github/forge/` is not generated. `sources`
- * absent (a checkout without a `forge` section):
- * converged only when `.github/forge/` is absent too (the renders beside it
- * are then not the forge's).
+ * (`sources`, from {@link forgeFileSources}), and the repository identity's
+ * copies (`repositoryIdentityCopies`); with `write`, write what differs and
+ * remove what under `.github/forge/` is not generated. `sources` absent (a
+ * checkout without a `forge` section): converged only when `.github/forge/`
+ * is absent too (the renders beside it are then not the forge's).
  */
 export function syncForgeFiles(top: string, sources: ForgeFileSources | undefined, write: boolean): ForgeFilesReport {
   const wanted = sources === undefined ? new Map<string, string>() : forgeGeneratedFiles(sources);
@@ -158,6 +171,17 @@ export function syncForgeFiles(top: string, sources: ForgeFileSources | undefine
     if (wanted.has(path)) continue;
     changed.push(path);
     if (write) rmSync(join(top, path));
+  }
+  // The identity's copies in files other formats own (a field each, never the whole file).
+  const copies = sources === undefined ? new Map<string, string>() : repositoryIdentityCopies(top, repositoryIdentity(sources.settings));
+  for (const [path, text] of copies) {
+    const file = join(top, path);
+    if (readFileSync(file, "utf8") === text) continue;
+    changed.push(path);
+    if (write) {
+      const written = atomicWriteFile(file, text, { createMode: 0o666 });
+      if (!written.success) throw new ForgeError("forge_request_invalid", `The identity copy in ${path} could not be written (${written.reason ?? "unknown"}).`, { path });
+    }
   }
   const status = changed.length === 0 ? "current" : write ? "regenerated" : "stale";
   return deepFreeze({ status, converged: status !== "stale", changed: changed.sort() });

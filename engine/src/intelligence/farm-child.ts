@@ -28,9 +28,11 @@ const send = (msg: object): void => {
   if (typeof process.send === "function") process.send(msg);
 };
 
+// The child ends by draining its loop once the farm's channel closes, never by an immediate `process.exit()`,
+// which can deadlock at shutdown (Node #54918, #351; this child compiles WebAssembly grammars). Only a child still
+// held open after the escalation bound is ended outright: the one declared last resort.
 process.on("disconnect", guarded("intelligence.farm-child.disconnect", () => {
-  setTimeout(guarded("intelligence.farm-child.exit-escalation", () => process.exit(0)), DEFAULT_FARM_KILL_ESCALATION_MS).unref();
-  process.exit(0);
+  setTimeout(guarded("intelligence.farm-child.exit-escalation", () => process.exit(process.exitCode ?? 0)), DEFAULT_FARM_KILL_ESCALATION_MS).unref();
 }));
 
 process.on("message", guarded("intelligence.farm-child.message", (m: { type?: string; languages?: readonly string[]; files?: readonly { path: string; absolutePath: string }[] }) => {
@@ -55,7 +57,10 @@ async function handle(m: {
         await initTreeSitterForExtract([id]);
       } catch (e) {
         handleError(e, { module: "intelligence-farm-child", operation: "init" });
-        process.exit(1);
+        // The farm replaces a child that leaves: it closes its channel and drains (see the disconnect handler).
+        process.exitCode = 1;
+        process.disconnect();
+        return;
       }
       send({ type: "loaded", language: id });
     }

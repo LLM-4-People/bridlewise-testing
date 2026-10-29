@@ -123,8 +123,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const webPort = Number(process.argv[2] ?? 5401);
   const apiPort = Number(process.argv[3] ?? 5174);
   if (!existsSync(ROOT)) {
-    process.stderr.write(`no build at ${ROOT} — run \`npx vite build\` first\n`);
-    process.exit(1);
+    // A refusal is thrown, never `process.exit()`, which can deadlock at shutdown (Node #54918, #351).
+    throw new Error(`no build at ${ROOT} — run \`npx vite build\` first`);
   }
   startPreview(webPort, apiPort);
   process.stdout.write(

@@ -34,11 +34,16 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { candidateSiteFiles, crawlSiteLinks, pageUrlForSitePath, resolveSiteHref } from "../../scripts/floor/site-links.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
-import { legacyAliases, prettyPermalink, publishedDocsPage, rewritePageLinks, siteSourceViolations, sitePlan } from "../../scripts/floor/site-pages.mjs";
+import { landingMap, landingPath, legacyAliases, prettyPermalink, publishedDocsPage, rewritePageLinks, siteSourceViolations, sitePlan } from "../../scripts/floor/site-pages.mjs";
+import { sitePolicies } from "../../shared/site-page.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { buildRedirectSite, buildSiteSource, finishSite, readVersions, redirectTarget } from "../../scripts/floor/site.mjs";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
 import { checkSiteLinks } from "../../scripts/check-docs-links.mjs";
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program.
+import { legacySiteUrl, siteCoordinates } from "../../scripts/floor/repository.mjs";
+import { configuredForge } from "../../engine/src/workflow/forge/configured-forge.ts";
+import { repositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 
 function write(root: string, path: string, text: string): void {
   const file = join(root, ...path.split("/"));
@@ -59,6 +64,12 @@ function tree(files: Readonly<Record<string, string>>): string {
 }
 
 const BASE = "/bridlewise";
+/**
+ * A fixture's coordinates: the repository identity of a forge section that
+ * names another organisation and trunk (a name unlike the real one proves
+ * every coordinate the site uses is derived from the identity it is given).
+ */
+const FIXTURE = siteCoordinates(repositoryIdentity({ ...configuredForge(), organization: "Example-Org", repositories: [{ name: "site-repo", kind: "trunk", visibility: "public", product: true }] }));
 const REAL_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
@@ -66,7 +77,7 @@ const REAL_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
  * so its floor data is a stand-in; the real tree's builds (the release
  * snapshot test here, the floor-data test) write the real atlas and status.
  */
-const source = (options: Record<string, unknown>) => buildSiteSource({ floorData: async () => ({ atlas: { fixture: true }, status: { fixture: true } }), ...options });
+const source = (options: Record<string, unknown>) => buildSiteSource({ floorData: async () => ({ atlas: { fixture: true }, status: { fixture: true } }), coordinates: FIXTURE, ...options });
 
 describe("A. the crawler resolves built pages, assets and external URLs", () => {
   test("a clean Jekyll-shaped fixture passes — pretty URLs, assets, relatives and externals", () => {
@@ -150,11 +161,17 @@ describe("A. the crawler resolves built pages, assets and external URLs", () => 
 function repository(extra: Readonly<Record<string, string>> = {}): string {
   return tree({
     "README.md": "# Repository\n",
-    // The repository's one declaration of where it lives: every coordinate
-    // the site uses is derived from it (a name unlike the real one proves it).
-    "package.json": JSON.stringify({ name: "fixture", repository: { type: "git", url: "https://github.com/Example-Org/site-repo.git" } }),
+    "package.json": JSON.stringify({ name: "fixture" }),
     "engine/x.ts": "export {};\n",
     "shared/markup.ts": readFileSync(join(REAL_ROOT, "shared/markup.ts"), "utf8"),
+    // The design system the builder generates the site's design assets from
+    // (scripts/floor/site-design.mjs): the real token owner, the files its
+    // @font-face blocks name, and the shell's two stylesheets.
+    "src/cockpit/tokens.css": readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8"),
+    ...Object.fromEntries([...readFileSync(join(REAL_ROOT, "src/cockpit/tokens.css"), "utf8").matchAll(/url\("\/(fonts\/[^"]+)"\)/gu)].map((match) => [`public/${match[1]}`, "woff2"])),
+    "public/fonts/OFL.txt": "licence\n",
+    "docs/assets/css/style.css": "body { color: var(--ink-1); background: var(--ground-0); }\n",
+    "docs/assets/floor/floor.css": "",
     "docs/_config.yml": "title: Fixture\nplugins:\n  - jekyll-sitemap\n",
     "docs/_layouts/default.html": "<html><body>{{ content }}</body></html>\n",
     "docs/index.md": "---\ntitle: Home\npermalink: /\n---\n\n# Home\n\n[Roadmap](floor/roadmap.md) · [Engine](../engine/x.ts)\n",
@@ -174,7 +191,7 @@ describe("B. the publish plan: every docs page, one URL each", () => {
     expect(prettyPermalink("docs/decisions/README.md")).toBe("/decisions/");
     expect(prettyPermalink("docs/floor/index.md")).toBe("/floor/");
     expect(prettyPermalink("docs/trackers/TASKS.md")).toBe("/trackers/TASKS/");
-    const plan = sitePlan({ root: repository() });
+    const plan = sitePlan({ coordinates: FIXTURE, root: repository() });
     expect(plan.collisions).toEqual([]);
     expect([...plan.byPermalink.keys()].sort()).toEqual(["/", "/decisions/", "/floor/roadmap/", "/trackers/TASKS/"]);
     expect(plan.pages.get("docs/hidden.md").permalink).toBeNull();
@@ -187,7 +204,7 @@ describe("B. the publish plan: every docs page, one URL each", () => {
       "docs/README.md": "# Map\n",
       "docs/floor/other.md": "---\npermalink: /floor/roadmap/\n---\n\n# Other\n",
     });
-    const plan = sitePlan({ root });
+    const plan = sitePlan({ coordinates: FIXTURE, root });
     expect(plan.collisions).toEqual([
       "docs/floor/other.md and docs/floor/roadmap.md both publish /floor/roadmap/",
       "docs/index.md and docs/README.md both publish /",
@@ -195,19 +212,19 @@ describe("B. the publish plan: every docs page, one URL each", () => {
     await expect(source({ root, out: join(root, ".site"), baseurl: "/bridlewise" })).rejects.toThrow(/the site source refuses \(2\)/u);
     expect(checkSiteLinks({ root })).toHaveLength(2);
     // Near miss: the same names in different folders are different URLs.
-    expect(sitePlan({ root: repository({ "docs/floor/README.md": "# Floor\n", "docs/trackers/README.md": "# Trackers\n" }) }).collisions).toEqual([]);
+    expect(sitePlan({ coordinates: FIXTURE, root: repository({ "docs/floor/README.md": "# Floor\n", "docs/trackers/README.md": "# Trackers\n" }) }).collisions).toEqual([]);
   });
 
   test("a moved URL cannot also be a page", () => {
     const root = repository({ "docs/product.md": "# Product\n" });
-    expect(sitePlan({ root }).collisions).toEqual([expect.stringContaining("docs/product.md publishes /product/")]);
+    expect(sitePlan({ coordinates: FIXTURE, root }).collisions).toEqual([expect.stringContaining("docs/product.md publishes /product/")]);
   });
 });
 
 describe("C. the rewrite: site URL, GitHub URL, or a refusal", () => {
   test("pages, folders and assets become site URLs; repository files and unpublished pages become GitHub URLs", () => {
     const root = repository();
-    const plan = sitePlan({ root });
+    const plan = sitePlan({ coordinates: FIXTURE, root });
     const roadmap = rewritePageLinks(readFileSync(join(root, "docs/floor/roadmap.md"), "utf8"), { pageDocsPath: "docs/floor/roadmap.md", root, baseurl: "/bridlewise", plan });
     expect(roadmap.errors).toEqual([]);
     expect(roadmap.text).toContain("[TASKS](/bridlewise/trackers/TASKS/#open)");
@@ -224,7 +241,7 @@ describe("C. the rewrite: site URL, GitHub URL, or a refusal", () => {
       "docs/floor/broken.md": "# Broken\n\n[gone](../missing.md)\n",
       "docs/decisions/D-1.md": "---\nid: D-1\n---\n\n[out](../../../outside.md) and [script](../../scripts/none.mjs)\n",
     });
-    const violations = siteSourceViolations({ root });
+    const violations = siteSourceViolations({ coordinates: FIXTURE, root });
     expect(violations).toEqual([
       expect.stringContaining("docs/decisions/D-1.md: link '../../../outside.md' leaves the repository"),
       expect.stringContaining("docs/decisions/D-1.md: link '../../scripts/none.mjs' names scripts/none.mjs"),
@@ -232,7 +249,7 @@ describe("C. the rewrite: site URL, GitHub URL, or a refusal", () => {
     ]);
     await expect(source({ root, out: join(root, ".site"), baseurl: "/bridlewise" })).rejects.toThrow(/the site source refuses \(3\)/u);
     // The fenced example `[not a link](does-not-exist.md)` in TASKS.md is not judged.
-    expect(siteSourceViolations({ root: repository() })).toEqual([]);
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: repository() })).toEqual([]);
   });
 });
 
@@ -248,6 +265,18 @@ describe("D. the source step", () => {
     expect(tasks).toContain("{% raw %}\n# Tasks");
     expect(tasks.trimEnd().endsWith("{% endraw %}")).toBe(true);
     expect(readFileSync(join(out, "floor/roadmap.md"), "utf8")).toMatch(/^---\ntitle: Roadmap\npermalink: \/floor\/roadmap\/\n---/u);
+    // The design system's generated half: the sheet holds exactly what the
+    // shell reads (and what that reads), Logbook leads, the faces are served.
+    const sheet = readFileSync(join(out, "assets/css/tokens.css"), "utf8");
+    expect(sheet).toMatch(/^\/\* GENERATED from src\/cockpit\/tokens\.css/u);
+    expect(sheet).toMatch(/:root \{\n {2}color-scheme: light;\n/u);
+    expect(sheet).toContain("\n  --ground-0: #f6f4ef;\n");
+    // The mark's inks ride in the sheet, each part from its own token.
+    expect(sheet).toContain(".brand-mark > :nth-child(1) { fill: var(--ground-0); }");
+    expect(sheet).not.toContain("--cat-turn");
+    expect(readFileSync(join(out, "_includes/design-head.html"), "utf8")).toContain('<meta name="theme-color" content="#f6f4ef">');
+    expect(readFileSync(join(out, "_includes/brand-mark.svg"), "utf8")).toMatch(/^<svg class="brand-mark"/u);
+    expect(readFileSync(join(out, "assets/fonts/OFL.txt"), "utf8")).toBe("licence\n");
     const config = readFileSync(join(out, "_config.yml"), "utf8");
     // Every coordinate comes from package.json and the deployment's base path.
     expect(parse(config)).toMatchObject({
@@ -270,6 +299,35 @@ describe("D. the source step", () => {
     expect(JSON.parse(readFileSync(join(out, "versions.json"), "utf8"))).toEqual({ current: "main", versions: [] });
   });
 
+  test("a stylesheet that is not the design system's refuses the build (scripts/floor/site-style.mjs)", async () => {
+    const root = repository({
+      "docs/assets/css/style.css": "body { color: red; font-family: Georgia; }\n",
+      "docs/assets/css/extra.scss": "---\n---\n.a { color: #fff; }\n",
+    });
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 style finding(s): ");
+    expect(lines).toContain("assets/css/extra.scss: a Sass source: the site's stylesheets are plain CSS, judged by one parser");
+    expect(lines.filter((line) => line.startsWith("assets/css/style.css:1:")).map((line) => line.replace(/^assets\/css\/style\.css:1:\d+ /u, ""))).toEqual([
+      "color: colour literal: red",
+      "font-family: not one --face-* token: Georgia",
+    ]);
+  });
+
+  test("a layout with a style of its own or a remote sheet refuses the build", async () => {
+    const root = repository({ "docs/_layouts/default.html": '<html><head><link rel="stylesheet" href="https://cdn.example/x.css"><style>p { color: var(--ink-1); }</style></head><body style="margin: 0">{{ content }}</body></html>\n' });
+    const refusal = await source({ root, out: join(root, ".site"), baseurl: "/b" }).then(() => null, (error: unknown) => error);
+    expect(refusal).toBeInstanceOf(Error);
+    const lines = (refusal as Error).message.split("\n").map((line) => line.trim());
+    expect(lines[0]).toContain("3 style finding(s): ");
+    expect(lines.filter((line) => line.startsWith("_layouts/default.html:1 ")).map((line) => line.replace(/^_layouts\/default\.html:1 /u, ""))).toEqual([
+      '<link rel="stylesheet"> fetches from elsewhere: https://cdn.example/x.css',
+      "<style>: the styles live in the token-reading stylesheets",
+      "<body style=…>: the styles live in the token-reading stylesheets",
+    ]);
+  });
+
   test("a plain page holding {% endraw %} is refused (it would end the raw block early)", async () => {
     const root = repository({ "docs/process/x.md": "# X\n\n{% endraw %}\n" });
     await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/cannot contain \{% endraw %\}/u);
@@ -277,7 +335,7 @@ describe("D. the source step", () => {
 
   test("old URL shapes are real redirect pages; a page's own source spelling is never shadowed", async () => {
     const root = repository();
-    const plan = sitePlan({ root });
+    const plan = sitePlan({ coordinates: FIXTURE, root });
     const aliases = new Map(legacyAliases(plan));
     expect(aliases.get("/product/")).toBe("/");
     expect(aliases.get("/roadmap/")).toBe("/floor/roadmap/");
@@ -286,7 +344,8 @@ describe("D. the source step", () => {
     const out = join(root, ".site");
     await source({ root, out, baseurl: "/bridlewise" });
     const moved = readFileSync(join(out, "floor/trackers/TASKS.md/index.html"), "utf8");
-    expect(moved).toContain('location.replace("/bridlewise/trackers/TASKS/")');
+    expect(moved).toContain('<script src="moved.js"></script>');
+    expect(readFileSync(join(out, "floor/trackers/TASKS.md/moved.js"), "utf8")).toBe('location.replace("/bridlewise/trackers/TASKS/");\n');
     expect(moved).toContain('<a href="/bridlewise/trackers/TASKS/">');
     // `/trackers/TASKS.md` is the page's own source file in the Jekyll
     // source: the redirect folder cannot and does not take its name.
@@ -312,9 +371,15 @@ describe("D. the source step", () => {
   });
 });
 
+/** A built page as the layout leaves it: the charset, the site's two policies for `base`, then what loads. */
+function policied(body: string, base = "/bridlewise"): string {
+  const [origin, scoped] = sitePolicies(base);
+  return `<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${origin}"><meta http-equiv="Content-Security-Policy" content="${scoped}"><link rel="stylesheet" href="/bridlewise/assets/css/style.css"></head><body><main id="main" class="wrap article">${body}</main></body></html>\n`;
+}
+
 /** A built site as Jekyll would leave it for `buildSiteSource` with `versions`. */
 function builtSite(versions: readonly string[], pages: Readonly<Record<string, string>> = {}): string {
-  const page = (body: string): string => `<html><head><link rel="stylesheet" href="/bridlewise/assets/css/style.css"></head><body><main id="main" class="wrap article">${body}</main></body></html>\n`;
+  const page = (body: string): string => policied(body);
   return site({
     "index.html": page('<p class="lede">Home</p><a href="/bridlewise/v/">Versions</a>'),
     "v/index.html": page(versions.map((version) => `<a href="/bridlewise/v/${version}/">${version}</a>`).join("")),
@@ -333,6 +398,29 @@ function snapshots(entries: Readonly<Record<string, Readonly<Record<string, stri
 }
 
 describe("E. the finish step: released snapshots merge whole, then the whole site is judged", () => {
+  test("every HTML file the built site serves carries the two policies first; any other output is refused", () => {
+    const [origin, scoped] = sitePolicies("/bridlewise");
+    const meta = (content: string): string => `<meta http-equiv="Content-Security-Policy" content="${content}">`;
+    const bare = "<html><head><title>bare</title></head><body><main id=\"main\" class=\"wrap article\"><p class=\"lede\">x</p></main></body></html>";
+    const siteRoot = builtSite([], {
+      "bare/index.html": bare,
+      "loud/PAGE.HTML": bare,
+      "old/page.htm": bare,
+      "one/index.html": `<html><head><meta charset="utf-8">${meta(origin)}</head><body></body></html>`,
+      "late/index.html": `<html><head><meta charset="utf-8"><title>t</title>${meta(origin)}${meta(scoped)}</head><body></body></html>`,
+      "elsewhere/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(sitePolicies("/other")[1])}</head><body></body></html>`,
+      "third/index.html": `<html><head><meta charset="utf-8">${meta(origin)}${meta(scoped)}</head><body><noscript>${meta("default-src *")}</noscript></body></html>`,
+      // The policies right after a script: the script loads before any policy applies.
+      "script-first/index.html": `<html><head><script src="/bridlewise/assets/js/early.js"></script>${meta(origin)}${meta(scoped)}</head><body></body></html>`,
+      "no-charset/index.html": `<html><head>${meta(origin)}${meta(scoped)}<meta charset="utf-8"></head><body></body></html>`,
+      "good/index.html": policied('<p class="lede">fine</p>'),
+      "feed.xml": "<feed/>",
+    });
+    const refusal = (() => { try { finishSite({ site: siteRoot, baseurl: "/bridlewise" }); return ""; } catch (error) { return (error as Error).message; } })();
+    const refused = refusal.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("policy: ")).map((line) => line.slice("policy: ".length).split(" ")[0]);
+    expect(refused).toEqual(["bare/index.html", "elsewhere/index.html", "late/index.html", "loud/PAGE.HTML", "no-charset/index.html", "old/page.htm", "one/index.html", "script-first/index.html", "third/index.html"]);
+  });
+
   test("versions sort newest first, a release before its pre-releases", () => {
     const dir = snapshots({ "0.2.0": { "index.html": "x" }, "0.10.0": { "index.html": "x" }, "0.10.0-rc.1": { "index.html": "x" }, "1.0.0": { "index.html": "x" } });
     expect(readVersions(dir)).toEqual(["1.0.0", "0.10.0", "0.10.0-rc.1", "0.2.0"]);
@@ -340,7 +428,7 @@ describe("E. the finish step: released snapshots merge whole, then the whole sit
   });
 
   test("a snapshot merges at /v/<version>/ and its links are crawled with the rest", () => {
-    const dir = snapshots({ "0.1.0": { "index.html": '<a href="/bridlewise/v/0.1.0/quickstart/">Quickstart</a><a href="/bridlewise/v/">Other versions</a>', "quickstart/index.html": '<a href="../">Back</a>' } });
+    const dir = snapshots({ "0.1.0": { "index.html": policied('<a href="/bridlewise/v/0.1.0/quickstart/">Quickstart</a><a href="/bridlewise/v/">Other versions</a>', "/bridlewise/v/0.1.0"), "quickstart/index.html": policied('<a href="../">Back</a>', "/bridlewise/v/0.1.0") } });
     const siteRoot = builtSite(["0.1.0"]);
     const result = finishSite({ site: siteRoot, baseurl: "/bridlewise", versionsDir: dir });
     expect(result.versions).toEqual(["0.1.0"]);
@@ -383,7 +471,7 @@ describe("G. the site source names no coordinate of its own", () => {
       "docs/_layouts/default.html": "<html><body><a href=\"https://github.com/example-org/BRIDLEWISE-TESTING\">old</a>{{ content }}</body></html>\n",
       "docs/.well-known/security.txt": "Policy: https://github.com/Example-Org/bridlewise/blob/main/SECURITY.md\n",
     });
-    const violations = siteSourceViolations({ root });
+    const violations = siteSourceViolations({ coordinates: FIXTURE, root });
     expect(violations.filter((line: string) => line.includes("spells the repository's own URL")).map((line: string) => line.split(":")[0])).toEqual([
       "docs/_layouts/default.html",
       "docs/.well-known/security.txt",
@@ -393,7 +481,7 @@ describe("G. the site source names no coordinate of its own", () => {
     await expect(source({ root, out: join(root, ".site"), baseurl: "/b" })).rejects.toThrow(/spells the repository's own URL/u);
     // Near misses: another repository of the same owner, a name that only
     // starts like this one, and the configuration read through Liquid.
-    expect(siteSourceViolations({ root: repository({
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: repository({
       "docs/floor/b.md": "---\ntitle: B\n---\n\n[evidence](https://github.com/Example-Org/site-repo-evidence) · [scorecard](https://scorecard.dev/viewer/?uri=github.com/{{ site.repository }}) · [source]({{ site.repository_url }})\n",
     }) })).toEqual([]);
   });
@@ -410,7 +498,7 @@ describe("G. the site source names no coordinate of its own", () => {
       // A site page may not even cite an issue by a spelled URL: it reads site.repository_url.
       "docs/floor/a.md": `---\ntitle: A\n---\n\n[#155](${issue})\n`,
     });
-    const found = siteSourceViolations({ root }).map((line: string) => `${line.split(": ")[0]} ${line.includes("a record cites") ? "record" : "page"}`);
+    const found = siteSourceViolations({ coordinates: FIXTURE, root }).map((line: string) => `${line.split(": ")[0]} ${line.includes("a record cites") ? "record" : "page"}`);
     expect(found).toEqual([
       "docs/decisions/D-2.md:5 record",
       "docs/decisions/D-2.md:5 record",
@@ -426,7 +514,7 @@ describe("G. the site source names no coordinate of its own", () => {
       "docs/floor/a.md": "---\ntitle: A\n---\n\n<a href=\"{{ '/v/' | relative_url }}\">Versions</a>\n",
       "docs/floor/b.md": "---\ntitle: B\n---\n\n[1.0]({{ \"/v/1.0.0/\" | relative_url }}) · [list]({{ '/versions.json' | relative_url }})\n",
     });
-    expect(siteSourceViolations({ root }).map((line: string) => line.split(": ")[0])).toEqual(["docs/floor/a.md:5", "docs/floor/b.md:5", "docs/floor/b.md:5"]);
+    expect(siteSourceViolations({ coordinates: FIXTURE, root }).map((line: string) => line.split(": ")[0])).toEqual(["docs/floor/a.md:5", "docs/floor/b.md:5", "docs/floor/b.md:5"]);
     // Every other spelling of the same link (the review's five), each in its own page.
     const forms = {
       "docs/floor/c.md": "{{ site.baseurl }}/v/",
@@ -437,8 +525,8 @@ describe("G. the site source names no coordinate of its own", () => {
       "docs/floor/h.md": "{{ site.url }}{{ site.baseurl }}/versions.json",
     };
     const planted = repository(Object.fromEntries(Object.entries(forms).map(([path, href]) => [path, `---\ntitle: P\n---\n\n<a href="${href}">Versions</a>\n`])));
-    expect(siteSourceViolations({ root: planted }).filter((line: string) => line.includes("versions folder")).map((line: string) => line.split(":")[0])).toEqual(Object.keys(forms).sort((a, b) => a.localeCompare(b)));
-    expect(siteSourceViolations({ root: repository({
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: planted }).filter((line: string) => line.includes("versions folder")).map((line: string) => line.split(":")[0])).toEqual(Object.keys(forms).sort((a, b) => a.localeCompare(b)));
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: repository({
       "docs/floor/c.md": "---\ntitle: C\n---\n\n[versions]({{ site.versions_url }}) · [very]({{ '/very/' | relative_url }}) · [vision]({{ '/vision/' | relative_url }}) · <a href=\"../vision/\">v</a>\n\n```html\n<a href=\"{{ '/v/' | relative_url }}\">quoted in a fence</a>\n```\n",
       "docs/very.md": "# Very\n",
       "docs/vision.md": "# Vision\n",
@@ -458,7 +546,7 @@ describe("G. the site source names no coordinate of its own", () => {
   });
 
   test("this repository's own tree passes, and builds as a WHOLE release snapshot: its floor data, and the live versions page", async () => {
-    expect(siteSourceViolations({ root: REAL_ROOT })).toEqual([]);
+    expect(siteSourceViolations({ coordinates: FIXTURE, root: REAL_ROOT })).toEqual([]);
     const out = join(createTempDir("site-release-"), "src");
     // The build itself refuses a snapshot whose pages name a path it does not build.
     await buildSiteSource({ root: REAL_ROOT, out, baseurl: "/bridlewise/v/0.1.0", release: "0.1.0" });
@@ -496,48 +584,116 @@ describe("G. the site source names no coordinate of its own", () => {
 
   test("an alias that is itself a page's URL is never redirected", () => {
     // `/a.md` is the `.md` spelling of docs/a.md's page AND the permalink of docs/b.md.
-    const plan = sitePlan({ root: repository({ "docs/a.md": "# A\n", "docs/b.md": "---\npermalink: /a.md\n---\n\n# B\n" }) });
+    const plan = sitePlan({ coordinates: FIXTURE, root: repository({ "docs/a.md": "# A\n", "docs/b.md": "---\npermalink: /a.md\n---\n\n# B\n" }) });
     expect(plan.byPermalink.has("/a.md")).toBe(true);
     expect(new Map(legacyAliases(plan)).has("/a.md")).toBe(false);
-    expect(new Map(legacyAliases(sitePlan({ root: repository({ "docs/a.md": "# A\n" }) }))).get("/a.md")).toBe("/a/");
+    expect(new Map(legacyAliases(sitePlan({ coordinates: FIXTURE, root: repository({ "docs/a.md": "# A\n" }) }))).get("/a.md")).toBe("/a/");
   });
 });
 
-const RENAMED = "https://llm-4-people.github.io/bridlewise/";
+const FROM = "https://llm-4-people.github.io/bridlewise-testing/";
+const TO = "https://bridlewise.llm4people.dev/";
 
 describe("F. the old-URL redirect site", () => {
-  test("every old path maps to the same path under the current site; anything else is not claimed", () => {
-    const to = { to: RENAMED };
-    expect(redirectTarget("/bridlewise-testing/", to)).toBe("https://llm-4-people.github.io/bridlewise/");
-    expect(redirectTarget("/bridlewise-testing", to)).toBe("https://llm-4-people.github.io/bridlewise/");
-    expect(redirectTarget("/bridlewise-testing/floor/roadmap/", to)).toBe("https://llm-4-people.github.io/bridlewise/floor/roadmap/");
-    expect(redirectTarget("/bridlewise-testing/assets/floor/floor.css", to)).toBe("https://llm-4-people.github.io/bridlewise/assets/floor/floor.css");
-    // Near misses: a longer name sharing the prefix, the new base, the root.
-    expect(redirectTarget("/bridlewise-testingx/a", to)).toBeNull();
-    expect(redirectTarget("/bridlewise/floor/", to)).toBeNull();
-    expect(redirectTarget("/", to)).toBeNull();
+  test("the old site is a whole URL from the identity: the owner's Pages host and the old base", () => {
+    expect(legacySiteUrl({ owner: "Example-Org" })).toBe("https://example-org.github.io/bridlewise-testing/");
   });
 
-  test("the built pages run that same mapping and show the destination without scripts", () => {
+  test("the landing map is one map per plan: an alias lands on its page, anything else on itself", () => {
+    const plan = sitePlan({ root: repository() });
+    expect(landingMap(plan)).toBe(landingMap(plan));
+    expect(Object.isFrozen(landingMap(plan))).toBe(true);
+    expect([...landingMap(plan)]).toEqual(legacyAliases(plan));
+    expect(landingPath("/roadmap/", plan)).toBe("/floor/roadmap/");
+    expect(landingPath("/floor/trackers/TASKS.md", plan)).toBe("/trackers/TASKS/");
+    expect(landingPath("/floor/roadmap/", plan)).toBe("/floor/roadmap/");
+    expect(landingPath("/never/", plan)).toBe("/never/");
+  });
+
+  test("a whole URL under the old site lands through the map, its query and fragment kept; anything else is not claimed", () => {
+    const options = { from: FROM, to: TO, landing: { "/roadmap/": "/floor/roadmap/", "/quickstart/": "/docs/quickstart/", "/a&b'%3Cc%3E/": "/docs/odd/" } };
+    expect(redirectTarget(`${FROM}roadmap/`, options)).toBe(`${TO}floor/roadmap/`);
+    expect(redirectTarget(`${FROM}quickstart`, options)).toBe(`${TO}docs/quickstart/`);
+    expect(redirectTarget(`${FROM}quickstart/?q=1#h`, options)).toBe(`${TO}docs/quickstart/?q=1#h`);
+    expect(redirectTarget(`${FROM}a&b'%3Cc%3E/`, options)).toBe(`${TO}docs/odd/`);
+    // The browser spells a path its own way (a raw `|`, lower-case escapes): the key is the map's `encodeURI` spelling.
+    expect(redirectTarget(`${FROM}a&b'%3cc%3e/`, options)).toBe(`${TO}docs/odd/`);
+    expect(redirectTarget(`${FROM}pipe|d/`, { ...options, landing: { [encodeURI("/pipe|d/")]: "/docs/pipe/" } })).toBe(`${TO}docs/pipe/`);
+    expect(redirectTarget(`${FROM}assets/floor/floor.css`, options)).toBe(`${TO}assets/floor/floor.css`);
+    expect(redirectTarget(FROM, options)).toBe(TO);
+    expect(redirectTarget("https://llm-4-people.github.io/bridlewise-testing", options)).toBe(TO);
+    // Near misses: a longer name sharing the prefix, another host with the same path, the host's root.
+    expect(redirectTarget("https://llm-4-people.github.io/bridlewise-testingx/a", options)).toBeNull();
+    expect(redirectTarget("https://other.github.io/bridlewise-testing/roadmap/", options)).toBeNull();
+    expect(redirectTarget("https://llm-4-people.github.io/", options)).toBeNull();
+  });
+
+  test("the organisation's tree: one exact, script-free hop per old pretty path, the 404 fallback over the same map, .nojekyll", () => {
+    const root = repository();
+    const plan = sitePlan({ root });
     const out = join(createTempDir("site-redirect-"), "out");
-    const result = buildRedirectSite({ out, to: RENAMED });
-    expect(result.files.map((file: string) => file.slice(out.length))).toEqual(["/bridlewise-testing/index.html", "/404.html"]);
-    for (const file of result.files) {
-      const html = readFileSync(file, "utf8");
-      expect(html).toContain('<a href="https://llm-4-people.github.io/bridlewise/">');
+    const result = buildRedirectSite({ root, out, from: FROM, to: TO });
+    const relative = result.files.map((file: string) => file.slice(out.length + 1)).sort();
+    expect(relative).toEqual([
+      ".nojekyll", "404.html",
+      "bridlewise-testing/decisions/index.html", "bridlewise-testing/floor/roadmap/index.html", "bridlewise-testing/floor/trackers/TASKS/index.html",
+      "bridlewise-testing/index.html", "bridlewise-testing/product/index.html", "bridlewise-testing/roadmap/index.html", "bridlewise-testing/trackers/TASKS/index.html",
+    ]);
+    const hop = (file: string): string => {
+      const html = readFileSync(join(out, file), "utf8");
+      const canonical = /<link rel="canonical" href="([^"]+)">/u.exec(html)![1]!;
+      expect(html).toContain(`<meta http-equiv="refresh" content="0; url=${canonical}">`);
+      expect(html).toContain(`<a href="${canonical}">`);
       expect(html).not.toMatch(/<script[^>]+src=/u);
-      const code = html.split("<script>\n")[1]!.split("</script>")[0]!;
-      const visit = (pathname: string): string | null => {
-        let target: string | null = null;
-        new Function("location", code)({ pathname, search: "?q=1", hash: "#h", replace: (url: string) => { target = url; } });
-        return target;
-      };
-      expect(visit("/bridlewise-testing/floor/atlas/")).toBe("https://llm-4-people.github.io/bridlewise/floor/atlas/?q=1#h");
-      expect(visit("/elsewhere/")).toBeNull();
+      let replaced: string | null = null;
+      new Function("location", html.split("<script>")[1]!.split("</script>")[0]!)({ search: "?q=1", hash: "#h", replace: (url: string) => { replaced = url; } });
+      expect(replaced).toBe(`${canonical}?q=1#h`);
+      return canonical;
+    };
+    expect(hop("bridlewise-testing/index.html")).toBe(TO);
+    expect(hop("bridlewise-testing/roadmap/index.html")).toBe(`${TO}floor/roadmap/`);
+    expect(hop("bridlewise-testing/product/index.html")).toBe(TO);
+    expect(hop("bridlewise-testing/floor/trackers/TASKS/index.html")).toBe(`${TO}trackers/TASKS/`);
+    // ONE hop: every stub lands on a page the plan publishes, never on another alias.
+    for (const file of relative.filter((name: string) => name.startsWith("bridlewise-testing/"))) {
+      expect(plan.byPermalink.has(`/${hop(file).slice(TO.length)}`)).toBe(true);
     }
+    const fallback = readFileSync(join(out, "404.html"), "utf8");
+    expect(fallback).toContain('<meta name="robots" content="noindex">');
+    expect(fallback).not.toContain('rel="canonical"');
+    expect(fallback).not.toMatch(/<script[^>]+src=/u);
+    const code = fallback.split("<script>\n")[1]!.split("</script>")[0]!;
+    const visit = (href: string): string | null => {
+      let target: string | null = null;
+      new Function("location", code)({ href, replace: (url: string) => { target = url; } });
+      return target;
+    };
+    expect(visit(`${FROM}floor/trackers/TASKS.md?q=1#h`)).toBe(`${TO}trackers/TASKS/?q=1#h`);
+    expect(visit(`${FROM}roadmap`)).toBe(`${TO}floor/roadmap/`);
+    expect(visit(`${FROM}assets/logo.png`)).toBe(`${TO}assets/logo.png`);
+    expect(visit("https://llm-4-people.github.io/elsewhere/")).toBeNull();
+    expect(readFileSync(join(out, ".nojekyll"), "utf8")).toBe("");
   });
 
-  test("before the rename the old base IS the site: building the redirect refuses (it would loop)", () => {
-    expect(() => buildRedirectSite({ out: join(createTempDir("site-redirect-"), "out"), to: "https://llm-4-people.github.io/bridlewise-testing/" })).toThrow(/nothing to redirect until the repository is renamed/u);
+  test("a landing path holding markup is escaped in the page and inert in the 404 script", () => {
+    const root = repository({ "docs/odd.md": "---\npermalink: /a&b'<c>/\n---\n\n# Odd\n" });
+    const out = join(createTempDir("site-redirect-"), "out");
+    buildRedirectSite({ root, out, from: FROM, to: TO });
+    const stub = readFileSync(join(out, "bridlewise-testing", "a&b'<c>", "index.html"), "utf8");
+    expect(stub).toContain(`<link rel="canonical" href="${escapeHtml(`${TO}a&b'%3Cc%3E/`)}">`);
+    expect(stub).not.toContain("<c>");
+    // The `.md` spelling is no pretty path: the 404 script answers it, from a map that holds no raw `<`.
+    const fallback = readFileSync(join(out, "404.html"), "utf8");
+    expect(fallback).toContain(`"/a&b'%3Cc%3E.md":"/a&b'%3Cc%3E/"`);
+    expect(fallback).not.toContain("<c>");
+  });
+
+  test("the loop guard compares whole URLs: a target that is the old site or under it refuses; the same path on another host does not", () => {
+    const build = (to: string) => () => buildRedirectSite({ root: repository(), out: join(createTempDir("site-redirect-"), "out"), from: FROM, to });
+    expect(build(FROM)).toThrow(/nothing to redirect until the repository is renamed/u);
+    expect(build("https://llm-4-people.github.io/bridlewise-testing")).toThrow(/would loop/u);
+    expect(build(`${FROM}docs/`)).toThrow(/would loop/u);
+    expect(build("https://bridlewise.llm4people.dev/bridlewise-testing/")).not.toThrow();
+    expect(build("https://llm-4-people.github.io/bridlewise/")).not.toThrow();
   });
 });

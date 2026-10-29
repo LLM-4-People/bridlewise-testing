@@ -16,9 +16,17 @@ from the import graph.
   option/result types, so the harness can be embedded as a library.
 - `bundle-entry.ts` — the bundle entry point for the Landlock
   self-protection production payload (`dist/bundle.js`).
-- `architecture-manifest.ts` — the generated dependency-edge manifest: the
-  module graph the regenerator and the architecture
-  verifiers reference by path.
+- `architecture-manifest.ts` — the architecture's policy (layers, external
+  commands, findings) and `architectureManifestOf`, the manifest of a tree:
+  one module per source path, classified by the decisions below. Nothing in
+  it is generated.
+- `architecture-modules.ts` — the architecture's decisions, one line each,
+  sorted: folder classifications (realm, layer, owner every module under a
+  folder takes) and module decisions (only what differs from what the path
+  and folder derive). A plain new module needs no line, so two branches
+  adding modules merge. A module's exports and imports are derived by the
+  check, never committed (#221); `harness sync` removes a deleted module's
+  decision and marks a detected entry point (`workflow/module-registrar.ts`).
 
 ## The domains
 
@@ -55,16 +63,6 @@ from the import graph.
 - `tools/` — the tool registry, adapters, and concurrent dispatch.
 - `workflow/` — the harness commands: register, regenerate, check, sync.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/`.
-
-- `architecture-manifest.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/effect-surface.ts`, `engine/src/kernel/architecture-external-commands.ts`, `engine/src/performance/function-manifest.ts` and 2 more.
-- `bundle-entry.ts` is consumed by nothing yet.
-- `cli.mjs` is consumed by nothing yet.
-- `cli.ts` is consumed by `engine/src/bundle-entry.ts`, `engine/src/index.ts`.
-- `index.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->

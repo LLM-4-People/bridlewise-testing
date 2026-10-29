@@ -5,7 +5,7 @@ import {
   buildCandidateManifestDetailed,
   candidateTestIdentityExcluding,
   refreshCandidateTestIdentityExcluding,
-} from "./candidate-manifest.ts";
+} from "../verification/candidate-manifest.ts";
 import { enableSharedCompileCache } from "./compile-cache.ts";
 import { executeInventoryTestRun } from "./inventory-test-run.ts";
 import { loadTestInventoryWithSnapshot } from "../test-inventory.ts";
@@ -26,6 +26,8 @@ import {
 } from "../../src/workflow/test-result-collector.ts";
 import { TEST_RUN_HISTORY_PATH } from "../../src/shared/run-history.ts";
 import { isEntryPoint } from "../../src/runtime/cli-debug.ts";
+import { ARCHITECTURE_MODULES_PATH } from "../../src/workflow/architecture-module-entries.ts";
+import { thinHeadroom } from "./test-cpu-class.ts";
 
 type WorkerMode = "test" | "check";
 
@@ -39,7 +41,7 @@ type WorkerMode = "test" | "check";
 const RUNNER_WRITTEN_PATHS = deepFreeze([
   VERIFICATION_PATHS.testInventory,
   "src/root-policy.ts",
-  "src/architecture-manifest.ts",
+  ARCHITECTURE_MODULES_PATH,
   "traceability/test-surface-dispositions.json",
   ".bridlewise/state/test-results/latest-collection.json",
   ".bridlewise/state/test-results/latest-summary.json",
@@ -88,6 +90,13 @@ export async function executeTestWorker(mode: WorkerMode): Promise<Readonly<{
     candidateBuild,
     RUNNER_WRITTEN_PATHS,
   );
+  // THE HEADROOM SIGNAL (test-cpu-class.ts `thinHeadroom`): every test whose
+  // CPU work was over its class ceiling / headroomFactor, named with its
+  // numbers, so a measured class is given BEFORE a slower host flakes it.
+  const thin = thinHeadroom(testExecutionConfig.testCpuClasses, accounting.testCpu, (identity) => `engine/${identity.slice(0, identity.indexOf("::"))}`);
+  for (const one of thin) {
+    process.stderr.write(`[cpu-headroom] ${one.identity}: ${String(one.cpuMs)} ms of CPU work, over 1/${String(testExecutionConfig.testCpuClasses.headroomFactor)} of its ${one.className} class ceiling (${String(one.ceilingMs)} ms): give its file a measured class\n`);
+  }
   // Persist per-file durations so the next run schedules the parallel phase
   // longest-first. Best-effort like the run summary: a write failure must
   // not fail the suite, so it is reported as a diagnostic instead.
@@ -159,7 +168,8 @@ function parseMode(argv: readonly string[]): WorkerMode {
 }
 
 if (isEntryPoint(import.meta.url)) {
-  enableSharedCompileCache();
+  // The runner enabled (and bounded) the cache for this tree; this worker inherits it.
+  enableSharedCompileCache(undefined);
   // Dev-mode safe-read env vars: propagate the hardlink/symlink bypass
   // automatically so the worker's child test processes (which inherit
   // `process.env`) never reject the dev workspace tree. See

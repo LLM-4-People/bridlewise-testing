@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
   merge_group:
+  # A push builds at once, while its checks still run; the last status
+  # workflow to finish at main's tip rebuilds the site with the final results
+  # (scripts/floor/rebuild-gate.mjs; the list is REBUILD_WORKFLOWS, which a
+  # test holds this to).
+  workflow_run:
+    workflows: [CI, CodeQL, Docs links, Secret scan]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       supersede_published:
@@ -17,16 +25,61 @@ permissions:
   contents: read
 
 jobs:
+  # Only for a completed status workflow: whether that completion rebuilds the
+  # site from main's tip. It reads main's tip from GitHub and the completed
+  # run's id, never the run's head, which a fork's pull request controls.
+  rebuild-gate:
+    name: Decide the rebuild
+    if: github.event_name == 'workflow_run' && github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      build: ${{ steps.gate.outputs.build }}
+      sha: ${{ steps.gate.outputs.sha }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install the engine (the gate reads GitHub through the forge port)
+        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Decide
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: node scripts/floor/rebuild-gate.mjs
+
   build:
     name: Build the site
-    if: github.event.repository.visibility == 'public'
+    needs: rebuild-gate
+    if: >-
+      always() && github.event.repository.visibility == 'public'
+      && (github.event_name != 'workflow_run' || needs.rebuild-gate.outputs.build == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # A pull request's build replaces its previous one; every other build is
-    # its own run, so a main build is never cancelled.
+    # its own run, so a main build is never cancelled (the rebuild gate lets
+    # one completion per commit through).
     concurrency:
       group: pages-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      # The commit this site is built from: main's tip for a rebuild (the gate's answer), else the event's own.
+      SITE_SHA: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || github.sha }}
     permissions:
       contents: read
       pages: read
@@ -38,6 +91,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || '' }}
 
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -76,12 +130,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/build-floor-data.mjs --root . --out .site/floor/data
 
+      - name: Judge and render the claims
+        run: |
+          node engine/scripts/brand/cli.ts build \
+            --site .site \
+            --checks .site/floor/data/status.json
+
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:
           source: ./.site
           destination: ./_site
-          build_revision: ${{ github.sha }}
+          build_revision: ${{ env.SITE_SHA }}
 
       - name: Merge the snapshots and check links and design
         env:
@@ -119,9 +179,9 @@ jobs:
       always() && needs.build.result == 'success'
       && (needs.approve-override.result == 'success' || needs.approve-override.result == 'skipped')
       && github.event.repository.visibility == 'public'
-      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_run')
       && github.ref == 'refs/heads/main'
-    needs: [build, approve-override]
+    needs: [rebuild-gate, build, approve-override]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Deployments are serialised, and every pending one waits its turn: the
@@ -144,6 +204,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || '' }}
 
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -163,7 +224,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SUPERSEDE: ${{ inputs.supersede_published }}
-        run: node scripts/floor/deploy-order.mjs --sha "$GITHUB_SHA" --supersede "$SUPERSEDE"
+          SITE_SHA: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || github.sha }}
+        run: node scripts/floor/deploy-order.mjs --sha "$SITE_SHA" --supersede "$SUPERSEDE"
 
       - name: Deploy
         id: deployment

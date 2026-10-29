@@ -14,13 +14,49 @@
  * engraved micro-labels, ONE electron-beam hue for "live", and a light
  * theme that is a real paper logbook, not an inverted dark theme.
  *
- * Fonts (§12.4): IBM Plex Sans / IBM Plex Mono. No CDN is permitted and no
- * woff2 is vendored in this repo yet, so the stacks lead with the Plex
- * faces (used when locally installed) and fall back to the system stack.
- * Self-hosting the two latin-subset woff2 files is an open task — when they
- * land under `public/fonts/`, the @font-face blocks belong HERE and nowhere
- * else. Both fallback stacks are chosen for true tabular figures.
+ * Fonts (§12.4): IBM Plex Sans / IBM Plex Mono, self-hosted (no CDN is
+ * permitted). The variable Latin-1 subsets of IBM's own release
+ * (`@ibm/plex-sans-variable@0.2.0`, `@ibm/plex-mono-variable@1.0.0`, SIL OFL
+ * 1.1, `public/fonts/OFL.txt`) are served from `public/fonts/`, and their
+ * @font-face blocks live HERE and nowhere else. One variable file per style
+ * carries every weight the scale uses (400…620). A glyph outside Latin-1
+ * (arrows, box drawing, other scripts) falls through `unicode-range` to the
+ * next face in the stack. Both fallback stacks are chosen for true tabular
+ * figures.
  */
+
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-var-roman-latin1.woff2") format("woff2");
+  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+@font-face {
+  font-family: "IBM Plex Sans Variable";
+  font-style: italic;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-var-italic-latin1.woff2") format("woff2");
+  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+@font-face {
+  font-family: "IBM Plex Mono Variable";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-var-roman-latin1.woff2") format("woff2");
+  unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
+@font-face {
+  font-family: "IBM Plex Mono Variable";
+  font-style: italic;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-var-italic-latin1.woff2") format("woff2");
+  unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+}
 
 :root {
   /* ── §12.1 Ground (dark default — "carbon") ─────────────────────────── */
@@ -716,6 +752,44 @@
   --row-h: calc(var(--sp-unit) * 11); /* deep: 44px */
 }
 
+/* ── THE PUBLIC PAGE — the Pages site, the README images, the social cards ──
+ *
+ * The same design system, read by the surfaces outside the cockpit through
+ * the one reader (`shared/token-reader.ts`): the site loads a sheet generated
+ * from this file (only the tokens its stylesheets read), and every generated
+ * SVG or PNG takes its colours from here. Nothing below is a second palette:
+ * these are the few measures a READING page needs that an operating cockpit
+ * does not — a page width, a prose measure, a reading type ramp and the one
+ * display size the landing's promise is set in. Colour, faces, space, rules,
+ * radii and motion are the cockpit's own tokens, unchanged.
+ *
+ * Reading ramp: a fixed rem scale (a reader views at a steady DPI), one step
+ * of about 1.25 between levels, body at 17px for long reading on paper.
+ * The display size is the only fluid one: the promise is set as large as the
+ * viewport allows and never past 6rem. */
+:root {
+  --page-max: 1180px; /* the page's column, header to footer */
+  --page-gutter: clamp(16px, 4vw, 40px); /* side margin; 16px at phone width */
+  --page-measure: 68ch; /* running prose */
+  --page-header-h: 64px;
+  --page-section-gap: calc(var(--sp-unit) * 24); /* between a page's major sections */
+  --f-page-size: 1.0625rem;
+  --f-page-lh: 1.65;
+  --f-page-h1: 2.5rem;
+  --f-page-h2: 1.625rem;
+  --f-page-h3: 1.25rem;
+  --f-page-heading-track: -0.02em;
+  --f-hero-size: clamp(2.75rem, 1.4rem + 6vw, 5.75rem);
+  --f-hero-track: -0.04em;
+  --f-hero-lh: 1;
+  --f-lede-size: clamp(1.125rem, 1rem + 0.5vw, 1.3125rem);
+  /* The page's few mixed inks, declared here once so a page computes only
+     token values (the rendered judge holds every colour to this file). */
+  --page-link-underline: color-mix(in srgb, var(--accent) 45%, transparent);
+  --page-button-hover: color-mix(in srgb, var(--ink-1) 88%, var(--ground-0));
+  --page-scrim: color-mix(in srgb, var(--ink-1) 28%, transparent);
+}
+
 /* ── Light — "logbook": warm paper, a real theme, every token re-derived. */
 :root[data-cockpit-theme="light"] {
   --ground-0: #f6f4ef;
@@ -1265,6 +1339,14 @@ button {
   font-family: var(--face-sans);
   font-size: var(--f-ui-size);
   font-variant-numeric: tabular-nums slashed-zero;
+}
+/* The browser's own stylesheet gives code, kbd, samp and pre the generic
+ * `monospace`, which a parent's font-family does not override: code inside a
+ * `.code` block rendered in the host's monospace, not the token's (found by
+ * the rendered judgement, scripts/rendered/). The token replaces that default
+ * once, at no specificity, so any component rule still wins. */
+:where(.cockpit) :where(code, kbd, samp, pre) {
+  font-family: var(--face-mono);
 }
 
 /* ── §9 SETTINGS INDEX dims — appended (the settings surface's own owner) ──

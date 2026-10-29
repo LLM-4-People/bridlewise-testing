@@ -374,7 +374,7 @@ export function treeScannedSignals(): readonly SecretTextSignal[] {
  * The digests are authored pins: their inputs are deliberately absent from
  * the tree, so no generator can re-derive them.
  */
-const HOME_PATH_PLACEHOLDERS = deepFreeze([
+export const HOME_PATH_PLACEHOLDERS = deepFreeze([
   "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
   "workspace", "demo", "x", "u", "me", "alice", "bob", "jane", "jdoe",
   "username", "test", "foo", "bar", "baz",
@@ -386,10 +386,15 @@ const HOME_PATH_PLACEHOLDERS = deepFreeze([
 const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-])(?!\\.[A-Za-z0-9]))`;
 
 export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
-  // ABSOLUTE only: `/home/` that begins the path. `src/pages/home/widgets`,
+  // ABSOLUTE only: `/home/` or `/Users/` that begins the path. `src/pages/home/widgets`,
   // `backup/home/x` and `<root>/home/x` are relative paths that merely hold a
-  // `home` segment, and reading them as an account published nothing.
-  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`(?<![\\w.>}-])\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
+  // `home` segment, and reading them as an account published nothing. A Windows
+  // home (`C:\Users\<name>`, either slash, `Users` in any case) is one too, its
+  // name possibly a `~1` short name.
+  {
+    id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path",
+    pattern: new RegExp(`(?<![\\w.>}-])\\/(?:home|Users)\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+|(?<![A-Za-z0-9])[A-Za-z]:[\\\\/]+[Uu][Ss][Ee][Rr][Ss][\\\\/]+${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._~-]+`, "u"),
+  },
   // BEGIN AUTHORED PINS
   { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
   { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
@@ -402,6 +407,16 @@ export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
 ] as const);
 
 export type PublicationPrivacySignal = (typeof PUBLICATION_PRIVACY_SIGNALS)[number];
+
+/**
+ * The spellings one filesystem location can be published under, reduced to
+ * one before the privacy rows read a text: repeated slashes and `.` segments
+ * both name the same place to every consumer of the text.
+ */
+export function collapsedPathText(text: string): string {
+  return text.replace(/\/{2,}/gu, "/").replace(/\/\.\//gu, "/");
+}
+
 type PrivacyNameKind = "dotted" | "scratch-path";
 type PrivacyRow = Readonly<{ id: string } & (
   | { pattern: RegExp }
@@ -558,27 +573,41 @@ export function isSensitiveKeyName(key: string): boolean {
  * sent where a credential must not go. Everything else is treated as a credential BY DEFAULT, so a header
  * nobody has named yet (`X-Jwt`, `DPoP`, `X-Session`, `X-Signature`, a vendor's next key header) is redacted
  * without anyone having to think of it. A name joins this list only when its value is never a credential:
- * content negotiation and framing, caching and conditional requests, and the GitHub request-id and
- * rate-limit headers the forge reads. A session id (`Mcp-Session-Id`, `Session-Id`) is a bearer of access
- * and never belongs here.
+ * content negotiation and framing, caching and conditional requests, the GitHub request-id and
+ * rate-limit headers the forge reads, and a model provider's request id and model name. A session id (`Mcp-Session-Id`, `Session-Id`) is a bearer of access
+ * and never belongs here; neither does a header whose value is a URL ({@link URL_VALUED_HEADER_NAMES}): a
+ * redirect to a signed download carries its token in the query string.
  */
 export const NON_CREDENTIAL_HEADER_NAMES: ReadonlySet<string> = new Set([
   "accept", "accept-charset", "accept-encoding", "accept-language",
   "cache-control", "connection", "content-encoding", "content-language", "content-length", "content-type",
-  "date", "etag", "if-match", "if-modified-since", "if-none-match", "keep-alive", "last-modified", "link",
-  "location", "mcp-protocol-version", "pragma", "retry-after", "transfer-encoding", "user-agent", "vary",
-  "x-github-api-version", "x-github-media-type", "x-github-request-id",
+  "date", "etag", "if-match", "if-modified-since", "if-none-match", "keep-alive", "last-modified",
+  "mcp-protocol-version", "pragma", "retry-after", "transfer-encoding", "user-agent", "vary",
+  "x-github-api-version", "x-github-media-type", "x-github-request-id", "x-model-id", "x-request-id",
   "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "x-ratelimit-resource", "x-ratelimit-used",
 ]);
 
 /**
- * Whether a HEADER's value may carry a credential: true for EVERY name except the
- * {@link NON_CREDENTIAL_HEADER_NAMES} (matched case-insensitively). THE ONE answer for every header
- * redaction and every credential refusal. An allowlist, not a denylist: a denylist can only name the
- * credential headers someone thought of, and a missed credential is never acceptable.
+ * THE HEADERS WHOSE VALUE IS A URL (or carries URLs), lower-case: a declared classification, so the rule
+ * below holds whatever the allowlist says. A URL may carry a credential in its query string or userinfo (a
+ * redirect to a signed download, a signed link, a referrer that kept a token), so each of these is ALWAYS
+ * sensitive, even if one were listed in {@link NON_CREDENTIAL_HEADER_NAMES} by mistake.
+ */
+export const URL_VALUED_HEADER_NAMES: ReadonlySet<string> = new Set([
+  "access-control-allow-origin", "content-location", "link", "location", "origin", "referer", "refresh",
+  "report-to", "reporting-endpoints", "sourcemap", "x-sourcemap",
+]);
+
+/**
+ * Whether a HEADER's value may carry a credential: true for every URL-valued name
+ * ({@link URL_VALUED_HEADER_NAMES}), and for EVERY other name except the {@link NON_CREDENTIAL_HEADER_NAMES}
+ * (matched case-insensitively). THE ONE answer for every header redaction and every credential refusal. An
+ * allowlist, not a denylist: a denylist can only name the credential headers someone thought of, and a
+ * missed credential is never acceptable.
  */
 export function isSensitiveHeaderName(name: string): boolean {
-  return !NON_CREDENTIAL_HEADER_NAMES.has(name.trim().toLowerCase());
+  const key = name.trim().toLowerCase();
+  return URL_VALUED_HEADER_NAMES.has(key) || !NON_CREDENTIAL_HEADER_NAMES.has(key);
 }
 
 export function secretLikeValuePaths(value: unknown, profile: SecretSignalProfile): readonly string[] {

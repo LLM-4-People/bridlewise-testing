@@ -33,6 +33,7 @@ and no module re-implements a provider adapter.
   (the credential's destination rule). A user's provider key is
   held by the client for its own calls (masked at the mint and in its
   diagnostics), never registered process-wide.
+- `provider-failure.ts` — one safe provider failure classifier for HTTP, native events and socket adapters.
 - `provider-http.ts` — the authenticated provider request lifetime: it
   prepares every request under the one outbound HTTP policy
   (`shared/outbound-http.ts`) BEFORE any observer sees it, dispatches through
@@ -41,6 +42,9 @@ and no module re-implements a provider adapter.
   `InvalidResponseError`; every other refusal is a non-retryable bad request
   carrying the policy's code, e.g. `outbound_redirect_refused`).
 - `errors.ts` — the typed LLM error hierarchy.
+- `responses-endpoints.ts` — endpoint-specific Responses admissions.
+- `responses-preparation.ts` — private native composition.
+- `responses-tracking.ts` — bounded, provider-scoped response ownership; this never cancels remote work.
 - `responses.ts` — native Responses request schemas, lossless resources, usage,
   display/tool projections, and authoritative transcript replay. Owns
   `RESPONSE_MCP_ITEM_TYPES`, the protocol's native MCP item discriminants
@@ -62,35 +66,9 @@ and no module re-implements a provider adapter.
 - `provider-observation.ts` — intentional authentication context and safe public labels, distinct from exact routing identities.
 - `exposure.ts` — the module's exposure catalog.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/shared/llm/`.
-
-- `adaptive.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
-- `circuit-breaker.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
-- `client.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/evaluation/scenario-runner.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/response-turn.ts`, `engine/src/shared/llm/index.ts`, `server/agent/agent-runtime-bridge.ts` and 1 more.
-- `config.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/evaluation/types.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/privacy/redacted-messages.ts`, `engine/src/privacy/responses-observation.ts` and 11 more.
-- `errors.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/event-state.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/response-turn.ts`, `engine/src/shared/llm/adaptive.ts`, `engine/src/shared/llm/client.ts` and 13 more.
-- `exposure.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
-- `failover.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/shared/llm/responses-preparation.ts`, `engine/src/shared/llm/responses-tracking.ts`.
-- `index.ts` is consumed by `engine/scripts/exp446/run-llm-usefulness.mts`, `engine/scripts/exp462/run-llm-usefulness-10x.mts`, `engine/src/runtime/provider-adapter.ts`.
-- `provider-endpoint.ts` is consumed by `engine/src/kernel/config-contracts.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/config.ts`, `server/llm/providers.ts`.
-- `provider-failure.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/shared/llm/responses-stream.ts`.
-- `provider-http.ts` is consumed by `engine/src/evaluation/scenario-runner.ts`, `engine/src/memory/unified/drift-detector.ts`, `engine/src/shared/llm/client.ts`.
-- `provider-observation.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/failover.ts`, `engine/src/shared/llm/provider-http.ts`, `engine/src/shared/llm/queue.ts`, `engine/src/shared/llm/stats.ts`.
-- `queue.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
-- `response-transcript.ts` is consumed by `engine/src/memory/unified/unified-context-manager.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/provider-adapter.ts`, `engine/src/shared/llm/index.ts`, `server/context/context-bridge.ts`, `server/llm/llm-bridge.ts`.
-- `responses-disposition.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/runtime/governed-tool-dispatch.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/shared/llm/index.ts`.
-- `responses-endpoints.ts` is consumed by `engine/src/privacy/redacted-messages.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`, `engine/src/shared/llm/responses-preparation.ts`, `server/llm/llm-bridge.ts`.
-- `responses-preparation.ts` is consumed by `engine/src/shared/llm/client.ts`.
-- `responses-stream.ts` is consumed by `engine/src/runtime/event-state.ts`, `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
-- `responses-tracking.ts` is consumed by `engine/src/shared/llm/client.ts`.
-- `responses.ts` is consumed by `engine/src/agents/agent-runtime.ts`, `engine/src/kernel/config-contracts.ts`, `engine/src/mcp/tool-name.ts`, `engine/src/privacy/responses-observation.ts`, `engine/src/runtime/interactive-session.ts`, `engine/src/runtime/provider-adapter.ts` and 12 more.
-- `stats.ts` is consumed by `engine/src/shared/llm/client.ts`, `engine/src/shared/llm/index.ts`.
-
-<!-- /consumers:generated -->
 
 ## Responses contract
 
@@ -102,7 +80,7 @@ limits reuse the central root policy.
 
 Current source evidence, endpoint controls, WebSocket/steering semantics, provider
 limits and deterministic test coverage live in
-[the protocol research contract](https://github.com/LLM-4-People/bridlewise).
+[the protocol research contract][product:].
 Transport integration and provider capability tests must establish actual
 support before exposing a feature as available.
 
@@ -123,3 +101,7 @@ codes still control retry classification. Public target reads are side-effect fr
 Endpoint admission uses each operation's contract: compact service tier is a nullable enum and its cache key allows at most 64 Unicode code points; input-token personality is an optional non-null open string with the same bound, and truncation is optional/non-null. Create stream options require the final composed streaming mode. Other endpoints retain their opaque extensions. No wire normalization is performed.
 
 Native failures carry one optional observed HTTP `status`; native/SSE errors without transport status retain absence. Count-free context codes still produce ContextTooLongError. Exact misalignment policy codes take precedence over status-based authentication and remain non-retryable under the existing bad-request taxonomy. Accepted failed JSON resources remain returned resources, with native failure taxonomy in the central response_failed log.
+
+<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
+[product:]: https://github.com/LLM-4-People/bridlewise
+<!-- END GENERATED: repository links -->

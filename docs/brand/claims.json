@@ -1,0 +1,99 @@
+{
+  "schema": "bridlewise-claims/v1",
+  "claims": [
+    {
+      "id": "not-ready",
+      "kind": "holds-when-green",
+      "text": "It tells you it is not ready for production: its readiness check answers harnessReady false",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/public/cli.test.mjs"
+    },
+    {
+      "id": "typed-refusals",
+      "kind": "holds-when-green",
+      "text": "Calling harness with no subcommand is refused with a typed error, no_harness_subcommand, that lists every available verb",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/public/cli.test.mjs"
+    },
+    {
+      "id": "run-once",
+      "kind": "holds-when-green",
+      "text": "A run executes once: reopening it never starts a second execution",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/prevention/run-executes-once.test.ts"
+    },
+    {
+      "id": "confined-commands",
+      "kind": "holds-when-green",
+      "text": "Commands the model starts cannot read outside the project (Linux, Landlock)",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/prevention/subprocess-confinement-owner.test.ts"
+    },
+    {
+      "id": "redaction-before-provider",
+      "kind": "holds-when-green",
+      "text": "Secrets the harness detects are redacted before the prompt reaches the provider",
+      "checks": [
+        "ci"
+      ],
+      "evidence": "tests/prevention/redaction-reaches-provider.test.ts"
+    },
+    {
+      "id": "no-committed-secrets",
+      "kind": "holds-when-green",
+      "text": "Every change passes a secret scan before it lands in the public tree",
+      "checks": [
+        "secret"
+      ],
+      "evidence": "scripts/check-secrets.mjs"
+    },
+    {
+      "id": "codeql-runs",
+      "kind": "holds-when-green",
+      "text": "CodeQL analyses every change",
+      "checks": [
+        "codeql"
+      ],
+      "evidence": ".github/workflows/codeql.yml"
+    },
+    {
+      "id": "core-no-bypass",
+      "kind": "designed",
+      "text": "A malicious module cannot bypass the core",
+      "decision": "UD-CORE-NO-BYPASS"
+    },
+    {
+      "id": "credentials-unseen",
+      "kind": "designed",
+      "text": "The model never sees a credential",
+      "decision": "CRED-DIR"
+    },
+    {
+      "id": "memory-layers",
+      "kind": "designed",
+      "text": "Layered memory with provenance and forgetting",
+      "decision": "MEM-DIR"
+    },
+    {
+      "id": "security-audit",
+      "kind": "not-claimed",
+      "text": "An independent security audit",
+      "reason": "None has been done: no third-party review, penetration test or certification exists.",
+      "evidence": "docs/floor/evidence.md#what-none-of-this-proves"
+    },
+    {
+      "id": "signed-releases",
+      "kind": "not-claimed",
+      "text": "Signed releases",
+      "reason": "Releases carry checksums and a promotion receipt, but no signature yet."
+    }
+  ]
+}

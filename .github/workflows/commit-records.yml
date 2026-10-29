@@ -1,0 +1,122 @@
+name: Commit records
+
+# WHAT EVERY COMMIT MUST RECORD, on every pull request and merge group: the DCO
+# sign-off of its committer, every identity trailer readable, and nobody's
+# personal identity on an agent commit (engine/scripts/verification/sign-off.ts);
+# and every test it takes off the test surface named in a `Test-deleted: <path>`
+# trailer (engine/scripts/verification/test-deletions.ts); and nothing a commit
+# adds names a host's home, is a raw text dump over the bound, or is a .ts file
+# that is not TypeScript (engine/scripts/verification/added-content.ts). Each is the judge the
+# commit-msg hook asks too. The steps check out the BASE and run the base's
+# judges over the branch's commits, which are only fetched as objects.
+#
+# WHAT THIS DOES NOT YET GUARANTEE. A `pull_request` run uses the BRANCH's copy
+# of this file, so a branch can change these steps, and a ruleset that requires
+# a workflow from main is an Enterprise feature (our plan is Team). The check is
+# NOT yet required: GH-1 declares "Commit records" a required status check in
+# the trunk ruleset (#537), and only once that is applied can a branch not skip
+# it — and even then a branch can edit what runs under that name. The lasting
+# boundary is the door App (#67): main's code run out-of-band, posting this
+# check, with the ruleset accepting it only from that App.
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commit-records-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  records:
+    name: Commit records
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the base (main's judge, never the branch's)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: engine/package-lock.json
+
+      - name: Install the base's engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      # The branch's commits as objects only: a pull request's head (a fork's
+      # too, through refs/pull/<n>/head) or the merge group's head.
+      - name: Fetch the commits to judge
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          case "$EVENT" in
+            pull_request) git fetch --no-tags "$SERVER/$REPOSITORY" "refs/pull/$PR_NUMBER/head" ;;
+            merge_group) git fetch --no-tags "$SERVER/$REPOSITORY" "$GROUP_HEAD" ;;
+          esac
+
+      - name: Every commit carries its committer's sign-off; every agent commit is the project identity
+        working-directory: engine
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.head_ref }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          # Read-only: GitHub is asked whether IT signed a commit whose committer is its web-flow identity.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$EVENT" in
+            # A pull request a declared agent account opened brings agent commits only.
+            pull_request) node scripts/verification/sign-off.ts --range "$PR_BASE..$PR_HEAD" --pull-request-author "$PR_AUTHOR" --github-repository "$REPOSITORY" ;;
+            # The group is verified first (its ref is in GitHub's queue namespace and holds the head);
+            # the queue's own first-parent merges are then not judged, and every commit they bring in is.
+            merge_group) node scripts/verification/sign-off.ts --range "$GROUP_BASE..$GROUP_HEAD" --merge-group "$GROUP_REF" --remote "$SERVER/$REPOSITORY" --github-repository "$REPOSITORY" ;;
+          esac
+
+      - name: Every test deletion is named by the commit that makes it
+        working-directory: engine
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) node scripts/verification/test-deletions.ts --range "$PR_BASE..$PR_HEAD" ;;
+            merge_group) node scripts/verification/test-deletions.ts --range "$GROUP_BASE..$GROUP_HEAD" ;;
+          esac
+
+      - name: What every commit adds names no host's home, is no raw dump, keeps TypeScript TypeScript
+        working-directory: engine
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) node scripts/verification/added-content.ts --range "$PR_BASE..$PR_HEAD" ;;
+            merge_group) node scripts/verification/added-content.ts --range "$GROUP_BASE..$GROUP_HEAD" ;;
+          esac

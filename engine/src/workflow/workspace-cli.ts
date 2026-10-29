@@ -3,11 +3,11 @@ import { fileURLToPath } from "node:url";
 import { InputError } from "../kernel/errors.ts";
 import { canonicalJson, deepFreeze } from "../kernel/integrity.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
+import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
-import { configuredGitIdentity } from "../git/repository-ownership.ts";
 import type { WorkingTreeSnapshot } from "../git/working-copy.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import { holdInstrumentLock } from "../process/instrument-lock.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
+import { holdInstrumentLock, withinInstrumentHold } from "../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { resolveRepositoryRegistry } from "./repository-registry.ts";
 import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
@@ -97,16 +97,11 @@ export async function runWorkspaceCli(
   const checkoutRoot = git.toplevel(root, timeouts.inspectMs);
   // Built on the first command run: a subcommand that runs none never compiles the supervisor.
   let runner: CheckoutCommandRunner | null = null;
-  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(snapshot.document, isolation, testProcessSupervisorBinary(),
+  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(snapshot.document, isolation, ensureTestProcessSupervisor(),
     (step: string, commandArguments: readonly string[]) => progress(`run ${step}: ${commandArguments.join(" ")}`));
-  // The integrator commits as the repository's user, resolved the way git
-  // resolves it (the pinned git reads the repository's config alone): a
-  // repository with no identity is refused before a workspace is made or a
-  // merge begins, never at the merge commit (A5-design L8).
-  const identity = configuredGitIdentity(checkoutRoot);
-  if (identity === null && (action === "create" || action === "merge")) {
-    throw new InputError(`${checkoutRoot} has no git identity (user.name and user.email): the integrator's merge commit would be refused — set them (git config user.name / user.email)`, "workspace_identity_missing");
-  }
+  // The integrator's commits (a workspace merge) are the harness's, so they are the project's agent identity
+  // from the one declared source, never whatever user.name and user.email the checkout or the host carries.
+  const identity = ROOT_POLICY.workflow.commitIdentity.agent;
   const manager = createWorkspaceManager({
     checkoutRoot,
     engineRelative: engineRelativePath(checkoutRoot, ENGINE_ROOT),
@@ -114,7 +109,7 @@ export async function runWorkspaceCli(
     git,
     repository: (checkout: string) => configuredGitRepository(snapshot.document, checkout),
     forge: githubWorkspaceForgeFactory(isolation.landTargets),
-    ...(identity === null ? {} : { identity }),
+    identity,
     commands: { run: (checkout, name, command) => runCheckoutCommand(checkout, name, command, commandRunner()) },
     timeouts,
     timeline: createWorkspaceTimelineHooks(resolveRepositoryRegistry(git, checkoutRoot, timeouts.inspectMs), snapshot.document.timeline),
@@ -217,11 +212,7 @@ async function withInstrumentLock<T>(label: string, run: () => Promise<T>): Prom
     config: readTestExecutionConfig(engineRoot).instrumentLock, harnessRoot: engineRoot, runner: label,
     testFileCount: Number.POSITIVE_INFINITY, cpu: SUBPROCESS_BOUNDS,
   });
-  try {
-    return await run();
-  } finally {
-    lock.release();
-  }
+  return withinInstrumentHold(lock, run);
 }
 
 function splitId(args: readonly string[], action: string): readonly [string, readonly string[]] {

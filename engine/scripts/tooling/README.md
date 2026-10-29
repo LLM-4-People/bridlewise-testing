@@ -36,10 +36,9 @@ index entry to HEAD — is in `CONTRIBUTING.md`.
   `src/workflow/checkout-setup.ts`): `links` (e.g. `engine/large-codebases`), the
   config's required 0600 mode, then `phases.setup` — `npm ci` from the candidate's
   own lockfiles in both trees, the guardian plus its test binaries
-  (`test_payload`, `test-process-supervisor`), the bundle, and the web suite's
-  module cache (`web-module-cache`: `npx vitest list` collects every test file,
-  so the first web run is warm and judged — a fresh candidate's first run used
-  to build ~90% of its transforms and was never judged);
+  (`test_payload`, `test-process-supervisor`) and the bundle. The web suite's
+  module cache is not warmed: a fresh candidate's first web run builds its
+  transforms (CPU work; its run-cost gates say "not judged"), #652;
 - runs `harness sync --with-bundle` — the candidate's own engine, whose
   command repeats its pass until one changes no generated output (the ONE
   fixed-point loop, `convergeUntilStable` in
@@ -107,7 +106,7 @@ gated fast-forward. With it, A5 deleted the tools it replaces (D-11):
 - the repository checkpoint (`snapshot-working-tree.mjs`,
   `repository-snapshot.ts`, `repository-restore.ts`, `repository-artifacts.ts`):
   its one live use was the backup of the uncommitted tree, which step 6
-  committed; `repository-git.ts` keeps what the candidate manifest reads
+  committed; `repository-git.ts` (now in `engine/scripts/verification/`, beside the candidate manifest) keeps what the candidate manifest reads
   (`probeRepositoryGit`, `repositoryTreeEntries`, `fileGitMode`,
   `gitBlobObjectId`);
 - the owned-change composition (`merge-integration.mjs`,

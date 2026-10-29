@@ -19,16 +19,6 @@ snapshot compute runs on a worker thread so it never wedges the request loop.
 - `dedup-bridge.ts` — the single web-UI owner of the dedup-compression adapter
   applied to content before it is sent to the model.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/awareness/`.
-
-- `auto-check-runner.ts` is consumed by `server/blocks/checks.ts`, `server/routes/auto-checks.ts`.
-- `awareness-bridge.ts` is consumed by `server/awareness/quality-bridge.ts`, `server/routes/awareness.ts`, `server/routes/projects.ts`.
-- `awareness-worker.ts` is consumed by nothing yet.
-- `dedup-bridge.ts` is consumed by `server/llm/llm-bridge.ts`, `server/routes/run.ts`, `server/routes/safety.ts`, `server/run/run-executor.ts`.
-- `quality-bridge.ts` is consumed by `server/awareness/auto-check-runner.ts`, `server/routes/quality.ts`, `server/run/run-executor.ts`, `server/tools/tool-executor.ts`.
-
-<!-- /consumers:generated -->

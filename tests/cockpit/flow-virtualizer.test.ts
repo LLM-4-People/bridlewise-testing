@@ -10,6 +10,8 @@
 import { beforeEach, afterEach, describe, expect, test, vi } from "vitest";
 import { render, cleanup } from "@testing-library/svelte";
 
+import { threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
+
 import Flow from "../../src/cockpit/flow/Flow.svelte";
 import { appendBeat, batch, clearLog } from "../../src/cockpit/flow/log.ts";
 import { syntheticBeats } from "../../src/cockpit/flow/dev/synthetic.ts";
@@ -92,7 +94,8 @@ describe("flow virtualizer — 5k beats", () => {
     load(5);
     const { container } = render(Flow, { props: { ingest: false } });
     await Promise.resolve();
-    const t0 = performance.now();
+    // CPU work on this thread, never wall time (NO-LOAD-BLOCK).
+    const t0 = threadCpuWorkMs();
     appendBeat({
       id: "fresh-beat",
       kind: "event",
@@ -106,7 +109,7 @@ describe("flow virtualizer — 5k beats", () => {
     });
     await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
-    const ms = performance.now() - t0;
+    const ms = threadCpuWorkMs() - t0;
     const el = container.querySelector('[data-beat-id="fresh-beat"]');
     expect(el).not.toBeNull();
     // §1.5 budget: live event → its beat on screen < 100ms from receipt.

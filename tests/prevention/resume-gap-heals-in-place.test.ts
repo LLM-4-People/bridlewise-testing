@@ -28,6 +28,7 @@ import { WITHHELD_ERROR_MESSAGE, withheldTerminalFrame } from "../../server/rout
 import { messages, clearMessages } from "../../src/state/chat-messages";
 import { errors } from "../../src/state/errors";
 import { currentChatId, setChats } from "../../src/state/chats";
+import { until } from "../helpers/until.ts";
 
 class MockEventSource {
   static lastInstance: MockEventSource | null = null;
@@ -76,13 +77,6 @@ function historyResponse(): Response {
   });
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > timeoutMs) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}
 
 function emitAheadGap(): MockEventSource {
   openRunStream("run-1", {});
@@ -135,10 +129,10 @@ describe("an ahead-of-run gap reloads the saved conversation in place", () => {
     expect(interim?.content).toContain("reloaded in place");
     expect(interim?.content).not.toContain("Reload to see");
 
-    await waitFor(() => urls.some((u) => u.includes("/chats/chat-1/history")));
+    await until(() => urls.some((u) => u.includes("/chats/chat-1/history")));
     // The hydrate REPLACED the transcript with the saved conversation — the
     // healed state, which only the new path can produce.
-    await waitFor(() => messages.get().length === 0);
+    await until(() => messages.get().length === 0);
   });
 
   test("a failed in-place reload falls back to the honest manual sentence", async () => {
@@ -148,7 +142,7 @@ describe("an ahead-of-run gap reloads the saved conversation in place", () => {
     currentChatId.set("chat-1");
 
     emitAheadGap();
-    await waitFor(() =>
+    await until(() =>
       messages.get().some((m) => m.role === "error" && m.content.includes("could not be reloaded")),
     );
     const fallback = messages

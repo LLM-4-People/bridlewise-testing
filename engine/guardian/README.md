@@ -20,7 +20,7 @@ the kill, identity-safe child termination, subreaper cleanup of every
 descendant, an optional pass-through of the command's fd 3 (`--pass-fd`) and
 CPU receipts. `make test_process_supervisor` builds
 `build/test-process-supervisor` (`guardian/build.ts`
-`testProcessSupervisorBinary`). It lives here, not beside the tests, because
+`ensureTestProcessSupervisor`). It lives here, not beside the tests, because
 the product's own command runner needs it: a product checkout builds it from
 what ships.
 

@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
+import type { TreeReader } from "../../git/tree-reader.ts";
 import { InputError } from "../../kernel/errors.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 
@@ -31,13 +32,18 @@ export const INTAKE_PATH = `${COMMUNITY_DIRECTORY}/intake.json`;
 export const FEATURES_PATH = `${COMMUNITY_DIRECTORY}/features.json`;
 
 /** GitHub's repository permission levels, weakest first (`GET …/collaborators/{u}/permission` answers one). */
-const PERMISSION_LEVELS = Object.freeze(["read", "triage", "write", "maintain", "admin"] as const);
+export const PERMISSION_LEVELS = Object.freeze(["read", "triage", "write", "maintain", "admin"] as const);
 export type PermissionLevel = (typeof PERMISSION_LEVELS)[number];
 
-/** A claim's status: live, with the receipt that proves it today, or planned, with its tracking item. */
+/**
+ * A claim's status: live, with the receipt that proves it today, or planned,
+ * with its tracking item: an issue NUMBER of this repository, whose URL is
+ * generated from the repository identity (never spelled here, so a rename
+ * moves it).
+ */
 const STATUS = z.union([
   z.strictObject({ live: z.string().min(1) }),
-  z.strictObject({ planned: z.string().regex(/^https:\/\/github\.com\/\S+$/u, "a planned claim links its tracking item (an https://github.com/ URL)") }),
+  z.strictObject({ planned: z.number().int().positive() }),
 ]);
 export type ClaimStatus = z.infer<typeof STATUS>;
 
@@ -151,12 +157,24 @@ function invalid(path: string, why: string): never {
   throw new InputError(`${path} is invalid: ${why}`, "community_source_invalid", { path });
 }
 
-function readSource<T>(repositoryRoot: string, path: string, schema: z.ZodType<T>): T {
-  const file = join(repositoryRoot, path);
-  if (!existsSync(file)) invalid(path, "the file is missing");
+/**
+ * A community source file, parsed and checked against `schema` (missing, not
+ * JSON or off-schema: `community_source_invalid`), read from `source`: a
+ * repository root (its working tree) or a tree (a commit's: the projector
+ * reads the declared labels at its source commit).
+ */
+export function readCommunitySource<T>(source: string | TreeReader, path: string, schema: z.ZodType<T>): T {
+  let text: string | null;
+  if (typeof source === "string") {
+    const file = join(source, path);
+    text = existsSync(file) ? readFileSync(file, "utf8") : null;
+  } else {
+    text = source.text(path);
+  }
+  if (text === null) invalid(path, `the file is missing${typeof source === "string" ? "" : ` at ${source.label}`}`);
   let json: unknown;
   try {
-    json = JSON.parse(readFileSync(file, "utf8"));
+    json = JSON.parse(text);
   } catch (error) {
     invalid(path, `not JSON (${(error as Error).message})`);
   }
@@ -171,7 +189,7 @@ function duplicates(values: readonly string[]): readonly string[] {
 
 /** The role table, validated: unique ids and teams, permissions strictly rising, every member's role declared. */
 export function readRoles(repositoryRoot: string): CommunityRoles {
-  const roles = readSource(repositoryRoot, ROLES_PATH, ROLES);
+  const roles = readCommunitySource(repositoryRoot, ROLES_PATH, ROLES);
   const ids = roles.roles.map((role) => role.id);
   const repeated = [...duplicates(ids), ...duplicates(roles.roles.flatMap((role) => (role.team === null ? [] : [role.team])))];
   if (repeated.length > 0) invalid(ROLES_PATH, `declared twice: ${repeated.join(", ")}`);
@@ -188,7 +206,7 @@ export function readRoles(repositoryRoot: string): CommunityRoles {
 
 /** The intake registry, validated: unique form files and category slugs, every contact link resolvable. */
 export function readIntake(repositoryRoot: string): CommunityIntake {
-  const intake = readSource(repositoryRoot, INTAKE_PATH, INTAKE);
+  const intake = readCommunitySource(repositoryRoot, INTAKE_PATH, INTAKE);
   const slugs = intake.discussionCategories.map((category) => category.slug);
   const repeated = [...duplicates(intake.issueForms.map((form) => form.file)), ...duplicates(slugs)];
   if (repeated.length > 0) invalid(INTAKE_PATH, `declared twice: ${repeated.join(", ")}`);
@@ -203,7 +221,7 @@ export function readIntake(repositoryRoot: string): CommunityIntake {
 
 /** The features, validated: each id once. */
 export function readFeatures(repositoryRoot: string): readonly CommunityFeature[] {
-  const { features } = readSource(repositoryRoot, FEATURES_PATH, FEATURES);
+  const { features } = readCommunitySource(repositoryRoot, FEATURES_PATH, FEATURES);
   const repeated = duplicates(features.map((feature) => feature.id));
   if (repeated.length > 0) invalid(FEATURES_PATH, `declared twice: ${repeated.join(", ")}`);
   return features;

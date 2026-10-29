@@ -1,0 +1,20 @@
+{%- comment -%}
+  A decision record's own front matter, shown as the record's header: its
+  id, whether it is in force, how far it is built, and when and by whom it
+  was decided. Read from the record, never restated.
+{%- endcomment -%}
+{%- if page.implementation -%}
+{%- case page.implementation -%}
+  {%- when "done" -%}{%- assign built = "built" -%}
+  {%- when "partial" -%}{%- assign built = "partly built" -%}
+  {%- when "pending" -%}{%- assign built = "designed, not built" -%}
+  {%- when "standing" -%}{%- assign built = "a standing rule" -%}
+  {%- else -%}{%- assign built = page.implementation -%}
+{%- endcase -%}
+<dl class="record-head">
+  <div><dt>Record</dt><dd><code>{{ page.id }}</code></dd></div>
+  <div><dt>Status</dt><dd><span class="state" data-state="{{ page.status }}">{{ page.status | replace: "-", " " }}</span>{% if page.superseded_by %} by <code>{{ page.superseded_by }}</code>{% endif %}</dd></div>
+  <div><dt>Built</dt><dd><span class="state" data-state="{{ page.implementation }}">{{ built }}</span></dd></div>
+  <div><dt>Decided</dt><dd>{{ page.date | date: "%Y-%m-%d" }}{% if page.by %} by the {{ page.by }}{% endif %}</dd></div>
+</dl>
+{%- endif -%}

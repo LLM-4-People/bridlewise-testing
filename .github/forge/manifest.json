@@ -28,15 +28,27 @@
     },
     {
       "path": ".github/forge/security-configuration/org.bridlewise-baseline.json",
-      "sha256": "4bf8e1b9bc983d46958b6a428edd38af2af4a263fbe8202d70390d8c0292a4c9"
+      "sha256": "6b296b81809d5c53b7064227d4531d19990bb79abefeea178f7bd39f06bb8291"
+    },
+    {
+      "path": ".github/forge/security-configuration-repositories/org.bridlewise-baseline.json",
+      "sha256": "da948536aedccc765f9cbbf1d5bb37a511e1712b5753e52167fc4e2b900b19db"
+    },
+    {
+      "path": ".github/forge/security-configuration/org.bridlewise-baseline-private.json",
+      "sha256": "2c0a319b8c3c36f2bef1e7a99cce969f87428443cd6eafff2fc9c864e704cd34"
+    },
+    {
+      "path": ".github/forge/security-configuration-repositories/org.bridlewise-baseline-private.json",
+      "sha256": "3abcd3920f45c65b13e74fbfdc6af0fc5cb63751411098d062cde4e1e2e76120"
     },
     {
       "path": ".github/forge/team/org.triagers.json",
-      "sha256": "1f8bfdf2be3e9cd4591f87331f9fca73742d8e559d51518dccd14608cadc3f76"
+      "sha256": "627b4799771d1f5a53f7769187da6f33ddecd3f5525c6707a0f1453105e6fb2f"
     },
     {
       "path": ".github/forge/team/org.reviewers.json",
-      "sha256": "395b950eac3723624930789a2e00879ce83fba62dc57debdd30fb36840b171c3"
+      "sha256": "7324194debc474f379437150def39fa2706fc1186c04da95c1568ea7fba5126d"
     },
     {
       "path": ".github/forge/team-repository/bridlewise-testing.triagers.json",
@@ -48,7 +60,7 @@
     },
     {
       "path": ".github/forge/repository-settings/bridlewise-testing.bridlewise-testing.json",
-      "sha256": "fc0b60b18aa0b362edb529a6aab2dcfec54330d6dbaca4d626b6f467c717409d"
+      "sha256": "1022d35f9f70ee6c3ac0076c095c71d30c9bdb614e90850c732c3d1971789a52"
     },
     {
       "path": ".github/forge/actions-permissions/bridlewise-testing.bridlewise-testing.json",
@@ -76,7 +88,7 @@
     },
     {
       "path": ".github/forge/repository-settings/.github..github.json",
-      "sha256": "f22e46bbd06d6d13c7b5fd7f951555736b52ab91791e1f65d9cd691c517afbb8"
+      "sha256": "4008da78a2b3a003436ec67fd3a6d4ac7ce9e5ec8e70fe02d07aef4e52ceda1a"
     },
     {
       "path": ".github/forge/actions-permissions/.github..github.json",
@@ -104,7 +116,7 @@
     },
     {
       "path": ".github/forge/repository-settings/bridlewise-evidence.bridlewise-evidence.json",
-      "sha256": "8ff5f099b4af818369210d701675a0febde79c02321fcadbf12145f64e476cdc"
+      "sha256": "415a47b09efa1b60cfb6aa654e1f42ce1c16d955703c161c9a57ec20c8c9a819"
     },
     {
       "path": ".github/forge/actions-permissions/bridlewise-evidence.bridlewise-evidence.json",
@@ -132,7 +144,7 @@
     },
     {
       "path": ".github/forge/repository-settings/bridlewise-coordination.bridlewise-coordination.json",
-      "sha256": "59b8099ddff9e85fdbae8484714103d3239009df6057e563b8967a47d7742a86"
+      "sha256": "4816852ff726e723911d7de1b60b1c995be2fb8769dcf4c828c0adcdbb29de7f"
     },
     {
       "path": ".github/forge/actions-permissions/bridlewise-coordination.bridlewise-coordination.json",
@@ -171,8 +183,12 @@
       "sha256": "8f963efa048086551ca0fb832aea56b8a56d6b2df36102307eb4a1496ede458e"
     },
     {
+      "path": ".github/forge/environment/bridlewise-testing.github-pages.json",
+      "sha256": "57d0977b9e2638f99921c1247d41c629e8343d547fa9921d099ed88f22689ddc"
+    },
+    {
       "path": ".github/forge/org-ruleset/org.baseline.json",
-      "sha256": "7daa6c670e4a8c02fafb479a7600a8113e130702addf9987668bd466005c41b1"
+      "sha256": "3bc5a949c33658dd63e51e0a7d9137606ef17c19db53bf59c77d1004915e4fa3"
     },
     {
       "path": ".github/forge/ruleset/bridlewise-testing.trunk.json",
@@ -200,15 +216,31 @@
     },
     {
       "path": ".github/forge/ruleset/bridlewise-coordination.content-policy.json",
-      "sha256": "a5e8ad56f3b8b74525caecfe7a2178b63061e9f1afe8e753de7c43a56f45e6d9"
+      "sha256": "8eb040ac742abbeb1df8cde494ff41c3adb7f7a169f91c1bd50df4b535c52a5b"
     },
     {
       "path": ".github/forge/repository-settings/forge-proving-ground.forge-proving-ground.json",
-      "sha256": "aa03098a7d9f6002b2990480003357dfc263ea7b14ccaf729bcdf96b641f2b2a"
+      "sha256": "163017160fba5a9d1aee2fc3abbcd95723562f4e3449fb3018444090845b7b4e"
     },
     {
       "path": ".github/forge/ruleset/forge-proving-ground.proving-main.json",
       "sha256": "9ea8ea0adae12b40c0a3b1edda3b328ebfaf8fa55421539caa54adefec6b57be"
+    },
+    {
+      "path": ".github/forge/pages/bridlewise-testing.bridlewise-testing.json",
+      "sha256": "d23123fabb3f8e68fe646378e556ea42c3dccafac75a65c066fda2466845b9c8"
+    },
+    {
+      "path": ".github/forge/pages/forge-proving-ground.forge-proving-ground.json",
+      "sha256": "5286e8b75d72a543f58f3c5859f4fce2aadecebac46d10cbfcfa20ee126116b7"
+    },
+    {
+      "path": ".github/forge/pages/LLM-4-People.github.io.LLM-4-People.github.io.json",
+      "sha256": "fa80ac763a9905312e65af1ad88cb78c4190bc3a662361ac8ce6c04c5f3a48ba"
+    },
+    {
+      "path": ".github/forge/app-installation/LLM-4-People.github.io.publisher.json",
+      "sha256": "a2687e9b788256409db21a4e5a050e612e95d151c2ceae3ede09b8db5160edd1"
     },
     {
       "path": ".github/forge/label/bridlewise-testing.area_engine.json",
@@ -237,6 +269,22 @@
     {
       "path": ".github/forge/label/bridlewise-testing.area_tests.json",
       "sha256": "c4fa91d9e880db388913f05a6b58388c5c58244b2acb5486a234d1dc878cb221"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.good_first_issue.json",
+      "sha256": "d6956737fafc288e4d03fda27e3210fc3f8c5643da10404a1fe392992110b0eb"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.help_wanted.json",
+      "sha256": "25373b82a51c38aa9e48a183522a4cb25329177598403e07872b3038e260d528"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.dependencies.json",
+      "sha256": "aa0d78f6b4668b6d45c3d1e9716eef6003c382338aa892028499fefeed044092"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.javascript.json",
+      "sha256": "72bbafd8cfe4ee3ce747a6ba8809435439a08dbb9991f308198f88e9e57a0737"
     },
     {
       "path": ".github/forge/label/bridlewise-testing.lane_gh-1.json",
@@ -279,6 +327,22 @@
       "sha256": "b8707a959f4bb6585f244e02f3fc03a10ca01ce760a5b0afefd8d9e41ba7adde"
     },
     {
+      "path": ".github/forge/label/bridlewise-testing.lane_floor.json",
+      "sha256": "c16980b9774bd52ccf379341f2c98c10d001bfe9bbc105d1a26b95373b9b33d9"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.lane_roadmap.json",
+      "sha256": "eec0fdf3f998905777d092bf14b8ff838cacf519d2eebcce4ef6080a1dc99d2d"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.lane_flaky-burn-down.json",
+      "sha256": "103b0f9b7761e73328cddcae108a473530ea45b1d8c54215d4dca74eb44ce82d"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.lane_private-web.json",
+      "sha256": "af7550c23de51afd43176b2dd25c53d315754de9bff33164c700e732c7f9377d"
+    },
+    {
       "path": ".github/forge/label/bridlewise-testing.forge-drift.json",
       "sha256": "ab85a77871b0318d82cee5433eb07161934a956c583492497a57f5adbcd5286e"
     },
@@ -288,15 +352,15 @@
     },
     {
       "path": ".github/forge/label/bridlewise-testing.ci-failure.json",
-      "sha256": "f4a02cdaa1b8eb56c41f82144e93a0232dbf09a8d1ee572a665356aa42ce747a"
+      "sha256": "0987e275877a8dc93f3d7ad458cf5a2e6a359f2e2659118b91cc26267aceab9b"
     },
     {
       "path": ".github/forge/label/bridlewise-testing.needs-evidence.json",
       "sha256": "554dbc01f2a0763d8bf78c5b7ef0653f08fddc2a0c4b26775a3123cc842d5086"
     },
     {
-      "path": ".github/forge/label/bridlewise-testing.dependencies.json",
-      "sha256": "aa0d78f6b4668b6d45c3d1e9716eef6003c382338aa892028499fefeed044092"
+      "path": ".github/forge/issue-type/org.Milestone.json",
+      "sha256": "591f9cd3812d76c30fa8c620af457426bb911bc21996dbad9a1d61ff9554fbaf"
     },
     {
       "path": ".github/forge/issue-type/org.Workstream.json",
@@ -336,27 +400,31 @@
     },
     {
       "path": ".github/forge/issue-field/org.Severity.json",
-      "sha256": "8aa087aa384128bcbf50c0a28cc9e0c72fb8dbc057d1a18ef8e879dfe01721ba"
+      "sha256": "c605cd71dbdc668fe0605ef1d57ca5c8ad4a04c0128f25cfec0c8e4f6b7531c6"
     },
     {
       "path": ".github/forge/issue-field/org.Area.json",
-      "sha256": "45d43a47f396f7ddf89d1135fee5c25a9034ecef6a317712bf962d4dda76a30f"
+      "sha256": "bfc1f465ce4a4989f5b8e10f4d7dd6328b0a5f3bbaea7386d89ae993c08d5635"
     },
     {
       "path": ".github/forge/issue-field/org.Evidence.json",
-      "sha256": "5fa4a90b42d7ffee001951f23351384533fed0868cf1ce257b72817e5eb1b684"
+      "sha256": "a80960da32e069c70d7649120f68a4ff4503186b7167f983273cf03906ed5fd9"
     },
     {
       "path": ".github/forge/issue-field/org.CPU_headroom.json",
-      "sha256": "29b34a6cf39088342f984d161a1ddc87b206e6b8c6fd1fca0068011a997d0d3d"
+      "sha256": "d5715058967d17c851e47367e92f13e30a4d07ec1dda42b74588b60bb41ab584"
     },
     {
       "path": ".github/forge/project/org.Bridlewise.json",
-      "sha256": "bbce264d9deb952ac19f8330b5eb90494443d5d4d99f00fc28de06296fd6aa95"
+      "sha256": "74db374c1d8d3bb459149d0d60b4d20859daf032f69504ab8c56f4ea0b4d256a"
     },
     {
       "path": ".github/dependabot.yml",
       "sha256": "a9636142974b671d6a86e2c394bbd6fd1fcd31c3ea5a56d501547c63b7cbe345"
+    },
+    {
+      "path": ".github/forge/repository-identity.json",
+      "sha256": "1aad935dadab601cbd0406cb9768e1772348b4e79c22c19764411339753ec109"
     },
     {
       "path": ".github/CODEOWNERS",

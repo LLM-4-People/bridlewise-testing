@@ -37,61 +37,139 @@
  * refused the same way (L-2026-09-29-targeted-runs-need-a-private-key-home).
  */
 
+import { globSync, statSync } from "node:fs";
+
+import { InputError } from "../../src/kernel/errors.ts";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
-import { enforceTestRunLock, testFileCountOfArgs, type TestRunLock } from "./test-run-lock.ts";
+import { engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
+import { enforceTestRunLock, type TestRunLock } from "./test-run-lock.ts";
 import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 
+/**
+ * The flags node --test takes with NO value, which the door passes as they
+ * are. Every other flag must carry its value in the same token
+ * (`--name=value`): a value in the NEXT token would otherwise read as a test
+ * file to bound while node reads it as the flag's value — and node, left with
+ * no file, discovers its whole default set unbounded (`--import ./x.mjs`).
+ */
+const NODE_TEST_BOOLEAN_FLAGS = new Set(["--test-only", "--test-force-exit", "--test-randomize", "--test-update-snapshots", "--experimental-test-coverage", "--experimental-test-module-mocks", "--experimental-test-snapshots"]);
+
+/**
+ * The run the door hands node, EXACTLY: the flags as given, each either a
+ * known boolean or `--name=value`, and the test files, absolute — a file as
+ * given, or what a glob matches (expanded here, so node receives the very
+ * files the door bounds). Refused, typed:
+ *  - a flag whose value would sit in the next token (`test_guards_flag_value`);
+ *  - a FOLDER: node 24 does not expand one, it reports the folder as a failing
+ *    test (`test_guards_folder_argument`);
+ *  - a pattern that names no file (`test_guards_pattern_unmatched`);
+ *  - a run that names no file at all: node --test would then discover its
+ *    whole default set itself, outside the bounds (`test_guards_no_test_file`).
+ */
+export function doorRun(args: readonly string[], cwd: string): Readonly<{ flags: readonly string[]; files: readonly string[] }> {
+  const flags: string[] = [];
+  const files = new Set<string>();
+  for (const arg of args) {
+    if (arg.startsWith("-")) {
+      if (!arg.includes("=") && !NODE_TEST_BOOLEAN_FLAGS.has(arg)) {
+        throw new InputError(`${arg}: write a flag's value in the same argument (${arg}=<value>); a value in the next argument would be read as a test file here and as the flag's value by node`, "test_guards_flag_value");
+      }
+      flags.push(arg);
+      continue;
+    }
+    const path = resolve(cwd, arg);
+    const facts = statSync(path, { throwIfNoEntry: false });
+    if (facts?.isFile() === true) files.add(path);
+    else if (facts?.isDirectory() === true) {
+      throw new InputError(`${arg} is a folder: node --test does not expand a folder, so name its test files or a glob of them`, "test_guards_folder_argument");
+    } else {
+      const matched = globSync(arg, { cwd }).map((found) => resolve(cwd, found));
+      if (matched.length === 0) throw new InputError(`${arg} names no test file`, "test_guards_pattern_unmatched");
+      for (const found of matched) files.add(found);
+    }
+  }
+  if (files.size === 0) {
+    throw new InputError(
+      "the test door requires an explicit test file or pattern: with none, node --test discovers its whole default set itself, " +
+        "outside the suite's bounds (and fails on the non-test .mjs scripts under verification/). " +
+        "Name the files, e.g. `test/editor/binary-guard.test.ts`, or a glob of them.",
+      "test_guards_no_test_file",
+    );
+  }
+  return { flags, files: [...files].toSorted() };
+}
+
+/**
+ * THE ARGV the door hands node, EXACTLY and nothing else: the bounds'
+ * preload, `--test` with the backstop as its per-test timeout, the door's
+ * flags, then the very files it bounds — never the arguments it was given.
+ */
+export function doorNodeArgs(bounds: EngineTestBounds, door: ReturnType<typeof doorRun>): readonly string[] {
+  return ["--experimental-strip-types", engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...door.flags, ...door.files];
+}
+
 export async function main(): Promise<void> {
   const runner = `engine ${process.env.npm_lifecycle_event ?? "node --test"}`;
-  // The subset door (`test:unit`) must take an explicit file or pattern. With
-  // no argument, `node --test` discovers the WHOLE tree — including
-  // `verification/benchmarks/**` `.mjs` scripts that are not node:test files —
-  // and fails on them. Refuse the no-argument invocation here, at the one
-  // wrapper every subset run passes through, rather than letting the runner
-  // fail opaquely on a non-test file it discovered by default.
-  const lifecycleEvent = process.env.npm_lifecycle_event;
-  if (lifecycleEvent === "test:unit" && process.argv.slice(2).length === 0) {
-    process.stderr.write(
-      "[test-guards] test:unit requires an explicit test file or pattern " +
-        "(e.g. `npm run test:unit test/editor/binary-guard.test.ts`). With no " +
-        "argument, node --test discovers the whole tree — including non-test " +
-        "`.mjs` scripts under verification/ — and fails on them.\n",
-    );
-    process.exit(1);
+  // THE FILES FIRST, and none is a refusal (`boundedTestFiles`): every file
+  // this door runs runs under the suite's bounds, and node --test never
+  // discovers files of its own.
+  let door: ReturnType<typeof doorRun>;
+  try {
+    door = doorRun(process.argv.slice(2), process.cwd());
+  } catch (error) {
+    process.stderr.write(`[test-guards] ${error instanceof Error ? error.message : String(error)}\n`);
+    // The process ends by draining (process.exit can deadlock at shutdown: Node #54918, #351).
+    process.exitCode = 1;
+    return;
   }
   // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): a run of the
   // configured number of test files or more (the guards: a few hundred) is
   // admitted at once, under its per-run caps, and never waits for another
   // run; a targeted run of fewer is light and records nothing.
-  const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: testFileCountOfArgs(process.argv.slice(2)) });
+  const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: door.files.length });
   armTestKeyHome();
   // UNDER THE NATIVE SUPERVISOR (adopted into the run this door admitted): a
   // door killed outright leaves its `node --test` stopped with every process
   // it started, and the lock held until that is done — never a run orphaned
   // beside the next holder.
-  const { engineSuiteWatchdog } = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url)));
+  const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const testExecution = readTestExecutionConfig(engineRoot);
+  const { engineSuiteWatchdog } = testExecution;
+  // THE SUITE'S OWN BOUNDS (engine-test-bounds.ts, the one construction): every
+  // test file this door runs is judged by its CPU work against its class and
+  // ended only by the hang backstop, exactly as in the suite. A targeted run
+  // used to run with neither, so a CPU-class failure could never be seen —
+  // nor reproduced through `harness flake reproduce`, which runs here.
+  const bounds = { ...engineTestBoundsFrom(testExecution, engineRoot), files: door.files };
+  // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
+  const supervisor = ensureTestProcessSupervisor();
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(),
+    supervisor,
     command: process.execPath,
-    args: ["--experimental-strip-types", "--test", ...process.argv.slice(2)],
+    // `--test-timeout` IS the backstop, as the suite's `run({ timeout })` is:
+    // node:test arms it per test, and the bounds both require it and refuse any other.
+    args: doorNodeArgs(bounds, door),
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
     killGraceMs: engineSuiteWatchdog.killGraceMs,
     onStdout: (chunk) => process.stdout.write(chunk),
     onStderr: (chunk) => process.stderr.write(chunk),
     killOnInterrupt: true,
   });
-  lock.release();
+  // The run's own failure rides along if its run was cut at the memory cap (InstrumentHold.release).
+  lock.release(run.ending === "exited" && run.exitCode === 0 ? undefined : `node --test ended ${run.ending}${run.signal === null ? "" : ` (${run.signal})`} with exit code ${String(run.exitCode)}`);
   if (run.ending !== "exited") {
     process.stderr.write(`[test-guards] node --test ended by ${run.ending}${run.signal === null ? "" : ` (${run.signal})`}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
-  process.exit(run.exitCode);
+  process.exitCode = run.exitCode;
 }
 
 if (isEntryPoint(import.meta.url)) {

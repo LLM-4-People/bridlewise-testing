@@ -40,8 +40,7 @@
  * mount (`safe_path_root_ancestor_mountpoint`), and a tmpfs loses it.
  */
 
-import { appendFileSync, chmodSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, statSync, symlinkSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { appendFileSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, realpathSync, statSync, symlinkSync } from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -49,6 +48,7 @@ import { StringDecoder } from "node:string_decoder";
 import { generateId, sha256 } from "../kernel/integrity.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
+import { settleFileMode } from "../filesystem/file-mode.ts";
 import { QUALIFICATION_INVOCATION_ENV } from "../shared/run-history.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
@@ -57,11 +57,7 @@ import { trackedFiles } from "../git/repository-ownership.ts";
 import { CHECKOUT_COMMAND_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
-import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, SUBPROCESS_BOUNDS, commandRetryPolicy } from "./workflow-config.ts";
-import { atomicWriteFile } from "../filesystem/atomic-write.ts";
-import { workingTreeId } from "../git/working-copy.ts";
-import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, type InstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
-import { readTestExecutionConfig } from "./test-result-collector.ts";
+import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, commandRetryPolicy } from "./workflow-config.ts";
 import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
 
 /**
@@ -113,7 +109,7 @@ export type CommandRetryPolicy = Readonly<{
 
 /** How commands are run: the native supervisor binary, its kill grace, the output tail kept, and the errored-class retry policy. */
 export type CheckoutCommandRunner = Readonly<{
-  /** The native supervisor (`testProcessSupervisorBinary()`, built by the caller). */
+  /** The native supervisor (`ensureTestProcessSupervisor()`, built by the caller). */
   supervisor: string;
   killGraceMs: number;
   /** How many characters of a command's output (stdout and stderr, interleaved) are kept. */
@@ -122,8 +118,6 @@ export type CheckoutCommandRunner = Readonly<{
   retries: CommandRetryPolicy;
   /** Told when each command starts (an operator's progress line). */
   onStart?: (step: string, argv: readonly string[]) => void;
-  /** A test's own run registry and caps (the host's registry is never a test's to write); absent, the host's, from config. */
-  instrumentLock?: Readonly<{ lockPath: string; perRun: PerRunCaps }>;
 }>;
 
 /**
@@ -220,47 +214,7 @@ export async function runCheckoutCommand(
   command: CheckoutCommand,
   runner: CheckoutCommandRunner,
 ): Promise<CheckoutStep> {
-  if (command.holdsInstrumentLock === true) return runHoldingInstrumentLock(checkoutRoot, name, command, runner);
   return runWithRetries(checkoutRoot, name, command, runner);
-}
-
-/** This engine's root (the configuration that declares the host's instrument lock). */
-const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-
-/**
- * A SETUP COMMAND THAT IS A HEAVY INSTRUMENT (`holdsInstrumentLock`: the web
- * module cache warm-up collects the whole suite). It runs ONCE PER TREE: the
- * tree it ran for is recorded beside the checkout's gate logs (outside the
- * checkout, removed with it), and the same tree is not run again. Otherwise
- * THIS RUNNER admits it as a heavy run first — at once, never waiting for
- * another run (NO-LOAD-BLOCK) — so the command runs inside the admitted run
- * and under its caps (the vitest door borrows it).
- */
-async function runHoldingInstrumentLock(checkoutRoot: string, name: string, command: CheckoutCommand, runner: CheckoutCommandRunner): Promise<CheckoutStep> {
-  const marker = join(gateLogDirectory(checkoutRoot), `${name}.tree`);
-  const tree = workingTreeId(checkoutRoot);
-  if (existsSync(marker) && readFileSync(marker, "utf8").trim() === tree) {
-    return step(name, "pass", `already run for this tree (${tree}): a heavy setup command runs once per tree`);
-  }
-  const label = `checkout setup: ${name}`;
-  let hold: InstrumentHold;
-  if (runner.instrumentLock !== undefined) {
-    hold = admitInstrumentRun(runner.instrumentLock.lockPath, label, runner.instrumentLock.perRun, SUBPROCESS_BOUNDS);
-  } else {
-    const lock = readTestExecutionConfig(ENGINE_ROOT).instrumentLock;
-    if (lock === undefined) throw new InputError("testExecution.instrumentLock is not declared in bridlewise.config.json", "instrument_lock_undeclared");
-    hold = holdInstrumentLock({ config: lock, harnessRoot: ENGINE_ROOT, runner: label, testFileCount: wholeInstrumentTestFileCount(lock, "slot"), cpu: SUBPROCESS_BOUNDS });
-  }
-  try {
-    const outcome = await runWithRetries(checkoutRoot, name, command, runner);
-    if (outcome.status === "pass") {
-      const written = atomicWriteFile(marker, `${tree}\n`, { createMode: PRIVATE_STATE_FILE_MODE });
-      if (!written.success) throw new HarnessError(`the tree ${name} ran for could not be recorded at ${marker}: ${written.reason ?? "unknown"}`, "checkout_setup_record_failed");
-    }
-    return outcome;
-  } finally {
-    hold.release();
-  }
 }
 
 /** One command with the errored-class retries (see {@link runCheckoutCommand}). */
@@ -746,8 +700,10 @@ export function applyCheckoutFiles(
 export function settleCheckout(checkoutRoot: string, engineRelative: string): readonly CheckoutStep[] {
   const configPath = join(checkoutRoot, engineRelative, ROOT_POLICY.configuration.basename);
   if (!existsSync(configPath)) return Object.freeze([]);
-  chmodSync(configPath, Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
-  return Object.freeze([step("config-mode", "pass", `${ROOT_POLICY.configuration.requiredConfigFileMode} ${relative(checkoutRoot, configPath)}`)]);
+  // Through the one mode owner, which changes nothing when the mode is already right: a same-mode chmod
+  // still moves the ctime every configuration bootstrap compares (#293).
+  const changed = settleFileMode(configPath, Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
+  return Object.freeze([step("config-mode", "pass", `${ROOT_POLICY.configuration.requiredConfigFileMode} ${relative(checkoutRoot, configPath)}${changed ? "" : " (already)"}`)]);
 }
 
 /**

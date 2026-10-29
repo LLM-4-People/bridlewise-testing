@@ -18,6 +18,8 @@
  *   `POST /app/installations/{id}/access_tokens` require a valid RS256 JWT
  *   whose `iss` is the client id; the token is minted with exactly the asked
  *   permissions and repositories (a permission the installation lacks is 422);
+ *   `GET /app/installations` (JWT) answers the App's one installation, and
+ *   `GET /installation/repositories` the repositories a token reaches;
  * - the MANIFEST FLOW: {@link FakeGithub.pendingConversion} plants a code;
  *   `POST /app-manifests/{code}/conversions` answers its material once, as
  *   GitHub does (owner, name, permissions, events, the key);
@@ -36,7 +38,7 @@
  * Tokens are assembled at runtime from random bytes: no credential-shaped
  * literal is in the tree.
  */
-import { generateKeyPairSync, randomBytes, verify, type KeyObject } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, verify, type KeyObject } from "node:crypto";
 
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
 import { GITHUB_API_VERSION, type ForgeEndpoint } from "../../src/workflow/forge/port.ts";
@@ -44,8 +46,16 @@ import { address, serve } from "../support/loopback-upstream.ts";
 
 export const FAKE_GITHUB_ORIGIN = "https://api.github.com";
 
-export type FakeRequest = Readonly<{ method: string; path: string; query: URLSearchParams; headers: Headers; body: unknown }>;
-export type FakeAnswer = Readonly<{ status: number; body?: unknown; headers?: Readonly<Record<string, string>> }>;
+export type FakeRequest = Readonly<{ method: string; host: string; path: string; query: URLSearchParams; headers: Headers; body: unknown; bytes: Uint8Array | undefined }>;
+/** An answer: a JSON `body`, or `raw` bytes (an asset's). */
+export type FakeAnswer = Readonly<{ status: number; body?: unknown; raw?: Uint8Array; headers?: Readonly<Record<string, string>> }>;
+
+/** The uploads host (release assets are uploaded there) and the asset host a download is redirected to. */
+export const FAKE_UPLOADS_ORIGIN = "https://uploads.github.com";
+export const FAKE_ASSETS_ORIGIN = "https://release-assets.githubusercontent.com";
+
+/** One stored release asset: GitHub's record and its bytes. */
+export type FakeAsset = Readonly<{ record: Readonly<Record<string, unknown>>; bytes: Uint8Array }>;
 export type FakeRoute = (request: FakeRequest, match: RegExpMatchArray) => FakeAnswer | undefined;
 
 export type FakeApp = Readonly<{
@@ -87,8 +97,24 @@ export type FakeGithub = Readonly<{
   userToken: (principal: string) => string;
   installApp: (input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
   pendingConversion: (code: string, input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>) => FakeApp;
+  /**
+   * The status-check contexts that reported on `repository`'s default branch
+   * (`main`): its latest commit's check runs answer them, each from the App
+   * `appId` (GitHub Actions, 15368, unless named), and `statuses` as commit
+   * statuses. A repository with none answers empty lists, as GitHub does
+   * for a commit nothing ran on.
+   */
+  reportChecks: (owner: string, repository: string, contexts: readonly string[], options?: Readonly<{ appId?: number; statuses?: readonly string[] }>) => void;
+  /** Make every later attach of a security configuration to `owner/name` FAIL (its status `failed`). */
+  failSecurityAttach: (owner: string, name: string) => void;
   /** The principal a request's token belongs to (undefined when unknown). */
   principalOf: (request: FakeRequest) => string | undefined;
+  /** The release assets uploaded (or planted), by id. */
+  assets: Map<number, FakeAsset>;
+  /** Answer the asset host's requests with `handler` (a raw `Response` for a body that trickles or stalls); `undefined` restores the stored assets. */
+  onAssetHost: (handler: ((request: FakeRequest) => FakeAnswer | Response) | undefined) => void;
+  /** Answer the uploads host's requests with `handler` (an answer that may be held: a promise the test settles); `undefined` restores the stored uploads. */
+  onUploadsHost: (handler: ((request: FakeRequest) => FakeAnswer | Response | Promise<FakeAnswer | Response>) | undefined) => void;
 }>;
 
 function json(status: number, body: unknown, headers: Readonly<Record<string, string>> = {}): FakeAnswer {
@@ -117,7 +143,49 @@ export function fakeGithub(): FakeGithub {
   const conversions = new Map<string, FakeApp>();
   const tokenPolicy = { lifetimeMs: 3600_000 };
   const rate = { limit: 5000, remaining: 5000, resetEpochSeconds: Math.floor(Date.now() / 1000) + 3600 };
+  /** The contexts that reported on each repository's default branch, by `owner/name`. */
+  const reportedChecks = new Map<string, Readonly<{ runs: readonly string[]; appId: number; statuses: readonly string[] }>>();
+  const assets = new Map<number, FakeAsset>();
+  /** The signed asset URLs handed out, each to one asset. */
+  const signed = new Map<string, number>();
+  let assetHost: ((request: FakeRequest) => FakeAnswer | Response) | undefined;
+  let uploadsHost: ((request: FakeRequest) => FakeAnswer | Response | Promise<FakeAnswer | Response>) | undefined;
   let nextId = 1000;
+  /** Team memberships, by `org/team-slug`. */
+  const teamMembers = new Map<string, Set<string>>();
+  /** Code security: each configuration's attached repository ids, and its default for new repositories. */
+  const attachments = new Map<number, Map<number, string>>();
+  /** Repositories (by API path) where an attach FAILS, as GitHub's does for a feature it cannot enable there. */
+  const failingAttach = new Set<string>();
+  const configurationDefaults = new Map<number, string>();
+  /** A repository object's id (GitHub always answers one; a test that stored a repository without one gets a stable one). */
+  const repositoryIds = new Map<string, number>();
+  const repositoryId = (path: string): number => {
+    let id = repositoryIds.get(path);
+    if (id === undefined) { id = 500_000 + repositoryIds.size; repositoryIds.set(path, id); }
+    return id;
+  };
+
+  /** The uploads host and the asset host (`null` when the request is the API's). */
+  function assetHosts(request: FakeRequest): FakeAnswer | null | undefined {
+    if (request.host === new URL(FAKE_ASSETS_ORIGIN).host) {
+      // A signed URL: anonymous by design. GitHub's signed asset URLs refuse a request that carries an API credential.
+      if (request.headers.get("authorization") !== null) return json(400, { message: "Only one auth mechanism allowed" });
+      const id = signed.get(request.path.replace(/^\/assets\//u, ""));
+      const asset = id === undefined ? undefined : assets.get(id);
+      return asset === undefined ? json(404, { message: "Not Found" }) : { status: 200, raw: asset.bytes, headers: { "content-type": "application/octet-stream" } };
+    }
+    if (request.host !== new URL(FAKE_UPLOADS_ORIGIN).host) return null;
+    const upload = /^\/repos\/([^/]+)\/([^/]+)\/releases\/(\d+)\/assets$/u.exec(request.path);
+    if (request.method !== "POST" || upload === null) return json(404, { message: "Not Found" });
+    const name = request.query.get("name");
+    if (name === null || name === "") return json(422, { message: "name is required" });
+    const bytes = request.bytes ?? new Uint8Array();
+    const id = nextId++;
+    const record = { id, name, state: "uploaded", size: bytes.byteLength, content_type: request.headers.get("content-type") ?? "", digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}` };
+    assets.set(id, { record, bytes });
+    return json(201, record);
+  }
 
   function newApp(input: Readonly<{ slug: string; permissions: Readonly<Record<string, string>>; repositories: readonly string[] }>): FakeApp & { publicKey: KeyObject } {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -218,6 +286,72 @@ export function fakeGithub(): FakeGithub {
   }
 
   function builtIn(request: FakeRequest): FakeAnswer | undefined {
+    const head = /^\/repos\/([^/]+)\/([^/]+)\/commits\/main\/(check-runs|statuses)$/u.exec(request.path);
+    if (request.method === "GET" && head !== null) {
+      const reported = reportedChecks.get(`${head[1]!}/${head[2]!}`) ?? { runs: [], appId: 15368, statuses: [] };
+      return head[3] === "check-runs"
+        ? json(200, { total_count: reported.runs.length, check_runs: reported.runs.map((name, index) => ({ id: index + 1, name, status: "completed", conclusion: "success", app: { id: reported.appId } })) })
+        : json(200, reported.statuses.map((context, index) => ({ id: index + 1, context, state: "success" })));
+    }
+    const asset = /^\/repos\/[^/]+\/[^/]+\/releases\/assets\/(\d+)$/u.exec(request.path);
+    if (request.method === "GET" && asset !== null) {
+      const stored = assets.get(Number(asset[1]));
+      if (stored === undefined) return json(404, { message: "Not Found" });
+      if (request.headers.get("accept") !== "application/octet-stream") return json(200, stored.record);
+      // The bytes are a redirect to a signed, anonymous URL on the asset host (as GitHub answers them).
+      const token = runtimeToken("asset");
+      signed.set(token, Number(asset[1]));
+      return { status: 302, headers: { location: `${address(FAKE_ASSETS_ORIGIN)}/assets/${token}` } };
+    }
+    // Team members: the list, and a membership added or removed.
+    const membersOf = /^\/orgs\/([^/]+)\/teams\/([^/]+)\/members$/u.exec(request.path);
+    if (request.method === "GET" && membersOf !== null) return json(200, [...(teamMembers.get(`${membersOf[1]!}/${membersOf[2]!}`) ?? [])].sort().map((login) => ({ login })));
+    const membership = /^\/orgs\/([^/]+)\/teams\/([^/]+)\/memberships\/([^/]+)$/u.exec(request.path);
+    if (membership !== null && (request.method === "PUT" || request.method === "DELETE")) {
+      const key = `${membership[1]!}/${membership[2]!}`;
+      const members = teamMembers.get(key) ?? new Set<string>();
+      if (request.method === "PUT") members.add(membership[3]!); else members.delete(membership[3]!);
+      teamMembers.set(key, members);
+      return request.method === "PUT" ? json(200, { role: "member", state: "active" }) : { status: 204 };
+    }
+    // A repository answers its id.
+    if (request.method === "GET" && /^\/repos\/[^/]+\/[^/]+$/u.test(request.path) && objects.has(request.path)) {
+      return json(200, { id: repositoryId(request.path), ...(objects.get(request.path) as Record<string, unknown>) });
+    }
+    // Code security configurations: attach (selected repositories only), detach, defaults, and the attached list.
+    const security = /^\/orgs\/([^/]+)\/code-security\/configurations(?:\/(\d+))?\/(attach|defaults|repositories|detach)$/u.exec(request.path);
+    if (security !== null) {
+      const owner = security[1]!;
+      const id = security[2] === undefined ? undefined : Number(security[2]);
+      const body = (request.body ?? {}) as { scope?: string; selected_repository_ids?: number[]; default_for_new_repos?: string };
+      if (security[3] === "attach" && request.method === "POST" && id !== undefined) {
+        if (body.scope !== "selected") return json(422, { message: `this fake attaches only selected repositories, not ${String(body.scope)}` });
+        for (const set of attachments.values()) for (const repository of body.selected_repository_ids ?? []) set.delete(repository);
+        const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
+        const set = attachments.get(id) ?? new Map<number, string>();
+        for (const repository of body.selected_repository_ids ?? []) set.set(repository, failingAttach.has(byId.get(repository) ?? "") ? "failed" : "attached");
+        attachments.set(id, set);
+        return json(202, {});
+      }
+      if (security[3] === "detach" && request.method === "DELETE" && id === undefined) {
+        for (const set of attachments.values()) for (const repository of body.selected_repository_ids ?? []) set.delete(repository);
+        return { status: 204 };
+      }
+      if (security[3] === "defaults" && request.method === "PUT" && id !== undefined) {
+        configurationDefaults.set(id, String(body.default_for_new_repos));
+        return json(200, { default_for_new_repos: body.default_for_new_repos });
+      }
+      if (security[3] === "defaults" && request.method === "GET" && id === undefined) {
+        return json(200, [...configurationDefaults].map(([configuration, value]) => ({ default_for_new_repos: value, configuration: { id: configuration } })));
+      }
+      if (security[3] === "repositories" && request.method === "GET" && id !== undefined) {
+        const byId = new Map([...repositoryIds].map(([path, repositoryIdValue]) => [repositoryIdValue, path]));
+        // GitHub's `status` filter (comma-separated; `all` or none lists every status).
+        const wanted = request.query.get("status");
+        const statuses = wanted === null || wanted === "all" ? undefined : new Set(wanted.split(","));
+        return json(200, [...(attachments.get(id) ?? [])].filter(([, status]) => statuses === undefined || statuses.has(status)).map(([repository, status]) => ({ status, repository: { id: repository, name: byId.get(repository)?.split("/").at(-1) ?? "", full_name: `${owner}/${byId.get(repository)?.split("/").at(-1) ?? ""}` } })));
+      }
+    }
     const conversion = /^\/app-manifests\/([^/]+)\/conversions$/u.exec(request.path);
     if (request.method === "POST" && conversion !== null) {
       const app = conversions.get(conversion[1]!);
@@ -236,6 +370,22 @@ export function fakeGithub(): FakeGithub {
       if (app === undefined) return json(401, { message: "A JSON web token could not be decoded" });
       if (!app.repositories.includes(`${installation[1]!}/${installation[2]!}`)) return json(404, { message: "Not Found" });
       return json(200, { id: app.installationId, app_id: app.appId, app_slug: app.slug, permissions: app.permissions });
+    }
+    if (request.method === "GET" && request.path === "/app/installations") {
+      // The App's own installations (its JWT): one, on the owner of its repositories, on selected repositories.
+      const app = jwtApp(request.headers.get("authorization"));
+      if (app === undefined) return json(401, { message: "A JSON web token could not be decoded" });
+      const owner = app.repositories[0]?.split("/")[0] ?? "LLM-4-People";
+      return json(200, [{ id: app.installationId, app_id: app.appId, app_slug: app.slug, account: { login: owner, type: "Organization" }, repository_selection: "selected", permissions: app.permissions, events: [] }]);
+    }
+    if (request.method === "GET" && request.path === "/installation/repositories") {
+      // The repositories an installation token reaches (GitHub wraps the list).
+      const minted = tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "");
+      if (minted?.kind !== "installation") return json(403, { message: "Resource not accessible by integration" });
+      const app = apps.find((candidate) => candidate.slug === minted.principal)!;
+      const owner = app.repositories[0]!.split("/")[0]!;
+      const names = minted.repositories ?? [];
+      return json(200, { total_count: names.length, repository_selection: "selected", repositories: names.map((name) => ({ name, full_name: `${owner}/${name}` })) });
     }
     const accessTokens = /^\/app\/installations\/(\d+)\/access_tokens$/u.exec(request.path);
     if (request.method === "POST" && accessTokens !== null) {
@@ -264,9 +414,13 @@ export function fakeGithub(): FakeGithub {
     const base = new URL(FAKE_GITHUB_ORIGIN);
     let body: unknown;
     try { body = init.body === undefined ? undefined : JSON.parse(init.body); } catch { body = init.body; }
-    const request: FakeRequest = Object.freeze({ method: init.method, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body });
+    const request: FakeRequest = Object.freeze({ method: init.method, host: parsed.host, path: decodeURIComponent(parsed.pathname.slice(base.pathname.replace(/\/$/u, "").length)) || "/", query: parsed.searchParams, headers: init.headers, body, bytes: init.bytes });
     requests.push(request);
-    const answer = ((): FakeAnswer => {
+    const answer = await (async (): Promise<FakeAnswer | Response> => {
+      if (request.host === new URL(FAKE_ASSETS_ORIGIN).host) {
+        if (assetHost === undefined) return assetHosts(request)!;
+        return assetHost(request);
+      }
       if (request.headers.get("x-github-api-version") !== GITHUB_API_VERSION) return json(400, { message: "Unsupported API version" });
       const refusalIndex = refusals.findIndex((entry) => (entry.method === undefined || entry.method === request.method) && (entry.path === undefined || entry.path.test(request.path)));
       if (refusalIndex !== -1) {
@@ -283,12 +437,17 @@ export function fakeGithub(): FakeGithub {
         const routed = route.handler(request, match);
         if (routed !== undefined) return routed;
       }
+      if (uploadsHost !== undefined && request.host === new URL(FAKE_UPLOADS_ORIGIN).host) return await uploadsHost(request);
+      const hosted = assetHosts(request);
+      if (hosted !== null && hosted !== undefined) return hosted;
       const built = builtIn(request);
       if (built !== undefined) return built;
       if (!tokens.has(token ?? "")) return json(401, { message: "A JSON web token is not a token for this endpoint" });
       return store(request);
     })();
+    if (answer instanceof Response) return answer;
     const final = counted(answer, answer.status !== 304);
+    if (final.raw !== undefined) return new Response(Buffer.from(final.raw), { status: final.status, headers: { ...final.headers } });
     const hasBody = final.body !== undefined && final.status !== 204 && final.status !== 304;
     return new Response(hasBody ? JSON.stringify(final.body) : null, { status: final.status, headers: { ...(hasBody ? { "content-type": "application/json; charset=utf-8" } : {}), ...final.headers } });
   });
@@ -296,7 +455,8 @@ export function fakeGithub(): FakeGithub {
   return Object.freeze({
     apiUrl,
     endpoint: (overrides: Partial<ForgeEndpoint> = {}) => Object.freeze({
-      apiUrl, allowPrivateAddress: true, timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64,
+      apiUrl, uploadsUrl: address(FAKE_UPLOADS_ORIGIN), assets: { origins: [address(FAKE_ASSETS_ORIGIN)], maxBytes: 1_048_576, progressWindowMs: 30_000, minBytesPerWindow: 1_024, answerSilenceMs: 600_000 },
+      allowPrivateAddress: true, timeoutMs: 10_000, maxResponseBytes: 1_048_576, cleanupTimeoutMs: 1_000, etagCacheEntries: 64,
       userAgent: "bridlewise-forge-test", ...overrides,
     }),
     requests,
@@ -317,11 +477,21 @@ export function fakeGithub(): FakeGithub {
       return token;
     },
     installApp: (input) => newApp(input),
+    assets,
+    onAssetHost: (handler) => { assetHost = handler; },
+    onUploadsHost: (handler) => { uploadsHost = handler; },
     pendingConversion: (code, input) => {
       const app = newApp(input);
       conversions.set(code, app);
       return app;
     },
+    reportChecks: (owner, repository, contexts, options = {}) => {
+      const path = `/repos/${owner}/${repository}`;
+      // The repository answers its default branch (merged into what a test stored there).
+      objects.set(path, { ...(objects.get(path) as Record<string, unknown> | undefined), default_branch: "main" });
+      reportedChecks.set(`${owner}/${repository}`, { runs: [...contexts], appId: options.appId ?? 15368, statuses: [...(options.statuses ?? [])] });
+    },
+    failSecurityAttach: (owner, name) => { failingAttach.add(`/repos/${owner}/${name}`); },
     principalOf: (request: FakeRequest) => tokens.get(request.headers.get("authorization")?.replace(/^Bearer /u, "") ?? "")?.principal,
   });
 }

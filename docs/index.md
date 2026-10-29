@@ -1,21 +1,27 @@
 ---
 layout: default
-title: "Bridlewise — every run, recorded. Every tool, governed."
-description: "A local-first, experimental coding cockpit. The repository is a run record: eight beats from intent to release, with governed tools and visible limits."
+# BEGIN GENERATED: the site's title and description, from docs/brand/messaging.json (harness sync)
+title: "Bridlewise: Every claim comes with a receipt."
+description: "Where Bridlewise, a free, local-first cockpit for AI coding runs, is built and verified. Every public claim links to the check that backs it, and a claim whose check fails is retracted automatically. Developer preview: not production-ready, not for sensitive code."
+# END GENERATED: the site's title and description
 permalink: /
 page_class: home
 ---
 
 <section class="hero">
-  <p class="eyebrow">Developer preview <span class="dot" aria-hidden="true"></span> Pre-admission <span class="dot" aria-hidden="true"></span> AGPL-3.0</p>
-  <h1>Every run, recorded.<br><span class="beam-text">Every tool, governed.</span></h1>
-  <p class="lede">Bridlewise is a coding cockpit you run on your own machine. A conversation becomes a run: a recorded causal stream of model turns, tool calls, file effects, checks, and findings — with the tool surface gated before and during execution. The repository is its flight recorder.</p>
+<!-- BEGIN GENERATED: the site's front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->
+  <p class="eyebrow">Bridlewise <span class="dot" aria-hidden="true"></span> AGPL-3.0 <span class="dot" aria-hidden="true"></span> Developer preview</p>
+  <h1>Every claim comes with a receipt.</h1>
+  <p class="lede">Bridlewise is a free, open-source, local-first cockpit for AI coding runs. Every claim it makes about itself links to the check that backs it, and a claim whose check fails is struck out automatically.</p>
+  <p class="lede">This repository is the development floor: the source of Bridlewise together with every test, prevention guard, benchmark and decision record. The product repository is projected from it.</p>
   <div class="actions">
     <a class="button primary" href="{{ '/quickstart/' | relative_url }}">Start with a disposable copy</a>
-    <a class="button" href="{{ '/run/' | relative_url }}">Open the run record</a>
+    <a class="button" href="{{ '/floor/claims/' | relative_url }}">Check every claim</a>
+    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>
     <a class="button" href="{{ site.repository_url }}">Read the source</a>
   </div>
-  <p class="hero-note">Node 24 · Linux first · loopback only · SQLite · no hosted service</p>
+  <p class="hero-note">Developer preview. Not production-ready, not audited, not for sensitive code.</p>
+<!-- END GENERATED: the site's front door -->
 
   <figure class="hero-figure">
     <img src="{{ '/assets/hero.png' | relative_url }}" alt="The Bridlewise cockpit: a run rendered as a causal stream of turns, tool calls, file effects, checks, and findings">

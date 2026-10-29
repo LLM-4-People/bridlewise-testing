@@ -7,12 +7,13 @@
  * checked, never cast.
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { runRecordedCommand } from "../../scripts/tooling/recorded-command.ts";
 import { isProcessAlive } from "../../src/process/process-facts.ts";
 import { readSupervisorReceipt, runBoundedTestProcess, startDetached, superviseCommand } from "../../src/process/supervised-run.ts";
@@ -33,7 +34,7 @@ test("a supervised command's detached grandchild does not survive it, and its fd
   const pidFile = join(createTempDir("supervised-run-"), "grandchild.pid");
   const result: Buffer[] = [];
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(), command: process.execPath, args: ["-e", leavesAGrandchild(pidFile, 4)],
+    supervisor: ensureTestProcessSupervisor(), command: process.execPath, args: ["-e", leavesAGrandchild(pidFile, 4)],
     hardCeilingMs: 60_000, killGraceMs: 500, onStdout: () => undefined, onStderr: () => undefined, onResult: (chunk) => result.push(chunk),
   });
   const grandchild = Number(readFileSync(pidFile, "utf8"));
@@ -51,7 +52,7 @@ test("a STOP reaches the command first (SIGTERM, within the grace), then the run
     process.on("SIGTERM", () => { writeSync(3, "terminated-gracefully"); process.exit(0); });
     writeSync(1, "ready\\n"); setInterval(() => {}, 1000);`;
   const running = superviseCommand({
-    supervisor: testProcessSupervisorBinary(), command: process.execPath, args: ["-e", script], hardCeilingMs: 60_000, killGraceMs: 5_000,
+    supervisor: ensureTestProcessSupervisor(), command: process.execPath, args: ["-e", script], hardCeilingMs: 60_000, killGraceMs: 5_000,
     onStdout: (chunk) => { if (chunk.toString("utf8").includes("ready")) stop.abort(); }, onStderr: () => undefined,
     onResult: (chunk) => result.push(chunk), stop: stop.signal,
   });
@@ -66,7 +67,7 @@ test("the recorded command (the engine worker's launch) runs supervised: the obs
   const observation = await runRecordedCommand({
     arguments: ["-e", leavesAGrandchild(pidFile, 0)],
     cwd: process.cwd(),
-    supervision: { supervisor: testProcessSupervisorBinary(), hardCeilingMs: 60_000, killGraceMs: 500 },
+    supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: 60_000, killGraceMs: 500 },
   });
   assert.equal(observation.exitCode, 0);
   assert.equal(observation.spawnErrorCode, null);
@@ -115,28 +116,28 @@ function killQuietly(pid: number): void {
 test("runBoundedTestProcess is ITSELF bounded: a supervisor that never closes (a holder keeps its pipes) is refused within the ceiling plus two graces", (t) => {
   const fake = fakeSupervisor("never-closes");
   t.after(() => killQuietly(fake.holderPid()));
-  const started = Date.now();
   assert.throws(
     () => runBoundedTestProcess(fake.path, process.execPath, ["-e", "0"], { timeoutMs: 1_000, killGraceMs: 200 }),
     (error: unknown) => (error as { code?: string }).code === "test_process_supervisor_failed",
   );
-  const elapsed = Date.now() - started;
-  // 1400 ms is the bound; the fake itself would hold the call for 30 s.
-  assert.ok(elapsed < 10_000, `the bounded launch hung for ${String(elapsed)} ms`);
+  // ENDED BY ITS BOUND, observed by its path, never by a wall clock
+  // (NO-LOAD-BLOCK): the fake would have held the call until its holder's
+  // 30 s sleep ended, and the holder is still alive, so the bound ended it.
+  assert.equal(isProcessAlive(fake.holderPid()), true, "the launch waited for the holder to let go of its pipes");
 });
 
 test("the run is EXIT-BACKED: a supervisor that exits while a holder keeps its pipes settles within the grace, unverified and with its output marked incomplete", async (t) => {
   const fake = fakeSupervisor("exits");
   t.after(() => killQuietly(fake.holderPid()));
-  const started = Date.now();
   const run = await superviseCommand({
     supervisor: fake.path, command: process.execPath, args: ["-e", "0"], hardCeilingMs: 60_000, killGraceMs: 300,
     onStdout: () => undefined, onStderr: () => undefined,
   });
-  const elapsed = Date.now() - started;
   assert.equal(run.ending, "unverified", "no receipt came, so the run is not certified");
   assert.equal(run.outputComplete, false, "a pipe a holder kept open was reported complete");
-  assert.ok(elapsed < 10_000, `the run waited ${String(elapsed)} ms for pipes a holder kept open (30 s)`);
+  // SETTLED BY THE EXIT, observed by its path (NO-LOAD-BLOCK): the holder
+  // keeps the pipes open for 30 s and is still alive, so the run did not wait for them.
+  assert.equal(isProcessAlive(fake.holderPid()), true, "the run waited for pipes a holder kept open");
 });
 
 test("the recorded command marks its pipes INCOMPLETE when the supervised output did not end (the observation never claims bytes it did not see end)", async (t) => {
@@ -157,7 +158,7 @@ test("a stop requested BEFORE the supervisor announced its command still reaches
     const stop = new AbortController();
     stop.abort();
     const run = await superviseCommand({
-      supervisor: testProcessSupervisorBinary(), command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"], hardCeilingMs: 60_000, killGraceMs: 5_000,
+      supervisor: ensureTestProcessSupervisor(), command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"], hardCeilingMs: 60_000, killGraceMs: 5_000,
       onStdout: () => undefined, onStderr: () => undefined, stop: stop.signal,
     });
     assert.equal(run.ending, "stopped", `attempt ${String(attempt)}: ${run.ending}`);
@@ -175,7 +176,7 @@ test("DRIVEN: a terminal Ctrl-C (SIGINT to the runner's whole process group) is 
     process.on("SIGTERM", () => { writeFileSync(${JSON.stringify(graceful)}, "yes"); process.exit(0); });
     writeFileSync(${JSON.stringify(ready)}, "1"); setInterval(() => {}, 1000);`;
   const runner = `const { superviseCommand } = await import(${JSON.stringify(owner)});
-    const run = await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: process.execPath,
+    const run = await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: process.execPath,
       args: ["-e", ${JSON.stringify(command)}], hardCeilingMs: 60_000, killGraceMs: 10_000,
       onStdout: () => undefined, onStderr: () => undefined, killOnInterrupt: true });
     process.stdout.write(JSON.stringify({ ending: run.ending, status: run.status, commandKilled: run.supervision?.commandKilled }));`;
@@ -196,15 +197,17 @@ test("DRIVEN: a terminal Ctrl-C (SIGINT to the runner's whole process group) is 
 
 test("the grace is the CALLER's (the suite watchdog's killGraceMs): a command that ignores its stop is killed when that grace ends", async () => {
   const stop = new AbortController();
-  const started = Date.now();
   const run = await superviseCommand({
-    supervisor: testProcessSupervisorBinary(), command: process.execPath,
+    supervisor: ensureTestProcessSupervisor(), command: process.execPath,
     args: ["-e", `process.on("SIGTERM", () => {}); process.stdout.write("ready\\n"); setInterval(() => {}, 1000);`],
     hardCeilingMs: 60_000, killGraceMs: 300,
     onStdout: (chunk) => { if (chunk.toString("utf8").includes("ready")) stop.abort(); }, onStderr: () => undefined, stop: stop.signal,
   });
   assert.equal(run.supervision?.commandKilled, true, "a command ignoring its stop was not killed");
-  assert.ok(Date.now() - started < 2_500, `the kill waited ${String(Date.now() - started)} ms for a 300 ms grace`);
+  // KILLED AT THE GRACE, read from the supervisor's own receipt (NO-LOAD-BLOCK):
+  // a kill that waited for the 60 s hard ceiling records that it timed out.
+  // (`run.ending` cannot tell them apart: a stopped run is "stopped" either way.)
+  assert.equal(run.supervision?.timedOut, false, "the stop's grace ended the command, not the hard ceiling");
 });
 
 test("DRIVEN: a runner that DIES (SIGKILL) stops its supervisor (the parent-death signal): the command gets its grace, and nothing outlives the runner", async (t) => {
@@ -218,7 +221,7 @@ test("DRIVEN: a runner that DIES (SIGKILL) stops its supervisor (the parent-deat
     process.on("SIGTERM", () => { writeFileSync(${JSON.stringify(graceful)}, "yes"); process.exit(0); });
     writeFileSync(${JSON.stringify(ready)}, String(process.pid)); setInterval(() => {}, 1000);`;
   const runner = `const { superviseCommand } = await import(${JSON.stringify(owner)});
-    await superviseCommand({ supervisor: ${JSON.stringify(testProcessSupervisorBinary())}, command: process.execPath,
+    await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: process.execPath,
       args: ["-e", ${JSON.stringify(command)}], hardCeilingMs: 60_000, killGraceMs: 10_000,
       onStdout: () => undefined, onStderr: () => undefined });`;
   const child = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", runner], { stdio: "ignore" });
@@ -245,7 +248,7 @@ async function stoppedBare(stops: readonly NodeJS.Signals[], delayMs: number): P
   const command = `const { writeFileSync } = require("node:fs");
     process.on("SIGTERM", () => setTimeout(() => { writeFileSync(${JSON.stringify(graceful)}, "yes"); process.exit(0); }, ${String(delayMs)}));
     writeFileSync(${JSON.stringify(ready)}, "1"); setInterval(() => {}, 1000);`;
-  const supervisor = spawn(testProcessSupervisorBinary(), ["60000", "10000", process.execPath, "-e", command], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
+  const supervisor = spawn(ensureTestProcessSupervisor(), ["60000", "10000", process.execPath, "-e", command], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
   let receipt = "";
   (supervisor.stdio[3] as NodeJS.ReadableStream).on("data", (chunk: Buffer) => { receipt += chunk.toString("utf8"); });
   // Listened for before any stop: a kill at once closes it within the 20 ms below.
@@ -296,4 +299,21 @@ test("startDetached: a background run's stderr lands in the open log its caller 
   assert.equal(readFileSync(first.path, "utf8"), "the first run's head\nthe first run's tail\n", "the running run's log is whole: never truncated, no hole");
   assert.equal(readFileSync(second.path, "utf8"), "the second", "each run its own log only");
   for (const { path } of [first, second]) assert.equal(statSync(path).mode & 0o777, 0o600);
+});
+
+test("ONE way to the supervisor: ensureTestProcessSupervisor builds once per process, and nothing else names the binary (#293)", () => {
+  // Once per process: a second call runs no make (counted in a child whose spawnSync is wrapped).
+  const owner = pathToFileURL(new URL("../../guardian/build.ts", import.meta.url).pathname).href;
+  const script = `import cp from "node:child_process";import {syncBuiltinESMExports} from "node:module";
+    let makes=0;const real=cp.spawnSync;cp.spawnSync=(command,...rest)=>{if(command==="make")makes++;return real(command,...rest);};syncBuiltinESMExports();
+    const {ensureTestProcessSupervisor}=await import(${JSON.stringify(owner)});
+    const first=ensureTestProcessSupervisor(),second=ensureTestProcessSupervisor();console.log(JSON.stringify({makes,same:first===second}));`;
+  const child = spawnSync(process.execPath, ["--no-warnings", "--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
+  assert.deepEqual(JSON.parse(child.stdout.trim().split("\n").at(-1)!), { makes: 1, same: true });
+  assert.ok(statSync(ensureTestProcessSupervisor()).isFile());
+  // Nothing else spells the binary's path: the only way to it is the function that builds it first.
+  const repository = new URL("../../../", import.meta.url).pathname;
+  const spelled = spawnSync("git", ["grep", "-l", "-e", ["build", "test-process-supervisor"].join("/"), "--", "*.ts", "*.mjs", "*.js"], { cwd: repository, encoding: "utf8" });
+  assert.deepEqual(spelled.stdout.split("\n").filter(Boolean), ["engine/guardian/build.ts"]);
 });

@@ -1,12 +1,11 @@
 /**
  * THE ROADMAP FEED, AT A COMMIT: `roadmap.json` (`bridlewise-roadmap-feed/v1`,
  * src/workflow/forge/projector/roadmap-feed.ts) for the site build and any
- * reader of the roadmap. It is a pure function of the commit, computed in a
- * process confined by this engine's guardian (built:
- * `make -C engine/guardian all`), so the roadmap at ANY commit is this
- * command at that commit. The computation is a whole instrument of the run
- * registry (`projection`): admitted at once under the per-run cgroup caps. A
- * host where it cannot confine or cap is a typed refusal.
+ * reader of the roadmap. It is a pure function of the commit (computed in the
+ * projector's sealed realm), so the roadmap at ANY commit is this command at
+ * that commit. It runs confined by this engine's guardian (built:
+ * `make -C engine/guardian all`); a host where it cannot confine is a typed
+ * refusal.
  *
  *   node scripts/tooling/roadmap-feed.ts --at <commit> --repository-url https://github.com/<owner>/<repo> [--out <file>] [--minimum-weeks <n>]
  *
@@ -23,10 +22,8 @@ import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { computeRoadmapFeed, roadmapFeedInput } from "../../src/workflow/forge/projector/projection.ts";
-import { configuredConfinement } from "../../src/workflow/forge/projector/confined.ts";
-import { DEFAULT_PROJECTION_CPU_SECONDS, DEFAULT_ROADMAP_ETA_MINIMUM_WEEKS } from "../../src/workflow/workflow-config.ts";
-import { keyHomeLocation, openStoreRegistry } from "../../src/filesystem/self-protection/key-home.ts";
-import { engineConfigDocumentPath } from "../../src/kernel/config.ts";
+import { hostConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { DEFAULT_ROADMAP_ETA_MINIMUM_WEEKS } from "../../src/workflow/workflow-config.ts";
 
 function run(argv: readonly string[]): number {
   const { values } = parseArgs({ args: [...argv], options: { at: { type: "string" }, "repository-url": { type: "string" }, out: { type: "string" }, "minimum-weeks": { type: "string" } } });
@@ -36,9 +33,8 @@ function run(argv: readonly string[]): number {
   if (!Number.isInteger(minimumWeeks) || minimumWeeks < 1) throw new InputError("--minimum-weeks must be a whole number of at least 1", "input_error");
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
   const repositoryRoot = dirname(engineRoot);
-  // Computed confined by the guardian: this engine's, with the host's own keep-out facts (its key home's registry, its config document).
-  const confinement = configuredConfinement(resolve(engineRoot), { hostPaths: [engineConfigDocumentPath()], registry: openStoreRegistry(keyHomeLocation()) }, DEFAULT_PROJECTION_CPU_SECONDS);
-  const { feed } = computeRoadmapFeed(roadmapFeedInput(configuredGitRepository({}, repositoryRoot), values.at, values["repository-url"], minimumWeeks), confinement);
+  // Computed confined by the guardian: this engine's, with the host's own keep-out facts.
+  const { feed } = computeRoadmapFeed(roadmapFeedInput(configuredGitRepository({}, repositoryRoot), values.at, values["repository-url"], minimumWeeks), hostConfinement(engineRoot));
   const text = `${JSON.stringify(feed)}\n`;
   if (values.out === undefined) {
     process.stdout.write(text);

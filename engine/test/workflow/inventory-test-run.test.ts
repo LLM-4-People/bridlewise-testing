@@ -23,6 +23,7 @@ import {
   removeRepositoryLocalTemporaryDirectory,
 } from "../support/repository-local-temporary.ts";
 import { allProcessIds, commandLineOf, isProcessAlive, parentOf } from "../../src/process/process-facts.ts";
+import { thinHeadroom } from "../../scripts/tooling/test-cpu-class.ts";
 
 const PASSING_SOURCE = `import test from "node:test";\ntest("pass", () => {});\n`;
 const SERIAL_MARKER_SOURCE = `import test from "node:test";\n// runWorkerWithEvidence\ntest("serial", () => {});\n`;
@@ -95,6 +96,7 @@ type SubprocessResult = Readonly<{
   failures: readonly string[];
   failureDetails: readonly TestFailureDetail[];
   receiptDetails: readonly TestFailureDetail[];
+  testCpu: readonly Readonly<{ identity: string; cpuMs: number }>[];
 }>;
 
 /** Writes `files` and the executor helper (the production entry point, driven in its own process); returns the helper's path. */
@@ -122,13 +124,13 @@ function executorHelper(
     `const inventory = buildTestInventory(root, { dispositionManifest: manifest });\n` +
     `const accounting = await executeInventoryTestRun(root, inventory, opts);\n` +
     `const { createTestReceipt, createTestResultReceipt, parseTestResultReceiptValue } = await import(${JSON.stringify(resolve(process.cwd(), "scripts/tooling/test-receipt.ts"))});\n` +
-    `const { CANDIDATE_MANIFEST_SCHEMA_VERSION } = await import(${JSON.stringify(resolve(process.cwd(), "scripts/tooling/candidate-manifest.ts"))});\n` +
+    `const { CANDIDATE_MANIFEST_SCHEMA_VERSION } = await import(${JSON.stringify(resolve(process.cwd(), "scripts/verification/candidate-manifest.ts"))});\n` +
     // Synthetic candidate identity belongs only to this receipt fixture.
     `const candidate = { manifestSchemaVersion: CANDIDATE_MANIFEST_SCHEMA_VERSION, formatPolicyRevision: "candidate-format/v1", semanticTreeHash: "0".repeat(64), formatVerificationHash: "1".repeat(64) };\n` +
     `const receipt = createTestReceipt(candidate, inventory, accounting.discoveredIds, accounting.passedIds, accounting.counts, accounting.gatedTestIds, accounting.loadCrashCount, accounting.abortedFileCount);\n` +
     `const result = createTestResultReceipt(receipt, accounting.runnerSummary, candidate, accounting.failures, accounting.unknownTests, accounting.failureDetails);\n` +
     `const parsed = parseTestResultReceiptValue(JSON.parse(JSON.stringify(result)));\n` +
-    `process.stdout.write(JSON.stringify({ passed: accounting.passed, counts: accounting.counts, loadCrashCount: accounting.loadCrashCount, runnerSummary: accounting.runnerSummary, reasons: accounting.reasons, failures: accounting.failures, failureDetails: accounting.failureDetails, receiptDetails: parsed.result.diagnostic?.failureDetails ?? [] }));\n`;
+    `process.stdout.write(JSON.stringify({ passed: accounting.passed, counts: accounting.counts, loadCrashCount: accounting.loadCrashCount, runnerSummary: accounting.runnerSummary, reasons: accounting.reasons, failures: accounting.failures, failureDetails: accounting.failureDetails, receiptDetails: parsed.result.diagnostic?.failureDetails ?? [], testCpu: accounting.testCpu }));\n`;
   const helperPath = join(root, "helper.mts");
   writeFileSync(helperPath, helperSource, "utf8");
   return helperPath;
@@ -292,6 +294,15 @@ test("executeInventoryTestRun: every test file's process is BOUNDED BY CPU WORK 
   assert.match(said("burns CPU past its class"), /ms of CPU work, over its planted class ceiling of 150 ms/u);
   assert.equal(said("waits far past its class"), "[]", "waiting is not work: a test that sleeps past its CPU ceiling in wall time passes");
   assert.equal(said("\"clean\""), "[]");
+  // EACH TEST'S CPU READING IS RECORDED, by its identity, from the judgement's own diagnostic.
+  const cpu = new Map(out.testCpu.map((reading) => [reading.identity, reading.cpuMs]));
+  assert.ok((cpu.get(`${file}::burns CPU past its class`) ?? 0) >= 380, JSON.stringify(out.testCpu));
+  assert.ok(cpu.has(`${file}::clean`), "every judged test has its reading, not only the failing ones");
+  // …and THE HEADROOM SIGNAL names the tests over ceiling / headroomFactor (150 / 2 = 75 ms here).
+  const thin = thinHeadroom({ defaultCeilingMs: 100_000, headroomFactor: 2, classes: [{ name: "planted", measuredCpuMs: 75, files: [classPath] }] },
+    out.testCpu, (identity) => relative(resolve(root, ".."), join(root, identity.slice(0, identity.indexOf("::")))).split(sep).join("/"));
+  assert.deepEqual(thin.map((one) => one.identity), [`${file}::burns CPU past its class`]);
+  assert.equal(thin[0]?.ceilingMs, 150);
 });
 
 test("executeInventoryTestRun: the per-test bounds live in the test file's own process only — a worker thread or child node the test starts with the inherited options never reports as a test file of its own (the accounting stays whole)", () => {
@@ -404,14 +415,18 @@ test("executeInventoryTestRun: a file that never EXITS after its cancelled test 
 
 test("executeInventoryTestRun: a run still reporting at its hard ceiling is killed, and the run FAILS", () => {
   const root = makeRoot("ceiling-watchdog");
-  const started = Date.now();
-  const out = runExecutorSubprocess(root, [{ path: "test/endless.test.ts", source: ENDLESS_SOURCE }], "auto", 1,
+  const helperPath = executorHelper(root, [{ path: "test/endless.test.ts", source: ENDLESS_SOURCE }], "auto", 1,
     { engineSuiteWatchdog: { stallTimeoutMs: 30_000, hardCeilingMs: 3_000, killGraceMs: 1_000 } });
-  const elapsed = Date.now() - started;
+  const ran = spawnSync(process.execPath, [helperPath], { encoding: "utf8", env: CLEAN_SUBPROCESS_ENV });
+  assert.equal(ran.status, 0, `subprocess exited ${String(ran.status)}: ${ran.stderr}`);
+  const out = JSON.parse(ran.stdout) as SubprocessResult;
   assert.equal(out.passed, false);
   assert.ok(out.counts.passed < 60, "the file was ended before its last step");
   assert.ok(out.failureDetails.some((detail) => detail.error?.failureType === "testAborted"));
-  assert.ok(elapsed >= 3_000 && elapsed < 20_000, `ended by the 3 s ceiling (and not by the stall bound): ${elapsed} ms`);
+  // ENDED BY THE CEILING, read from the watchdog's own word (it names the one
+  // bound that fired), never from a wall clock (NO-LOAD-BLOCK).
+  assert.match(ran.stderr, /\[run-tests\] HARD CEILING:/u, "the hard ceiling ended the run");
+  assert.doesNotMatch(ran.stderr, /\[run-tests\] STALLED:/u, "the stall bound did not");
 });
 
 test("executeInventoryTestRun: a SIGTERM ends the run — the running file is killed and reported aborted, long before any watchdog", async () => {
@@ -421,7 +436,6 @@ test("executeInventoryTestRun: a SIGTERM ends the run — the running file is ki
   const root = makeRoot("terminate");
   const helperPath = executorHelper(root, [{ path: "test/leak.test.ts", source: LEAKING_SOURCE }], "auto", 1,
     { testHangBackstopMs: 60_000, engineSuiteWatchdog: { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 1_000 } });
-  const started = Date.now();
   const child = spawn(process.execPath, [helperPath], { env: CLEAN_SUBPROCESS_ENV, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
@@ -438,13 +452,14 @@ test("executeInventoryTestRun: a SIGTERM ends the run — the running file is ki
   assert.ok(fileProcess !== undefined, `the fixture's test file never started: ${stderr}`);
   child.kill("SIGTERM");
   const status = await new Promise<number | null>((resolveExit) => child.once("close", resolveExit));
-  const elapsed = Date.now() - started;
   assert.equal(status, 0, `the stopped run did not finish its accounting: ${stderr}`);
   const out = JSON.parse(stdout) as SubprocessResult;
   assert.equal(out.passed, false, "a stopped run is a failed run");
   assert.ok(out.failureDetails.some((detail) => detail.error?.failureType === "testAborted"), `the killed file is reported: ${JSON.stringify(out.failureDetails.map((detail) => detail.error?.failureType))}`);
-  assert.match(stderr, /TERMINATED/u);
-  assert.ok(elapsed < 30_000, `ended by the SIGTERM, not a watchdog: ${String(elapsed)} ms`);
+  // Ended by the SIGTERM, not a watchdog: the run names the one ending that
+  // fired (the first wins), never judged by a wall clock (NO-LOAD-BLOCK).
+  assert.match(stderr, /\[run-tests\] TERMINATED:/u);
+  assert.doesNotMatch(stderr, /\[run-tests\] (?:STALLED|HARD CEILING):/u);
   assert.equal(isProcessAlive(fileProcess), false, "the stopped run left its test file running");
 });
 

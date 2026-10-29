@@ -16,18 +16,22 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import test from "node:test";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { TRACKER_ITEM_TYPES } from "../../src/workflow/failure-owners.ts";
+import { FORGE_ISSUE_TYPES } from "../../src/workflow/forge/declarations.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
+import { schemaId } from "../../src/kernel/product-identity.ts";
+import { LABELS_PATH } from "../../src/workflow/community/labels.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { applyProjection, planProjection, projectionFailure } from "../../src/workflow/forge/projector/apply.ts";
 import { PROJECTION_INPUT_SCHEMA, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
 import { computeProjection, deterministicCall, projectionInput } from "../../src/workflow/forge/projector/projection.ts";
-import { configuredConfinement, confinedCall, PROJECTION_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { configuredConfinement, confinedCall, confinedModules, PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM, type ConfinedModule, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { compileSelfProtectionConfigToSpec, resolveGuardianBinaryPath } from "../../src/filesystem/self-protection/guardian-binary.ts";
 import { narrowGuardianSpec } from "../../src/filesystem/self-protection/confined-run.ts";
 import { procfsPath } from "../../src/process/process-facts.ts";
@@ -36,6 +40,7 @@ import { emptyKeepOutFacts } from "../support/keep-out-facts.ts";
 import { requireHost } from "../support/host-requirement.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
+import { configuredRepositoryIdentity } from "../../src/workflow/forge/repository-identity.ts";
 import { memoryStore } from "./projection-store.ts";
 
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
@@ -50,7 +55,7 @@ const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> =
 });
 const input = (items: ProjectionInput["items"], source = SOURCE): ProjectionInput => ({
   schema: PROJECTION_INPUT_SCHEMA, source, ledger: null, repositoryUrl: "https://github.com/owner/repo",
-  items, lanes: [{ lane: "floor", color: "1d76db", description: "Tracker lane: open work" }], decisions: [], recordedEvidence: [], mainRuns: [],
+  items, decisions: [], recordedEvidence: [], mainRuns: [],
 });
 const INPUT = input([
   item("A-PARENT", { title: "The parent", type: "Workstream" }),
@@ -61,7 +66,7 @@ const INPUT = input([
 test("D is the tracker's issues and labels, with permalinks at S and the projector's marker", () => {
   const { projection, digest } = computeProjection(INPUT, CONFINEMENT);
   assert.match(digest, /^[0-9a-f]{64}$/u);
-  assert.deepEqual(projection.objects.map((object) => `${object.class}/${object.key}`), ["label/lane:floor", "issue/A-PARENT", "issue/B-CHILD", "issue/C-DONE"]);
+  assert.deepEqual(projection.objects.map((object) => `${object.class}/${object.key}`), ["issue/A-PARENT", "issue/B-CHILD", "issue/C-DONE"]);
   const child = projection.objects.find((object) => object.key === "B-CHILD")!;
   // Input order never reaches D: blocked-by is sorted.
   const unordered = computeProjection(input([item("A-ONE", { blockedBy: ["Z-LAST", "B-FIRST"] }), item("Z-LAST"), item("B-FIRST")]), CONFINEMENT).projection;
@@ -81,32 +86,39 @@ test("D is the tracker's issues and labels, with permalinks at S and the project
   assert.notEqual(computeProjection(input(INPUT.items, "f".repeat(40)), CONFINEMENT).digest, digest);
 });
 
-test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a confined call is born in its run's scope and its allocation meets the run's MemoryMax there; an OOM kill there is typed projection_memory_exhausted", () => {
+test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a program allocating three times its run's memory.max, read from the run's own cgroup, is refused typed projection_memory_exhausted", () => {
   requireHost(resolveGuardianBinaryPath(ENGINE_ROOT) !== undefined, "the built guardian (make -C engine/guardian all)");
-  // A run of this test's own registry, admitted at 1% of the host's memory, in a child process (admission moves its process into the run's scope).
+  // Runs of this test's own registry, admitted at 1% of the host's memory with no swap, in a child process (admission moves its process into the run's scope).
   const directory = createTempDir("projector-memory-");
   const entry = join(directory, "allocate.ts");
-  // Bounded: 1 GiB touched, past 1% of any host's memory.
-  writeFileSync(entry, "export function projectText(): string { const kept: Uint8Array[] = []; for (let i = 0; i < 1024; i += 1) kept.push(new Uint8Array(1 << 20).fill(1)); return String(kept.length); }");
+  // The input is how many bytes to touch, a MiB at a time: 0 for the probe.
+  writeFileSync(entry, "export function projectText(input: string): string { const bytes = Number(input); const kept: Uint8Array[] = []; for (let done = 0; done < bytes; done += 1 << 20) kept.push(new Uint8Array(1 << 20).fill(1)); return String(kept.length); }");
   const script = join(directory, "memory.mjs");
   writeFileSync(script, [
     `const { confinedCall } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/workflow/forge/projector/confined.ts"))});`,
+    `const { ownCgroupFile, ownCgroupPath } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/process/process-facts.ts"))});`,
     `const { emptyKeepOutFacts } = await import(${JSON.stringify(join(ENGINE_ROOT, "test/support/keep-out-facts.ts"))});`,
-    `const run = { lockPath: ${JSON.stringify(join(directory, "instrument.lock"))}, perRun: { memoryMaxPercent: 1, cpuWeight: 100 } };`,
+    `const module = { entry: ${JSON.stringify(entry)}, roots: [${JSON.stringify(directory)}], exportName: "projectText" };`,
+    `const confinement = { harnessRoot: ${JSON.stringify(ENGINE_ROOT)}, keepOut: emptyKeepOutFacts(), cpuSeconds: 120, run: { lockPath: ${JSON.stringify(join(directory, "instrument.lock"))}, perRun: { memoryMaxPercent: 1, cpuWeight: 100 } } };`,
+    // The probe: an admitted run of these caps; this process stays in its scope after it, so the scope's own memory.max is the cap.
+    `confinedCall(module, "0", confinement);`,
+    `const scope = ownCgroupPath();`,
+    `const max = Number(ownCgroupFile("memory.max"));`,
+    `if (!Number.isSafeInteger(max) || max <= 0) { process.stdout.write(\`NO-CAP \${ownCgroupFile("memory.max")}\\n\`); process.exit(0); }`,
     `let ending;`,
-    `try { confinedCall({ entry: ${JSON.stringify(entry)}, modules: [${JSON.stringify(entry)}], exportName: "projectText" }, "{}", { harnessRoot: ${JSON.stringify(ENGINE_ROOT)}, keepOut: emptyKeepOutFacts(), cpuSeconds: 60, run }); ending = "ANSWERED"; }`,
-    `catch (error) { ending = \`REFUSED \${error.code}\`; }`,
-    // After the call this process is inside the run's scope (admission moved it there), where the program was born.
-    `const { ownCgroupMemoryEvents, ownCgroupPath } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/process/process-facts.ts"))});`,
-    `const cgroup = ownCgroupPath();`,
-    `const max = ownCgroupMemoryEvents()?.max;`,
-    `process.stdout.write(\`\${ending} cgroup=\${cgroup} max=\${max}\\n\`);`,
+    `try { confinedCall(module, String(3 * max), confinement); ending = "ANSWERED"; } catch (error) { ending = \`REFUSED \${error.code}\`; }`,
+    `process.stdout.write(\`\${ending} scope=\${scope} max=\${max}\\n\`);`,
   ].join("\n"));
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script], { cwd: ENGINE_ROOT, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr);
-  // The program ran in the run's own scope, and its allocation met the scope's MemoryMax (the scope's `max` events rose from a fresh 0).
-  // What the kernel did at the cap is the host's: with swap it reclaims (the call answers); without, the OOM killer ends it, typed.
-  assert.match(ran.stdout, /^(?:ANSWERED|REFUSED projection_memory_exhausted) cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope max=[1-9]\d*$/mu, `${ran.stdout} ${ran.stderr}`);
+  // No swap under the cap: three times memory.max cannot be held, so the kernel ends the program and the admission owner refuses the run, typed.
+  assert.match(ran.stdout, /^REFUSED projection_memory_exhausted scope=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope max=[1-9]\d*$/mu, `${ran.stdout} ${ran.stderr}`);
+});
+
+test("a confinement is built only under a declared run registry: a root without testExecution.instrumentLock is refused instrument_lock_undeclared", () => {
+  assert.throws(() => configuredConfinement(createTempDir("projector-no-lock-"), emptyKeepOutFacts(), 60), (error: HarnessError) => error.code === "instrument_lock_undeclared" && /testExecution\.instrumentLock/u.test(error.message));
+  // This checkout declares one: the confinement carries its registry and per-run caps.
+  assert.ok(CONFINEMENT.run.lockPath.length > 0 && CONFINEMENT.run.perRun.memoryMaxPercent > 0);
 });
 
 test("V-26: purity is a kernel property — two confined processes give one digest, and every reach outside the input is refused", async () => {
@@ -115,11 +127,14 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   const second = computeProjection(JSON.parse(JSON.stringify(INPUT)) as ProjectionInput, CONFINEMENT);
   assert.equal(first.digest, second.digest, "two confined processes (each computing twice), one digest");
   const directory = createTempDir("projector-confined-");
+  // Each planted program's root is its own folder; a sibling written beside that folder lies outside it.
   const planted = (name: string, source: string, siblings: Readonly<Record<string, string>> = {}): ConfinedModule => {
-    const entry = join(directory, `${name}.ts`);
+    const root = join(directory, name);
+    mkdirSync(root, { recursive: true });
+    const entry = join(root, `${name}.ts`);
     writeFileSync(entry, source);
     for (const [file, text] of Object.entries(siblings)) writeFileSync(join(directory, file), text);
-    return { entry, modules: [entry], exportName: "projectText" };
+    return { entry, roots: [root], exportName: "projectText" };
   };
   const refused = (module: ConfinedModule, code: string, what: RegExp, call: () => unknown = () => deterministicCall(module, "{}", CONFINEMENT)): void => {
     assert.throws(call, (error: HarnessError) => {
@@ -151,8 +166,8 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   // The CLOCK and RANDOMNESS reach no kernel wall (the vDSO): two confined runs that answer differently are refused.
   refused(planted("clock", "export function projectText(): string { return String(Date.now()) + String(performance.now()); }"), "projection_nondeterministic", /answered differently/u);
   refused(planted("random", "export function projectText(): string { return String(Math.random()); }"), "projection_nondeterministic", /answered differently/u);
-  // The LINK refuses what the program does not declare, before anything runs.
-  refused(planted("sibling", "import { value } from './undeclared.ts';\nexport function projectText(): string { return value; }", { "undeclared.ts": "export const value = 'x';" }), "projection_import_refused", /undeclared\.ts \(imported by [^)]+\) is not a module of the confined program/u);
+  // The LINK refuses a module outside the program's roots, and any import that is not relative, before anything runs.
+  refused(planted("sibling", "import { value } from '../outside.ts';\nexport function projectText(): string { return value; }", { "outside.ts": "export const value = 'x';" }), "projection_import_refused", /outside\.ts \(imported by [^)]+\) is outside the confined program's roots/u);
   refused(planted("builtin", "import { readFileSync } from 'node:fs';\nexport function projectText(): string { return String(readFileSync); }"), "projection_import_refused", /node:fs/u);
   refused(planted("literal-dynamic", "const fs = await import('node:fs');\nexport function projectText(): string { return String(fs); }"), "projection_import_refused", /node:fs/u);
   refused(planted("bare", "import x from 'zod';\nexport function projectText(): string { return String(x); }"), "projection_import_refused", /zod/u);
@@ -195,7 +210,46 @@ test("V-26: purity is a kernel property — two confined processes give one dige
   for (const rule of [{ path: "/home", access: ["READ_FILE"] as const }, { path: "/usr", access: ["WRITE_FILE"] as const }, { path: join(ENGINE_ROOT, "src"), access: ["READ_FILE"] as const }]) {
     assert.throws(() => narrowGuardianSpec(compiled, [rule]), (error: HarnessError) => error.code === "confined_rule_outside_floor", rule.path);
   }
-  assert.ok(PROJECTION_PROGRAM.modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || ["shared/markdown.ts", "shared/markup.ts"].some((shared) => path === join(REPOSITORY_ROOT, shared))), "the projection's program links only the source it declares");
+});
+
+test("each confined program's modules are its entry's import closure, derived, never listed: every module the entry reaches links, and only under its roots", () => {
+  for (const program of [PROJECTION_PROGRAM, ROADMAP_FEED_PROGRAM]) {
+    const modules = confinedModules(program);
+    assert.ok(modules.includes(program.entry), program.entry);
+    // tracker-status.ts's own import (the `repo:` reference) links in BOTH programs that reach it: no second list to forget.
+    for (const reached of ["workflow/tracker-status.ts", "workflow/forge/repository-reference.ts"]) assert.ok(modules.includes(join(ENGINE_ROOT, "src", reached)), `${program.exportName}: ${reached}`);
+    assert.ok(modules.every((path) => path.startsWith(join(REPOSITORY_ROOT, "engine/src/")) || path.startsWith(join(REPOSITORY_ROOT, "shared/"))), `${program.exportName} links only the engine's source and shared/`);
+  }
+  for (const shared of ["shared/markdown.ts", "shared/markup.ts"]) assert.ok(confinedModules(PROJECTION_PROGRAM).includes(join(REPOSITORY_ROOT, shared)), `the projection reaches ${shared}`);
+  // Containment is decided by IDENTITY, never by spelling: a module reached through a link that leaves the root is refused,
+  // even though its spelled path lies under the root.
+  const directory = createTempDir("projector-links-");
+  const root = join(directory, "root");
+  const outside = join(directory, "outside");
+  mkdirSync(root);
+  mkdirSync(outside);
+  writeFileSync(join(outside, "secret.ts"), "export const value = 'x';\n");
+  writeFileSync(join(root, "kept.ts"), "export const value = 'y';\n");
+  symlinkSync(join(outside, "secret.ts"), join(root, "file-link.ts"));
+  symlinkSync(outside, join(root, "dir-link"));
+  symlinkSync(join(root, "kept.ts"), join(root, "inside-link.ts"));
+  writeFileSync(join(root, "reexport.ts"), "export { value } from './dir-link/secret.ts';\n");
+  let entries = 0;
+  const program = (source: string): ConfinedModule => {
+    entries += 1;
+    const entry = join(root, `entry-${String(entries)}.ts`);
+    writeFileSync(entry, `${source}\nexport function projectText(): string { return value; }\n`);
+    return { entry, roots: [root], exportName: "projectText" };
+  };
+  for (const [why, source] of [
+    ["a file link out of the root", "import { value } from './file-link.ts';"],
+    ["a directory link out of the root", "import { value } from './dir-link/secret.ts';"],
+    ["a re-export through a link", "import { value } from './reexport.ts';"],
+  ] as const) {
+    assert.throws(() => confinedModules(program(source)), (error: HarnessError) => error.code === "projection_import_refused" && /outside the confined program's roots/u.test(error.message), why);
+  }
+  // Near miss: a link that stays inside the root links.
+  assert.ok(confinedModules(program("import { value } from './inside-link.ts';")).length >= 2, "a link inside the root is inside it");
 });
 
 test("the first run creates in phase order, verifies, and its receipt names every write", async () => {
@@ -206,12 +260,12 @@ test("the first run creates in phase order, verifies, and its receipt names ever
   assert.equal(receipt.verified, true);
   assert.equal(receipt.digest, digest);
   assert.equal(receipt.observedDigest.length, 64);
-  // create (label before issues) → link (the child's parent and blocker) → state (the closed item).
+  // create (every issue) → link (the child's parent and blocker) → state (the closed item).
   assert.deepEqual(receipt.writes.map((write) => `${write.phase}:${write.kind}:${write.class}/${write.key}`), [
-    "create:create:label/lane:floor", "create:create:issue/A-PARENT", "create:create:issue/B-CHILD", "create:create:issue/C-DONE",
+    "create:create:issue/A-PARENT", "create:create:issue/B-CHILD", "create:create:issue/C-DONE",
     "link:update:issue/B-CHILD", "state:update:issue/C-DONE",
   ]);
-  assert.deepEqual(receipt.writes[4]!.fields, ["blockedBy", "parent"]);
+  assert.deepEqual(receipt.writes[3]!.fields, ["blockedBy", "parent"]);
   assert.deepEqual(github.get("issue", "C-DONE")?.fields.stateReason, "not_planned");
 });
 
@@ -250,13 +304,13 @@ test("V-28: a field GitHub silently does not keep is projection_unverified, neve
 test("an exhausted allowance stops typed and retryable, and the next run resumes the diff to a verified state", async () => {
   const { projection } = computeProjection(INPUT, CONFINEMENT);
   const github = memoryStore();
-  const first = await applyProjection(projection, github.store, { allowance: 2, previous: null, foreignEdit: "approval" });
-  assert.equal(first.writes.length, 2);
+  const first = await applyProjection(projection, github.store, { allowance: 1, previous: null, foreignEdit: "approval" });
+  assert.equal(first.writes.length, 1);
   assert.deepEqual(first.refusals.map((refusal) => [refusal.code, refusal.retryable]), [["github_content_budget_exhausted", true]]);
   assert.deepEqual(first.pending, ["issue/B-CHILD", "issue/C-DONE"]);
   assert.deepEqual(first.unverified, [], "the objects the run wrote are verified; the pending ones are only pending");
   assert.equal(projectionFailure(first)?.retryable, true);
-  assert.deepEqual(Object.keys(first.objects).sort(), ["issue/A-PARENT", "label/lane:floor"], "a pending object is not recorded: it was never seen on GitHub");
+  assert.deepEqual(Object.keys(first.objects).sort(), ["issue/A-PARENT"], "a pending object is not recorded: it was never seen on GitHub");
   // The next run resumes from this receipt: a pending object is created, never judged deleted.
   const second = await applyProjection(projection, github.store, { allowance: 100, previous: first, foreignEdit: "approval" });
   assert.deepEqual(second.foreignEdits, []);
@@ -267,26 +321,32 @@ test("an exhausted allowance stops typed and retryable, and the next run resumes
 test("a refused write stops the run with the object it was writing; the rest stays as it was", async () => {
   const github = memoryStore({ refuseAt: { write: 1, error: new HarnessError("forbidden", "github_forbidden") } });
   const receipt = await applyProjection(computeProjection(INPUT, CONFINEMENT).projection, github.store, { allowance: 100, previous: null, foreignEdit: "approval" });
-  assert.deepEqual(receipt.refusals.map((refusal) => [refusal.code, refusal.class, refusal.key, refusal.retryable]), [["github_forbidden", "issue", "A-PARENT", false]]);
+  assert.deepEqual(receipt.refusals.map((refusal) => [refusal.code, refusal.class, refusal.key, refusal.retryable]), [["github_forbidden", "issue", "B-CHILD", false]]);
   assert.equal(receipt.writes.length, 1);
   assert.equal(receipt.verified, false);
   assert.equal(projectionFailure(receipt)?.code, "github_forbidden");
-  assert.equal(github.get("issue", "B-CHILD"), undefined, "nothing after the refusal was written");
+  assert.equal(github.get("issue", "C-DONE"), undefined, "nothing after the refusal was written");
 });
 
-test("an OWNED live object D does not hold is an orphan: reported, never written; a person's label or issue is never one", async () => {
+test("an OWNED live object D does not hold is an orphan: reported, never written; a person's issue is never one, and the projector holds no label", async () => {
   const github = memoryStore();
   github.put({ class: "issue", key: "GONE", fields: { title: "GONE" }, owned: true });
-  github.put({ class: "label", key: "lane:retired", fields: { color: "000000", description: "x" }, owned: true });
-  // A person's label and a person's issue are GitHub's own: never orphans.
-  github.put({ class: "label", key: "bug", fields: { color: "d73a4a", description: "Something isn't working" }, owned: false });
+  // A person's issue is GitHub's own: never an orphan.
   github.put({ class: "issue", key: "#7", fields: { title: "A reporter's question" }, owned: false });
   const { projection } = computeProjection(INPUT, CONFINEMENT);
   assert.deepEqual(planProjection(projection, [{ class: "issue", key: "GONE", fields: {}, owned: true }]).orphans, ["issue/GONE"]);
   const receipt = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: "approval" });
-  assert.deepEqual(receipt.orphans, ["issue/GONE", "label/lane:retired"]);
-  assert.ok(receipt.writes.every((write) => !["GONE", "lane:retired", "bug", "#7"].includes(write.key)));
+  assert.deepEqual(receipt.orphans, ["issue/GONE"]);
+  assert.ok(receipt.writes.every((write) => !["GONE", "#7"].includes(write.key)));
+  // Labels are declared once (docs/community/labels.json) and applied by the forge: D holds none, so the projector neither writes nor reports one.
+  assert.deepEqual(projection.objects.filter((object) => !["milestone", "issue"].includes(object.class)), []);
 });
+
+/** A repository's declared labels file, as its owner reads it (`docs/community/labels.json`). */
+const labelsFile = (root: string, names: readonly string[]): void => {
+  mkdirSync(join(root, LABELS_PATH, ".."), { recursive: true });
+  writeFileSync(join(root, LABELS_PATH), `${JSON.stringify({ schema: schemaId("community-labels", 1), labels: names.map((name) => ({ name, color: "1d76db", description: `The ${name} label` })) })}\n`);
+};
 
 test("the input is read from the source COMMIT, never the working tree", () => {
   const root = createTempDir("projector-input-");
@@ -295,6 +355,7 @@ test("the input is read from the source COMMIT, never the working tree", () => {
   mkdirSync(join(root, TRACKER_BOARD.items), { recursive: true });
   const write = (id: string, title: string): void => writeFileSync(join(root, TRACKER_BOARD.items, `${id}.md`), `---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: ${id}\ntype: Task\ntitle: ${title}\nstate: open\nlane: floor\nopened: 2026-10-21\n---\n\nThe outcome.\n`);
   write("A-ONE", "As committed");
+  labelsFile(root, ["lane:floor"]);
   git("add", "."); git("commit", "-q", "-m", "one");
   const commit = git("rev-parse", "HEAD");
   write("A-ONE", "Edited after the commit");
@@ -305,21 +366,40 @@ test("the input is read from the source COMMIT, never the working tree", () => {
   assert.throws(() => projectionInput(configuredGitRepository({}, root), "no-such-ref", null, "https://github.com/owner/repo"), (error: HarnessError) => error.code === "projection_source_missing");
 });
 
-test("this repository's own HEAD projects: every tracker item is an issue, every lane a label", () => {
-  const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, "https://github.com/LLM-4-People/bridlewise-testing");
+test("every lane label an item carries is declared in labels.json AT S: an undeclared one is refused, naming the item; a declaration only in the working tree does not count; a commit without the file is refused", () => {
+  const root = createTempDir("projector-labels-");
+  const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", ...testGitIdentityEnvironment() } }).trim();
+  git("init", "-q", "-b", "main");
+  mkdirSync(join(root, TRACKER_BOARD.items), { recursive: true });
+  const write = (id: string, lane: string): void => writeFileSync(join(root, TRACKER_BOARD.items, `${id}.md`), `---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: ${id}\ntype: Task\ntitle: ${id}\nstate: open\nlane: ${lane}\nopened: 2026-10-21\n---\n\nThe outcome.\n`);
+  const read = (): ProjectionInput => projectionInput(configuredGitRepository({}, root), "HEAD", null, "https://github.com/owner/repo");
+  write("A-ONE", "floor");
+  git("add", "."); git("commit", "-q", "-m", "no labels file");
+  assert.throws(read, (error: HarnessError) => error.code === "projection_labels_missing");
+  labelsFile(root, ["Lane:Floor"]);
+  write("B-TWO", "roadmap");
+  git("add", "."); git("commit", "-q", "-m", "floor declared, roadmap not");
+  assert.throws(read, (error: HarnessError) => error.code === "projection_label_undeclared" && /B-TWO \(lane:roadmap\)/u.test(error.message) && !/A-ONE/u.test(error.message));
+  // Declared in the working tree only: S still lacks it.
+  labelsFile(root, ["lane:floor", "lane:roadmap"]);
+  assert.throws(read, (error: HarnessError) => error.code === "projection_label_undeclared");
+  git("add", "."); git("commit", "-q", "-m", "roadmap declared");
+  assert.deepEqual(read().items.map((entry) => entry.lane), ["floor", "roadmap"]);
+});
+
+test("this repository's own HEAD projects: every tracker item is an issue, and no label", () => {
+  const read = projectionInput(configuredGitRepository({}, REPOSITORY_ROOT), "HEAD", null, configuredRepositoryIdentity().webUrl);
   const { projection } = computeProjection(read, CONFINEMENT);
   assert.equal(projection.objects.filter((object) => object.class === "issue").length, read.items.length);
   assert.ok(read.items.length > 0);
-  assert.equal(projection.objects.filter((object) => object.class === "label").length, read.lanes.length);
 });
 
-const withRoadmapLane = (base: ProjectionInput): ProjectionInput => ({ ...base, lanes: [...base.lanes, { lane: "roadmap", color: "0e8a16", description: "Tracker lane: the roadmap" }] });
-const MILESTONE_INPUT = withRoadmapLane(input([
+const MILESTONE_INPUT = input([
   item("M1", { type: "Milestone", title: "First milestone", state: null, lane: null }),
   item("W-ONE", { type: "Workstream", lane: "roadmap", milestone: "M1" }),
   item("T-ONE", { milestone: "M1", parent: "W-ONE", state: "closed", resolution: "completed", tests: ["tests/t-one.test.ts"] }),
   item("T-TWO", { lane: "roadmap", milestone: "M1" }),
-]));
+]);
 
 test("a Milestone item is a milestone and the head of its hierarchy: milestone → workstream → task, states computed from the records", () => {
   const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
@@ -333,7 +413,7 @@ test("a Milestone item is a milestone and the head of its hierarchy: milestone �
   assert.deepEqual([object("issue", "T-ONE").fields.parent, object("issue", "T-TWO").fields.parent], ["W-ONE", "M1"]);
   assert.match(String(object("issue", "W-ONE").fields.block), /Roadmap state: \*\*in progress\*\* \(T-ONE shipped\)/u);
   // Every member shipped: the milestone and its issue close as completed.
-  const done = computeProjection(withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] }))), CONFINEMENT).projection;
+  const done = computeProjection(input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] })), CONFINEMENT).projection;
   const closed = (klass: string, key: string) => done.objects.find((entry) => entry.class === klass && entry.key === key)!.fields;
   assert.equal(closed("milestone", "M1").state, "closed");
   assert.deepEqual([closed("issue", "M1").state, closed("issue", "M1").stateReason], ["closed", "completed"]);
@@ -343,14 +423,13 @@ test("V-27: a foreign edit in each class is detected and handled per mode — ap
   const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
   const projected = (klass: string, key: string, field: string) => projection.objects.find((entry) => entry.class === klass && entry.key === key)!.fields[field]!;
   const edits = [
-    // Fields no record holds: a lane's colour (from code) and an issue's generated block.
-    { klass: "label", key: "lane:roadmap", fields: { color: "000000" } },
+    // A field no record holds: an issue's generated block.
     { klass: "issue", key: "T-ONE", fields: { block: "Rewritten in the UI" } },
     // Fields a record holds.
     { klass: "milestone", key: "M1", fields: { title: "Renamed in the UI" } },
     { klass: "issue", key: "T-TWO", fields: { title: "Retitled in the UI", labels: ["lane:roadmap", "wontfix"] } },
   ] as const;
-  const order = (line: string): number => ["label", "milestone", "issue"].indexOf(line.split("/")[0]!);
+  const order = (line: string): number => ["milestone", "issue"].indexOf(line.split("/")[0]!);
   for (const mode of ["approval", "auto", "manual"] as const) {
     const github = memoryStore();
     const first = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: mode });
@@ -359,15 +438,13 @@ test("V-27: a foreign edit in each class is detected and handled per mode — ap
     const run = await applyProjection(projection, github.store, { allowance: 100, previous: first, foreignEdit: mode });
     const action = mode === "auto" ? "restored" : mode === "approval" ? "proposed" : "reported";
     assert.deepEqual(run.foreignEdits.map((edit) => `${edit.class}/${edit.key}:${edit.fields.join(",")}:${edit.action}`).sort((left, right) => order(left) - order(right) || left.localeCompare(right)), [
-      "label/lane:roadmap:color:restored",
       `milestone/M1:title:${action}`,
       "issue/T-ONE:block:restored",
       `issue/T-TWO:labels,title:${action}`,
     ], mode);
     // In every mode, the projector-owned fields are written back and never proposed.
-    assert.equal(github.get("label", "lane:roadmap")?.fields.color, projected("label", "lane:roadmap", "color"), mode);
     assert.equal(github.get("issue", "T-ONE")?.fields.block, projected("issue", "T-ONE", "block"), mode);
-    assert.ok(run.proposals.every((proposal) => proposal.change !== "edited" || (!("color" in proposal.fields) && !("block" in proposal.fields))), `${mode}: no projector-owned field flows back`);
+    assert.ok(run.proposals.every((proposal) => proposal.change !== "edited" || !("block" in proposal.fields)), `${mode}: no projector-owned field flows back`);
     if (mode === "auto") {
       assert.equal(run.verified, true, "auto: every projected value is restored and verified");
       assert.equal(github.get("issue", "T-TWO")?.fields.title, "T-TWO");
@@ -394,10 +471,11 @@ test("V-27: a foreign edit in each class is detected and handled per mode — ap
 
 test("a first run has no baseline: every difference is adopted, never a foreign edit", async () => {
   const github = memoryStore();
-  github.put({ class: "label", key: "lane:roadmap", fields: { color: "000000", description: "old" }, owned: true });
-  const receipt = await applyProjection(computeProjection(MILESTONE_INPUT, CONFINEMENT).projection, github.store, { allowance: 100, previous: null, foreignEdit: "manual" });
+  github.put({ class: "milestone", key: "M1", fields: { title: "An old title", description: "old", state: "open" }, owned: true });
+  const { projection } = computeProjection(MILESTONE_INPUT, CONFINEMENT);
+  const receipt = await applyProjection(projection, github.store, { allowance: 100, previous: null, foreignEdit: "manual" });
   assert.deepEqual(receipt.foreignEdits, []);
-  assert.equal(github.get("label", "lane:roadmap")?.fields.color, "0e8a16");
+  assert.equal(github.get("milestone", "M1")?.fields.title, projection.objects.find((entry) => entry.class === "milestone" && entry.key === "M1")!.fields.title);
   assert.equal(receipt.verified, true);
 });
 
@@ -414,7 +492,7 @@ test("V-27 per field: a field newly owned by git is written, never held; one edi
   assert.equal(adopted.verified, true);
   // Someone retitles T-TWO on GitHub while its record CLOSES it (proven) and W-ONE's record is retitled.
   github.edit("issue", "T-TWO", { title: "Retitled in the UI" });
-  const moved = withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.id === "T-TWO" ? { ...entry, state: "closed", resolution: "completed", tests: ["tests/t-two.test.ts"] } : entry.id === "W-ONE" ? { ...entry, title: "Renamed workstream" } : entry)));
+  const moved = input(MILESTONE_INPUT.items.map((entry) => entry.id === "T-TWO" ? { ...entry, state: "closed", resolution: "completed", tests: ["tests/t-two.test.ts"] } : entry.id === "W-ONE" ? { ...entry, title: "Renamed workstream" } : entry));
   const run = await applyProjection(computeProjection(moved, CONFINEMENT).projection, github.store, { allowance: 100, previous: adopted, foreignEdit: "approval" });
   assert.deepEqual(run.foreignEdits.map((edit) => [edit.key, edit.change, edit.fields]), [["T-TWO", "edited", ["title"]]]);
   assert.deepEqual(run.proposals, [{ class: "issue", key: "T-TWO", change: "edited", fields: { title: "Retitled in the UI" } }], "the proposal changes only the edited field");
@@ -450,9 +528,19 @@ test("V-27 deletion: a projected object deleted on GitHub is a foreign change �
 });
 
 test("writes go by phase before class: a milestone's state is written after every issue is created", async () => {
-  const shippedMilestone = withRoadmapLane(input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] })));
+  const shippedMilestone = input(MILESTONE_INPUT.items.map((entry) => entry.type === "Milestone" ? entry : { ...entry, state: "closed", resolution: "completed", tests: [`tests/${entry.id}.test.ts`] }));
   const receipt = await applyProjection(computeProjection(shippedMilestone, CONFINEMENT).projection, memoryStore().store, { allowance: 100, previous: null, foreignEdit: "approval" });
   const order = receipt.writes.map((write) => `${write.phase}:${write.class}`);
   const milestoneState = order.indexOf("state:milestone");
   assert.ok(milestoneState > order.lastIndexOf("create:issue"), `the milestone's state (a later class's earlier write would be first by class) comes after every issue create: ${order.join(" ")}`);
+});
+
+test("every issue type the projection writes is one the forge declares: each tracker item type, and MAIN-RED's", () => {
+  const declared = new Set(FORGE_ISSUE_TYPES.map((type) => type.name));
+  const items = TRACKER_ITEM_TYPES.map((type, index) => item(`TYPE-${String(index)}`, type === "Milestone" ? { type, state: null, lane: null } : { type }));
+  const red = [{ workflow: "door", commit: "a".repeat(40), conclusion: "failure" as const, runUrl: "https://github.com/owner/repo/actions/runs/1", failedTests: [{ path: "tests/a.test.ts", message: "boom", owners: [] }] }];
+  const { projection } = computeProjection({ ...input(items), mainRuns: red }, CONFINEMENT);
+  const written = [...new Set(projection.objects.filter((object) => object.class === "issue").map((object) => String(object.fields.type)))].sort();
+  assert.ok(written.includes("Bug") && TRACKER_ITEM_TYPES.every((type) => written.includes(type)), `the projection wrote every type: ${written.join(", ")}`);
+  assert.deepEqual(written.filter((type) => !declared.has(type)), [], "an issue type GitHub has no declaration for is a write the forge cannot keep: declare it in FORGE_ISSUE_TYPES (declarations.ts)");
 });

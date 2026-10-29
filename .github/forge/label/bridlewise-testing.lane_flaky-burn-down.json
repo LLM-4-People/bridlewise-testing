@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "lane:flaky-burn-down",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "lane:flaky-burn-down",
+    "color": "d93f0b",
+    "description": "Tracker lane: owns an entry of a flaky burn-down list"
+  }
+}

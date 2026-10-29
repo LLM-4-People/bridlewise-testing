@@ -4,6 +4,7 @@ The `engine/test/verification/` folder of the development surface.
 
 ## What each file does
 
+- `added-content.test.ts` — each refusal of the added-content judge (a home path in every spelling and decoded form, an over-deep encoding, the running user's identity at the hook and a placeholder-named account, a binary blob's content, an oversized text blob, a `.ts` file that is not TypeScript), the reviewed exemptions, a marked throwaway repository's references and the marker refused wherever the repository is not throwaway, refusals that never echo, the range door and a merge, the staged question, and main's tree judged retroactively.
 - `architecture-external-commands.test.ts` — the `architecture-external-commands.test` module.
 - `artifact-manifest.test.ts` — the canonical artifact inventory's producer: generatedAt derived from the captures (never read back), origins admitted by pinned provenance shapes, and a dropped artifact refused unless named or forbidden by canonical retention.
 - `corpus-manifest.test.ts` — the corpus manifest's validation (hash, path, upstream, licence refused by name), a drift report that names the file, a real fetch over a local bare repo, and the relink rule.
@@ -11,6 +12,7 @@ The `engine/test/verification/` folder of the development surface.
 - `ratchet.test.ts` — the one shrink-only ratchet (scripts/verification/ratchet.ts): every baseline entry carries a reason, the committed baseline is read from git HEAD, and the real commit guard refuses a staged baseline that grew.
 - `recursive-test-inventory.test.ts` — the `recursive-test-inventory.test` module.
 - `required-fixture-roots.test.ts` — the declared-corpus refusal, driven both ways.
+- `sign-off.test.ts` — the DCO and agent-identity judge (scripts/verification/sign-off.ts): a commit's committer signs it off, an agent commit carries the declared project identity, a pull request a declared agent account opened brings agent commits only, and the required commit-records workflow runs main's judge over the branch's fetched commits.
 - `static-source-tokenizer.test.ts` — the static-source tokenizer's multi-character punctuation, the arrow-fed fenced-code regex, and the two-scanner export agreement over the repository-root scan population.
 - `test-surface-conservation.test.ts` — the `test-surface-conservation.test` module.
 
