@@ -48,7 +48,8 @@
  *   the tracked files the working tree changed plus the new paths NAMED,
  *   each by its literal path, never anything unnamed (no `git add -A`, no
  *   directory, no pathspec magic). It refuses a named path that does not
- *   exist or is a folder, a drifted index, and a change over a protected
+ *   exist, is a folder or is ignored (naming the rule), an unmerged path
+ *   whose file still holds conflict markers, a drifted index, and a change over a protected
  *   staged blob (staging it would drop the only copy), before touching the
  *   index.
  *
@@ -59,7 +60,7 @@
  * index) lives in the process documentation (docs/process/WORKFLOW.md).
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { lstatSync, rmSync } from "node:fs";
+import { lstatSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -316,6 +317,17 @@ function ignoringRules(top: string, paths: readonly string[]): readonly Readonly
   return found;
 }
 
+/** Does the file at `path` still hold one of git's conflict-marker lines (a deleted side holds none)? */
+function holdsConflictMarkers(path: string): boolean {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return false;
+  }
+  return text.split("\n").some((line) => line.startsWith("<<<<<<< ") || line.startsWith(">>>>>>> ") || line === "=======");
+}
+
 /** Why a named path cannot be staged as it is spelled, or null: a repository-relative path, literal, inside the checkout. */
 function unstageablePathSpelling(path: string): string | null {
   if (path.length === 0 || path.startsWith("-")) return "is not a path";
@@ -373,6 +385,17 @@ export function stagePaths(root: string, named: readonly string[]): Readonly<{ s
     }
   }
   const staged = [...new Set([...modified, ...named])];
+  // Staging an unmerged path marks its conflict resolved: one whose file still holds git's markers is refused.
+  const unmerged = new Set(indexEntries(top, "directory").filter((entry) => entry.stage > 0).map((entry) => entry.path));
+  const unresolved = staged.filter((path) => unmerged.has(path) && holdsConflictMarkers(join(top, path)));
+  if (unresolved.length > 0) {
+    throw new HarnessError(
+      `stage: ${JSON.stringify(unresolved)} are unmerged and still hold conflict markers; staging would mark the conflict resolved with the markers in it. Resolve each, then stage`,
+      "stage_conflict_unresolved",
+      false,
+      { paths: unresolved.join(",") },
+    );
+  }
   if (staged.length > 0) git(top, ["--literal-pathspecs", "add", "--pathspec-from-file=-", "--pathspec-file-nul"], { input: `${staged.join("\0")}\0` });
   return { staged };
 }
