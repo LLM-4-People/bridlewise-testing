@@ -225,6 +225,7 @@ describe("the agent briefing names what exists", () => {
   });
 
   test("the E2E retry claim matches playwright.config.ts, and CI does not run the suite", () => {
+    const E2E_SUITE = /\bplaywright\s+test\b|\btest:(?:e2e|all)\b/iu;
     const config = readFileSync(join(ROOT, "playwright.config.ts"), "utf8");
     const retries = /retries:\s*process\.env\.CI\s*\?\s*(\d+)\s*:\s*(\d+)/u.exec(config);
     expect(retries, "playwright.config.ts states no `retries: process.env.CI ? n : n`").not.toBeNull();
@@ -232,7 +233,12 @@ describe("the agent briefing names what exists", () => {
     expect(page, "the test map must quote the retry pair the E2E config sets").toContain(`retries: process.env.CI ? ${retries![1]!} : ${retries![2]!}`);
     expect(page, "the test map must say the E2E suite is not exercised here").toMatch(/not run by this repository's CI/u);
     for (const workflow of readdirSync(join(ROOT, ".github/workflows"))) {
-      expect(readFileSync(join(ROOT, ".github/workflows", workflow), "utf8"), `${workflow} runs Playwright, but the test map says this repository's CI does not`).not.toMatch(/\bplaywright\b/iu);
+      // The E2E SUITE is what the claim is about (`playwright test`, the
+      // `test:e2e`/`test:all` scripts); the browser library driven by the
+      // visual check and the social cards is not that suite.
+      expect(readFileSync(join(ROOT, ".github/workflows", workflow), "utf8"), `${workflow} runs the Playwright E2E suite, but the test map says this repository's CI does not`).not.toMatch(E2E_SUITE);
     }
+    for (const plant of ["run: npx playwright test", "run: npm run test:e2e", "run: npm run test:all"]) expect(plant, plant).toMatch(E2E_SUITE);
+    for (const nearMiss of ["run: npx playwright install --with-deps chromium", "run: node scripts/visual/screens.ts"]) expect(nearMiss, nearMiss).not.toMatch(E2E_SUITE);
   });
 });

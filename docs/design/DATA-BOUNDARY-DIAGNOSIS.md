@@ -10,9 +10,9 @@ Nothing here is a race with the writer.
 
 ---
 
-# TARGET A — "SECURITY: the outbound LLM call is not redacted at all"
+## TARGET A — "SECURITY: the outbound LLM call is not redacted at all"
 
-## A.1 VERDICT: **NOT PROVEN — and the claim is badly overstated.**
+### A.1 VERDICT: **NOT PROVEN — and the claim is badly overstated.**
 
 It is not merely wrong at the margin. I drove the real wire and captured the exact bytes handed
 to the provider. **12 of 18 planted categories were masked**, including every credential class.
@@ -47,7 +47,7 @@ Redaction on the outbound path is real, load-bearing, and it works.
 overstating costs as much as missing: this entry should be struck and replaced by A.4 and A.5
 below, which are the two things that are actually wrong.
 
-## A.2 THE HOPS, `file:line`
+### A.2 THE HOPS, `file:line`
 
 Every byte from user input to provider request body:
 
@@ -66,7 +66,7 @@ Every byte from user input to provider request body:
 | 6 | provider stream opened | `web/server/llm-bridge.ts:533` `client.stream(messages, …)` |
 | 7 | **the single HTTP call** | `integration/src/shared/llm/client.ts:561` |
 
-## A.3 THE CHOKE POINT — one door in the web server, a second door in the harness
+### A.3 THE CHOKE POINT — one door in the web server, a second door in the harness
 
 **In the web server there is exactly one door.** `new SharedLLMClient` appears once
 (`llm-bridge.ts:171`); `streamChat` is the only exported streamer; `buildLLMMessages` is
@@ -87,7 +87,7 @@ streams `request.messages` straight through (`:246`, `:262`) — **zero occurren
 - *Not established*: whether any currently-shipping harness command sends user PII through it.
   I did not drive the CLI.
 
-## A.4 **PROVEN DEFECT — the turn-wide credential learning is WIRED BUT INERT below 12 characters**
+### A.4 **PROVEN DEFECT — the turn-wide credential learning is WIRED BUT INERT below 12 characters**
 
 This is the finding that matters, and it is the exact "wired-but-inert" class §8 names.
 
@@ -133,7 +133,7 @@ characters and is caught **independently** by the entropy layer; the marker give
 (`[REDACTED:secret]`, the identity category, versus `[REDACTED:credential]` for the declaration
 layer). Remove the length coincidence and the learning contributes nothing.
 
-### The mechanism, `file:line` — two floors for one decision, and they disagree
+#### The mechanism, `file:line` — two floors for one decision, and they disagree
 
 ```
 integration/src/privacy/secret-intelligence.ts:353   MIN_REMEMBERABLE_LENGTH = 6
@@ -168,7 +168,7 @@ higher bar."* The code then applies the persistent registry's bar anyway.
 value went out**. §21's rule applied to a notice: a correct count over the spans it applied is
 not a correct answer about the turn.
 
-### Why it shipped green
+#### Why it shipped green
 
 `web/tests/prevention/redaction-reaches-provider.test.ts:304-310`:
 
@@ -187,7 +187,7 @@ assertion is vacuous — it cannot fail, with or without the feature. The leak l
 "a correct region is not a correct answer" in its purest form: the assertion is over the right
 conversation and the wrong message.
 
-## A.5 **PROVEN — the shipped default contradicts the 2026-07-28 decision**
+### A.5 **PROVEN — the shipped default contradicts the 2026-07-28 decision**
 
 Decision 4 (TASKS.md:4907-4928): *"PII DETECTORS: SUPPORTED, INDIVIDUALLY CONFIGURABLE, **OFF BY
 DEFAULT**"*, naming *"email, username, internal ip address and 'pii' like that"*.
@@ -218,7 +218,7 @@ Three concrete mismatches, each measured:
 3. **Username does not exist as a type.** Zero entries in `PII_TYPES` match user/account-name.
    Probe: `USER=example` verbatim on the wire.
 
-### The structural problem that makes "off by default" non-trivial
+#### The structural problem that makes "off by default" non-trivial
 
 **The tier axis and the PII/credential axis are not aligned.** `grammar-defined` contains
 `email-address`, `ip-address`, `phone-number` **and** `provider-credential`
@@ -227,7 +227,7 @@ disables published-key-format detection — i.e. turning off a privacy preferenc
 security control. The per-*type* switches (`registrations/privacy.ts:100-117`) are the correct
 lever and they all default `true` (`:107`).
 
-### What must be true for enabling one to take effect on the outbound path
+#### What must be true for enabling one to take effect on the outbound path
 
 Today, a flipped switch does reach the detector — `registrations/privacy.ts:87-91` calls
 `setPrivacyTierEnabled` → `pii-registry.ts:373` mutates `liveSettings` → invalidates the
@@ -244,7 +244,7 @@ wiring is live. **Three things are wrong with it:**
 3. **It disobeys decision 1.** These are not declared in the global schema with a scope and
    resolved by the one resolver; they are a registration with an in-memory setter.
 
-## A.6 WHAT REACHES A PROVIDER TODAY — enumerated, measured
+### A.6 WHAT REACHES A PROVIDER TODAY — enumerated, measured
 
 Everything below was read off a captured request body or the assembling source.
 
@@ -268,7 +268,7 @@ operating-system username embedded in them, and the project's file tree go to th
 verbatim on every single call. That is a deliberate consequence of A.5 (no username / path
 detector) and it should be recorded as a decision, not discovered later as a bug.
 
-## A.7 §0 LADDER VERDICT — Target A
+### A.7 §0 LADDER VERDICT — Target A
 
 **Rung reached: 4**, with a real rung-3 available for the specific defect in A.4.
 
@@ -301,7 +301,7 @@ detector) and it should be recorded as a decision, not discovered later as a bug
 `registerKnownSecret` path, where 12 is right. Two callers, one constant, opposite blast
 radii. Rung 2 (the required argument) is the only fix that ends the class.
 
-## A.8 THE FIX — precise enough to implement
+### A.8 THE FIX — precise enough to implement
 
 **Fix 1 — A.4, the inert learning (HIGH; this is a live leak).**
 
@@ -340,7 +340,7 @@ The tier axis cannot express the decision. Do not disable a tier.
 redactor, or record in `provider-adapter.ts`'s header that it is deliberately unredacted and
 which application owns that decision. Today it says neither.
 
-## A.9 THE TEST THAT WOULD HAVE CAUGHT IT
+### A.9 THE TEST THAT WOULD HAVE CAUGHT IT
 
 **For A.4 — deterministic, mechanical, with a stated population and a plant.**
 
@@ -400,14 +400,14 @@ rather than on `.at(-1)`. A single-message assertion in a test whose subject is 
 
 ---
 
-# TARGET B — "Transcript store is single-tenant: a background run's tokens land in the foreground conversation"
+## TARGET B — "Transcript store is single-tenant: a background run's tokens land in the foreground conversation"
 
-## B.1 VERDICT: **PROVEN as a defect, REPRODUCED — and it is a BUG, not a BREACH.**
+### B.1 VERDICT: **PROVEN as a defect, REPRODUCED — and it is a BUG, not a BREACH.**
 
 The store is genuinely single-tenant. I reproduced the contamination twice. But the blast radius
 is **one browser, one user, display only** — and the server-side record is correct.
 
-## B.2 REPRODUCTION — driven
+### B.2 REPRODUCTION — driven
 
 Both runs are against the real `src/state/chat-messages.ts` (loaded in Node through a
 `module.registerHooks` extension resolver; no repo file touched).
@@ -438,7 +438,7 @@ appendToolCall({name:"read_file", …}); commitStreamingTail();
 
 Chat A's transcript now contains run B's answer and run B's tool call.
 
-## B.3 THE MECHANISM, `file:line`
+### B.3 THE MECHANISM, `file:line`
 
 - `web/src/state/chat-messages.ts:196` — `export const messages = atom<readonly ChatMessage[]>([])`.
   **One atom. No chat key, no run key.**
@@ -457,7 +457,7 @@ Chat A's transcript now contains run B's answer and run B's tool call.
 carries the run's bound `chatId` (`run.ts:965`, parsed at `client.ts:1866-1871`) — and
 `ingestModelEvent` never consults it.
 
-## B.4 BLAST RADIUS — the bug/breach question, settled
+### B.4 BLAST RADIUS — the bug/breach question, settled
 
 **Cross-user is refused at the server. This is not a breach.**
 
@@ -495,7 +495,7 @@ next user sees in that tab.
   socket down on session invalidation is unmeasured. **Do not report this as a confirmed
   cross-user leak until that is driven.**
 
-## B.5 IS IT RECORDED WRONGLY TOO? **No — the ledger is correct.**
+### B.5 IS IT RECORDED WRONGLY TOO? **No — the ledger is correct.**
 
 Only the display is wrong, and it self-heals on reload.
 
@@ -515,7 +515,7 @@ Only the display is wrong, and it self-heals on reload.
 So B is a **rendering defect over a correct record** — which is the good version of this bug,
 and worth saying plainly.
 
-## B.6 THE SECOND DOOR — and it is the one served at `/`
+### B.6 THE SECOND DOOR — and it is the one served at `/`
 
 The prompt predicted this and it is there.
 
@@ -550,7 +550,7 @@ The one guard the legacy shell *does* get is at the store: `clearMessages()`
 turn rather than the in-flight one. That guard is real and its docstring records the exact
 defect it closed. It does not stop anything after the next `start` event.
 
-## B.7 §0 LADDER VERDICT — Target B
+### B.7 §0 LADDER VERDICT — Target B
 
 **Rung reached: 5 (convention + two lifecycle guards on one of two doors).** Rung 3 is available
 and is the right answer.
@@ -579,7 +579,7 @@ and is the right answer.
   chat-keyed transcript store, which is not this territory."* It was right. This is that
   territory.
 
-## B.8 THE FIX
+### B.8 THE FIX
 
 1. **`web/src/client.ts:2351`** — `function ingestModelEvent(chatId: string, event: ModelEvent)`.
    First statement: `if (chatId !== currentChatId.get()) return;`. Required parameter, no
@@ -600,7 +600,7 @@ and is the right answer.
    to say so, because a comment claiming a correctness role it no longer holds is the next
    agent's trap.
 
-## B.9 THE TEST THAT WOULD HAVE CAUGHT IT
+### B.9 THE TEST THAT WOULD HAVE CAUGHT IT
 
 *Population*: **every `openRunStream` call site**, discovered from the call graph rather than
 listed — the whole defect is that one of three was missed. Today: 3.
@@ -645,7 +645,7 @@ unnecessary. Prefer removing the possibility to enumerating its instances (§0).
 
 ---
 
-# ADJACENT FINDINGS, with evidence
+## ADJACENT FINDINGS, with evidence
 
 **AD-1 — the redaction notice under-reports (PROVEN, follows from A.4).** On a turn where a
 6–11-character declared value is masked in one message and leaks in another, the `redaction`
@@ -691,7 +691,7 @@ every future caller remembering, and no guard covers it.
 
 ---
 
-# COVERAGE
+## COVERAGE
 
 **What I DROVE (executed, output read):**
 - `buildLLMMessages` over 18 planted categories → 12 masked / 6 verbatim.

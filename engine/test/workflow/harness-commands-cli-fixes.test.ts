@@ -11,7 +11,6 @@ import {
   harnessExtensionList,
   harnessSync,
   autoAddDispositionEntries,
-  generatorReport,
   regeneratePinAuthorities,
   regenerateRatchetBaselines,
   regenerateTestInventory,
@@ -20,10 +19,10 @@ import {
   HARNESS_SUBCOMMANDS,
   promotionsStep,
   runHarnessCli,
-  runScriptSubprocess,
   type HarnessMetricsOutput,
   type HarnessRollbackOutput,
 } from "../../src/workflow/harness-commands.ts";
+import { generatorReport, runScriptSubprocess } from "../../src/workflow/script-subprocess.ts";
 import { boundedEnding, kernelCpuLimit, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
 import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
 

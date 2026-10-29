@@ -63,6 +63,19 @@ export const SERVICE_WORKER_DIGEST = deepFreeze({
 } as const);
 
 /**
+ * THE ROADMAP PAGE'S STATUS BLOCKS: `generator` (repository-relative) renders
+ * the generated blocks of `path` from the tracker items, the decision records
+ * and the evidence page's non-proofs, on every `harness sync`, right after the
+ * task board; `harness check` judges them. A tracker item change (a hand edit
+ * or the IssueOps record writer's) without the page regenerated fails the
+ * check, so no generated view of the tracker is ever left stale.
+ */
+export const ROADMAP_PAGE = deepFreeze({
+  generator: "scripts/floor/roadmap-status.ts",
+  path: "docs/floor/roadmap.md",
+} as const);
+
+/**
  * THE SHIPPED HOOKS (`<directory>/<name>`, repository-relative): the tracked
  * hooks whose text is canonical — the `guarded` ones, which hand over to the
  * commit guard, and the promotion `trigger`. Each file's WHOLE text is a

@@ -14,6 +14,7 @@ import {
   syncPassVerdict,
   regenerateServiceWorkerDigest,
   serviceWorkerDigestStep,
+  roadmapPageStep,
   harnessNewModule,
   runArchitectureCheck,
   runInventoryCheck,
@@ -29,6 +30,7 @@ import {
   trackerBoardStep,
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
+import { regenerateRoadmapPage } from "../../src/workflow/roadmap-page.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 import { ARCHITECTURE_MODULES_PATH, architectureModulesText } from "../../src/workflow/architecture-module-entries.ts";
 import { HARNESS_COMMAND_SCHEMA_VERSION, parseHarnessCommandResult, resultHasFail, type HarnessCommandResult } from "../../src/workflow/command-result.ts";
@@ -39,7 +41,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { SERVICE_WORKER_DIGEST, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { ROADMAP_PAGE, SERVICE_WORKER_DIGEST, TRACKER_BOARD, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -226,6 +228,71 @@ test("HarnessCommands: harnessRegenerate produces valid result", async () => {
   // The policy's baselines, then the architecture judge's at its fixed path in code (never a policy entry).
   assert.deepEqual(result.result.ratchetBaselines.results.map((arm) => arm.id), [...Object.keys(ROOT_POLICY_AT_LOAD.verification.ratchetBaselines), "architecture-judge"]);
   assert.equal(result.result.ratchetBaselines.converged, true, `the ratchet arm must converge on this tree: ${JSON.stringify(result.result.ratchetBaselines.results)}`);
+});
+
+test("HarnessCommands: the roadmap page arm — a tracker change without the page regenerated is refused by name, sync regenerates it, and both check and regenerate run it", async () => {
+  // The WIRING, with a stand-in generator at the arm's own path speaking the
+  // one protocol (the real rendering is proved beside its owner,
+  // tests/prevention/roadmap-status-owner.test.ts). The stand-in renders the
+  // page as the sorted list of the tracker items' ids, so adding an item
+  // without regenerating is exactly a tracker change the page does not show.
+  const repository = createTempDir("roadmap-page-arm-");
+  try {
+    const engineRoot = join(repository, "engine");
+    mkdirSync(engineRoot, { recursive: true });
+    const generator = join(repository, ROADMAP_PAGE.generator);
+    mkdirSync(join(generator, ".."), { recursive: true });
+    const page = join(repository, ROADMAP_PAGE.path);
+    mkdirSync(join(page, ".."), { recursive: true });
+    const items = join(repository, TRACKER_BOARD.items);
+    mkdirSync(items, { recursive: true });
+    writeFileSync(join(items, "A-ONE.md"), "A-ONE\n");
+    writeFileSync(page, "A-ONE\n");
+    writeFileSync(generator, [
+      'import { readdirSync, readFileSync, writeFileSync } from "node:fs";',
+      'import { join } from "node:path";',
+      'const root = process.argv.find((a) => a.startsWith("--root="))?.slice("--root=".length);',
+      'if (root === undefined) { process.stdout.write("{}\\n"); process.exit(2); }',
+      `const file = join(root, ${JSON.stringify(ROADMAP_PAGE.path)});`,
+      `const derived = readdirSync(join(root, ${JSON.stringify(TRACKER_BOARD.items)})).map((name) => name.replace(/\\.md$/u, "")).sort().join("\\n") + "\\n";`,
+      'let out;',
+      'if (readFileSync(file, "utf8") === derived) out = { allCurrent: true, status: "current", changed: [] };',
+      `else if (process.argv.includes("--write")) { writeFileSync(file, derived); out = { allCurrent: true, status: "regenerated", changed: ["milestones"] }; }`,
+      'else out = { allCurrent: false, status: "stale", changed: ["milestones"] };',
+      'process.stdout.write(JSON.stringify(out) + "\\n");',
+      "process.exitCode = out.allCurrent ? 0 : 1;",
+      "",
+    ].join("\n"));
+    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
+    assert.deepEqual(await regenerateRoadmapPage(engineRoot, false), { status: "current", converged: true, changed: [] });
+
+    // A tracker item added, the page left as it was: the check step FAILS, naming the page, and writes nothing.
+    writeFileSync(join(items, "B-TWO.md"), "B-TWO\n");
+    const stale = await regenerateRoadmapPage(engineRoot, false);
+    assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["milestones"]]);
+    const step = roadmapPageStep(stale);
+    assert.equal(step.step, "roadmap-page");
+    assert.equal(step.status, "fail");
+    assert.match(step.message, /docs\/floor\/roadmap\.md's status blocks are stale against the tracker items \(run harness sync\): milestones/u);
+    assert.equal(readFileSync(page, "utf8"), "A-ONE\n", "a check wrote the page");
+    // Sync: the page is regenerated, and the step passes after it.
+    const written = await regenerateRoadmapPage(engineRoot, true);
+    assert.deepEqual([written.status, written.converged], ["regenerated", true]);
+    assert.equal(readFileSync(page, "utf8"), "A-ONE\nB-TWO\n", "sync did not regenerate the page");
+    assert.equal(roadmapPageStep(await regenerateRoadmapPage(engineRoot, false)).status, "pass");
+    // No generator in the tree (a product-only tree): converged by absence.
+    rmSync(generator);
+    assert.deepEqual(await regenerateRoadmapPage(engineRoot, false), { status: "absent", converged: true, changed: [] });
+  } finally {
+    rmSync(repository, { recursive: true, force: true });
+  }
+  // Wired into both commands, on this synced tree: the check's step and the regenerate's arm.
+  const checked = await checkSkipAll();
+  assert.equal(checked.result.roadmapPage.step, "roadmap-page", "the roadmap-page step is wired into harnessCheck");
+  assert.equal(checked.result.roadmapPage.status, "pass", checked.result.roadmapPage.message);
+  assert.equal((checked.result.roadmapPage.details as { status: string }).status, "current", "the check ran this tree's real roadmap generator, not an absent one");
+  const regenerated = await harnessRegenerate(ROOT, { write: false });
+  assert.deepEqual([regenerated.result.roadmapPage.status, regenerated.result.roadmapPage.converged], ["current", true], "the roadmap arm is wired into harnessRegenerate");
 });
 
 test("HarnessCommands: the service worker digest arm — check refuses a hand-edited digest by name, sync re-derives it, then check passes", async () => {
