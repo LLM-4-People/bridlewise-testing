@@ -374,7 +374,7 @@ export function treeScannedSignals(): readonly SecretTextSignal[] {
  * The digests are authored pins: their inputs are deliberately absent from
  * the tree, so no generator can re-derive them.
  */
-const HOME_PATH_PLACEHOLDERS = deepFreeze([
+export const HOME_PATH_PLACEHOLDERS = deepFreeze([
   "example", "user", "runner", "bridlewise", "ubuntu", "node", "app",
   "workspace", "demo", "x", "u", "me", "alice", "bob", "jane", "jdoe",
   "username", "test", "foo", "bar", "baz",
@@ -386,10 +386,15 @@ const HOME_PATH_PLACEHOLDERS = deepFreeze([
 const HOME_PLACEHOLDER_GUARD = `(?!(?:${HOME_PATH_PLACEHOLDERS.join("|")})(?![A-Za-z0-9_-])(?!\\.[A-Za-z0-9]))`;
 
 export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
-  // ABSOLUTE only: `/home/` that begins the path. `src/pages/home/widgets`,
+  // ABSOLUTE only: `/home/` or `/Users/` that begins the path. `src/pages/home/widgets`,
   // `backup/home/x` and `<root>/home/x` are relative paths that merely hold a
-  // `home` segment, and reading them as an account published nothing.
-  { id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path", pattern: new RegExp(`(?<![\\w.>}-])\\/home\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+`, "u") },
+  // `home` segment, and reading them as an account published nothing. A Windows
+  // home (`C:\Users\<name>`, either slash, `Users` in any case) is one too, its
+  // name possibly a `~1` short name.
+  {
+    id: "home-path", category: "privacy", appliesTo: "text", description: "absolute home path",
+    pattern: new RegExp(`(?<![\\w.>}-])\\/(?:home|Users)\\/${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._-]+|(?<![A-Za-z0-9])[A-Za-z]:[\\\\/]+[Uu][Ss][Ee][Rr][Ss][\\\\/]+${HOME_PLACEHOLDER_GUARD}[A-Za-z0-9._~-]+`, "u"),
+  },
   // BEGIN AUTHORED PINS
   { id: "internal-git-host", category: "privacy", appliesTo: "text", description: "internal Git host", names: "dotted", digests: [{ length: 18, sha256: "64228b8af389331cee6e7dba27c81450a7181c1f719e7a133e37128c6a4309e5" }] },
   { id: "internal-provider-host", category: "privacy", appliesTo: "text", description: "internal provider host", names: "dotted", digests: [{ length: 18, sha256: "c565b621df0b9302f8b7e6881dd58353a803981a9fe69ef0542009f1ad9c76d1" }] },
@@ -402,6 +407,16 @@ export const PUBLICATION_PRIVACY_SIGNALS = deepFreeze([
 ] as const);
 
 export type PublicationPrivacySignal = (typeof PUBLICATION_PRIVACY_SIGNALS)[number];
+
+/**
+ * The spellings one filesystem location can be published under, reduced to
+ * one before the privacy rows read a text: repeated slashes and `.` segments
+ * both name the same place to every consumer of the text.
+ */
+export function collapsedPathText(text: string): string {
+  return text.replace(/\/{2,}/gu, "/").replace(/\/\.\//gu, "/");
+}
+
 type PrivacyNameKind = "dotted" | "scratch-path";
 type PrivacyRow = Readonly<{ id: string } & (
   | { pattern: RegExp }

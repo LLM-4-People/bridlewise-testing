@@ -4,7 +4,7 @@ The `engine/test/verification/` folder of the development surface.
 
 ## What each file does
 
-- `added-content.test.ts` — each refusal of the added-content judge (a home path in every spelling, the running user's identity at the hook, an oversized text blob, a `.ts` file that is not TypeScript), the reviewed exemptions, a scratch repository's own references, refusals that never echo, the range door and a merge, the staged question, and main's tree judged retroactively.
+- `added-content.test.ts` — each refusal of the added-content judge (a home path in every spelling and decoded form, an over-deep encoding, the running user's identity at the hook and a placeholder-named account, a binary blob's content, an oversized text blob, a `.ts` file that is not TypeScript), the reviewed exemptions, a marked throwaway repository's references and the marker refused wherever the repository is not throwaway, refusals that never echo, the range door and a merge, the staged question, and main's tree judged retroactively.
 - `architecture-external-commands.test.ts` — the `architecture-external-commands.test` module.
 - `artifact-manifest.test.ts` — the canonical artifact inventory's producer: generatedAt derived from the captures (never read back), origins admitted by pinned provenance shapes, and a dropped artifact refused unless named or forbidden by canonical retention.
 - `corpus-manifest.test.ts` — the corpus manifest's validation (hash, path, upstream, licence refused by name), a drift report that names the file, a real fetch over a local bare repo, and the relink rule.

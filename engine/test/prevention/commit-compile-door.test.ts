@@ -35,6 +35,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import { GUARDED_HOOKS, HOOKS_DIRECTORY, HOOK_NAME, guardHookText } from "../../scripts/verification/staged-move-loss.ts";
+import { markThrowawayRepository } from "../support/throwaway-repository.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { ownedTemporaryName } from "../../src/filesystem/private-state.ts";
 import { recordIndexBaseline } from "../../src/git/index-baseline.ts";
@@ -80,6 +81,8 @@ function compileFixtureRepository(spell: "pass" | "fail"): string {
   run("init", "-q");
   run("config", "user.email", "guard@example.invalid");
   run("config", "user.name", "guard");
+  // Its hooks name this harness's guard by absolute path and its legs name its own root: it says so.
+  markThrowawayRepository(root);
   for (const hook of GUARDED_HOOKS) {
     writeFile(root, join(HOOKS_DIRECTORY, hook), guardHookText(hook, JSON.stringify(COMMIT_GUARD)));
     chmodSync(join(root, HOOKS_DIRECTORY, hook), 0o755);
@@ -681,7 +684,8 @@ test("DRIVEN: an --amend that drops a lesson's trailer is REPORTED by post-commi
   writeFile(root, join(HOOKS_DIRECTORY, "post-commit"), `#!/bin/sh\nexec node --experimental-strip-types ${JSON.stringify(join(INTEGRATION_ROOT, "scripts", "post-commit.ts"))} "$(git rev-parse --show-toplevel)"\n`);
   chmodSync(join(root, HOOKS_DIRECTORY, "post-commit"), 0o755);
   writeFile(root, path, lessonText("2026-01-01-amended", "acted"));
-  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  // The hook runs from the working tree; it is never committed (it names this harness's program by its path).
+  execFileSync("git", ["add", "--", path], { cwd: root, stdio: "pipe" });
   const named = commit(root, "act on the lesson\n\nLesson: L-2026-01-01-amended");
   assert.equal(named.status, 0, named.stderr);
   assert.doesNotMatch(named.stderr, /LESSON TRAILER MISSING/u, "a commit naming its lesson was reported");
@@ -755,7 +759,7 @@ test("DRIVEN: a commit adding a host's home path is refused by the shipped hook,
   execFileSync("git", ["add", "--", "docs/notes.md"], { cwd: root, stdio: "pipe" });
   const refused = commit(root, "a note");
   assert.notEqual(refused.status, 0, "a home path reached a commit");
-  assert.ok(refused.stderr.includes("docs/notes.md:1: an added line names a /home/<name>/ path (added_content_home_path)"), refused.stderr);
+  assert.ok(refused.stderr.includes("docs/notes.md:1: an added line names an absolute home path [home-path] (added_content_private)"), refused.stderr);
   assert.doesNotMatch(refused.stderr, /mkeller7/u, "the refusal echoed the account");
 });
 

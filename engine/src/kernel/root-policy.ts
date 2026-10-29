@@ -2181,16 +2181,19 @@ const ROOT_POLICY_VALUE = {
      */
     /**
      * WHAT A COMMIT ADDS (scripts/verification/added-content.ts): no added line names
-     * a host's home (`/home/<name>/`, `/Users/<name>/`, `C:\\Users\\<name>\\`, and, at the
-     * local hook, the running user's own home and account name), no text blob exceeds
-     * the bound (raw output belongs in the evidence store), and no `.ts` file stops
-     * being TypeScript. The exemptions are declared and reviewed here, synthetic only:
-     * the placeholder account names fixtures and docs use, and the vendored text that
-     * is larger than the bound by nature.
+     * what the publication-privacy catalogue refuses (an absolute home path whose name
+     * is not a documented placeholder, an internal host; src/privacy/secret-signals.ts)
+     * or, at the local hook, the running user's own home and account name; no text blob
+     * exceeds the bound (raw output belongs in the evidence store), and no `.ts` file
+     * stops being TypeScript. The exemptions are declared and reviewed here: the
+     * vendored text that is larger than the bound by nature, and the `.ts` files that
+     * are not whole TypeScript by nature.
      */
     addedContent: {
       maximumTextBlobBytes: 1048576,
-      syntheticHomeNames: ["alice", "bob", "example", "jdoe", "me", "other-user", "runner", "u", "user", "widgets", "x"],
+      // The git config key a test's throwaway repository sets in its own .git/config (never committed) to name
+      // its own root and this harness's guard (scripts/verification/added-content.ts, throwawayReading).
+      throwawayRepositoryKey: "bridlewise.throwawayRepository",
       oversizedTextExemptions: ["engine/traceability/sources/path-policy/unicode-17.0.0/NormalizationTest.txt"],
       // `.ts` files that are not whole TypeScript BY NATURE: excerpts of an upstream source (the official
       // fragment manifest pins them) and the fixture that exists to be a syntax error.
