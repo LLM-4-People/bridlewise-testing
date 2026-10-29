@@ -267,7 +267,7 @@ const PLANTS: readonly Plant[] = [
 const CLEAN_TOO: readonly Plant[] = [
   { name: "under load stress, the clean page", rule: "layout-shift", stress: true },
   { name: "under load stress, a late image with its dimensions set", body: `<img alt="" src="${TALL_IMAGE_PATH}" width="400" height="320">${BELOW}`, rule: "layout-shift", stress: true },
-  { name: "under load stress, a stylesheet in the head that arrives late (the first paint waits for it)", head: `<link rel="stylesheet" href="${LATE_SHEET_PATH}">`, body: BELOW, rule: "layout-shift", stress: true },
+  { name: "under load stress, a stylesheet in the head, which the first paint waits for", head: `<link rel="stylesheet" href="${LATE_SHEET_PATH}">`, body: BELOW, rule: "layout-shift", stress: true },
   { name: "a web font that arrives after the first paint and reflows the text", head: `<style>@font-face { font-family: "Late Proof"; src: url("${LATE_FACE_PATH}") format("woff2"); font-display: swap; size-adjust: 250% } #late { font: 16px/normal "Late Proof", serif }</style>`, body: `<div id="late">${LATE_FACE_TEXT}</div><section style="height: 70vh"><p>Below the late text, filling the window.</p></section>`, rule: "layout-shift", only: ["layout-shift"] },
   { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
   // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.

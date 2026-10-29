@@ -37,7 +37,7 @@ import { chromium, type Browser, type BrowserContext, type CDPSession, type Fram
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { SERVED_HTML, SITE_THEME_STORAGE } from "../../shared/site-page.ts";
-import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, LOAD_STRESS_MS, LOAD_STRESSED, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type Scope, type RenderState, type RequestRule, type Surface } from "./rules.ts";
+import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type Scope, type RenderState, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
   readonly code: string;
@@ -76,8 +76,60 @@ const sessions = new WeakMap<Page, CDPSession>();
 const surfaces = new WeakMap<BrowserContext, Surface>();
 /** Each instrumented context's scope: its surface and the base path its pages are served under (a row's input is built for it). */
 const scopes = new WeakMap<BrowserContext, Scope>();
+/** Contexts judged as the load under stress (instrumentContext's `loadStress`). */
+const stressed = new WeakSet<BrowserContext>();
+/** Each stressed page's document: whether it has first painted, and the requests it holds until it does. */
+const holds = new WeakMap<Page, { painted: boolean; held: (() => void)[] }>();
+
+/** The page's document first painted: everything it held back is released, in the order it was asked for. */
+function painted(page: Page): void {
+  const hold = holds.get(page);
+  if (hold === undefined || hold.painted) return;
+  hold.painted = true;
+  for (const release of hold.held.splice(0)) release();
+}
+
+/**
+ * THE LOAD UNDER STRESS, AS THE BROWSER SEES IT: every font, image and
+ * stylesheet the page's first paint does not wait for (Chrome's own
+ * renderBlockingBehavior) is held until that paint, then released; what the
+ * paint waits for passes at once. So each one lands after the first paint on
+ * every host, by an event, never by a delay a slow host could overrun.
+ */
+async function holdUntilFirstPaint(page: Page, cdp: CDPSession): Promise<void> {
+  const hold = { painted: false, held: [] as (() => void)[] };
+  holds.set(page, hold);
+  const behaviour = new Map<string, string>();
+  const waiting = new Map<string, (blocking: string) => void>();
+  cdp.on("Network.requestWillBeSent", (event: { requestId: string; renderBlockingBehavior?: string }) => {
+    const blocking = event.renderBlockingBehavior ?? "None";
+    behaviour.set(event.requestId, blocking);
+    waiting.get(event.requestId)?.(blocking);
+    waiting.delete(event.requestId);
+  });
+  cdp.on("Fetch.requestPaused", (event: { requestId: string; networkId?: string }) => {
+    const id = event.networkId ?? event.requestId;
+    const known = behaviour.get(id);
+    const decided = known !== undefined ? Promise.resolve(known) : new Promise<string>((resolveBlocking) => waiting.set(id, resolveBlocking));
+    void decided.then((blocking) => {
+      const release = (): void => { cdp.send("Fetch.continueRequest", { requestId: event.requestId }).catch(() => undefined); };
+      if (blocking === "Blocking" || hold.painted) release();
+      else hold.held.push(release);
+    });
+  });
+  // A new document has not painted yet.
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) hold.painted = false;
+  });
+  await cdp.send("Network.enable");
+  await cdp.send("Fetch.enable", { patterns: (["Stylesheet", "Font", "Image"] as const).map((resourceType) => ({ resourceType })) });
+}
 
 function record(page: Page, frame: Frame | null, kind: unknown, value: unknown): void {
+  if (kind === "first-paint") {
+    painted(page);
+    return;
+  }
   const journal = journals.get(page);
   if (journal === undefined) return; // a window the walk did not open: reported when it opens (instrumentContext)
   const known = kind === "canvas-font" || kind === "csp" || kind === "unjudgeable";
@@ -122,7 +174,7 @@ function instrumentFrame(binding: string, countFromLoad: boolean): void {
   // counts again through the page's future (judgeFuture): a judge resizing a
   // page is not the page shifting. Under load stress (judgeLoadStress) the
   // count is open from the navigation's start: the load's own shifts are what
-  // that pass judges, its delays chosen, not the host's.
+  // that pass judges, its order set by the page's first paint, not the host.
   const shift = { value: 0, counting: countFromLoad, set: (on: boolean): void => { void on; } };
   scope.__renderedShift = shift;
   try {
@@ -150,6 +202,15 @@ function instrumentFrame(binding: string, countFromLoad: boolean): void {
     sent.add(key);
     void (call as (k: string, v: string) => unknown)(kind, value);
   };
+  // Under load stress the top document says when it first painted: what it
+  // held back until then (holdUntilFirstPaint) is released at that moment.
+  if (countFromLoad && window === window.top) {
+    try {
+      new PerformanceObserver((list) => {
+        if (list.getEntries().some((entry) => entry.name === "first-paint")) send("first-paint", "");
+      }).observe({ type: "paint", buffered: true });
+    } catch { /* a frame without paint timing holds nothing back */ }
+  }
   for (const name of ["CanvasRenderingContext2D", "OffscreenCanvasRenderingContext2D"]) {
     const proto = (scope[name] as { prototype: Record<string, unknown> } | undefined)?.prototype;
     const descriptor = proto === undefined ? undefined : Object.getOwnPropertyDescriptor(proto, "font");
@@ -227,15 +288,7 @@ export async function instrumentContext(context: BrowserContext, surface: Surfac
   await context.clock.install();
   await context.exposeBinding(BINDING, ({ page, frame }: { page: Page; frame: Frame }, kind: unknown, value: unknown) => record(page, frame, kind, value));
   await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)}, ${JSON.stringify(loadStress)});` });
-  // Under load stress every font, image and stylesheet answers LOAD_STRESS_MS
-  // late, the same for every host: a page that paints before they arrive and
-  // moves when they do is found (judgeLoadStress).
-  if (loadStress) {
-    await context.route("**/*", (route) => {
-      if (!LOAD_STRESSED.has(route.request().resourceType())) return route.continue();
-      return new Promise<void>((done) => setTimeout(() => { route.continue().then(done, done); }, LOAD_STRESS_MS));
-    });
-  }
+  if (loadStress) stressed.add(context);
   context.on("page", (page) => {
     const expected = opening.get(context) ?? 0;
     if (expected > 0) opening.set(context, expected - 1);
@@ -300,6 +353,7 @@ export async function openPage(context: BrowserContext): Promise<Page> {
     if (event.targetInfo.type === "worker") record(page, null, "unjudgeable", `a worker (${event.targetInfo.url}): the judgement does not reach inside a worker`);
   });
   await cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: false });
+  if (stressed.has(context)) await holdUntilFirstPaint(page, cdp);
   // A new document starts a new record (what the last one recorded was judged before it was left).
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame()) journal.entries = [];
@@ -684,14 +738,15 @@ export async function judgeFuture(page: Page, surface: Surface, rules?: readonly
 const statesOf = (surface: Surface): readonly RenderState[] => RENDER_STATES.filter((s) => s.surfaces.includes(surface));
 
 /**
- * THE LOAD UNDER STRESS: `page`, opened by `navigate` in a context instrumented
- * with `loadStress`, has had every font, image and stylesheet answer
- * LOAD_STRESS_MS late, and its shift count open from the navigation's start.
- * Once it is ready and a frame is drawn, the layout-shift row judges what the
- * load moved: a web font's swap, a late image without set dimensions, a
- * stylesheet applied after the first paint. The delays are the judge's, so the
- * result is the same on every host. The page's clock is held (navigate), so
- * its timers' shifts are the main judgement's, not counted here twice.
+ * THE LOAD UNDER STRESS: `page`, opened in a context instrumented with
+ * `loadStress`, has had every font, image and stylesheet its first paint did
+ * not wait for held until that paint (holdUntilFirstPaint), and its shift
+ * count open from the navigation's start. Once it is ready and a frame is
+ * drawn, the layout-shift row judges what the load moved: a web font's swap,
+ * a late image without set dimensions, a stylesheet applied after the first
+ * paint. The order is set by events, so the result is the same on every
+ * host. The page's clock is held (navigate), so its timers' shifts are the
+ * main judgement's, not counted here twice.
  */
 export async function judgeLoadStress(page: Page, surface: Surface): Promise<readonly string[]> {
   await ready(page);
@@ -794,7 +849,8 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
       await context.close();
     }
     // The load under stress, once per page (the lead theme): every font, image
-    // and stylesheet LOAD_STRESS_MS late, shifts counted from the start.
+    // and stylesheet the first paint does not wait for lands after it, shifts
+    // counted from the start.
     const stressed = await browser.newContext({ serviceWorkers: "block" });
     let current = "";
     await instrumentContext(stressed, "site", origin, (finding) => findings.add(`${current} [logbook, load stress]: ${finding}`), baseurl, true);
