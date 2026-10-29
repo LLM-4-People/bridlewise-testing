@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -99,22 +99,52 @@ test("a named ignored path refuses with its own code, naming the rule; a tracked
   assert.match(stagedStatus(root), /^M\tlib\/run\.log$/mu);
 });
 
-test("an unmerged path whose file still holds conflict markers refuses; resolved, it stages and the conflict is marked resolved", () => {
-  const root = plantedRepository();
-  git(root, "add", "--", "lib/edited.ts", "lib/deleted.ts");
-  git(root, "commit", "-q", "-m", "ours");
-  git(root, "checkout", "-q", "-b", "theirs", "HEAD~1");
-  writeFileSync(join(root, "lib", "edited.ts"), "export const edited = 'theirs';\n");
-  git(root, "add", "--", "lib/edited.ts");
-  git(root, "commit", "-q", "-m", "theirs");
+/**
+ * A real diff3 merge with three conflicted files: `f.txt` (plain markers), `big.txt` (its
+ * `conflict-marker-size=10` attribute: ten-character markers) and `doc.md` (a setext `=======` heading).
+ */
+function conflictedMerge(): string {
+  const root = createTempDir("harness-stage-merge-");
+  git(root, "init", "-q");
+  writeFileSync(join(root, ".gitattributes"), "big.txt conflict-marker-size=10\n");
+  writeFileSync(join(root, "f.txt"), "a\nb\nc\n");
+  writeFileSync(join(root, "big.txt"), "x\n");
+  writeFileSync(join(root, "doc.md"), "Title\n=======\n\nbase\n");
+  git(root, "add", "--", ".gitattributes", "f.txt", "big.txt", "doc.md");
+  git(root, "commit", "-q", "-m", "base");
+  git(root, "checkout", "-q", "-b", "theirs");
+  writeFileSync(join(root, "f.txt"), "a\nTHEIRS\nc\n");
+  writeFileSync(join(root, "big.txt"), "theirs\n");
+  writeFileSync(join(root, "doc.md"), "Title\n=======\n\ntheirs\n");
+  git(root, "commit", "-q", "-a", "-m", "theirs");
   git(root, "checkout", "-q", "-");
-  spawnSync("git", ["-c", "user.name=Stage Test", "-c", "user.email=stage@example.invalid", "merge", "-q", "theirs"], { cwd: root });
-  assert.match(git(root, "ls-files", "-u"), /lib\/edited\.ts/u, "the merge left lib/edited.ts unmerged");
-  assert.throws(() => stagePaths(root, []), refusedWith("stage_conflict_unresolved"));
-  assert.match(git(root, "ls-files", "-u"), /lib\/edited\.ts/u, "still unmerged: nothing was staged");
-  writeFileSync(join(root, "lib", "edited.ts"), "export const edited = 'resolved';\n");
+  writeFileSync(join(root, "f.txt"), "a\nOURS\nc\n");
+  writeFileSync(join(root, "big.txt"), "ours\n");
+  writeFileSync(join(root, "doc.md"), "Title\n=======\n\nours\n");
+  git(root, "commit", "-q", "-a", "-m", "ours");
+  spawnSync("git", ["-c", "user.name=Stage Test", "-c", "user.email=stage@example.invalid", "-c", "merge.conflictStyle=diff3", "merge", "-q", "theirs"], { cwd: root });
+  assert.equal(git(root, "ls-files", "-u").split("\n").filter((line) => line.length > 0).length, 9, "three files, three stages each, unmerged");
+  return root;
+}
+
+const unmergedPaths = (root: string): readonly string[] => [...new Set(git(root, "ls-files", "-u").split("\n").filter((line) => line.length > 0).map((line) => line.split("\t")[1]!))].sort();
+
+test("git judges the leftover conflict markers: diff3 markers and a conflict-marker-size of 10 refuse; a resolved setext heading stages", () => {
+  const root = conflictedMerge();
+  // diff3 markers (with the ||||||| base) in f.txt, ten-character ones in big.txt, and doc.md's own markers: all refused.
+  assert.match(readFileSync(join(root, "f.txt"), "utf8"), /^\|{7} /mu, "diff3 style: the base section is there");
+  assert.match(readFileSync(join(root, "big.txt"), "utf8"), /^<{10} /mu, "the attribute's ten-character markers are there");
+  assert.throws(() => stagePaths(root, []), (error: unknown) => (error as { code?: string }).code === "stage_conflict_unresolved" && ["f.txt", "big.txt", "doc.md"].every((path) => (error as Error).message.includes(path)));
+  assert.deepEqual(unmergedPaths(root), ["big.txt", "doc.md", "f.txt"], "nothing was staged");
+  // doc.md resolved, keeping its setext heading (a line of seven "="s) and a trailing space (a whitespace finding, not this question).
+  writeFileSync(join(root, "doc.md"), "Title\n=======\n\nresolved \n");
+  // big.txt still holds its ten-character markers: refused, while doc.md is not named.
+  assert.throws(() => stagePaths(root, []), (error: unknown) => (error as { code?: string }).code === "stage_conflict_unresolved" && (error as Error).message.includes("big.txt") && !(error as Error).message.includes("doc.md"));
+  writeFileSync(join(root, "big.txt"), "resolved\n");
+  writeFileSync(join(root, "f.txt"), "a\nresolved\nc\n");
   stagePaths(root, []);
-  assert.equal(git(root, "ls-files", "-u"), "", "the resolved file is staged and its conflict marked resolved");
+  assert.deepEqual(unmergedPaths(root), [], "every resolved file is staged and its conflict marked resolved");
+  assert.equal(readFileSync(join(root, "doc.md"), "utf8"), "Title\n=======\n\nresolved \n");
 });
 
 test("a change over a protected staged blob refuses, and so does a drifted index; the index stays as it was", () => {

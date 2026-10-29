@@ -49,7 +49,7 @@
  *   each by its literal path, never anything unnamed (no `git add -A`, no
  *   directory, no pathspec magic). It refuses a named path that does not
  *   exist, is a folder or is ignored (naming the rule), an unmerged path
- *   whose file still holds conflict markers, a drifted index, and a change over a protected
+ *   git still finds leftover conflict markers in (`git diff --check`), a drifted index, and a change over a protected
  *   staged blob (staging it would drop the only copy), before touching the
  *   index.
  *
@@ -60,7 +60,7 @@
  * index) lives in the process documentation (docs/process/WORKFLOW.md).
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, rmSync } from "node:fs";
+import { lstatSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -130,6 +130,18 @@ function topLevel(root: string): string {
 /** The recorded baseline's location in the checkout whose top level is `top`. */
 export function indexBaselinePath(top: string): string {
   return join(top, ROOT_POLICY.verification.liveIndexBaseline.path);
+}
+
+/**
+ * THE ONE GIT DOOR of this module for an answer whose exit status carries meaning (`check-ignore`'s 1 is "none",
+ * `diff --check`'s 2 is "findings"): the status and both streams, never a throw on a non-zero exit.
+ */
+function gitAnswer(top: string, argv: readonly string[], input?: string): Readonly<{ status: number | null; stdout: string; stderr: string }> {
+  const answer = spawnSync("git", ["-c", "gc.auto=0", ...argv], {
+    cwd: top, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes, env: directoryGitEnvironment(),
+    ...(input === undefined ? {} : { input }),
+  });
+  return { status: answer.status, stdout: answer.stdout ?? "", stderr: answer.stderr ?? "" };
 }
 
 function git(top: string, argv: readonly string[], options: Readonly<{ input?: string; environment?: Readonly<Record<string, string>> }> = {}): string {
@@ -305,11 +317,9 @@ export function indexBaselineSummary(root: string): string {
 function ignoringRules(top: string, paths: readonly string[]): readonly Readonly<{ path: string; rule: string }>[] {
   if (paths.length === 0) return [];
   // The paths travel on stdin, NUL-separated (`-z` needs `--stdin`): any legal name, never an option.
-  const answer = spawnSync("git", ["-c", "gc.auto=0", "check-ignore", "-v", "-z", "--stdin"], {
-    cwd: top, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes, env: directoryGitEnvironment(), input: `${paths.join("\0")}\0`,
-  });
+  const answer = gitAnswer(top, ["check-ignore", "-v", "-z", "--stdin"], `${paths.join("\0")}\0`);
   if (answer.status === 1) return [];
-  if (answer.status !== 0) throw new HarnessError(`stage: git check-ignore failed: ${(answer.stderr ?? "").trim()}`, "stage_ignore_unreadable");
+  if (answer.status !== 0) throw new HarnessError(`stage: git check-ignore failed: ${answer.stderr.trim()}`, "stage_ignore_unreadable");
   // -v -z records: <source> NUL <line> NUL <pattern> NUL <path> NUL.
   const fields = answer.stdout.split("\0");
   const found: { path: string; rule: string }[] = [];
@@ -317,15 +327,38 @@ function ignoringRules(top: string, paths: readonly string[]): readonly Readonly
   return found;
 }
 
-/** Does the file at `path` still hold one of git's conflict-marker lines (a deleted side holds none)? */
-function holdsConflictMarkers(path: string): boolean {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch {
-    return false;
+/**
+ * The lines of an unmerged `path` that GIT judges leftover conflict markers: `git diff --check`, which owns the
+ * marker rules (the configured `conflict-marker-size`, diff3's `|||||||` base, a setext heading that is not a
+ * marker). Its whitespace findings are not this question and are skipped. Its answer is parsed exactly: exit 0 is
+ * no finding, exit 2 is findings, each `<path>:<line>: <message>` (a whitespace finding followed by its `+` line);
+ * anything else is a typed refusal, never a guess.
+ */
+function leftoverConflictMarkers(top: string, path: string): readonly number[] {
+  const answer = gitAnswer(top, ["-c", "core.quotePath=false", "diff", "--check", "--no-color", "--", path]);
+  const unreadable = (why: string): never => {
+    throw new HarnessError(`stage: git diff --check's answer for ${path} cannot be read (${why}); nothing was staged`, "stage_conflict_unreadable", false, { path });
+  };
+  if (answer.status === 0) return answer.stdout === "" ? [] : unreadable("findings with a clean exit");
+  if (answer.status !== 2) return unreadable(`exit ${String(answer.status)}: ${answer.stderr.trim()}`);
+  const lines = answer.stdout.split("\n");
+  if (lines.pop() !== "") unreadable("an unterminated last line");
+  const markers: number[] = [];
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at]!;
+    if (!line.startsWith(`${path}:`)) unreadable(`an unexpected line: ${JSON.stringify(line.slice(0, 200))}`);
+    const finding = /^(\d+): (.+)$/u.exec(line.slice(path.length + 1));
+    if (finding === null) return unreadable(`an unexpected finding: ${JSON.stringify(line.slice(0, 200))}`);
+    if (finding[2] === "leftover conflict marker") {
+      markers.push(Number(finding[1]));
+      continue;
+    }
+    // A whitespace finding: its offending line follows, as the diff prints it.
+    const shown = lines[at + 1];
+    if (shown === undefined || !(shown.startsWith("+") || shown.startsWith(" "))) unreadable(`a finding without its line: ${JSON.stringify(line.slice(0, 200))}`);
+    at += 1;
   }
-  return text.split("\n").some((line) => line.startsWith("<<<<<<< ") || line.startsWith(">>>>>>> ") || line === "=======");
+  return markers;
 }
 
 /** Why a named path cannot be staged as it is spelled, or null: a repository-relative path, literal, inside the checkout. */
@@ -385,12 +418,12 @@ export function stagePaths(root: string, named: readonly string[]): Readonly<{ s
     }
   }
   const staged = [...new Set([...modified, ...named])];
-  // Staging an unmerged path marks its conflict resolved: one whose file still holds git's markers is refused.
+  // Staging an unmerged path marks its conflict resolved: one git still finds leftover markers in is refused.
   const unmerged = new Set(indexEntries(top, "directory").filter((entry) => entry.stage > 0).map((entry) => entry.path));
-  const unresolved = staged.filter((path) => unmerged.has(path) && holdsConflictMarkers(join(top, path)));
+  const unresolved = staged.filter((path) => unmerged.has(path) && leftoverConflictMarkers(top, path).length > 0);
   if (unresolved.length > 0) {
     throw new HarnessError(
-      `stage: ${JSON.stringify(unresolved)} are unmerged and still hold conflict markers; staging would mark the conflict resolved with the markers in it. Resolve each, then stage`,
+      `stage: ${JSON.stringify(unresolved)} are unmerged and git still finds leftover conflict markers in them; staging would mark the conflict resolved with the markers in it. Resolve each, then stage`,
       "stage_conflict_unresolved",
       false,
       { paths: unresolved.join(",") },
