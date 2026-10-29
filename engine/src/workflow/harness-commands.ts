@@ -14,7 +14,6 @@ import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-ma
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { frontDoorInput } from "./messaging.ts";
-import { DEPS_ADOPT_COMMANDS } from "./deps-adopt.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -796,8 +795,7 @@ function deadCommandsStep(root: string): CheckStepResult {
     if (absent.length > 0) return deepFreeze({ step: "dead-commands", status: "fail", message: `promotion_profile_invalid: a profile names paths this checkout does not track: ${absent.join("; ")}`, details: { absent } });
     consumers = profiles.flatMap((loaded) => profileCommandNames(loaded.profile));
   }
-  // `harness deps adopt` runs the declared lockfile and install commands of the directory a bump changes.
-  const dead = unconsumedCommands(isolation, [...consumers, ...DEPS_ADOPT_COMMANDS]);
+  const dead = unconsumedCommands(isolation, consumers);
   return deepFreeze({
     step: "dead-commands",
     status: dead.length === 0 ? "pass" : "fail",

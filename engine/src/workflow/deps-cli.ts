@@ -35,7 +35,7 @@ export async function runDepsCli(root: string, argv: readonly string[]): Promise
   const repository = `${identity.owner}/${identity.name}`;
   const client = configuredAgentForgeClient();
   const forge = githubWorkspaceForge(client, { owner: identity.owner, name: identity.name });
-  const { manager, runCommand } = configuredWorkspaceManager(root);
+  const { manager, declaredCommand, runCommand } = configuredWorkspaceManager(root);
   const declared = async (worktree: string, name: string): Promise<void> => {
     const outcome = await runCommand(worktree, name);
     if (outcome.status === "fail") throw new HarnessError(`deps adopt: the declared command ${name} failed: ${outcome.message}`, "deps_step_failed", false, { step: name });
@@ -49,6 +49,7 @@ export async function runDepsCli(root: string, argv: readonly string[]): Promise
     },
     readWorkspaceFile: (worktree, path) => readFileSync(join(worktree, path), "utf8"),
     writeWorkspaceFile: (worktree, path, text) => writeFileSync(join(worktree, path), text),
+    declaredArgv: (name) => declaredCommand(name).argv,
     runDeclaredCommand: (worktree, name) => declared(worktree, name),
     // The workspace's own declared regenerate command (`harness-sync`), through the one runner.
     sync: (worktree) => declared(worktree, DEPS_ADOPT_SYNC_COMMAND),

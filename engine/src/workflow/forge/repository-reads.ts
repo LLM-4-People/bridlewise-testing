@@ -111,6 +111,8 @@ export async function commitSignedByGitHub(client: ForgeClient, repository: stri
 export type PullRequestFacts = Readonly<{
   number: number;
   authorLogin: string;
+  /** GitHub's numeric id of the author's account: what identifies it (a login is only its name). */
+  authorId: number;
   authorType: string;
   state: "open" | "closed";
   baseSha: string;
@@ -133,6 +135,7 @@ export async function pullRequestFacts(client: ForgeClient, repository: string, 
   return Object.freeze({
     number,
     authorLogin: text(user.login, "author"),
+    authorId: typeof user.id === "number" && Number.isSafeInteger(user.id) && user.id > 0 ? user.id : (() => { throw new ForgeError("github_response_invalid", `Pull request ${String(number)} answered no author id.`, { number, field: "author id" }); })(),
     authorType: text(user.type, "author type"),
     state: pull.state === "open" ? "open" : "closed",
     baseSha: text(base.sha, "base commit"),

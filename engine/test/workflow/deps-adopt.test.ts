@@ -1,12 +1,20 @@
 /**
  * DEPENDABOT IS A SIGNAL, NEVER A COMMITTER (src/workflow/deps-adopt.ts): the
  * bump is derived from the pull request's files and re-applied by the agent;
- * an unrecognised change, a drifted trunk, a pull request that is not
- * Dependabot's or is closed, each refuses typed; the lockfile is never copied;
- * Dependabot's pull request is closed only after the agent's is open.
+ * an unrecognised change, a spec that is not a plain registry version of the
+ * same package, a drifted trunk, a pull request that is not Dependabot's
+ * account (whatever its login) or is closed, and a resolution that could run
+ * package code, each refuses typed; the lockfile is never copied and nothing
+ * is installed on the host; Dependabot's pull request is closed only after
+ * the agent's is open.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+
+import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { pullRequestFacts } from "../../src/workflow/forge/repository-reads.ts";
+import type { ForgeClient } from "../../src/workflow/forge/port.ts";
 
 import {
   ACTION_PIN_REGISTRY,
@@ -15,6 +23,7 @@ import {
   deriveBump,
   moveActionPins,
   npmCommandsFor,
+  RESOLUTION_ONLY_FLAGS,
   rewriteActionPins,
   type DepsAdoptPorts,
 } from "../../src/workflow/deps-adopt.ts";
@@ -33,8 +42,42 @@ test("the bump is derived from the files: a package.json dependency-spec change,
     { path: "engine/package-lock.json", before: "{}", after: "{\"lock\":2}" },
   ]);
   assert.deepEqual(bump, { ecosystem: "npm", directory: "engine", changes: [{ section: "dependencies", name: "undici", from: "^8.11.2", to: "^8.12.2" }] });
-  assert.deepEqual(npmCommandsFor("engine"), ["engine-lockfile", "engine-deps"]);
-  assert.deepEqual(npmCommandsFor(""), ["lockfile", "web-deps"]);
+  assert.deepEqual(npmCommandsFor("engine"), ["engine-lockfile"]);
+  assert.deepEqual(npmCommandsFor(""), ["lockfile"]);
+});
+
+test("a spec moves only between plain registry semver versions of the same package under the same operator; every other form refuses, named", () => {
+  const bumpTo = (from: string, to: string) => deriveBump([{ path: "package.json", before: BEFORE.replace('"^8.11.2"', JSON.stringify(from)), after: BEFORE.replace('"^8.11.2"', JSON.stringify(to)) }]);
+  for (const [from, to] of [["^8.11.2", "^8.12.2"], ["~8.11.2", "~8.11.3"], ["8.11.2", "8.12.0"], ["8.11.2", "9.0.0-rc.1"]] as const) {
+    assert.equal(bumpTo(from, to).ecosystem, "npm", `${from} to ${to} is a registry move`);
+  }
+  for (const [to, form] of [
+    ["npm:evil-pkg@1.0.0", "an alias to another package"],
+    ["github:attacker/zod#main", "a git or GitHub ref"],
+    ["attacker/zod#main", "a git or GitHub ref"],
+    ["git+https://example.invalid/zod.git", "a git or GitHub ref"],
+    ["file:../zod", "a local file"],
+    ["link:../zod", "a link"],
+    ["https://example.invalid/zod-9.0.0.tgz", "a URL"],
+    ["workspace:*", "a workspace"],
+    ["latest", "a dist-tag"],
+    [">=8.0.0", "a range that is not exact, ^ or ~"],
+    ["^8.12.2 || ^9.0.0", "a range that is not exact, ^ or ~"],
+    ["8.12.2+build.1", "a range that is not exact, ^ or ~"],
+  ] as const) {
+    assert.throws(() => bumpTo("^8.11.2", to), (error: unknown) => (error as { code?: string }).code === "deps_spec_unsupported" && (error as Error).message.includes(form), `${to} is ${form}`);
+  }
+  assert.throws(() => bumpTo("^8.11.2", "8.12.2"), (error: unknown) => (error as { code?: string }).code === "deps_spec_unsupported" && (error as Error).message.includes("changes its range operator"), "^ to exact");
+  assert.throws(() => bumpTo("github:attacker/zod#v1", "^8.12.2"), refusedWith("deps_spec_unsupported"), "a non-registry spec is never moved from either");
+});
+
+test("every resolution command the adoption runs, as declared in the configuration, is resolution only: lockfile only, no lifecycle scripts", () => {
+  const commands = (JSON.parse(readFileSync(new URL("../../bridlewise.config.json", import.meta.url), "utf8")) as { workspaceIsolation: { commands: Record<string, { argv: string[] }> } }).workspaceIsolation.commands;
+  for (const directory of ["", "engine"]) {
+    for (const name of npmCommandsFor(directory)) {
+      for (const flag of RESOLUTION_ONLY_FLAGS) assert.ok(commands[name]?.argv.includes(flag), `${name} carries ${flag}`);
+    }
+  }
 });
 
 test("an unrecognised change refuses, naming it: another field, an added dependency, another file, two directories", () => {
@@ -75,11 +118,12 @@ function fakePorts(overrides: Partial<DepsAdoptPorts> = {}, pull: Partial<Awaite
   const written: string[] = [];
   const texts = new Map<string, string>([["package.json", BEFORE]]);
   const ports: DepsAdoptPorts = {
-    readPullRequest: async () => ({ authorLogin: "dependabot[bot]", state: "open", baseSha: "base", headSha: "head", files: [{ path: "package.json" }, { path: "package-lock.json" }], ...pull }),
+    readPullRequest: async () => ({ authorLogin: "dependabot[bot]", authorId: ROOT_POLICY.workflow.dependabot.userId, authorType: "Bot", state: "open", baseSha: "base", headSha: "head", files: [{ path: "package.json" }, { path: "package-lock.json" }], ...pull }),
     readFileAt: async (path, ref) => (path === "package.json" ? (ref === "base" ? BEFORE : AFTER) : `{"lockfile":"${ref}"}`),
     createWorkspace: async (writeSet) => { calls.push(`create ${writeSet.join(",")}`); return { id: "ws-1", worktree: "/w" }; },
     readWorkspaceFile: (_worktree, path) => texts.get(path) ?? "",
     writeWorkspaceFile: (_worktree, path, text) => { calls.push(`write ${path}`); written.push(path); texts.set(path, text); },
+    declaredArgv: () => ["npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit"],
     runDeclaredCommand: async (_worktree, name) => { calls.push(`run ${name}`); },
     sync: async () => { calls.push("sync"); },
     commit: async (_worktree, message) => { calls.push(`commit ${message.split("\n")[0]!}`); },
@@ -90,7 +134,7 @@ function fakePorts(overrides: Partial<DepsAdoptPorts> = {}, pull: Partial<Awaite
   return { ports, calls, written, texts };
 }
 
-test("the adoption re-applies the bump as the agent, the lockfile from the resolver, and closes Dependabot's pull request only after the agent's is open", async () => {
+test("the adoption re-applies the bump as the agent, the lockfile from the resolver with nothing installed, and closes Dependabot's pull request only after the agent's is open", async () => {
   const { ports, calls, written, texts } = fakePorts();
   const receipt = await adoptDependabotPullRequest(620, ports);
   assert.equal(receipt.agentPullRequest, 900);
@@ -98,7 +142,6 @@ test("the adoption re-applies the bump as the agent, the lockfile from the resol
     "create package.json,package-lock.json",
     "write package.json",
     "run lockfile",
-    "run web-deps",
     "sync",
     "commit Adopt Dependabot #620: bump undici from ^8.11.2 to ^8.12.2 in /",
     "publish",
@@ -108,14 +151,35 @@ test("the adoption re-applies the bump as the agent, the lockfile from the resol
   assert.equal(texts.get("package.json"), AFTER);
 });
 
-test("not Dependabot's, or closed: refused before any workspace exists; a failed publish never closes Dependabot's pull request", async () => {
-  for (const [code, pull] of [["deps_not_dependabot", { authorLogin: "someone" }], ["deps_pull_request_closed", { state: "closed" as const }]] as const) {
-    const { ports, calls } = fakePorts({}, pull);
-    await assert.rejects(adoptDependabotPullRequest(620, ports), refusedWith(code));
-    assert.deepEqual(calls, [], `${code}: nothing was created`);
+test("not Dependabot's account (whatever the login), closed, or a resolution that could run package code: refused before any workspace exists; a failed publish never closes Dependabot's pull request", async () => {
+  const dependabot = ROOT_POLICY.workflow.dependabot;
+  for (const [why, code, pull, overrides] of [
+    ["another person", "deps_not_dependabot", { authorLogin: "someone", authorId: 1, authorType: "User" }, {}],
+    ["a person whose login reads dependabot[bot]", "deps_not_dependabot", { authorId: 4242, authorType: "User" }, {}],
+    ["another bot named dependabot[bot]", "deps_not_dependabot", { authorId: 4242, authorType: "Bot" }, {}],
+    ["Dependabot's id on a non-Bot account", "deps_not_dependabot", { authorType: "User" }, {}],
+    ["a closed pull request", "deps_pull_request_closed", { state: "closed" as const }, {}],
+    ["a lockfile command that runs lifecycle scripts", "deps_resolution_executes", {}, { declaredArgv: () => ["npm", "install", "--package-lock-only"] }],
+    ["a lockfile command that installs", "deps_resolution_executes", {}, { declaredArgv: () => ["npm", "ci", "--ignore-scripts"] }],
+  ] as const) {
+    const { ports, calls } = fakePorts(overrides, pull);
+    await assert.rejects(adoptDependabotPullRequest(620, ports), refusedWith(code), why);
+    assert.deepEqual(calls, [], `${why}: nothing was created`);
   }
+  assert.deepEqual(dependabot, { userId: 49699333, type: "Bot" }, "Dependabot is declared once, by its account");
   const { ports, calls } = fakePorts({ publish: async () => { throw Object.assign(new Error("forge down"), { code: "github_unavailable" }); } });
   await assert.rejects(adoptDependabotPullRequest(620, ports));
   assert.ok(!calls.some((call) => call.startsWith("close")), "Dependabot's pull request stays open while the agent's does not exist");
   assert.equal(ACTION_PIN_REGISTRY, "tests/prevention/external-surface-registry.json");
+});
+
+test("the forge read carries the author's numeric account id and type, and refuses a pull request that answers no id", async () => {
+  const client = (user: Record<string, unknown>): ForgeClient => ({
+    rest: async () => ({ status: 200, data: { user, state: "open", base: { sha: "b" }, head: { sha: "h" } } }),
+    paginate: async () => [{ filename: "package.json", status: "modified" }],
+  }) as unknown as ForgeClient;
+  const facts = await pullRequestFacts(client({ login: "dependabot[bot]", id: 49699333, type: "Bot" }), "o/r", 620, 3);
+  assert.deepEqual([facts.authorLogin, facts.authorId, facts.authorType], ["dependabot[bot]", 49699333, "Bot"]);
+  await assert.rejects(pullRequestFacts(client({ login: "dependabot[bot]", type: "Bot" }), "o/r", 620, 3), refusedWith("github_response_invalid"));
+  await assert.rejects(pullRequestFacts(client({ login: "dependabot[bot]", id: "49699333", type: "Bot" }), "o/r", 620, 3), refusedWith("github_response_invalid"));
 });

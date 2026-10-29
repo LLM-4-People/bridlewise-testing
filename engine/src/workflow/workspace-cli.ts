@@ -97,6 +97,8 @@ export async function runWorkspaceCli(
 export function configuredWorkspaceManager(root: string): Readonly<{
   manager: WorkspaceManager;
   checkoutRoot: string;
+  /** The declared command `name` (`workspaceIsolation.commands`); an undeclared name refuses. */
+  declaredCommand: (name: string) => CheckoutCommand;
   runCommand: (checkout: string, name: string) => Promise<WorkspaceGateOutcome>;
 }> {
   const snapshot = loadPinnedConfigSnapshot();
@@ -130,12 +132,13 @@ export function configuredWorkspaceManager(root: string): Readonly<{
     timeline: createWorkspaceTimelineHooks(resolveRepositoryRegistry(git, checkoutRoot, timeouts.inspectMs), snapshot.document.timeline),
     onProgress: progress,
   });
-  const runCommand = (checkout: string, name: string): Promise<WorkspaceGateOutcome> => {
+  const declaredCommand = (name: string): CheckoutCommand => {
     const command = isolation.commands[name];
     if (command === undefined) throw new InputError(`no declared command ${name} in workspaceIsolation.commands`, "checkout_setup_command_undeclared");
-    return run(checkout, name, command);
+    return command;
   };
-  return deepFreeze({ manager, checkoutRoot, runCommand });
+  const runCommand = (checkout: string, name: string): Promise<WorkspaceGateOutcome> => run(checkout, name, declaredCommand(name));
+  return deepFreeze({ manager, checkoutRoot, declaredCommand, runCommand });
 }
 
 async function dispatch(

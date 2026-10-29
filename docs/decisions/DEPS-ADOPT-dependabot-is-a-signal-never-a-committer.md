@@ -6,7 +6,7 @@ group: github
 status: in-force
 implementation: partial
 route: GH-2
-acted_in: [engine/src/workflow/deps-adopt.ts, engine/src/workflow/deps-cli.ts, engine/src/workflow/forge/repository-reads.ts, engine/bridlewise.config.json]
+acted_in: [engine/src/workflow/deps-adopt.ts, engine/src/workflow/deps-cli.ts, engine/src/workflow/forge/repository-reads.ts, engine/src/workflow/checkout-setup.ts, engine/src/kernel/root-policy.ts, engine/bridlewise.config.json]
 ---
 # Dependabot is a signal, never a committer
 
@@ -21,11 +21,22 @@ would break the identity and sign-off rule in force (GH-IDENTITY).
   - GitHub Actions: each `uses:` pin that moves to another commit of the same
     action.
   - Any other changed file or line is refused (`deps_bump_unrecognized`).
-  - So is a pull request that is not Dependabot's, or is closed.
+  - A spec moves only between plain registry semver versions of the same
+    package, exact or under the same `^`/`~` operator. An alias (`npm:`), a
+    git or GitHub ref, a file, a link, a URL tarball, a workspace, a dist-tag
+    or a wider range is refused by its form (`deps_spec_unsupported`).
+- **Dependabot is known by its account, never its login.** The author must be
+  a Bot whose numeric user id is the one the root policy declares
+  (`workflow.dependabot`); anything else is refused (`deps_not_dependabot`),
+  whatever its login says. So is a closed pull request.
 - **It is applied to the trunk as it is now.** A spec or pin the trunk moved
   since Dependabot read it is refused (`deps_bump_drifted`).
-- **The lockfile is never copied.** The declared lockfile command (the real
-  resolver) writes it, then the declared install command runs.
+- **The lockfile is never copied, and nothing is installed on the host.** The
+  declared lockfile command (the real resolver) writes it, resolution only:
+  `--package-lock-only --ignore-scripts`, judged before the workspace exists
+  (`deps_resolution_executes`), so resolution never executes package code. An
+  install, which runs the new package's lifecycle scripts, happens only in
+  the sandboxed runs that judge the agent's pull request.
 - **Action pins have one owner.** An Actions bump moves the pin in the
   external-surface registry, and the workflows that use the action are
   rewritten from it.
