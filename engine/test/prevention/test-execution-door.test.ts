@@ -52,13 +52,14 @@ function insideATestRun(path: string): boolean {
 /** The door and every site that reaches it, each with how (a substring of the line, so moving the line keeps it). */
 const THROUGH_THE_DOOR: readonly Readonly<{ path: string; line: string; how: string }>[] = [
   { path: "engine/src/process/supervised-run.ts", line: "vitest.mjs", how: "the door's one vitest command (`vitestCommand`)" },
-  { path: "engine/scripts/tooling/test-guards.ts", line: "\"--test\", ...process.argv", how: "runTestCommand; the live suite through superviseCommand, the declared exception" },
+  { path: "engine/scripts/tooling/test-guards.ts", line: "\"--test\", `--test-timeout=", how: "doorNodeArgs, run through runTestCommand; the live suite through superviseCommand, the declared exception" },
   { path: "engine/scripts/tooling/test-guards.ts", line: "?? \"node --test\"}", how: "the run's label for the instrument lock; starts nothing" },
   { path: "engine/src/workflow/flake-cli.ts", line: "\"--test\", ...preload", how: "runInWorld calls runTestCommand" },
   { path: "engine/src/workflow/flake-cli.ts", line: "flag === \"--test\"", how: "parses its own `--test <identity>` option; starts nothing" },
   { path: "engine/src/shared/workflow/e2e-runner.mjs", line: "\"--test\",", how: "runE2e hands its argv to the caller's runSuite (the merge round's, through runTestCommand)" },
   { path: "engine/src/kernel/root-policy.ts", line: "nodeTestRunnerFlag: \"--test\"", how: "the flag the checkout write door recognises; starts nothing" },
   { path: "scripts/testing/perf-profile.ts", line: "\"playwright\", \"test\"", how: "runToExit calls runTestCommand" },
+  { path: "scripts/testing/test-listing.mjs", line: "vitest list ended by", how: "names the listing in a message; listThroughTheDoor calls runTestCommand" },
   { path: "package.json", line: "harness slot run -- npx playwright test", how: "`harness slot run`, confined always (test:e2e, test:all)" },
   { path: "package.json", line: "harness slot run -- node node_modules/vitest/vitest.mjs", how: "`harness slot run`, confined always (test:raw, test:supported)" },
 ];
