@@ -42,6 +42,7 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import {
   defaultDispositionEntry,
   dispositionRecordPath,
+  effectiveDispositionEntries,
   parseDispositionRecord,
   serializeDispositionRecord,
   testSurfacePolicyHash,
@@ -50,6 +51,7 @@ import { dispositionRecordFiles, readDispositionManifest, rewriteDispositionReco
 import { createTempDir } from "../support/temp-dir.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { walk } from "../../scripts/verification/source-walk.ts";
+import { listRecognizableTestPaths } from "../../scripts/test-inventory.ts";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..");
 const RECORDS = ROOT_POLICY.verification.testDiscovery.dispositionRegistry.recordsPath;
@@ -135,6 +137,23 @@ test("a hand-edited record is rejected by the SCHEMA", () => {
   // BENIGN CONTROL: the record as it is parses, and its location is its source's one spelling.
   const parsed = parseDispositionRecord(first.path, first.text);
   assert.equal(dispositionRecordPath(parsed.path), first.path);
+});
+
+test("A DIRECTORY RENAME IS STILL REFUSED under the per-record design: the decided sources leave the surface and the renamed ones arrive undecided, both named", () => {
+  const manifest = readDispositionManifest(REPOSITORY_ROOT);
+  const live = manifest.entries.filter((entry) => entry.path.startsWith("live/")).map((entry) => entry.path);
+  assert.ok(live.length > 0, "the live suite's sources are decided (liveness)");
+  // The rename `live/` → `live-suite/`: every other recognizable source stays, the decided ones move.
+  const surface = [...listRecognizableTestPaths(REPOSITORY_ROOT).filter((path) => !path.startsWith("live/")), ...live.map((path) => path.replace(/^live\//u, "live-suite/"))];
+  assert.throws(() => effectiveDispositionEntries(surface, manifest), (error: unknown) => {
+    assert.ok(error instanceof HarnessError);
+    assert.equal(error.code, "test_surface_disposition_coverage_incomplete");
+    for (const path of live) assert.match(error.message, new RegExp(path.replaceAll(".", "\\."), "u"), `${path} is named as decided but gone`);
+    assert.match(error.message, /live-suite\//u, "the renamed sources are named as undecided");
+    return true;
+  });
+  // BENIGN CONTROL: the surface as it is passes.
+  assert.doesNotThrow(() => effectiveDispositionEntries(listRecognizableTestPaths(REPOSITORY_ROOT), manifest));
 });
 
 test("two branches that each decide a source merge with no conflict: each decision is its own file (git merge-tree)", () => {
