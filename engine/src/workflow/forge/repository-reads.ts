@@ -222,8 +222,9 @@ export async function compareCommits(client: ForgeClient, repository: string, ba
 }
 
 /** The floor's word for why a read failed (its status page's vocabulary). */
-export function readFailureCode(error: unknown): "authentication" | "unavailable" | "timeout" | "api-error" {
+export function readFailureCode(error: unknown): "authentication" | "unavailable" | "timeout" | "oversized" | "api-error" {
   if (isForgeError(error, "github_unauthorized", "github_forbidden")) return "authentication";
+  if (isForgeError(error, "forge_list_oversized")) return "oversized";
   if (isForgeError(error, "github_not_found")) return "unavailable";
   if (isForgeError(error, "github_unavailable")) return "timeout";
   return "api-error";

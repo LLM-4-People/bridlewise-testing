@@ -117,6 +117,15 @@ function securityCheck(id, label, result, required) {
   };
 }
 
+/** Why a run's jobs could not be reported, by the read's typed failure — each cause in its own words. */
+const JOBS_NOTES = Object.freeze({
+  authentication: () => "The build token could not read this run's jobs.",
+  oversized: (maxPages) => `This run has more jobs than ${String(maxPages)} page(s) of 100 hold (forge.request.maxPages); none is reported rather than a partial list.`,
+  unavailable: () => "The API did not answer for this run's jobs.",
+  timeout: () => "The API did not answer for this run's jobs.",
+  "api-error": () => "The API did not answer for this run's jobs.",
+});
+
 function settled(result, code = "api-error") {
   if (result.status === "fulfilled") return { ok: true, value: result.value };
   return { ok: false, code: readFailureCode(result.reason) === "authentication" ? "authentication" : code };
@@ -168,11 +177,11 @@ export async function buildStatus({
       check.jobs = null;
       return;
     }
-    const answer = settled((await Promise.allSettled([workflowJobs(client, REPOSITORY, run.id, maxPages)]))[0]);
-    check.jobs = answer.ok
+    const [answer] = await Promise.allSettled([workflowJobs(client, REPOSITORY, run.id, maxPages)]);
+    check.jobs = answer.status === "fulfilled"
       ? answer.value.map((job) => ({ name: job.name, status: job.status, conclusion: job.conclusion, url: job.url })).sort((left, right) => String(left.name).localeCompare(String(right.name)))
       : null;
-    if (!answer.ok) check.jobsNote = answer.code === "authentication" ? "The build token could not read this run's jobs." : "The API did not answer for this run's jobs.";
+    if (answer.status === "rejected") check.jobsNote = JOBS_NOTES[readFailureCode(answer.reason)](maxPages);
   }));
   checks.push(
     securityCheck("code_scanning", "Code scanning", codeScanning, true),

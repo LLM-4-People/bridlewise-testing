@@ -189,6 +189,24 @@ test("each workflow run at the source commit reports its jobs' own conclusions; 
   assert.equal(check("docs").jobs, null, "no run, no jobs");
 });
 
+test("a run with more jobs than the page bound holds says so in its own words, never as an API that did not answer", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const path = (page) => `/repos/${REPOSITORY}/actions/runs/21/jobs?filter=latest&per_page=100&page=${page}`;
+  const { client } = forgeClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [{ id: 21, name: "CI", status: "completed", conclusion: "success", head_sha: commit, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: "https://example.invalid/runs/21" }] } };
+    if (request.path.endsWith("/actions/runs/21/jobs")) {
+      const page = Number(request.query.get("page") ?? "1");
+      return { body: { total_count: 300, jobs: [{ id: page, name: `job ${page}`, status: "completed", conclusion: "success", html_url: "https://example.invalid/j" }] }, link: `<${path(page + 1)}>; rel="next"` };
+    }
+    if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+    return { body: [] };
+  });
+  const status = await buildStatus({ root: ROOT, client, maxPages: 2, now: new Date("2026-01-01T00:00:00.000Z") });
+  const ci = status.checks.find((entry) => entry.id === "ci");
+  assert.equal(ci.jobs, null, "a partial job list is never reported");
+  assert.equal(ci.jobsNote, "This run has more jobs than 2 page(s) of 100 hold (forge.request.maxPages); none is reported rather than a partial list.");
+});
+
 const lowAlert = (number) => ({ number, state: "open", rule: { security_severity_level: "low" } });
 
 /** The status snapshot with `alerts` answering the code-scanning endpoint; every other endpoint answers empty. */
