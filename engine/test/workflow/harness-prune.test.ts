@@ -17,7 +17,7 @@
  * Driven in a working copy (never the live checkout).
  */
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -27,6 +27,7 @@ import { GENERATOR_INPUTS_BEYOND_ENGINE, harnessRegenerate, harnessRegister } fr
 import { stageInCopy } from "../../src/git/working-copy.ts";
 import { trackedFiles } from "../../src/git/repository-ownership.ts";
 import { reachabilityClosure } from "../../src/workflow/reachability.ts";
+import { frontDoorGeneratorModules } from "../../src/workflow/messaging.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -59,6 +60,27 @@ test("the front-door arm's copy carries every module its generator reaches, deri
   const beyond = [...reached.closure].filter((path) => !path.startsWith("engine/") && !path.startsWith("shared/"));
   assert.ok(beyond.includes("scripts/floor/status.mjs") && beyond.includes("scripts/floor/files.mjs"), `the generator reaches the floor modules (liveness): ${beyond.join(", ")}`);
   for (const path of beyond) assert.equal(engineGeneratorPopulation(path), true, `${path} is a module the front-door generator loads`);
+});
+
+test("the front-door generator's modules are derived or refused, never guessed: an unreadable tracked set and an import the walk cannot follow refuse by name", () => {
+  const root = createTempDir("front-door-modules-");
+  const write = (path: string, text: string): void => {
+    mkdirSync(join(root, path, ".."), { recursive: true });
+    writeFileSync(join(root, path), text);
+  };
+  const generator = `engine/${FRONT_DOOR_GENERATOR.generator}`;
+  write(generator, 'import { x } from "../../../scripts/floor/present.mjs";\nexport { x };\n');
+  write("scripts/floor/present.mjs", "export const x = 1;\n");
+  assert.deepEqual([...frontDoorGeneratorModules(root, [generator, "scripts/floor/present.mjs"])].toSorted(), [generator, "scripts/floor/present.mjs"], "a followable import is carried (liveness)");
+  assert.throws(() => frontDoorGeneratorModules(root, undefined), (error: unknown) => (error as { code?: string }).code === "front_door_generator_unreadable", "no tracked set, no empty fallback");
+  write(generator, 'import { x } from "../../../scripts/floor/absent.mjs";\nexport { x };\n');
+  assert.throws(() => frontDoorGeneratorModules(root, [generator, "scripts/floor/present.mjs"]), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "front_door_generator_import_unfollowed");
+    assert.match((error as Error).message, /engine\/scripts\/brand\/cli\.ts imports \.\.\/\.\.\/\.\.\/scripts\/floor\/absent\.mjs, which names no file the tree holds/u);
+    return true;
+  });
+  write(generator, "const name = 'x';\nawait import(`../../../scripts/floor/${name}.mjs`);\n");
+  assert.throws(() => frontDoorGeneratorModules(root, [generator]), (error: unknown) => (error as { code?: string }).code === "front_door_generator_import_unfollowed", "a computed import from the generator refuses");
 });
 
 test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", () => {
