@@ -1,8 +1,8 @@
-import { mkdirSync, opendirSync, readdirSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { mkdirSync, opendirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { enableCompileCache, getCompileCacheDir } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
-import { sha256 } from "../../src/kernel/integrity.ts";
+import { enclosingTestRunScratch } from "../../src/filesystem/checkout-write-door.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { userCacheFolder } from "../../src/filesystem/user-folders.ts";
 import { createOwnedTemporaryDirectory, removeOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
@@ -45,19 +45,20 @@ export const COMPILE_CACHE_DIRECTORY = join(
 );
 
 /**
- * THE ONE PLACE VITEST KEEPS ITS MODULE CACHE (`experimental.fsModuleCache`):
- * OUTSIDE the checkout, under the user's cache like the compile cache above,
- * one folder per checkout (named by a digest of its real path). Inside the
- * checkout (`node_modules/.experimental-vitest-cache`, vitest's default) it
- * was a write into a tree a test run sees read-only (decision
- * TEST-CONFINEMENT-SELF-BIND). The cache keeps vitest's own directory name, so
- * a copy moved aside beside it (`.experimental-vitest-cache.evidence-<epoch>`)
- * is what `scripts/testing/sweep-cache-evidence.ts` sweeps. `vitest.config.ts`
- * sets it, and the budget reporter reads it, from here alone.
+ * THE ONE PLACE VITE AND VITEST KEEP THEIR CACHES for a run: inside the run's
+ * own scratch root (`enclosingTestRunScratch`, set by the one test-execution door,
+ * engine/src/process/supervised-run.ts `runTestCommand`), discarded when the
+ * run ends, so nothing a confined run writes is executed by a later run
+ * (decision TEST-CONFINEMENT-SELF-BIND). `kind` names the cache: vite's
+ * optimizer (`vite`) or vitest's module cache (`vitest-module-cache`). Outside
+ * a confined run there is none to name: a refusal, never a shared default.
  */
-export function vitestModuleCacheDirectory(checkoutRoot: string): string {
-  const key = sha256(Buffer.from(realpathSync(checkoutRoot), "utf8")).slice(0, 16);
-  return join(userCacheFolder(), "bridlewise", "vitest-module-cache", key, ".experimental-vitest-cache");
+export function testRunCacheDirectory(kind: "vite" | "vitest-module-cache"): string {
+  const scratch = enclosingTestRunScratch();
+  if (scratch === undefined) {
+    throw new Error("this process is in no confined test run, so it has no run scratch: vitest and the test-run vite caches run only through the test-execution door");
+  }
+  return join(scratch, kind);
 }
 
 /**

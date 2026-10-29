@@ -72,7 +72,7 @@ export function isolationWitness(): IsolationWitness {
   const serverConfig = pathToFileURL(resolve("server/kernel/config.ts")).href;
   const discovery = join(directory, "discover.mjs");
   writeFileSync(discovery, `import {createVitest} from 'vitest/node';
-const ctx=await createVitest('test',{config:${JSON.stringify(resolve("vitest.config.ts"))},run:true});
+const ctx=await createVitest('test',{config:${JSON.stringify(resolve("vitest.config.ts"))},run:true},{configLoader:'runner'});
 try{const groups=await Promise.all(ctx.projects.map(async project=>({name:project.name,files:(await project.globTestFiles()).testFiles})));console.log(JSON.stringify(groups));}finally{await ctx.close();}`);
   const discover = (): void => {
     const discovered = runBoundedTestProcess(ensureTestProcessSupervisor(), process.execPath, [discovery], { timeoutMs: TEST_HANG_BACKSTOP_MS, killGraceMs: webSuiteKillGraceMs() });
@@ -97,7 +97,7 @@ const cancelReporter={
  onTestModuleEnd(){if(process.env.RUNNER_CONTEXT_CANCEL==='1'&&!cancelled){cancelled=true;record({kind:'cancel-requested',cause:'keyboard-input'});closing=ctx.cancelCurrentRun('keyboard-input');}},
  onTestRunEnd(modules,errors,state){record({kind:'run-ended',state,errors:errors.map(String),tests:modules.flatMap(module=>Array.from(module.children.allTests(),test=>test.result()?.state))});},
 };
-ctx=await createVitest('test',{config:process.argv[2],run:true,reporters:['json',cancelReporter],...(process.argv[3]?{vmMemoryLimit:Number(process.argv[3])}:{})});
+ctx=await createVitest('test',{config:process.argv[2],run:true,reporters:['json',cancelReporter],...(process.argv[3]?{vmMemoryLimit:Number(process.argv[3])}:{})},{configLoader:'runner'});
 const stop=()=>{process.exitCode=1;return closing??=Promise.all([ctx.cancelCurrentRun('keyboard-input'),ctx.cancelCurrentRun('keyboard-input')]);};
 // Two cancellation requests invoke Vitest's force-stop path. The runner
 // stays alive to wait for its workers; killing only the launcher loses them.

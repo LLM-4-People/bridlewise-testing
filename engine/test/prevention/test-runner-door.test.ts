@@ -113,6 +113,9 @@ test("a vitest run rooted in the engine dead-ends clean (live drive)", () => {
         join(WEB_ROOT, "node_modules", "vitest", "dist", "cli.js"),
         "run",
         "test/editor/",
+        // Loaded by vite's module runner, as every vitest route of the one test-execution door loads it: this test runs
+        // confined, and the default loader bundles the config into the read-only node_modules/.vite-temp.
+        "--configLoader=runner",
       ],
       { cwd: scratch, encoding: "utf8", timeout: 120_000 },
     );

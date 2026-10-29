@@ -12,7 +12,7 @@
  */
 import { dirname, isAbsolute, join } from "node:path";
 
-import { vitestModuleCacheDirectory } from "../../engine/scripts/tooling/compile-cache.ts";
+import { testRunCacheDirectory } from "../../engine/scripts/tooling/compile-cache.ts";
 import { WEB_RUN_HISTORY_PATH } from "../../engine/src/shared/run-history.ts";
 
 /**
@@ -49,9 +49,13 @@ export const BUDGET_SUMMARY_PATH = join(dirname(BUDGET_HISTORY_PATH), "latest-su
  * **IT IS THE DEFAULT, AND IT IS NOT ALWAYS THE ONE IN USE.** See
  * `moduleCacheDirOf` below — that distinction was the cold arm's actual hole.
  * The default is the one place `vitest.config.ts` sets (the cache owner's
- * `vitestModuleCacheDirectory`, outside the checkout), never a second spelling.
+ * `testRunCacheDirectory`, the run's scratch), never a second spelling.
  */
-export const DEFAULT_VITEST_MODULE_CACHE_DIR = vitestModuleCacheDirectory(process.cwd());
+export function defaultVitestModuleCacheDir(): string {
+  // Asked, never computed at import: only a run through the test-execution door has a scratch to name, and a reader of
+  // the ledger (the budget measurement, outside any run) imports this module too.
+  return testRunCacheDirectory("vitest-module-cache");
+}
 
 /**
  * Where THIS run keeps its transform cache.
@@ -100,5 +104,5 @@ export function moduleCacheDirOf(experimental: unknown): string {
       return isAbsolute(declared) ? declared : join(process.cwd(), declared);
     }
   }
-  return DEFAULT_VITEST_MODULE_CACHE_DIR;
+  return defaultVitestModuleCacheDir();
 }

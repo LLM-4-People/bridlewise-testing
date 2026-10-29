@@ -2,9 +2,7 @@
  * SWEEP THE MOVED-ASIDE VITEST CACHES — the documented manual command.
  *
  * After any integration-side edit, the web module cache is MOVED aside, not
- * cleared (renamed to `<cache>.evidence-<epoch>` beside itself; the cache is the
- * one place `engine/scripts/tooling/compile-cache.ts` `vitestModuleCacheDirectory`
- * names, outside the checkout)
+ * cleared (`mv node_modules/.experimental-vitest-cache{,.evidence-$(date +%s)}`)
  * — a rename is a functionally identical clear that keeps the evidence for
  * whoever needs to inspect a poisoned entry. The cost is that the evidence
  * accumulates: nine `.evidence-*` directories (several GB of compiled
@@ -24,8 +22,7 @@
  *   npm run cache:evidence:sweep -- --keep 5
  */
 import { readdirSync, rmSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { vitestModuleCacheDirectory } from "../../engine/scripts/tooling/compile-cache.ts";
+import { join } from "node:path";
 
 import { isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 
@@ -70,4 +67,4 @@ function sweep(nodeModules: string, keep: number): void {
   );
 }
 
-if (isEntryPoint(import.meta.url)) sweep(dirname(vitestModuleCacheDirectory(process.cwd())), keepCount(process.argv.slice(2)));
+if (isEntryPoint(import.meta.url)) sweep(join(process.cwd(), "node_modules"), keepCount(process.argv.slice(2)));

@@ -63,7 +63,7 @@ import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
 import { procfsDocument } from "../../engine/src/process/process-facts.ts";
-import { DEFAULT_VITEST_MODULE_CACHE_DIR, moduleCacheDirOf } from "../helpers/budget-paths.ts";
+import { defaultVitestModuleCacheDir, moduleCacheDirOf } from "../helpers/budget-paths.ts";
 
 const FULL = 417;
 const OPTS = { fullRunModuleCount: FULL };
@@ -465,10 +465,10 @@ describe("a summary that IS evidence is judged", () => {
     // case where a run DOES say otherwise is the test below, and it is the one
     // that was missing.
     expect(
-      existsSync(DEFAULT_VITEST_MODULE_CACHE_DIR),
-      `${DEFAULT_VITEST_MODULE_CACHE_DIR} does not exist`,
+      existsSync(defaultVitestModuleCacheDir()),
+      `${defaultVitestModuleCacheDir()} does not exist`,
     ).toBe(true);
-    expect(readdirSync(DEFAULT_VITEST_MODULE_CACHE_DIR).length).toBeGreaterThan(0);
+    expect(readdirSync(defaultVitestModuleCacheDir()).length).toBeGreaterThan(0);
   });
 
   test("THE COLD ARM'S HOLE — a redirected cache must be the cache that is counted", () => {
@@ -497,11 +497,11 @@ describe("a summary that IS evidence is judged", () => {
     // count source files as cache entries.
     for (const notAPath of [undefined, null, "", "   ", 7, {}, [], true]) {
       expect(moduleCacheDirOf({ fsModuleCachePath: notAPath })).toBe(
-        DEFAULT_VITEST_MODULE_CACHE_DIR,
+        defaultVitestModuleCacheDir(),
       );
     }
-    expect(moduleCacheDirOf(undefined)).toBe(DEFAULT_VITEST_MODULE_CACHE_DIR);
-    expect(moduleCacheDirOf({})).toBe(DEFAULT_VITEST_MODULE_CACHE_DIR);
+    expect(moduleCacheDirOf(undefined)).toBe(defaultVitestModuleCacheDir());
+    expect(moduleCacheDirOf({})).toBe(defaultVitestModuleCacheDir());
   });
 
   test("ABSENCE IS NOT WARMTH — an unreadable start beside a populated end refuses", () => {

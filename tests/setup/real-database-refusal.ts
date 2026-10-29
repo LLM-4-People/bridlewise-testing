@@ -24,7 +24,7 @@
  * server that does not say (an older build) — never by port or path, so a
  * renamed or moved database is judged the same way.
  */
-import { armCheckoutUnderTest } from "../../engine/src/filesystem/checkout-write-door.ts";
+import { armCheckoutUnderTest, enclosingTestRunScratch } from "../../engine/src/filesystem/checkout-write-door.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory } from "../../engine/src/filesystem/private-state.ts";
 import { armTestKeyHome } from "../../engine/test/support/test-key-home.ts";
 
@@ -61,8 +61,8 @@ export async function refuseRealApiServer(port: number): Promise<void> {
  * test for the runner, its workers and every process they start (the
  * inherited marker), with a private key home. In the RUNNER (no
  * `TEST_WORKER_INDEX`), also a private state folder for the API server the
- * run starts — an owned temporary under the checkout's own state root
- * (removed when the runner exits, swept if it died) — returned as that
+ * run starts — an owned temporary in the run's own scratch (removed when the
+ * runner exits, and with the run) — returned as that
  * server's environment: its databases are the run's own, never the
  * checkout's `.bridlewise/web.db`.
  */
@@ -70,6 +70,10 @@ export function armPlaywrightRun(repositoryRoot: string): Readonly<Record<string
   armCheckoutUnderTest(repositoryRoot);
   armTestKeyHome();
   if (process.env.TEST_WORKER_INDEX !== undefined) return {};
-  const state = createOwnedTemporaryDirectory(ensurePrivateStateDirectory(join(repositoryRoot, ".bridlewise", "state", "browser-suite")), "run-");
+  // In the run's own scratch (the one test-execution door's; Playwright runs only through it): the checkout's state
+  // root is read-only to a test run.
+  const scratch = enclosingTestRunScratch();
+  if (scratch === undefined) throw new Error("a Playwright run starts only through the test-execution door (npm run test:e2e), which gives it a run scratch");
+  const state = createOwnedTemporaryDirectory(ensurePrivateStateDirectory(join(scratch, "browser-suite")), "run-");
   return Object.freeze({ HARNESS_WEB_DB_PATH: join(state, "web.db"), HARNESS_WEB_TIMELINE_DB_PATH: join(state, "timeline.db") });
 }

@@ -1692,6 +1692,22 @@ export async function writeReport(path: string, report: ProfileReport): Promise<
  * the path walks up from `lib/` to the performance root). */
 export const REPORT_PATH: string = new URL("../.report.json", import.meta.url).pathname;
 
+/**
+ * Where the profile spec writes the report it builds: a file in its own run's
+ * scratch, named by the perf-profile step (scripts/testing/perf-profile.ts),
+ * which runs confined and hands the report back on its result channel; the
+ * step's unconfined door writes {@link REPORT_PATH}. A confined run never
+ * writes the checkout.
+ */
+export const PROFILE_REPORT_OUT_ENV = "HARNESS_PERF_REPORT_OUT";
+
+/** The report's destination for this run (`PROFILE_REPORT_OUT_ENV`); the spec runs only under the perf-profile step. */
+export function profileReportOut(): string {
+  const out = process.env[PROFILE_REPORT_OUT_ENV];
+  if (out === undefined || out.length === 0) throw new Error(`${PROFILE_REPORT_OUT_ENV} names no file: the profile spec runs only under \`npm run perf:profile\``);
+  return out;
+}
+
 /** The regression gate's suite title, as the gate RENDERS it. THE TITLES ARE
  * LEDGER IDENTITIES: the run-history ledger records every failure as
  * `<file>::<suite title> > <test title>`, and the flaky-test memory's

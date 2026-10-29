@@ -35,14 +35,16 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { randomBytes } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { fileURLToPath } from "node:url";
 
 import { enforceTestRunLock, wholeInstrumentRun } from "../../engine/scripts/tooling/test-run-lock.ts";
 import { ensureTestProcessSupervisor } from "../../engine/guardian/build.ts";
-import { superviseCommand } from "../../engine/src/process/supervised-run.ts";
+import { runTestCommand } from "../../engine/src/process/supervised-run.ts";
+import { testRunCacheDirectory } from "../../engine/scripts/tooling/compile-cache.ts";
 import { readTestExecutionConfig } from "../../engine/src/workflow/test-result-collector.ts";
 import { INSIDE_INSTRUMENT_LOCK_VARIABLE, runInsideInstrumentLock } from "../../engine/src/workflow/slot-cli.ts";
 import { ownedChild, terminate, type OwnedProcess } from "../../engine/src/process/process-facts.ts";
@@ -50,7 +52,7 @@ import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, removeOwned
 import { userCacheFolder } from "../../engine/src/filesystem/user-folders.ts";
 import { PRODUCT_NAME } from "../../engine/src/kernel/product-identity.ts";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
-import { REPORT_PATH } from "../../tests/performance/lib/perf-harness.ts";
+import { PROFILE_REPORT_OUT_ENV, REPORT_PATH } from "../../tests/performance/lib/perf-harness.ts";
 import { prepareCockpitFixture } from "../../tests/performance/scale/prepare-fixture.ts";
 import { readPortFromReadiness } from "../../tests/performance/scale/stack.ts";
 
@@ -81,7 +83,9 @@ async function serveClient(apiPort: number): Promise<Readonly<{ port: number; cl
   process.env["HARNESS_WEB_PORT"] = String(apiPort);
   const { createServer } = await import("vite");
   const http = createHttpServer();
-  const vite = await createServer({ root: REPOSITORY_ROOT, appType: "spa", server: { middlewareMode: true, ws: { server: http } } });
+  // The config loaded by vite's module runner: the default loader bundles it into node_modules/.vite-temp, a write into
+  // the checkout this confined run sees read-only.
+  const vite = await createServer({ root: REPOSITORY_ROOT, appType: "spa", configLoader: "runner", cacheDir: testRunCacheDirectory("vite"), server: { middlewareMode: true, ws: { server: http } } });
   http.on("request", vite.middlewares);
   await new Promise<void>((resolveListen, rejectListen) => {
     http.once("error", rejectListen);
@@ -97,8 +101,8 @@ async function serveClient(apiPort: number): Promise<Readonly<{ port: number; cl
 /** Run `command` to completion under the native supervisor (adopted into the hold), with this process's output streams; its exit code (anything but an exit is a failure). */
 async function runToExit(command: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<number> {
   const { engineSuiteWatchdog } = readTestExecutionConfig(join(REPOSITORY_ROOT, "engine"));
-  const run = await superviseCommand({
-    supervisor: ensureTestProcessSupervisor(), command, args, cwd: REPOSITORY_ROOT, env,
+  const run = await runTestCommand({
+    supervisor: ensureTestProcessSupervisor(), checkout: REPOSITORY_ROOT, command, args, cwd: REPOSITORY_ROOT, env,
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs, killGraceMs: engineSuiteWatchdog.killGraceMs,
     onStdout: (chunk) => process.stdout.write(chunk), onStderr: (chunk) => process.stderr.write(chunk), killOnInterrupt: true,
   });
@@ -114,7 +118,6 @@ export async function runPerfProfile(): Promise<number> {
   let client: Awaited<ReturnType<typeof serveClient>> | undefined;
   let code = 1;
   try {
-    rmSync(REPORT_PATH, { force: true });
     // The fixture's admin, the server and the profile's login read the one variable.
     process.env["HARNESS_WEB_AUTH_PASSWORD"] = randomBytes(24).toString("base64url");
     const env: NodeJS.ProcessEnv = { ...process.env };
@@ -135,17 +138,21 @@ export async function runPerfProfile(): Promise<number> {
     const apiPort = await readPortFromReadiness(api, "api", /server on http:\/\/[\d.]+:(\d+)/u);
     client = await serveClient(apiPort);
     const webPort = client.port;
-    // The profile spec alone: it is what writes the report (the config's other spec is the cockpit benchmark).
+    // The profile spec alone: it is what writes the report (the config's other spec is the cockpit benchmark), into
+    // this confined run's own scratch; the report goes back to the unconfined door on the result channel (fd 3).
+    const reportOut = join(tmpdir(), "profile-report.json");
     code = await runToExit("npx", ["playwright", "test", "--config=playwright.perf.config.ts", "tests/performance/profile.spec.ts"], {
       ...env,
       HARNESS_PERF_FIXTURE_PATH: fixture.manifestPath,
       HARNESS_PERF_BASE_URL: `http://127.0.0.1:${String(webPort)}`,
       HARNESS_WEB_PORT: String(apiPort),
+      [PROFILE_REPORT_OUT_ENV]: reportOut,
     });
-    if (code === 0 && !existsSync(REPORT_PATH)) {
-      process.stderr.write(`perf profile: the profile passed but wrote no report at ${REPORT_PATH}\n`);
+    if (code === 0 && !existsSync(reportOut)) {
+      process.stderr.write(`perf profile: the profile passed but wrote no report at ${reportOut}\n`);
       code = 1;
     }
+    if (code === 0) writeSync(3, readFileSync(reportOut));
     return code;
   } finally {
     await client?.close();
@@ -164,8 +171,12 @@ if (isEntryPoint(import.meta.url)) {
   const door = async (): Promise<number> => {
     if (process.env[INSIDE_INSTRUMENT_LOCK_VARIABLE] === "1") return runPerfProfile();
     let code = 1;
+    // The report the confined profile hands back is written here, by the door outside the confinement.
+    rmSync(REPORT_PATH, { force: true });
+    const report: Buffer[] = [];
     code = (await runInsideInstrumentLock("perf profile", wholeInstrumentRun("profile"),
-      [process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)])).exitCode;
+      [process.execPath, ...process.execArgv, fileURLToPath(import.meta.url)], { onResult: (chunk) => { report.push(chunk); } })).exitCode;
+    if (code === 0) writeFileSync(REPORT_PATH, Buffer.concat(report));
     return code;
   };
   door().then(
