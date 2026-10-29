@@ -11,12 +11,13 @@ import { holdInstrumentLock, withinInstrumentHold } from "../process/instrument-
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 import { resolveRepositoryRegistry } from "./repository-registry.ts";
 import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
-import { configuredCheckoutCommandRunner, engineRelativePath, runCheckoutCommand, type CheckoutCommandRunner } from "./checkout-setup.ts";
+import { configuredCheckoutCommandRunner, engineRelativePath, runCheckoutCommand, type CheckoutCommand, type CheckoutCommandRunner } from "./checkout-setup.ts";
 import {
   createWorkspaceManager,
   createWorkspaceTimelineHooks,
   WorkspaceConflictError,
   type WorkspaceCreateRequest,
+  type WorkspaceGateOutcome,
   type WorkspaceManager,
   type WorkspaceManagerTimeouts,
 } from "./workspace-manager.ts";
@@ -85,6 +86,19 @@ export async function runWorkspaceCli(
   if (action === undefined || !(SUBCOMMANDS as readonly string[]).includes(action)) {
     throw new InputError(`workspace requires a subcommand (${SUBCOMMANDS.join(", ")})`, "input_error");
   }
+  return dispatch(configuredWorkspaceManager(root).manager, action, argv.slice(1));
+}
+
+/**
+ * THE ONE CONFIGURED WORKSPACE MANAGER for the checkout holding `root` (the pinned configuration's isolation
+ * section, its git port, the forge factory, the agent identity, the supervised command runner), with the runner
+ * it runs declared commands through: `harness workspace` and `harness deps adopt` build it here, never twice.
+ */
+export function configuredWorkspaceManager(root: string): Readonly<{
+  manager: WorkspaceManager;
+  checkoutRoot: string;
+  runCommand: (checkout: string, name: string) => Promise<WorkspaceGateOutcome>;
+}> {
   const snapshot = loadPinnedConfigSnapshot();
   const isolation = snapshot.document.workspaceIsolation;
   if (isolation === undefined) {
@@ -102,6 +116,7 @@ export async function runWorkspaceCli(
   // The integrator's commits (a workspace merge) are the harness's, so they are the project's agent identity
   // from the one declared source, never whatever user.name and user.email the checkout or the host carries.
   const identity = ROOT_POLICY.workflow.commitIdentity.agent;
+  const run = (checkout: string, name: string, command: CheckoutCommand): Promise<WorkspaceGateOutcome> => runCheckoutCommand(checkout, name, command, commandRunner());
   const manager = createWorkspaceManager({
     checkoutRoot,
     engineRelative: engineRelativePath(checkoutRoot, ENGINE_ROOT),
@@ -110,12 +125,17 @@ export async function runWorkspaceCli(
     repository: (checkout: string) => configuredGitRepository(snapshot.document, checkout),
     forge: githubWorkspaceForgeFactory(isolation.landTargets),
     identity,
-    commands: { run: (checkout, name, command) => runCheckoutCommand(checkout, name, command, commandRunner()) },
+    commands: { run },
     timeouts,
     timeline: createWorkspaceTimelineHooks(resolveRepositoryRegistry(git, checkoutRoot, timeouts.inspectMs), snapshot.document.timeline),
     onProgress: progress,
   });
-  return dispatch(manager, action, argv.slice(1));
+  const runCommand = (checkout: string, name: string): Promise<WorkspaceGateOutcome> => {
+    const command = isolation.commands[name];
+    if (command === undefined) throw new InputError(`no declared command ${name} in workspaceIsolation.commands`, "checkout_setup_command_undeclared");
+    return run(checkout, name, command);
+  };
+  return deepFreeze({ manager, checkoutRoot, runCommand });
 }
 
 async function dispatch(

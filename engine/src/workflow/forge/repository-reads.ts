@@ -107,6 +107,52 @@ export async function commitSignedByGitHub(client: ForgeClient, repository: stri
   return commit.signature?.isValid === true && commit.signature.wasSignedByGitHub === true;
 }
 
+/** A pull request's facts a dependency adoption judges: its author, its state, its two commits and the files it changes. */
+export type PullRequestFacts = Readonly<{
+  number: number;
+  authorLogin: string;
+  authorType: string;
+  state: "open" | "closed";
+  baseSha: string;
+  headSha: string;
+  files: readonly Readonly<{ path: string; status: string; previousPath: string | null }>[];
+}>;
+
+/** One pull request's facts, its files read page by page up to `maxPages` (a longer list is refused, never truncated). */
+export async function pullRequestFacts(client: ForgeClient, repository: string, number: number, maxPages: number): Promise<PullRequestFacts> {
+  const answer = await client.rest<Record<string, unknown>>({ method: "GET", path: `${repositoryPath(repository)}/pulls/${String(number)}` });
+  const pull = answer.data ?? {};
+  const user = (pull.user ?? {}) as Record<string, unknown>;
+  const base = (pull.base ?? {}) as Record<string, unknown>;
+  const head = (pull.head ?? {}) as Record<string, unknown>;
+  const text = (value: unknown, field: string): string => {
+    if (typeof value !== "string" || value.length === 0) throw new ForgeError("github_response_invalid", `Pull request ${String(number)} answered no ${field}.`, { number, field });
+    return value;
+  };
+  const files = await client.paginate<Record<string, unknown>>({ path: `${repositoryPath(repository)}/pulls/${String(number)}/files` }, { maxPages, perPage: 100 });
+  return Object.freeze({
+    number,
+    authorLogin: text(user.login, "author"),
+    authorType: text(user.type, "author type"),
+    state: pull.state === "open" ? "open" : "closed",
+    baseSha: text(base.sha, "base commit"),
+    headSha: text(head.sha, "head commit"),
+    files: files.map((file) => Object.freeze({ path: text(file.filename, "file name"), status: text(file.status, "file status"), previousPath: typeof file.previous_filename === "string" ? file.previous_filename : null })),
+  });
+}
+
+/** A file's text at commit `ref`, or null when the commit does not hold it. */
+export async function fileAtRef(client: ForgeClient, repository: string, path: string, ref: string): Promise<string | null> {
+  try {
+    const answer = await client.rest<{ content?: unknown; encoding?: unknown }>({ method: "GET", path: `${repositoryPath(repository)}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, query: { ref } });
+    if (answer.data?.encoding !== "base64" || typeof answer.data.content !== "string") throw new ForgeError("github_response_invalid", `The contents of ${path} at ${ref} are not base64 text.`, { path, ref });
+    return Buffer.from(answer.data.content, "base64").toString("utf8");
+  } catch (error) {
+    if (isForgeError(error, "github_not_found")) return null;
+    throw error;
+  }
+}
+
 /** The latest run of each workflow (by name, then path). */
 export function latestByWorkflow(runs: readonly WorkflowRun[]): ReadonlyMap<string, WorkflowRun> {
   const latest = new Map<string, WorkflowRun>();

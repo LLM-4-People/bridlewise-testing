@@ -1118,6 +1118,19 @@
           "--prefer-offline"
         ],
         "timeoutMs": 300000
+      },
+      "engine-lockfile": {
+        "cwd": "engine",
+        "argv": [
+          "npm",
+          "install",
+          "--package-lock-only",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+          "--prefer-offline"
+        ],
+        "timeoutMs": 300000
       }
     },
     "phases": {

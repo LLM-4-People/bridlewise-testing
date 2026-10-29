@@ -249,6 +249,7 @@ check` reports it stale): change a decision's file, never its row.
 
 | Id | Decision | By | State |
 |---|---|---|---|
+| [DEPS-ADOPT](DEPS-ADOPT-dependabot-is-a-signal-never-a-committer.md) | Dependabot is a signal, never a committer | coordinator | partial (GH-2) |
 | [GH-A](GH-A-public-by-default.md) | Public by default | user | standing |
 | [GH-B](GH-B-agents-act-through-least-privilege-apps.md) | Agents act only through least-privilege GitHub Apps | user | pending (P3.9) |
 | [GH-C](GH-C-all-labs-merge-into-the-one-repository.md) | All labs merge into the one repository | user | pending (P9.1) |

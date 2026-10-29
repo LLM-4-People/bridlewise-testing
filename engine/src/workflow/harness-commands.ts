@@ -14,6 +14,7 @@ import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-ma
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { frontDoorInput } from "./messaging.ts";
+import { DEPS_ADOPT_COMMANDS } from "./deps-adopt.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -803,13 +804,14 @@ function deadCommandsStep(root: string): CheckStepResult {
     if (absent.length > 0) return deepFreeze({ step: "dead-commands", status: "fail", message: `promotion_profile_invalid: a profile names paths this checkout does not track: ${absent.join("; ")}`, details: { absent } });
     consumers = profiles.flatMap((loaded) => profileCommandNames(loaded.profile));
   }
-  const dead = unconsumedCommands(isolation, consumers);
+  // `harness deps adopt` runs the declared lockfile and install commands of the directory a bump changes.
+  const dead = unconsumedCommands(isolation, [...consumers, ...DEPS_ADOPT_COMMANDS]);
   return deepFreeze({
     step: "dead-commands",
     status: dead.length === 0 ? "pass" : "fail",
     message: dead.length === 0
-      ? `every registry command is run by a workspace phase or a promotion profile (${String(Object.keys(isolation.commands).length)} commands)`
-      : `registry commands no workspace phase and no promotion profile runs (dead config: remove them, or run them): ${dead.join(", ")}`,
+      ? `every registry command is run by a workspace phase, a promotion profile or the dependency adoption (${String(Object.keys(isolation.commands).length)} commands)`
+      : `registry commands no workspace phase, no promotion profile and no dependency adoption runs (dead config: remove them, or run them): ${dead.join(", ")}`,
     details: { dead },
   });
 }
@@ -2278,7 +2280,7 @@ export function ${pascalName.charAt(0).toLowerCase() + pascalName.slice(1)}(): s
 export const HARNESS_SUBCOMMANDS = deepFreeze([
   "check", "test", "register", "regenerate", "sync", "new-module", "eval",
   "timeline", "metrics", "rollback", "extension", "benchmark", "diagnostic", "workspace",
-  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community",
+  "format", "index", "deletions", "evidence", "promote", "release", "slot", "flake", "frozen", "forge", "community", "deps",
 ] as const);
 
 export type HarnessSubcommand = typeof HARNESS_SUBCOMMANDS[number];
@@ -2429,6 +2431,9 @@ async function dispatchHarnessSubcommand(subcommand: string, rest: readonly stri
     } else if (subcommand === "workspace") {
       const { runWorkspaceCli } = await import("./workspace-cli.ts");
       answer = { result: await runWorkspaceCli(root, rest) };
+    } else if (subcommand === "deps") {
+      const { runDepsCli } = await import("./deps-cli.ts");
+      answer = { result: await runDepsCli(root, rest) };
     } else if (subcommand === "promote") {
       // Exit code: the class of the answer's code (src/workflow/promotion/codes.ts); its own report.
       const { runPromoteCli } = await import("./promotion/promote-cli.ts");
