@@ -130,6 +130,11 @@ jobs:
             --site .site \
             --checks .site/floor/data/status.json
 
+      # The landing's numbers, verdicts and quotations, from the same snapshot
+      # and the same judgement as the claims page (scripts/floor/landing.ts).
+      - name: Fill the landing
+        run: node scripts/floor/landing.ts --site .site --checks .site/floor/data/status.json
+
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:

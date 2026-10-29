@@ -35,8 +35,8 @@ const REPOSITORY_ROOT = dirname(fileURLToPath(new URL("../../", import.meta.url)
 const SURFACES = ["readme-hero", "org-profile", "release-header"] as const;
 
 /** The checks and the commit of a floor status document (`bridlewise-floor-status/v1`), refused whole when malformed. */
-export function readStatus(path: string): Readonly<{ commit: string; checks: readonly CheckResult[] }> {
-  const document = JSON.parse(readFileSync(path, "utf8")) as { schemaVersion?: unknown; source?: { commit?: unknown }; checks?: unknown };
+export function readStatus(path: string): Readonly<{ commit: string; generatedAt: string | null; checks: readonly CheckResult[] }> {
+  const document = JSON.parse(readFileSync(path, "utf8")) as { schemaVersion?: unknown; generatedAt?: unknown; source?: { commit?: unknown }; checks?: unknown };
   if (document.schemaVersion !== "bridlewise-floor-status/v1") throw new InputError(`${path} is not a bridlewise-floor-status/v1 document`, "claims_status_invalid");
   const commit = document.source?.commit;
   if (typeof commit !== "string" || !/^[0-9a-f]{40}$/u.test(commit)) throw new InputError(`${path} names no source commit`, "claims_status_invalid");
@@ -44,9 +44,12 @@ export function readStatus(path: string): Readonly<{ commit: string; checks: rea
   const checks = document.checks.map((entry: unknown, index: number) => {
     const c = entry as Record<string, unknown>;
     if (typeof c?.id !== "string" || typeof c.status !== "string") throw new InputError(`${path}: checks[${index}] has no id or status`, "claims_status_invalid");
-    return { id: c.id, status: c.status, headSha: typeof c.headSha === "string" ? c.headSha : null, runUrl: typeof c.runUrl === "string" ? c.runUrl : null };
+    const jobs = Array.isArray(c.jobs)
+      ? (c.jobs as Record<string, unknown>[]).map((job) => ({ name: String(job.name), status: String(job.status), conclusion: typeof job.conclusion === "string" ? job.conclusion : null, url: typeof job.url === "string" ? job.url : null }))
+      : null;
+    return { id: c.id, label: typeof c.label === "string" ? c.label : c.id, required: c.required === true, status: c.status, headSha: typeof c.headSha === "string" ? c.headSha : null, runUrl: typeof c.runUrl === "string" ? c.runUrl : null, jobs };
   });
-  return { commit, checks };
+  return { commit, generatedAt: typeof document.generatedAt === "string" ? document.generatedAt : null, checks };
 }
 
 /** One surface's text, rendered from this repository's sources. */

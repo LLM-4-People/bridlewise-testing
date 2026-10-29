@@ -20,8 +20,11 @@ import { escapeHtml } from "../../../shared/markup.ts";
 import type { Claim, DecisionState } from "./claims.ts";
 import type { Words } from "./words.ts";
 
+/** One job of a check's run, as the status snapshot reports it (`null` jobs: the run's jobs were not read). */
+export type CheckJob = Readonly<{ name: string; status: string; conclusion: string | null; url: string | null }>;
+
 /** One check as the floor's status snapshot (`bridlewise-floor-status/v1`) reports it. */
-export type CheckResult = Readonly<{ id: string; status: string; headSha: string | null; runUrl: string | null }>;
+export type CheckResult = Readonly<{ id: string; label?: string; required?: boolean; status: string; headSha: string | null; runUrl: string | null; jobs?: readonly CheckJob[] | null }>;
 
 /** A claim judged at a commit. */
 export type JudgedClaim = Readonly<{
@@ -166,8 +169,11 @@ export function releaseHeader(m: Words): string {
 
 
 /** The claims page body (HTML for the one site layout): every claim judged at the published commit. */
+/** Each verdict in words: the claims page and the landing say a verdict the same way. */
+export const VERDICT_WORDS: Readonly<Record<JudgedClaim["verdict"], string>> = Object.freeze({ holds: "holds", retracted: "retracted", unchecked: "not checked in this build", designed: "designed, not built", "not-claimed": "not claimed" });
+
 export function claimsPage(m: Words, judged: readonly JudgedClaim[], commit: string, decisions: ReadonlyMap<string, DecisionState>): string {
-  const words: Readonly<Record<JudgedClaim["verdict"], string>> = { holds: "holds", retracted: "retracted", unchecked: "not checked in this build", designed: "designed, not built", "not-claimed": "not claimed" };
+  const words = VERDICT_WORDS;
   const row = (j: JudgedClaim): string => {
     const c = j.claim;
     const proof = c.kind === "holds-when-green"
