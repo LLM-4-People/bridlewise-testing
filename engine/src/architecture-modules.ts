@@ -82,6 +82,8 @@ export const ARCHITECTURE_DIRECTORY_DEFAULTS: readonly ArchitectureDirectoryDefa
 
 export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "scripts/bootstrap-hooks.ts", executionBoundary: "composition-root", compositionRoot: true },
+  { path: "scripts/brand/claims.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
+  { path: "scripts/brand/cli.ts", executionBoundary: "composition-root", compositionRoot: true, effects: ["filesystem-read","filesystem-write"] },
   { path: "scripts/build-bundle.ts", id: "build-bundle", owner: "self-protection", executionBoundary: "composition-root", compositionRoot: true, effects: ["filesystem-write"], responsibilities: ["esbuild-bundle-src-cli-into-dist-bundle-js-single-file","write-bundle-sha256-sidecar-and-guardian-spec-schema-artifact"] },
   { path: "scripts/commit-guard.ts", executionBoundary: "composition-root", compositionRoot: true },
   { path: "scripts/concurrent/worker-entry.mjs", executionBoundary: "composition-root", compositionRoot: true, effects: ["filesystem-read"] },
@@ -400,6 +402,7 @@ export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "src/workflow/community/replies.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/harness-commands.ts", id: "workflow-harness-commands", layer: "interface", executionBoundary: "composition-root", compositionRoot: true, ports: {"requires":["test-result-collection","module-registration","auto-generation","resource-locking"],"provides":["harness-commands"]}, effects: ["child-process","filesystem-read","filesystem-write","git","process-status"], responsibilities: ["built-in-harness-workflow-commands-replacing-multi-step-scripts"] },
   { path: "src/workflow/hash-binding-registry.ts", id: "hash-binding-registry", realm: "shared", layer: "domain", executionBoundary: "effect-adapter", ports: {"requires":[],"provides":["hash-binding-registry"]}, effects: ["filesystem-read","filesystem-write"], responsibilities: ["central-hash-binding-verification-and-repair"] },
+  { path: "src/workflow/messaging.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/module-registrar.ts", id: "workflow-module-registrar", realm: "shared", layer: "domain", executionBoundary: "effect-adapter", ports: {"requires":["architecture-analysis"],"provides":["module-registration"]}, effects: ["filesystem-read","filesystem-write"], responsibilities: ["deterministic-module-registration-replacing-manual-manifest-maintenance"] },
   { path: "src/workflow/promotion/tree-kind.ts", executionBoundary: "effect-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/promotion/trigger.ts", executionBoundary: "effect-adapter", effects: ["filesystem-read"] },

@@ -28,7 +28,7 @@
     },
     {
       "path": ".github/forge/security-configuration/org.bridlewise-baseline.json",
-      "sha256": "7cf892b701eb583362620efe232c56d2782645b4f8b8d6fa5ad08e9e871edb44"
+      "sha256": "6b296b81809d5c53b7064227d4531d19990bb79abefeea178f7bd39f06bb8291"
     },
     {
       "path": ".github/forge/security-configuration-repositories/org.bridlewise-baseline.json",

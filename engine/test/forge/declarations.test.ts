@@ -191,12 +191,15 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   // Private repositories on this plan (no Secret Protection): neither, or the attach would fail there.
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning, "disabled");
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning_push_protection, "disabled");
-  // Each Advanced Security feature is declared: Code Security off in both (code scanning is our own CodeQL workflow),
-  // Secret Protection on the public configuration, off on the private one without the add-on. No deprecated
-  // advanced_security is sent.
+  // Each Advanced Security feature is declared. Code Security ON for public repositories (free there, and what GitHub
+  // holds: turning it off would be a loosening), OFF for private ones without the add-on; its dependents disabled in both
+  // (code scanning's default setup: our own CodeQL workflow is the scanner). Secret Protection on the public
+  // configuration, off on the private one without the add-on. No deprecated advanced_security is sent.
+  assert.equal(configuration("bridlewise-baseline").code_security, "enabled");
+  assert.equal(configuration("bridlewise-baseline-private").code_security, "disabled");
   for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) {
-    assert.equal(configuration(key).code_security, "disabled", key);
     assert.equal(configuration(key).advanced_security, undefined, key);
+    for (const field of SECURITY_FEATURE_DEPENDENTS.code_security) assert.equal(configuration(key)[field], "disabled", `${key} ${field}`);
   }
   assert.equal(configuration("bridlewise-baseline").secret_protection, "enabled");
   assert.equal(configuration("bridlewise-baseline-private").secret_protection, "disabled");

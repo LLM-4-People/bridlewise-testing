@@ -1,8 +1,33 @@
-<!-- BEGIN GENERATED: repository name heading, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
-# bridlewise-testing
-<!-- END GENERATED: repository name heading -->
+<!-- BEGIN GENERATED: the front door, from docs/brand/ (harness sync; engine/scripts/brand/cli.ts) -->
+# Bridlewise
 
-**The development floor for [Bridlewise][product:]: tests, prevention guards, benchmarks, design decisions, and verification machinery.**
+**Every claim comes with a receipt.**
+
+Bridlewise is a free, open-source, local-first cockpit for AI coding runs. Every claim it makes about itself links to the check that backs it, and a claim whose check fails is struck out automatically.
+
+This repository is the development floor: the source of Bridlewise together with every test, prevention guard, benchmark and decision record. The product repository is projected from it.
+
+> [!WARNING]
+> **Developer preview. Not production-ready, not audited, not for sensitive code.**
+
+### What we claim, and the check behind each
+
+| Claim | Checked by | Proof |
+|---|---|---|
+| It tells you it is not ready for production: its readiness check answers harnessReady false | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| Calling harness with no subcommand is refused with a typed error, no\_harness\_subcommand, that lists every available verb | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| A run executes once: reopening it never starts a second execution | `testing.ci` | [tests/prevention/run-executes-once.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/run-executes-once.test.ts) |
+| Commands the model starts cannot read outside the project (Linux, Landlock) | `testing.ci` | [tests/prevention/subprocess-confinement-owner.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/subprocess-confinement-owner.test.ts) |
+| Secrets the harness detects are redacted before the prompt reaches the provider | `testing.ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
+| Every change passes a secret scan before it lands in the public tree | `testing.secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
+| CodeQL analyses every change | `testing.codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
+
+A claim whose check is red is struck out on the [live claims page](https://llm-4-people.github.io/bridlewise-testing/floor/claims/) until it passes again.
+
+**Designed, not built yet:** A malicious module cannot bypass the core ([UD-CORE-NO-BYPASS](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md)); The model never sees a credential ([CRED-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/CRED-DIR-credentials-the-model-never-sees.md)); Layered memory with provenance and forgetting ([MEM-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/MEM-DIR-continue-the-memory-layers-lab.md)).
+
+**Not claimed:** An independent security audit (None has been done: no third-party review, penetration test or certification exists); Signed releases (Releases carry checksums and a promotion receipt, but no signature yet).
+<!-- END GENERATED: the front door -->
 
 [![CI][repo:actions/workflows/ci.yml/badge.svg?branch=main]][repo:actions/workflows/ci.yml]
 [![Docs and floor](https://img.shields.io/badge/docs-development%20floor-8fd3ff.svg)][site:floor/]
@@ -33,7 +58,7 @@ The floor site is a record, not a hosted test service. It does not run suites, h
 
 ## What this repository is
 
-This is the **development floor** from which the Bridlewise product is projected. It carries the source tree plus the suites and records that are deliberately excluded from the product repository:
+This repository carries the source tree plus the suites and records that are deliberately excluded from the product repository:
 
 - unit, integration, prevention, cockpit, performance, and end-to-end tests;
 - engine domain tests for the editor, intelligence, memory, privacy, safety, timeline, workflow, MCP, and quality packs;

@@ -38,6 +38,19 @@ export const DECISION_INDEX = deepFreeze({
 } as const);
 
 /**
+ * THE FRONT DOORS: the README's and the site home's opening blocks, generated
+ * from the messaging source and the claims register (`docs/brand/`) by
+ * `generator` (relative to the engine), which validates both sources whole
+ * first — every cited proof path exists, every decision named is a record —
+ * so a broken source fails `harness check`, a required check, rather than the
+ * Pages build on main. Its messaging source is a required input
+ * (`messaging_source_missing` when absent).
+ */
+export const FRONT_DOOR_GENERATOR = deepFreeze({
+  generator: "scripts/brand/cli.ts",
+} as const);
+
+/**
  * THE WEB TEST BUDGET'S POPULATION: `generator` (repository-relative) writes
  * the accumulation-phase `derivedAtTestFileCount` from the live supported
  * population on every `harness sync`, and `harness check` judges it, so no
