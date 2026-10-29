@@ -813,6 +813,13 @@
           "files": [
             "engine/test/architecture/architecture-baseline-clean.test.ts"
           ]
+        },
+        {
+          "name": "s1-b09",
+          "measuredCpuMs": 60207,
+          "files": [
+            "engine/test/s1-scenarios/b09.test.ts"
+          ]
         }
       ]
     },
