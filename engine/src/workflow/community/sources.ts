@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
+import type { TreeReader } from "../../git/tree-reader.ts";
 import { InputError } from "../../kernel/errors.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 
@@ -156,13 +157,24 @@ function invalid(path: string, why: string): never {
   throw new InputError(`${path} is invalid: ${why}`, "community_source_invalid", { path });
 }
 
-/** A community source file, parsed and checked against `schema` (missing, not JSON or off-schema: `community_source_invalid`). */
-export function readCommunitySource<T>(repositoryRoot: string, path: string, schema: z.ZodType<T>): T {
-  const file = join(repositoryRoot, path);
-  if (!existsSync(file)) invalid(path, "the file is missing");
+/**
+ * A community source file, parsed and checked against `schema` (missing, not
+ * JSON or off-schema: `community_source_invalid`), read from `source`: a
+ * repository root (its working tree) or a tree (a commit's: the projector
+ * reads the declared labels at its source commit).
+ */
+export function readCommunitySource<T>(source: string | TreeReader, path: string, schema: z.ZodType<T>): T {
+  let text: string | null;
+  if (typeof source === "string") {
+    const file = join(source, path);
+    text = existsSync(file) ? readFileSync(file, "utf8") : null;
+  } else {
+    text = source.text(path);
+  }
+  if (text === null) invalid(path, `the file is missing${typeof source === "string" ? "" : ` at ${source.label}`}`);
   let json: unknown;
   try {
-    json = JSON.parse(readFileSync(file, "utf8"));
+    json = JSON.parse(text);
   } catch (error) {
     invalid(path, `not JSON (${(error as Error).message})`);
   }

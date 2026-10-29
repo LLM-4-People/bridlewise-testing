@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @shard-exclude: private-only cutover graph generator and consumers are not published in the public snapshot (evidence: docs/floor/roadmap.md#snapshot · public baseline audit)
 /**
  * The cutover graph receipt: the GENERATOR owns the landing place, never the
  * caller's shell.

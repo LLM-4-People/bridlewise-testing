@@ -54,6 +54,8 @@ export const VOLATILE_SELECTORS: readonly string[] = Object.freeze([
   "[data-volatile]",
   "[data-commit]",
   "[data-floor-status] dd",
+  // When the snapshot last read GitHub: a time, different in every build.
+  "[data-status-github-checked]",
   ".stamp",
   "time",
 ]);

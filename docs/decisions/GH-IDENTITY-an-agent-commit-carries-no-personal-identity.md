@@ -6,7 +6,7 @@ group: github
 status: in-force
 implementation: partial
 route: P3.2
-acted_in: [engine/src/kernel/root-policy.ts, engine/scripts/verification/sign-off.ts, engine/src/workflow/workspace-manager.ts, engine/scripts/tooling/candidate-checkout.ts, .github/workflows/commit-records.yml]
+acted_in: [engine/src/kernel/root-policy.ts, engine/scripts/verification/sign-off.ts, engine/src/workflow/forge/repository-reads.ts, engine/src/workflow/workspace-manager.ts, engine/scripts/tooling/candidate-checkout.ts, .github/workflows/commit-records.yml]
 ---
 # An agent commit carries no personal identity
 
@@ -56,6 +56,21 @@ source; nothing else spells it), and never a person's own name or address.
   never-printed key: two addresses are told apart within one log, and nothing
   of a person — name, mailbox or domain — is printed, because the log is
   public.
+- **A commit GitHub creates and signs.** A commit made through GitHub's API so
+  that GitHub signs it (an App-published branch, such as the IssueOps record)
+  always has the committer `GitHub <noreply@github.com>`, who signs nothing
+  off. Its author's sign-off is accepted instead, exactly when both hold:
+  - the committer is GitHub's web-flow identity
+    (`ROOT_POLICY.workflow.commitIdentity.webFlowCommitter`);
+  - GitHub's own verification, read from its API (`signature.isValid` and
+    `wasSignedByGitHub`), reports the signature valid and made by GitHub.
+
+  The author must be the project's agent identity. The committer field alone
+  is a claim anyone can write, so a commit that only claims GitHub as its
+  committer, or whose verification is false, still needs its committer's
+  sign-off and is refused. Every other commit keeps requiring the committer's
+  sign-off. The `Commit records` check asks GitHub, with its read-only token,
+  only about commits whose committer is GitHub.
 - **The merge queue.** In a merge group the judge verifies the group's ref is
   in GitHub's `refs/heads/gh-readonly-queue/` namespace and held at the
   group's head; that namespace and the event's ref name are what is trusted,

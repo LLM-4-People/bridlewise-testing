@@ -1,4 +1,5 @@
 // @vitest-environment node
+// @shard-exclude: the private frozen archives are not published; the public snapshot has no frozen record population to judge (evidence: docs/floor/roadmap.md#snapshot · public baseline audit)
 /**
  * A COPY IN A FROZEN ARCHIVE IS A RECORD. WHAT MAKES A COPY A SECOND **OWNER**
  * IS A CONSUMER — AND AN OWNERSHIP DECLARATION THAT LIVES ONLY THERE.

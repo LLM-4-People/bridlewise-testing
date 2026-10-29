@@ -4,9 +4,12 @@
  * through the one outbound door, against GitHub's issues on the fake GitHub
  * (`./fake-github-issues.ts`) on a real loopback server.
  *
- *   - the first run builds every class (labels, milestones, issues with their
- *     type, labels, milestone, sub-issue parent, dependencies, state and pin)
- *     and verifies it by re-reading;
+ *   - the first run builds every class (milestones, issues with their type,
+ *     labels, milestone, sub-issue parent, dependencies, state and pin) and
+ *     verifies it by re-reading;
+ *   - a label is the forge's (labels.json, `forge apply`): an issue carries an
+ *     existing one as GitHub spells it, and one missing is refused typed,
+ *     never created;
  *   - V-25 on GitHub: a second run makes zero writes, and its list reads are
  *     conditional (only the GraphQL relation reads cost rate limit);
  *   - the reporter's text above the marker is GitHub's and is kept;
@@ -28,7 +31,7 @@ import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { applyProjection, projectionFailure, type ProjectionReceipt } from "../../src/workflow/forge/projector/apply.ts";
-import type { ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { configuredConfinement, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { githubProjectionStore } from "../../src/workflow/forge/projector/github-store.ts";
 import { PROJECTION_CLASSES, PROJECTION_INPUT_SCHEMA, type Projection, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
 import { computeProjection } from "../../src/workflow/forge/projector/projection.ts";
@@ -40,7 +43,7 @@ const REPOSITORY = "owner/repo";
 /** The publisher App's bot: the one author whose issues and milestones are the projector's (the client runs as it). */
 const PROJECTOR = `${FORGE_APPS.publisher.name}[bot]`;
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
-const CONFINEMENT: ProjectorConfinement = { harnessRoot: join(import.meta.dirname, "..", ".."), keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
+const CONFINEMENT: ProjectorConfinement = configuredConfinement(join(import.meta.dirname, "..", ".."), emptyKeepOutFacts(), 60);
 
 const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> = {}): ProjectionInput["items"][number] => ({
   id, type: "Task", title: `The ${id} outcome`, state: "open", resolution: null, lane: "floor", milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null,
@@ -48,7 +51,7 @@ const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> =
 });
 const input = (items: ProjectionInput["items"]): ProjectionInput => ({
   schema: PROJECTION_INPUT_SCHEMA, source: SOURCE, ledger: "c".repeat(40), repositoryUrl: `https://github.com/${REPOSITORY}`,
-  items, lanes: [{ lane: "floor", color: "1d76db", description: "Tracker lane: open work" }], decisions: [], recordedEvidence: [],
+  items, decisions: [], recordedEvidence: [],
   mainRuns: [{ workflow: "door", commit: "a".repeat(40), conclusion: "failure", runUrl: `https://github.com/${REPOSITORY}/actions/runs/1`, failedTests: [{ path: "tests/a.test.ts", message: "boom", owners: [] }] }],
 });
 const ITEMS = [
@@ -64,6 +67,8 @@ function github(options: FakeIssuesOptions = {}, maxPages = 10, before: (fake: R
   // A route of the test's own answers before the installed issues' routes.
   before(fake);
   const issues = installIssues(fake, REPOSITORY, options);
+  // The declared lane label, as `harness forge apply` leaves it (labels.json is its one declaration).
+  issues.labels.set("lane:floor", { name: "lane:floor", color: "1d76db", description: "Tracker lane: the public floor's open work" });
   const client = githubClient(fake.endpoint(), memoryCredential(PROJECTOR, fake.userToken(PROJECTOR)));
   const store = githubProjectionStore(client, { repository: REPOSITORY, maxPages });
   const issue = (key: string) => [...issues.issues.values()].find((candidate) => candidate.user.login === PROJECTOR && candidate.body?.includes(`<!-- bridlewise:item=${key} `) === true)!;
@@ -188,12 +193,19 @@ test("milestones are the projector's only by its own creation: a person's M1 is 
   await assert.rejects(doubled.store.read(PROJECTION_CLASSES), (error: HarnessError) => error.code === "projection_store_duplicate_milestone");
 });
 
-test("label names are case-insensitive as on GitHub: an existing `Lane:Floor` is the projector's lane:floor, never a second label", async () => {
-  const { issues, store } = github();
+test("a label is the forge's: an existing `Lane:Floor` is carried as GitHub spells it and never written; a missing one is refused typed, never created", async () => {
+  const { issues, store, issue } = github();
   issues.labels.set("lane:floor", { name: "Lane:Floor", color: "ffffff", description: "an older spelling" });
   const receipt = await run(project(), store);
   assert.equal(receipt.verified, true, JSON.stringify(receipt.refusals));
-  assert.deepEqual([...issues.labels.values()].map((label) => [label.name, label.color, label.description]), [["Lane:Floor", "1d76db", "Tracker lane: open work"]], "updated in place, never duplicated");
+  assert.deepEqual([...issues.labels.values()].map((label) => [label.name, label.color, label.description]), [["Lane:Floor", "ffffff", "an older spelling"]], "the label is neither duplicated nor rewritten");
+  assert.deepEqual(issue("T-B").labels.map((label) => label.name), ["Lane:Floor"]);
+  // No declared label on GitHub: GitHub would create it on the issue write, so the store refuses before it.
+  const bare = github();
+  bare.issues.labels.clear();
+  const refused = await run(project(), bare.store);
+  assert.equal(projectionFailure(refused)?.code, "projection_label_missing");
+  assert.deepEqual([...bare.issues.labels.keys()], [], "no label was created on the way");
 });
 
 test("the store's edges: a list past maxPages is refused typed, a pull request is no issue, an unchanged parent or dependency sends nothing, an unknown field is refused", async () => {

@@ -17,7 +17,7 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { computeRoadmapFeed, roadmapFeedInput } from "../../src/workflow/forge/projector/projection.ts";
-import type { ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { configuredConfinement, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { ROADMAP_FEED_INPUT_SCHEMA, roadmapFeed, type FeedItem, type FeedSnapshot, type RoadmapFeedInput } from "../../src/workflow/forge/projector/roadmap-feed.ts";
 import type { StatusItem } from "../../src/workflow/tracker-status.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -26,7 +26,7 @@ import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
 const ENGINE_ROOT = join(import.meta.dirname, "..", "..");
-const CONFINEMENT: ProjectorConfinement = { harnessRoot: ENGINE_ROOT, keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
+const CONFINEMENT: ProjectorConfinement = configuredConfinement(ENGINE_ROOT, emptyKeepOutFacts(), 60);
 
 const feedItem = (id: string, fields: Partial<FeedItem> = {}): FeedItem => ({
   id, type: "Task", state: "open", resolution: null, parent: null, milestone: "M1", blockedBy: [], decisions: [], title: null, lane: "roadmap",

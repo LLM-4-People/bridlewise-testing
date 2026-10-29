@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "lane:roadmap",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "lane:roadmap",
+    "color": "0e8a16",
+    "description": "Tracker lane: a roadmap workstream, exit criterion or scope statement"
+  }
+}

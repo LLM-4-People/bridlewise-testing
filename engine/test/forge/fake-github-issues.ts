@@ -4,8 +4,8 @@
  * reporter's body, state and its reason, labels, milestone, issue type),
  * comments, sub-issues, issue dependencies, and the pinned issues — with
  * GitHub's answers: a list is paginated with a `Link` header and an ETag (a
- * matching `If-None-Match` is a 304, not counted), a missing object is 404, a
- * duplicate label is 422, a sub-issue that already has a parent is 422 unless
+ * matching `If-None-Match` is a 304, not counted), a missing object is 404, an
+ * unknown label put on an issue is CREATED (as GitHub does), a sub-issue that already has a parent is 422 unless
  * the parent is replaced, a reopened issue's reason is `reopened`, and a
  * fourth pinned issue is a GraphQL error. The relations and pins are read
  * through the GraphQL `issues` connection, a page at a time.
@@ -97,13 +97,17 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
     return issue;
   }
 
-  /** Applies a create or update body to `issue` as GitHub does (an unknown label or milestone is 422). */
+  /**
+   * Applies a create or update body to `issue` as GitHub does: an unknown
+   * milestone is 422, but an unknown LABEL is created on the way (default
+   * colour, no description) — the write the projector must never make.
+   */
   function apply(issue: FakeIssue, body: Record<string, unknown>): FakeAnswer | undefined {
     if ("title" in body) issue.title = String(body.title);
     if ("body" in body) issue.body = body.body === null ? null : String(body.body);
     if ("labels" in body) {
       const names = body.labels as string[];
-      if (names.some((name) => !labels.has(name.toLowerCase()))) return json(422, { message: "Validation Failed", errors: [{ resource: "Label", code: "invalid" }] });
+      for (const name of names) if (!labels.has(name.toLowerCase())) labels.set(name.toLowerCase(), { name, color: "ededed", description: null });
       issue.labels = names.map((name) => ({ name: labels.get(name.toLowerCase())!.name }));
     }
     if ("milestone" in body) {
@@ -122,19 +126,6 @@ export function installIssues(fake: FakeGithub, repository: string, options: Fak
   }
 
   fake.route("GET", escaped("/labels"), (request) => page(request, [...labels.values()]));
-  fake.route("POST", escaped("/labels"), (request) => {
-    const body = request.body as FakeLabel;
-    if (labels.has(body.name.toLowerCase())) return json(422, { message: "Validation Failed", errors: [{ resource: "Label", code: "already_exists", field: "name" }] });
-    const label = { name: body.name, color: body.color, description: body.description ?? null };
-    labels.set(label.name.toLowerCase(), label);
-    return json(201, label);
-  });
-  fake.route("PATCH", escaped("/labels/([^/]+)"), (request, match) => {
-    const label = labels.get(decodeURIComponent(match[1]!).toLowerCase());
-    if (label === undefined) return json(404, { message: "Not Found" });
-    Object.assign(label, request.body as object);
-    return json(200, label);
-  });
 
   fake.route("GET", escaped("/milestones"), (request) => page(request, [...milestones.values()].filter((milestone) => request.query.get("state") === "all" || milestone.state === (request.query.get("state") ?? "open"))));
   fake.route("POST", escaped("/milestones"), (request) => {
