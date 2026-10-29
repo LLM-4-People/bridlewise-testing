@@ -31,7 +31,8 @@ function file(path: string, text: string): ChangedFile {
 }
 
 test("an added line naming a host's home is refused in every spelling, encoded or not, with or without a trailing separator; the declared placeholders and relative folders pass", () => {
-  const percent = (text: string): string => text.replaceAll("/", "%2F");
+  // Every encoded spelling is written out literally (no chained escaping): each `${PERSON}` keeps the source
+  // itself free of a decodable home path.
   for (const line of [
     `see ${H}${PERSON}/project`,
     `ends at ${H}${PERSON}`,
@@ -42,12 +43,12 @@ test("an added line naming a host's home is refused in every spelling, encoded o
     `C:/Users/${PERSON}/AppData`,
     `c:\\users\\${SHORT}\\AppData`,
     `C:\\Users\\${PERSON}`,
-    percent(`${H}${PERSON}/x`),
-    percent(`${H}${PERSON}`).replaceAll("%", "%25"),
-    percent(`${H}${PERSON}`).replaceAll("%", "%25").replaceAll("%", "%25"),
-    `${H}${PERSON}/x`.replaceAll("/", "\\/"),
-    `${H}${PERSON}/x`.replaceAll("/", "\\u002f"),
-    `${H}${PERSON}/x`.replaceAll("/", "\\x2F"),
+    `%2Fhome%2F${PERSON}%2Fx`,
+    `%252Fhome%252F${PERSON}`,
+    `%25252Fhome%25252F${PERSON}`,
+    `\\/home\\/${PERSON}\\/x`,
+    `\\u002fhome\\u002f${PERSON}\\u002fx`,
+    `\\x2Fhome\\x2F${PERSON}\\x2Fx`,
     `C:\\\\Users\\\\${PERSON}\\\\AppData`,
   ]) {
     assert.equal(homePathFindings(line, NOBODY).length, 1, `${line} passed`);
