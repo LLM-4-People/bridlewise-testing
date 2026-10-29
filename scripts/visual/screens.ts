@@ -87,6 +87,12 @@ async function context(browser: Browser, shot: Shot): Promise<BrowserContext> {
 
 async function settle(page: Page, origin: string, base: string, path: string): Promise<void> {
   const url = `${origin}${base}${path}`;
+  // The site's faces are font-display: optional: a face not ready at the
+  // first paint leaves the fallback for that view. The page is loaded once
+  // first, so the picture is taken with every face already in this
+  // context's cache, on every host.
+  await page.goto(url, { waitUntil: "networkidle" });
+  await page.evaluate(async () => { await document.fonts.ready; });
   const response = await page.goto(url, { waitUntil: "networkidle" });
   if (response === null || !response.ok()) throw new VisualRefusal("visual_page_missing", `${url} answered ${String(response?.status() ?? "nothing")}`);
   // A same-origin sheet, not an inline <style>: the page's policy refuses

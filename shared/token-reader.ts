@@ -55,7 +55,8 @@ export type TokenRefusal =
   | "token_owner_unreadable"
   | "token_undeclared"
   | "token_cycle"
-  | "token_color_unsupported";
+  | "token_color_unsupported"
+  | "token_face_display_missing";
 
 export class TokenOwnerError extends Error {
   readonly code: TokenRefusal;
@@ -313,6 +314,12 @@ export interface TokenSheetOptions {
   readonly fontUrl: (ownerUrl: string) => string;
   /** The line the sheet opens with, naming its generator. */
   readonly banner: string;
+  /**
+   * How the surface's faces load (`font-display`), when the surface's policy
+   * is not the owner's: a loading policy, which follows how the surface
+   * delivers its faces, never a design value.
+   */
+  readonly fontDisplay?: "optional" | "swap" | "block" | "fallback";
 }
 
 const COLOR_SCHEME: Readonly<Record<ThemeName, string>> = Object.freeze({ carbon: "dark", logbook: "light" });
@@ -341,7 +348,12 @@ export function tokenSheet(owner: TokenOwner, used: Iterable<string>, options: T
     const alternative = second.get(name);
     if (alternative !== undefined && alternative !== value) secondEntries.push([name, alternative]);
   }
-  const faces = owner.fontFaces.map((face) => face.replace(/url\(\s*"([^"]+)"\s*\)/gu, (_, url: string) => `url("${options.fontUrl(url)}")`));
+  const faces = owner.fontFaces.map((face) => {
+    const served = face.replace(/url\(\s*"([^"]+)"\s*\)/gu, (_, url: string) => `url("${options.fontUrl(url)}")`);
+    if (options.fontDisplay === undefined) return served;
+    if (!/font-display:\s*[a-z]+/u.test(served)) throw new TokenOwnerError("token_face_display_missing", `an @font-face of the owner names no font-display for the surface to set: ${served.slice(0, 80)}`);
+    return served.replace(/font-display:\s*[a-z]+/u, `font-display: ${options.fontDisplay}`);
+  });
   const remaps = owner.media
     .map((remap) => ({ query: remap.query, entries: [...remap.values].filter(([name]) => names.includes(name)) }))
     .filter((remap) => remap.entries.length > 0)
