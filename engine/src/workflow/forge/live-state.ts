@@ -8,8 +8,9 @@
  * own path, or no entry of its name in its list). A kind that can list its
  * objects (`names`) lets the plan report the ones nobody declared.
  */
+import { FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError, isForgeError } from "./codes.ts";
-import type { ForgeObject, ForgeObjectKind, ForgeScope } from "./forge-state.ts";
+import { rulesetWithGithubDefaults, type ForgeObject, type ForgeObjectKind, type ForgeScope } from "./forge-state.ts";
 import type { ForgeClient, ForgeRequest } from "./port.ts";
 
 export type LiveContext = Readonly<{ client: ForgeClient; organization: string; maxPages: number }>;
@@ -25,6 +26,14 @@ export type KindAdapter = Readonly<{
   names?: (context: LiveContext, scope: ForgeScope) => Promise<readonly string[]>;
   /** Delete a live object (a retired one) found by `read`. */
   remove?: (context: LiveContext, found: LiveObject, scope: ForgeScope) => Promise<void>;
+  /**
+   * The declared fields GitHub cannot take YET, each with why (a certificate
+   * still being issued). The plan leaves them out of what it writes and
+   * reports them `pending`: a convergence still under way, never a failure.
+   * A field that can no longer converge (a failed certificate) is a typed
+   * refusal the hook throws: drift, never pending forever.
+   */
+  pending?: (desired: unknown, live: unknown) => Readonly<Record<string, string>>;
 }>;
 
 const segment = encodeURIComponent;
@@ -516,6 +525,7 @@ const rulesetOf = (base: (context: LiveContext, scope: ForgeScope) => string, so
   itemPath: (context, scope, id) => `${base(context, scope)}/rulesets/${String(id)}`,
   updateMethod: "PUT",
   detailed: true,
+  normalize: rulesetWithGithubDefaults,
 });
 
 const repoBase = (context: LiveContext, scope: ForgeScope): string => repoPath(context, repositoryOf({ scope }));
@@ -568,7 +578,124 @@ export const KIND_ADAPTERS: Readonly<Record<ForgeObjectKind, KindAdapter>> = Obj
     },
   },
   project,
+  pages: pagesSite(),
+  "app-installation": appInstallation(),
 });
+
+type PagesAnswer = Readonly<{
+  build_type?: unknown; cname?: unknown; https_enforced?: unknown; source?: Readonly<{ branch?: unknown; path?: unknown }> | null;
+  protected_domain_state?: unknown; https_certificate?: Readonly<{ state?: unknown }> | null;
+}>;
+type PagesDesired = Readonly<{ build_type: string; source?: Readonly<{ branch: string; path: string }>; cname: string | null; https_enforced: boolean }>;
+
+/**
+ * A repository's Pages site (GET/POST/PUT `/pages`). Read in the declared
+ * shape, beside two facts the plan judges: the certificate's state and
+ * whether GitHub holds the custom domain as verified.
+ * - A custom domain is set first. If GitHub does not then hold it as
+ *   verified, the previous domain is restored and the write refused
+ *   (`forge_pages_domain_unverified`): a domain that is not verified could
+ *   be taken by another account.
+ * - HTTPS is enforced only once the certificate is approved. Until then the
+ *   field is `pending` (a convergence under way, never a failure).
+ */
+/** The certificate states GitHub reports while it is still ISSUING one (GitHub's `https_certificate.state`); every other state is a failure. */
+const CERTIFICATE_ISSUING: ReadonlySet<string> = new Set(["new", "authorization_created", "authorization_pending", "authorized", "issued", "uploaded"]);
+
+function pagesSite(): KindAdapter {
+  const path = (context: LiveContext, object: ForgeObject): string => `${repoPath(context, repositoryOf(object))}/pages`;
+  const shape = (found: PagesAnswer): Record<string, unknown> => ({
+    build_type: found.build_type,
+    ...(found.source === null || found.source === undefined ? {} : { source: { branch: found.source.branch, path: found.source.path } }),
+    cname: typeof found.cname === "string" ? found.cname : null,
+    https_enforced: found.https_enforced === true,
+    certificate: typeof found.https_certificate?.state === "string" ? found.https_certificate.state : null,
+    protected_domain_state: typeof found.protected_domain_state === "string" ? found.protected_domain_state : null,
+  });
+  const write = async (context: LiveContext, object: ForgeObject, body: Partial<PagesDesired>, before: string | null): Promise<void> => {
+    const { https_enforced, ...site } = body;
+    await send(context, "PUT", path(context, object), site);
+    const after = await getOrAbsent<PagesAnswer>(context, path(context, object));
+    if (typeof site.cname === "string" && after?.protected_domain_state !== "verified") {
+      // Never leave a domain GitHub does not hold as verified: the previous one is restored (and read back), and the write refused.
+      const restored = await send(context, "PUT", path(context, object), { cname: before })
+        .then(async () => getOrAbsent<PagesAnswer>(context, path(context, object)))
+        .catch((error: unknown) => { throw new ForgeError("forge_pages_domain_restore_failed", `${repositoryOf(object)}: ${site.cname} is not verified, and restoring ${String(before)} failed: ${error instanceof Error ? error.message : String(error)}`, { repository: repositoryOf(object), domain: site.cname ?? "", previous: String(before) }); });
+      const now = typeof restored?.cname === "string" ? restored.cname : null;
+      if (now !== before) throw new ForgeError("forge_pages_domain_restore_failed", `${repositoryOf(object)}: ${site.cname} is not verified, and after restoring ${String(before)} GitHub holds ${String(now)}.`, { repository: repositoryOf(object), domain: site.cname, previous: String(before), held: String(now) });
+      throw new ForgeError("forge_pages_domain_unverified", `${repositoryOf(object)}: GitHub does not hold ${site.cname} as verified (protected_domain_state ${String(after?.protected_domain_state ?? null)}); the previous domain was restored.`, { repository: repositoryOf(object), domain: site.cname });
+    }
+    // HTTPS on a custom domain waits for its certificate (a domain just set has none yet): the next plan reports it pending.
+    const domain = typeof after?.cname === "string" ? after.cname : null;
+    if (https_enforced !== undefined && (domain === null || after?.https_certificate?.state === "approved")) await send(context, "PUT", path(context, object), { https_enforced });
+  };
+  return {
+    read: async (context, object) => {
+      const found = await getOrAbsent<PagesAnswer>(context, path(context, object));
+      if (found === undefined) return undefined;
+      // A custom domain the site HOLDS that GitHub does not hold as verified is refused wherever it came from: never unchanged.
+      if (typeof found.cname === "string" && found.protected_domain_state !== "verified") {
+        throw new ForgeError("forge_pages_domain_unverified", `${repositoryOf(object)} holds ${found.cname}, which GitHub does not hold as verified (protected_domain_state ${String(found.protected_domain_state ?? null)}).`, { repository: repositoryOf(object), domain: found.cname });
+      }
+      return { live: shape(found) };
+    },
+    create: async (context, object, body) => {
+      const desired = body as PagesDesired;
+      await send(context, "POST", path(context, object), { build_type: desired.build_type, ...(desired.source === undefined ? {} : { source: desired.source }) });
+      const created = await getOrAbsent<PagesAnswer>(context, path(context, object));
+      // HTTPS on a custom domain waits for its certificate (the plan reports it pending until then).
+      const certified = desired.cname === null || created?.https_certificate?.state === "approved";
+      const { https_enforced: _https, ...withoutHttps } = desired;
+      await write(context, object, certified ? desired : withoutHttps, null);
+    },
+    update: async (context, object, body, found) => {
+      await write(context, object, body as Partial<PagesDesired>, (found.live as { cname: string | null }).cname);
+    },
+    // Only a certificate GitHub is still issuing leaves HTTPS pending; a failed one (or none at all) is refused, never pending forever.
+    pending: (desired, live) => {
+      const want = desired as PagesDesired;
+      const have = live as Readonly<{ cname?: unknown; https_enforced?: unknown; certificate?: unknown }>;
+      if (want.cname === null || have.cname !== want.cname || have.certificate === "approved") return {};
+      if (typeof have.certificate !== "string" || !CERTIFICATE_ISSUING.has(have.certificate)) {
+        throw new ForgeError("forge_pages_certificate_failed", `The certificate for ${want.cname} is ${typeof have.certificate === "string" ? have.certificate : "absent"}: GitHub is not issuing one.`, { domain: want.cname, certificate: typeof have.certificate === "string" ? have.certificate : "absent" });
+      }
+      return want.https_enforced === true && have.https_enforced !== true ? { https_enforced: `the certificate for ${want.cname} is ${have.certificate}` } : {};
+    },
+  };
+}
+
+/**
+ * An App installed on a repository (`key` is the App's role): read through
+ * the organisation's installations, made by adding the repository to the
+ * installation (`PUT /user/installations/{id}/repositories/{repository_id}`,
+ * which needs the maintainer's credential, the one an apply runs with). An
+ * App not installed on the organisation at all is refused
+ * (`forge_app_installation_missing`).
+ */
+function appInstallation(): KindAdapter {
+  type Installation = Readonly<{ id: number; app_slug: string; repository_selection?: string }>;
+  const installationOf = async (context: LiveContext, object: ForgeObject): Promise<Installation> => {
+    const slug = FORGE_APPS[object.key as ForgeAppRole]?.name;
+    const installations = await list<Installation>(context, `${orgPath(context)}/installations`, (data) => (data as { installations?: Installation[] }).installations ?? []);
+    const found = installations.find((entry) => entry.app_slug === slug);
+    if (found === undefined) throw new ForgeError("forge_app_installation_missing", `The ${object.key} App (${String(slug)}) is not installed on ${context.organization}, so it cannot be installed on ${repositoryOf(object)}.`, { role: object.key, repository: repositoryOf(object) });
+    return found;
+  };
+  return {
+    read: async (context, object) => {
+      const installation = await installationOf(context, object);
+      if (installation.repository_selection === "all") return { live: { installed: true }, id: installation.id };
+      const repositories = await list<{ name?: unknown }>(context, `/user/installations/${String(installation.id)}/repositories`, (data) => (data as { repositories?: { name?: unknown }[] }).repositories ?? []);
+      return { live: { installed: repositories.some((repository) => repository.name === repositoryOf(object)) }, id: installation.id };
+    },
+    create: async () => { throw new ForgeError("forge_declaration_invalid", "An App installation is read as a fact; it is never created.", {}); },
+    update: async (context, object, _body, found) => {
+      const repository = await getOrAbsent<{ id?: unknown }>(context, repoPath(context, repositoryOf(object)));
+      if (typeof repository?.id !== "number") throw new ForgeError("forge_reference_unresolved", `The repository ${repositoryOf(object)} does not exist.`, { repository: repositoryOf(object) });
+      await send(context, "PUT", `/user/installations/${String(found.id)}/repositories/${String(repository.id)}`);
+    },
+  };
+}
 
 /** Kinds whose undeclared live objects are drift (a ruleset or autolink nobody declared); the others are reported only. */
 export const EXCLUSIVE_KINDS: ReadonlySet<ForgeObjectKind> = new Set(["org-ruleset", "ruleset", "autolink"]);

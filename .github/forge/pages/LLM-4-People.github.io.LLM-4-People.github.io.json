@@ -1,0 +1,18 @@
+{
+  "kind": "pages",
+  "scope": {
+    "kind": "repo",
+    "repository": "LLM-4-People.github.io"
+  },
+  "key": "LLM-4-People.github.io",
+  "unavailableOnPlan": [],
+  "desired": {
+    "build_type": "legacy",
+    "source": {
+      "branch": "main",
+      "path": "/"
+    },
+    "cname": null,
+    "https_enforced": true
+  }
+}

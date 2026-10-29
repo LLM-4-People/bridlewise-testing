@@ -5,8 +5,9 @@
   "name": "bridlewise-testing",
   "fullName": "LLM-4-People/bridlewise-testing",
   "webUrl": "https://github.com/LLM-4-People/bridlewise-testing",
-  "pagesUrl": "https://llm-4-people.github.io/bridlewise-testing/",
-  "pagesBasePath": "/bridlewise-testing",
+  "pagesUrl": "https://bridlewise.llm4people.dev/",
+  "pagesBasePath": "",
+  "docsUrl": "https://bridlewise.llm4people.dev/docs/",
   "organisationRepositories": [
     "bridlewise-testing",
     ".github",
@@ -14,18 +15,23 @@
     "bridlewise-coordination",
     "bridlewise-archive",
     "bridlewise",
-    "forge-proving-ground"
+    "forge-proving-ground",
+    "LLM-4-People.github.io"
   ],
   "product": {
     "name": "bridlewise",
     "fullName": "LLM-4-People/bridlewise",
     "webUrl": "https://github.com/LLM-4-People/bridlewise",
-    "pagesUrl": "https://llm-4-people.github.io/bridlewise/"
+    "pagesUrl": "https://llm-4-people.github.io/bridlewise/",
+    "pagesBasePath": "/bridlewise",
+    "docsUrl": "https://llm-4-people.github.io/bridlewise/"
   },
   "preview": {
     "name": "bridlewise",
     "fullName": "LLM-4-People/bridlewise",
     "webUrl": "https://github.com/LLM-4-People/bridlewise",
-    "pagesUrl": "https://llm-4-people.github.io/bridlewise/"
+    "pagesUrl": "https://llm-4-people.github.io/bridlewise/",
+    "pagesBasePath": "/bridlewise",
+    "docsUrl": "https://llm-4-people.github.io/bridlewise/"
   }
 }

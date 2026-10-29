@@ -101,7 +101,8 @@ function documentOffenders(identity: RepositoryIdentity, textOf: (path: string) 
   // Prose and data: Markdown, JSON, YAML, CFF and text anywhere in the tree, except test fixtures, generated folders,
   // files generated whole (their first line says so; their sources are scanned instead), the one source and its
   // generated copies, and the generated blocks inside a hand-written document (links, clone command, indexes).
-  const spellings = [identity.fullName, `${identity.owner}.github.io/${identity.name}`];
+  // The owner/name, the project site on the forge's Pages domain, and the site's own host when the trunk declares one.
+  const spellings = [identity.fullName, `${identity.owner}.github.io/${identity.name}`, ...(identity.pagesBasePath === "" ? [new URL(identity.pagesUrl).host] : [])];
   const excludedRoots = ["engine/traceability/", ".github/forge/", "engine/test/", "tests/", "engine/verification/"];
   const documents = [...gitTrackedPaths(".")].filter((path) => /\.(?:md|json|ya?ml|cff|txt|tmpl)$/u.test(path)
     && !excludedRoots.some((root) => path.startsWith(root)) && !SOURCE_AND_GENERATED.has(path));
@@ -186,13 +187,24 @@ describe("this repository's owner/name is spelled only where it is declared or g
     expect(identity.preview?.name).toBe(flagged("preview"));
     expect(COORDINATES.productRepository).toBe(identity.product.fullName);
     expect(COORDINATES.productRepositoryUrl).toBe(identity.product.webUrl);
-    expect(COORDINATES.productSiteUrl).toBe(identity.product.pagesUrl);
+    expect(COORDINATES.docsUrl).toBe(identity.docsUrl);
+    expect(COORDINATES.siteHost).toBe(identity.pagesBasePath === "" ? new URL(identity.pagesUrl).host : "");
     expect(COORDINATES.previewRepositoryUrl).toBe(identity.preview?.webUrl);
     if (identity.name !== PRODUCT_NAME) {
       // Before the rename the product is published from its own repository, not the trunk.
       expect(COORDINATES.productRepository).not.toBe(identity.fullName);
-      expect(COORDINATES.productSiteUrl).not.toBe(identity.pagesUrl);
+      expect(COORDINATES.productRepositoryUrl).not.toBe(identity.webUrl);
     }
+  });
+
+  test("the site's own host is refused when spelled by hand: spelledUrls names it as the site's address, whatever the path; a longer host is not it", async () => {
+    // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
+    const { COORDINATES, spelledUrls } = await import("../../scripts/floor/repository.mjs") as { COORDINATES: Record<string, string>; spelledUrls: (text: string, coordinates: Record<string, string>) => { url: string; kind: string }[] };
+    const host = COORDINATES.siteHost;
+    expect(host, "the trunk declares its own host").not.toBe("");
+    expect(spelledUrls(`See https://${host}/docs/quickstart/.`, COORDINATES)).toEqual([{ url: `${host}/docs/quickstart/.`, kind: "site" }]);
+    expect(spelledUrls(`See ${host}.`, COORDINATES).map((entry) => entry.kind)).toEqual(["site"]);
+    expect(spelledUrls(`See https://other-${host}/ and https://${host}x.example/.`, COORDINATES), "a longer host is another").toEqual([]);
   });
 
   test("the link classifier owns exactly the organisation's declared repositories: another owner, an undeclared repository and a non-file URL are not this project's", () => {
