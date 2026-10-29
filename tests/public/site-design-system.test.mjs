@@ -186,7 +186,12 @@ test("every page carries the two policies first: only files under the site's own
 
 /** Where a layout's policy include stands: right after `<meta charset>`, the head's first element. Located by the HTML parser, so attributes on <html>, <head> or <meta> change nothing. */
 function policyFirst(text) {
-  const document = parseHtml(text, { sourceCodeLocationInfo: true });
+  // A layout is a Liquid template: its tags are blanked to spaces of the same
+  // length, so the parser sees the HTML (a Liquid preamble before the
+  // doctype moves nothing) and every offset still points into the template.
+  // A comment's or a capture's body is not output, so it is blanked whole.
+  const blanked = text.replace(/\{%-?\s*(comment|capture)\b[\s\S]*?\{%-?\s*end\1\s*-?%\}|\{%[\s\S]*?%\}|\{\{[\s\S]*?\}\}/gu, (tag) => " ".repeat(tag.length));
+  const document = parseHtml(blanked, { sourceCodeLocationInfo: true });
   const html = document.childNodes.find((node) => node.tagName === "html");
   const head = html?.childNodes.find((node) => node.tagName === "head");
   if (head?.sourceCodeLocation?.startTag === undefined) return ["no <head> start tag"];
@@ -203,6 +208,7 @@ test("the policy-first check reads the parse: attributes move nothing, a late or
   assert.deepEqual(policyFirst(layout('<head>\n  <meta charset="utf-8">\n  <link rel="stylesheet" href="x.css">\n  {% include csp.html %}\n</head>')), ["the policy include does not follow <meta charset>"]);
   assert.deepEqual(policyFirst(layout('<head lang="en">\n  <meta name="viewport" content="x">\n  <meta charset="utf-8">\n  {% include csp.html %}\n</head>')), ["the head's first element is not <meta charset>"]);
   assert.deepEqual(policyFirst("<p>{% include csp.html %}</p>"), ["no <head> start tag"]);
+  assert.deepEqual(policyFirst(`{%- comment -%} a preamble {%- endcomment -%}\n{%- assign x = 1 -%}\n${layout('<head>\n  <meta charset="utf-8">\n  {% include csp.html %}\n</head>')}`), [], "a Liquid preamble before the doctype moves nothing");
 });
 
 test("the theme the site remembers is the one shared statement", () => {

@@ -85,6 +85,14 @@
             {
               "context": "Generated values and harness check",
               "integration_id": 15368
+            },
+            {
+              "context": "Rendered pages",
+              "integration_id": 15368
+            },
+            {
+              "context": "Commit records",
+              "integration_id": 15368
             }
           ]
         }
