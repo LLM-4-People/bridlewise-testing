@@ -205,4 +205,3 @@ test("the work-bounded run's bounds, each pinned by a test a mutation turns red 
   assert.equal(vanished.ending, "cpu-exhausted", "the exited leader's 900 ms and its grandchild's later 900 ms passed the 1,500 ms budget together");
   assert.equal(isProcessAlive(Number(readFileSync(later, "utf8"))), false, "the grandchild was stopped with the group");
 });
-
