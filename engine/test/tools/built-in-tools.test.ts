@@ -843,66 +843,25 @@ test("exec-cmd: X-1 mv requires every operand inside the write set", async () =>
   assert.ok(existsSync(join(root, "scratch", "after.txt")));
 });
 
-test("exec-cmd: X-1 sed without -i is not mutating and needs no write set", async () => {
-  const { root, context } = makeGateFixture();
-  writeFileSync(join(root, "other", "data.txt"), "alpha beta");
-  const tool = createExecuteCommandTool();
-  const result = await tool.execute(
-    { toolId: "execute_command", arguments: { command: "sed", args: ["s/alpha/gamma/", "other/data.txt"] } },
-    context,
-  );
-  assert.equal(result.isError, false);
-  const parsed = JSON.parse(result.content);
-  assert.ok(parsed.stdout.includes("gamma beta"));
-  // The file itself is untouched (stdout-only transform).
-  assert.equal(readFileSync(join(root, "other", "data.txt"), "utf8"), "alpha beta");
-});
-
-test("exec-cmd: X-1 sed -i is denied without a write set and allowed with one", async () => {
+test("exec-cmd: sed and awk are general interpreters, refused as launchers in every form — even listed, even with a write set", async () => {
   const { root, context } = makeGateFixture();
   writeFileSync(join(root, "scratch", "data.txt"), "alpha beta");
-  const denied = createExecuteCommandTool();
-  await assert.rejects(
-    denied.execute({ toolId: "execute_command", arguments: { command: "sed", args: ["-i", "s/alpha/gamma/", "scratch/data.txt"] } }, context),
-    /outside the session write set/,
-  );
-  const allowed = createExecuteCommandTool({ writeSet: new Set(["scratch/"]) });
-  const result = await allowed.execute(
-    { toolId: "execute_command", arguments: { command: "sed", args: ["-i", "s/alpha/gamma/", "scratch/data.txt"] } },
-    context,
-  );
-  assert.equal(result.isError, false);
-  assert.equal(readFileSync(join(root, "scratch", "data.txt"), "utf8"), "gamma beta");
-});
-
-test("exec-cmd: X-1 sed bundled -ni form is also gated", async () => {
-  const { root, context } = makeGateFixture();
-  writeFileSync(join(root, "scratch", "data.txt"), "alpha");
-  const tool = createExecuteCommandTool();
-  await assert.rejects(
-    tool.execute({ toolId: "execute_command", arguments: { command: "sed", args: ["-ni", "s/alpha/gamma/", "scratch/data.txt"] } }, context),
-    /outside the session write set/,
-  );
-});
-
-test("exec-cmd: X-1 gawk -i inplace is gated; plain awk is not", async () => {
-  const { root, context } = makeGateFixture();
-  writeFileSync(join(root, "scratch", "data.txt"), "alpha\n");
-  // Plain awk (no in-place extension) prints to stdout → not mutating.
-  const plain = createExecuteCommandTool();
-  const ok = await plain.execute(
-    { toolId: "execute_command", arguments: { command: "awk", args: ["{print toupper($0)}", "scratch/data.txt"] } },
-    context,
-  );
-  assert.equal(ok.isError, false);
-  // In-place awk targets the file → mutating → denied without a write set.
-  // (Only run when gawk with the inplace extension is available; otherwise
-  // the command fails inside the gate with the same write-denial because
-  // target extraction happens before spawn.)
-  await assert.rejects(
-    plain.execute({ toolId: "execute_command", arguments: { command: "awk", args: ["-i", "inplace", "{print}", "scratch/data.txt"] } }, context),
-    /outside the session write set/,
-  );
+  const tool = createExecuteCommandTool({ allowedCommands: ["sed", "awk", "gawk"], writeSet: new Set(["scratch/"]) });
+  for (const [command, args] of [
+    ["sed", ["s/alpha/gamma/", "scratch/data.txt"]],
+    ["sed", ["-i", "s/alpha/gamma/", "scratch/data.txt"]],
+    ["sed", ["s/x/git commit/e", "scratch/data.txt"]],
+    ["awk", ["{ print $1 }", "scratch/data.txt"]],
+    ["awk", ['BEGIN { system("git commit -m x") }']],
+    ["gawk", ["-i", "inplace", "{ print }", "scratch/data.txt"]],
+  ] as const) {
+    await assert.rejects(
+      tool.execute({ toolId: "execute_command", arguments: { command, args: [...args] } }, context),
+      (error: unknown) => (error as { code?: string }).code === "tool_command_launches_programs",
+      `${command} ${args.join(" ")}`,
+    );
+  }
+  assert.equal(readFileSync(join(root, "scratch", "data.txt"), "utf8"), "alpha beta", "nothing ran");
 });
 
 test("exec-cmd: X-1 write-set matching honors exact file entries", async () => {

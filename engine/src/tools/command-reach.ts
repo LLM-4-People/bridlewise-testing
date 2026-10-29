@@ -24,8 +24,10 @@
  *   included, so it is refused by name at the door AND in the configuration
  *   (`tool_command_launches_programs`): an operator cannot list one.
  * - An otherwise-inert command that LAUNCHES A PROGRAM FROM AN ARGUMENT
- *   (`find -exec`, `fd --exec`, `rg --pre`, `sort --compress-program`) is
- *   refused on that argument (`tool_command_argument_launches_program`).
+ *   (`find -exec`, `fd --exec`, `rg --pre`, `sort --compress-program`,
+ *   `cmake -E`) is refused on that argument
+ *   (`tool_command_argument_launches_program`). `awk` and `sed` are general
+ *   interpreters and refused as launchers.
  *
  * WHAT THIS DOES NOT CLAIM. A code runner (`node`, `npm`, `npx`, `python`,
  * `make`, `cargo`, `go`, a compiler, a linter that loads its configuration as
@@ -55,6 +57,9 @@ const ARGUMENT_LAUNCHES: Readonly<Record<string, ArgumentLaunch>> = deepFreeze({
   fdfind: FD_LAUNCH,
   rg: { longs: ["--pre"] },
   sort: { longs: ["--compress-program"] },
+  // `cmake -E` is a toolbox whose subcommands run their trailing arguments (`env`, `chdir`, `time`, …): every form
+  // is refused rather than a list of the ones that run a program today.
+  cmake: { words: ["-E"] },
 });
 
 /** The argument of `args` by which `launch` runs a program, or undefined. Everything after `--` is an operand. */

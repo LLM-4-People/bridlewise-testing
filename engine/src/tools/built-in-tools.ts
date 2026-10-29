@@ -61,8 +61,8 @@ const DEFAULT_ALLOWED_COMMANDS = deepFreeze([
   "head", "tail", "grep", "find", "rg", "fd", "sort", "uniq", "diff",
   "tsc", "eslint", "prettier", "python3", "python", "pip", "pip3",
   "cargo", "go", "rustc", "gcc", "make", "cmake", "jq", "sha256sum",
-  "md5sum", "stat", "file", "basename", "dirname", "tr", "cut", "awk",
-  "sed", "mkdir", "cp", "mv", "touch", "test",
+  "md5sum", "stat", "file", "basename", "dirname", "tr", "cut",
+  "mkdir", "cp", "mv", "touch", "test",
 ] as const);
 
 export type ExecuteCommandOptions = Readonly<{
@@ -70,7 +70,7 @@ export type ExecuteCommandOptions = Readonly<{
   timeoutMs?: number;
   /**
    * Session write set (X-1). File-mutating commands ({@link
-   * ALWAYS_MUTATING_COMMANDS}, plus sed/awk with an in-place flag) require
+   * ALWAYS_MUTATING_COMMANDS}) require
    * every target path to resolve inside one of these entries — an exact
    * match or a directory prefix — so shell commands cannot bypass the
    * transactional editor's preimage/write-set/rollback governance. Entries
@@ -85,12 +85,12 @@ function resolveAllowedCommandSet(commands: readonly string[] | undefined): Read
 }
 
 /**
- * Commands whose primary effect is a filesystem mutation. These are gated
- * unconditionally; sed/awk are gated only when an in-place flag is present
- * ({@link extractMutatingTargets}).
+ * Commands whose primary effect is a filesystem mutation, gated
+ * unconditionally ({@link extractMutatingTargets}). `sed` and `awk` are not
+ * here: they are general interpreters (`s///e`, `system()`), refused as
+ * program launchers before any write-set question (src/kernel/command-names.ts).
  */
 const ALWAYS_MUTATING_COMMANDS = deepFreeze(new Set(["touch", "mkdir", "cp", "mv"]));
-const CONDITIONALLY_MUTATING_COMMANDS = deepFreeze(new Set(["sed", "awk"]));
 
 /**
  * Per-command option-arity tables used to separate target paths from option
@@ -120,14 +120,6 @@ const COMMAND_OPTION_SPECS: Readonly<Record<string, CommandOptionSpec>> = deepFr
   mv: deepFreeze({
     shortValueOptions: deepFreeze(new Set(["t", "S"])),
     longValueOptions: deepFreeze(new Set(["target-directory", "suffix", "backup"])),
-  }),
-  sed: deepFreeze({
-    shortValueOptions: deepFreeze(new Set(["e", "f"])),
-    longValueOptions: deepFreeze(new Set(["expression", "file"])),
-  }),
-  awk: deepFreeze({
-    shortValueOptions: deepFreeze(new Set(["F", "f", "v", "i", "W", "m"])),
-    longValueOptions: deepFreeze(new Set(["field-separator", "file", "assign", "include", "exec", "source"])),
   }),
 });
 
@@ -245,25 +237,6 @@ function extractMutatingTargets(command: string, args: readonly string[]): reado
     }
     if (targetDir !== undefined) return [targetDir];
     return parsed.positionals.length >= 2 ? [parsed.positionals[parsed.positionals.length - 1]!] : [];
-  }
-  if (CONDITIONALLY_MUTATING_COMMANDS.has(command)) {
-    if (command === "sed") {
-      // GNU sed in-place: -i[SUFFIX] (short, optionally attached) or
-      // --in-place[=SUFFIX]. `i` is not a value option in the spec, so any
-      // bundled form (-i, -ni, -i.bak) records the `i` short flag.
-      const inPlace = parsed.shortFlags.has("i") || parsed.longFlags.has("in-place") || parsed.longValues.has("in-place");
-      if (!inPlace) return null;
-      // Without -e/-f the first positional is the script; the rest are files.
-      const hasScriptOption = parsed.shortValues.has("e") || parsed.shortValues.has("f")
-        || parsed.longValues.has("expression") || parsed.longValues.has("file");
-      return hasScriptOption ? parsed.positionals : parsed.positionals.slice(1);
-    }
-    // gawk in-place: -i inplace (attached or separate) / --include inplace.
-    const includes = [...(parsed.shortValues.get("i") ?? []), ...(parsed.longValues.get("include") ?? [])];
-    const inPlace = includes.some((v) => v === "inplace" || v.startsWith("inplace::") || v.startsWith("inplace/"));
-    if (!inPlace) return null;
-    const hasProgramFile = parsed.shortValues.has("f") || parsed.longValues.has("file") || parsed.longValues.has("exec") || parsed.longValues.has("source");
-    return hasProgramFile ? parsed.positionals : parsed.positionals.slice(1);
   }
   return null;
 }

@@ -43,7 +43,7 @@ test("git is git by its name, git's own programs, and its FILE under any other n
 });
 
 test("a program launcher is refused by name — at the door and as a name an allowed list may hold", () => {
-  for (const launcher of ["sh", "bash", "env", "xargs", "timeout", "nohup"]) {
+  for (const launcher of ["sh", "bash", "env", "xargs", "timeout", "nohup", "awk", "gawk", "sed"]) {
     assert.ok(PROGRAM_LAUNCHERS.has(launcher), launcher);
     assert.equal(commandReachRefusal(launcher, ["git", "commit"], undefined)?.code, "tool_command_launches_programs", launcher);
     assert.equal(allowedCommandNameRefusal(launcher)?.code, "tool_command_launches_programs", launcher);
@@ -65,6 +65,10 @@ test("an argument that launches a program is refused in each of its spellings; t
     ["rg", ["--pre", "git", "x"]],
     ["rg", ["--pre=git", "x"]],
     ["sort", ["--compress-program=git", "a"]],
+    ["cmake", ["-E", "env", "git", "commit"]],
+    ["cmake", ["-E", "chdir", ".", "git", "commit"]],
+    ["cmake", ["-E", "time", "git", "commit"]],
+    ["cmake", ["-E", "echo", "x"]],
   ] as const) {
     assert.equal(commandReachRefusal(command, args, undefined)?.code, "tool_command_argument_launches_program", `${command} ${args.join(" ")}`);
   }
@@ -74,6 +78,7 @@ test("an argument that launches a program is refused in each of its spellings; t
     ["rg", ["--", "--pre"]],
     ["sort", ["-r", "a"]],
     ["ls", ["-x"]],
+    ["cmake", ["--build", "build"]],
   ] as const) {
     assert.equal(commandReachRefusal(command, args, undefined), null, `${command} ${args.join(" ")}`);
   }

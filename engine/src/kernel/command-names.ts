@@ -7,9 +7,14 @@
  */
 import { deepFreeze } from "./integrity.ts";
 
-/** Programs that run another program their arguments name — allowing one allows them all. */
+/**
+ * Programs that run another program their arguments name — allowing one allows them all. `awk` (`system()`,
+ * pipes, `getline` from a command) and `sed` (`e`, `s///e`) are general interpreters of the same kind: filtering
+ * their programs would block one spelling, never the capability (edits go through the file tools).
+ */
 export const PROGRAM_LAUNCHERS: ReadonlySet<string> = deepFreeze(new Set([
   "sh", "bash", "dash", "zsh", "ksh", "mksh", "fish", "csh", "tcsh", "busybox",
+  "awk", "gawk", "mawk", "nawk", "sed", "gsed",
   "env", "xargs", "nohup", "timeout", "nice", "ionice", "stdbuf", "setsid", "sudo", "doas", "su",
   "chroot", "unshare", "nsenter", "flock", "watch", "script", "strace", "ltrace", "time", "parallel",
 ]));

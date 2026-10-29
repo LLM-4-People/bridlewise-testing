@@ -455,7 +455,7 @@ test("CONF-5: tools.allowedCommands is optional and defaults to absent", () => {
 });
 
 test("CONF-5: tools.allowedCommands refuses git and every program launcher by name, typed (src/tools/command-reach.ts)", () => {
-  for (const [command, code] of [["git", "tool_command_reaches_git"], ["git-receive-pack", "tool_command_reaches_git"], ["sh", "tool_command_launches_programs"], ["env", "tool_command_launches_programs"], ["xargs", "tool_command_launches_programs"]] as const) {
+  for (const [command, code] of [["git", "tool_command_reaches_git"], ["git-receive-pack", "tool_command_reaches_git"], ["sh", "tool_command_launches_programs"], ["env", "tool_command_launches_programs"], ["xargs", "tool_command_launches_programs"], ["awk", "tool_command_launches_programs"], ["sed", "tool_command_launches_programs"]] as const) {
     const listed = candidate((v) => {
       (v.tools as Record<string, unknown>).allowedCommands = ["echo", command];
     });
