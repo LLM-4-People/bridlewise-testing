@@ -1,0 +1,14 @@
+{
+  "kind": "label",
+  "scope": {
+    "kind": "repo",
+    "repository": "bridlewise-testing"
+  },
+  "key": "javascript",
+  "unavailableOnPlan": [],
+  "desired": {
+    "name": "javascript",
+    "color": "168700",
+    "description": "Pull requests that update javascript code"
+  }
+}

@@ -55,7 +55,8 @@ export interface TestRunLock {
   readonly owns: boolean;
   readonly runner: string;
   readonly path: string;
-  release(): void;
+  /** Frees an owned run; `failure` is the run's own failure, carried by a memory-cap refusal (see InstrumentHold). */
+  release(failure?: unknown): void;
 }
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));

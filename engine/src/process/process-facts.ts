@@ -55,6 +55,24 @@ export function ownCgroupPath(): string | undefined {
   return procfsDocument("self", "cgroup")?.split("\n").find((line) => line.startsWith("0::"))?.slice(3);
 }
 
+/**
+ * One interface file of THIS process's own cgroup v2 (`/sys/fs/cgroup` +
+ * `ownCgroupPath()` + `name`, e.g. `memory.swap.max`), trimmed; `undefined`
+ * when the process has no cgroup v2 path or the file does not exist (the
+ * controller or the accounting is absent on this host).
+ */
+export function ownCgroupFile(name: string): string | undefined {
+  const path = ownCgroupPath();
+  if (path === undefined) return undefined;
+  try {
+    return readFileSync(`/sys/fs/cgroup${path}/${name}`, "utf8").trim();
+  } catch (error) {
+    // Absent is an answer (the caller refuses on it); any other failure is loud.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 /** THIS process's CPU-time limit in force (`/proc/self/limits`), soft and hard, as written there (seconds, or "unlimited"); `undefined` when unreadable. */
 export function ownCpuTimeLimit(): Readonly<{ soft: string; hard: string }> | undefined {
   const line = procfsDocument("self", "limits")?.split("\n").find((one) => one.startsWith("Max cpu time"));

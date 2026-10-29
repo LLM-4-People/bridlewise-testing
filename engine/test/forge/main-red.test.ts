@@ -12,6 +12,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
+import { schemaId } from "../../src/kernel/product-identity.ts";
+import { LABELS_PATH } from "../../src/workflow/community/labels.ts";
 import { TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import type { TreeReader } from "../../src/git/tree-reader.ts";
 import { applyProjection } from "../../src/workflow/forge/projector/apply.ts";
@@ -39,7 +41,7 @@ const FACTS = {
 };
 const ledger = (text: string | null): TreeReader => ({ label: "ledger", paths: () => [], entry: () => null, text: (path) => (path === LEDGER_MAIN_RUNS.path ? text : null), prefetch: () => {} });
 const input = (mainRuns: ProjectionInput["mainRuns"]): ProjectionInput => ({
-  schema: PROJECTION_INPUT_SCHEMA, source: GREEN, ledger: "c".repeat(40), repositoryUrl: "https://github.com/owner/repo", items: [], lanes: [], decisions: [], recordedEvidence: [], mainRuns,
+  schema: PROJECTION_INPUT_SCHEMA, source: GREEN, ledger: "c".repeat(40), repositoryUrl: "https://github.com/owner/repo", items: [], decisions: [], recordedEvidence: [], mainRuns,
 });
 
 test("main's health is each workflow's row at the NEWEST commit by ancestry; a malformed row, a foreign run and diverging rows are refused typed", () => {
@@ -116,6 +118,9 @@ test("the projection's input reads main's health at the ledger commit and each f
   git("init", "-q", "-b", "main");
   mkdirSync(join(root, TRACKER_BOARD.items), { recursive: true });
   writeFileSync(join(root, TRACKER_BOARD.items, "FLAKY-A.md"), "---\nschema: bridlewise-tracker-item/v1\npublished: false\nid: FLAKY-A\ntype: Flake\nstate: open\nlane: flaky-burn-down\nopened: 2026-10-21\n---\n\nOwns tests/a.test.ts.\n");
+  // The item's lane label, declared where the forge reads labels (the projector refuses an undeclared one).
+  mkdirSync(join(root, LABELS_PATH, ".."), { recursive: true });
+  writeFileSync(join(root, LABELS_PATH), `${JSON.stringify({ schema: schemaId("community-labels", 1), labels: [{ name: "lane:flaky-burn-down", color: "d93f0b", description: "Tracker lane: owns an entry of a flaky burn-down list" }] })}\n`);
   writeFileSync(join(root, TRACKER_BOARD.path), `# Tasks\n\n${TRACKER_BOARD.begin}\n\n## Flaky burn-down owners\n\n- [ ] **FLAKY-A** — Owns tests/a.test.ts.\n\n${TRACKER_BOARD.end}\n`);
   git("add", "."); git("commit", "-q", "-m", "source");
   const source = git("rev-parse", "HEAD");

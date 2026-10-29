@@ -15,8 +15,10 @@ import { fileURLToPath } from "node:url";
 import { HarnessError } from "../../src/kernel/errors.ts";
 import { emitYaml } from "../../src/text/yaml-emit.ts";
 import { fillTemplate, syncCommunityFiles, TEMPLATED_FILES } from "../../src/workflow/community/health-files.ts";
+import { commandTable } from "../../src/workflow/community/commands.ts";
 import { FEATURES_PATH, INTAKE_PATH, readIntake, readRoles, ROLES_PATH, roleForPermission, teamsOf } from "../../src/workflow/community/sources.ts";
 import { communityFilesStep } from "../../src/workflow/harness-commands.ts";
+import { LABELS_PATH } from "../../src/workflow/community/labels.ts";
 import { withTempDir } from "../support/temp-dir.ts";
 import { configuredRepositoryIdentity } from "../../src/workflow/forge/repository-identity.ts";
 
@@ -155,12 +157,16 @@ test("a missing source is a typed failure once any community surface exists; onl
     assert.deepEqual(syncCommunityFiles(root, false), { status: "absent", converged: true, changed: [] });
     plant(root);
     syncCommunityFiles(root, true);
-    for (const source of [ROLES_PATH, INTAKE_PATH, FEATURES_PATH]) {
+    for (const source of [ROLES_PATH, INTAKE_PATH, FEATURES_PATH, LABELS_PATH]) {
       plant(root);
       rmSync(join(root, source));
       writeFileSync(join(root, "CONTRIBUTING.md"), "hand edit with the source gone\n");
       assert.throws(() => syncCommunityFiles(root, false), (error: unknown) => error instanceof HarnessError && error.code === "community_source_invalid" && error.message.includes(source) && error.message.includes("missing"), source);
     }
+    // A malformed label registry fails the community check too (the arm harness check runs), never a silent pass.
+    plant(root);
+    writeFileSync(join(root, LABELS_PATH), JSON.stringify({ schema: "bridlewise-community-labels/v1", labels: [{ name: "x", color: "#ffffff", description: "" }] }));
+    assert.throws(() => syncCommunityFiles(root, false), (error: unknown) => error instanceof HarnessError && error.code === "community_source_invalid" && error.message.includes(LABELS_PATH));
     // The whole folder gone, a generated file left behind: still refused, never "absent".
     rmSync(join(root, "docs/community"), { recursive: true });
     assert.throws(() => syncCommunityFiles(root, false), (error: unknown) => error instanceof HarnessError && /^community_/u.test(error.code));
@@ -245,6 +251,12 @@ test("the pages state live facts only: a planned category, type or feature is li
     assert.doesNotMatch(contributing(), /signed off by GitHub\./u, "a planned feature's sentence is not stated");
     assert.ok(readFileSync(join(root, "SUPPORT.md"), "utf8").includes(`signed off by GitHub. Planned; tracked in ${configuredRepositoryIdentity().issuesUrl}/1.`), "the tracking link is generated from the issue number and the repository identity");
     assert.doesNotMatch(readFileSync(join(root, "GOVERNANCE.md"), "utf8"), /team `/u, "the teams are planned, so no role names one");
+    // The bot commands: the table /help answers, from the one registry, stated only while the commands are live.
+    const table = commandTable(readRoles(root));
+    assert.ok(contributing().includes(table), "live: CONTRIBUTING carries the registry's command table");
+    edit(root, FEATURES_PATH, (json) => { const list = json.features as Record<string, unknown>[]; list.find((feature) => feature.id === "issueops")!.status = { planned: 1 }; });
+    syncCommunityFiles(root, true);
+    assert.ok(!contributing().includes(table) && contributing().includes("The bot commands are [planned](SUPPORT.md#planned)."), "planned: no command table, a link to the planned list");
   });
 });
 

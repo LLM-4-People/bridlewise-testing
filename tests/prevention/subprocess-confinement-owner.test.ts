@@ -68,6 +68,7 @@ import { bodyCalls, functionBody } from "../helpers/function-scope.ts";
 // Temp directories have ONE owner, which also sweeps them when a test fails
 // part-way — the reason the hand-rolled try/finally pairs are gone.
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { createRepositoryLocalTemporaryDirectory } from "../../engine/test/support/repository-local-temporary.ts";
 import { copyGuardianSealedInputs } from "../../engine/test/support/guardian-build-stamp.ts";
 import { harnessView, harnessViewConfig, realHarnessRoot } from "../helpers/isolated-config.ts";
 // Imported directly, unlike the probes below: the derivation is a pure
@@ -2392,16 +2393,19 @@ describe("E. derived rules with their own bounds", () => {
     // at the instant this test linked root-policy.ts). The protected subtree is
     // the harness's `src` (ROOT_POLICY.selfProtection.minimumProtectedSubtrees);
     // this harness's holds one real file, a copy of the root policy.
-    // BESIDE THE HARNESS, not under the system temp root: a hard link cannot
-    // cross a filesystem, and `/tmp` is a different device here. The temp-dir
-    // owner takes that as an option so this test still gets tracked cleanup.
-    const harnessRoot = createTempDir("second-name-harness-", { besidePath: realHarnessRoot() });
+    // ON THE HARNESS'S FILESYSTEM, not under the system temp root: a hard link
+    // cannot cross a filesystem, and `/tmp` may be a different device. In the
+    // checkout's declared fixture root (the harness's state folder), never
+    // beside the harness in the repository's own root: an entry there is an
+    // undeclared root entry to declared-root-inventory.test.ts while it exists
+    // (a red in whichever shard runs both at once).
+    const harnessRoot = createRepositoryLocalTemporaryDirectory("second-name-harness-");
     const victim = join(harnessRoot, "src", "kernel", "root-policy.ts");
     mkdirSync(dirname(victim), { recursive: true });
     const live = join(realHarnessRoot(), "src", "kernel", "root-policy.ts");
     const liveBefore = lstatSync(live, { bigint: true });
     copyFileSync(live, victim);
-    const probeRoot = createTempDir("second-name-probe-", { besidePath: realHarnessRoot() });
+    const probeRoot = createRepositoryLocalTemporaryDirectory("second-name-probe-");
     const link = join(probeRoot, "second-name.ts");
     const compile = (): { ok: boolean; code?: string | undefined } => {
       invalidateProtectedNameCheck();

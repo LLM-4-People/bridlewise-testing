@@ -82,13 +82,15 @@ jobs:
           GROUP_REF: ${{ github.event.merge_group.head_ref }}
           SERVER: ${{ github.server_url }}
           REPOSITORY: ${{ github.repository }}
+          # Read-only: GitHub is asked whether IT signed a commit whose committer is its web-flow identity.
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "$EVENT" in
             # A pull request a declared agent account opened brings agent commits only.
-            pull_request) node scripts/verification/sign-off.ts --range "$PR_BASE..$PR_HEAD" --pull-request-author "$PR_AUTHOR" ;;
+            pull_request) node scripts/verification/sign-off.ts --range "$PR_BASE..$PR_HEAD" --pull-request-author "$PR_AUTHOR" --github-repository "$REPOSITORY" ;;
             # The group is verified first (its ref is in GitHub's queue namespace and holds the head);
             # the queue's own first-parent merges are then not judged, and every commit they bring in is.
-            merge_group) node scripts/verification/sign-off.ts --range "$GROUP_BASE..$GROUP_HEAD" --merge-group "$GROUP_REF" --remote "$SERVER/$REPOSITORY" ;;
+            merge_group) node scripts/verification/sign-off.ts --range "$GROUP_BASE..$GROUP_HEAD" --merge-group "$GROUP_REF" --remote "$SERVER/$REPOSITORY" --github-repository "$REPOSITORY" ;;
           esac
 
       - name: Every test deletion is named by the commit that makes it

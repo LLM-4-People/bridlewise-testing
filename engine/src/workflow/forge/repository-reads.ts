@@ -90,6 +90,23 @@ export async function workflowJobs(client: ForgeClient, repository: string, runI
   return jobs.map((job) => Object.freeze({ id: Number(job.id), name: text(job.name), status: text(job.status), conclusion: text(job.conclusion), url: text(job.html_url) }));
 }
 
+/**
+ * Whether GitHub itself signed commit `sha` and reports the signature valid
+ * (`signature.isValid` and `wasSignedByGitHub`, read through GraphQL: the REST
+ * verification object does not say who signed). A commit with no signature is
+ * `false`; an unknown commit is a typed refusal, never `false`.
+ */
+export async function commitSignedByGitHub(client: ForgeClient, repository: string, sha: string): Promise<boolean> {
+  const [owner, name] = repositoryPath(repository).split("/").slice(2).map((part) => decodeURIComponent(part));
+  const data = await client.graphql<{ repository?: { object?: { signature?: { isValid?: unknown; wasSignedByGitHub?: unknown } | null } | null } | null }>(
+    "query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) { object(oid: $oid) { ... on Commit { signature { isValid wasSignedByGitHub } } } } }",
+    { owner, name, oid: sha },
+  );
+  const commit = data.repository?.object;
+  if (commit === undefined || commit === null) throw new ForgeError("github_not_found", `GitHub holds no commit ${sha} in ${repository}.`, { repository, sha });
+  return commit.signature?.isValid === true && commit.signature.wasSignedByGitHub === true;
+}
+
 /** The latest run of each workflow (by name, then path). */
 export function latestByWorkflow(runs: readonly WorkflowRun[]): ReadonlyMap<string, WorkflowRun> {
   const latest = new Map<string, WorkflowRun>();

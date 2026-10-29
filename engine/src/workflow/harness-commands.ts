@@ -1344,7 +1344,7 @@ export type FrontDoorsArm = Readonly<{
  * the generator, a missing messaging source is refused by name
  * (`messaging_source_missing`), never passed.
  */
-export async function regenerateFrontDoors(root: string, write: boolean): Promise<FrontDoorsArm> {
+async function regenerateFrontDoors(root: string, write: boolean): Promise<FrontDoorsArm> {
   if (!existsSync(resolve(root, FRONT_DOOR_GENERATOR.generator))) return deepFreeze({ status: "absent" as const, converged: true, changed: [], problems: [] });
   const report = await generatorReport<FrontDoorsArm["status"]>(root, FRONT_DOOR_GENERATOR.generator, ["sync", write ? "--write" : "--check"], "the front-door generator", "front_doors_no_result");
   const problems = Array.isArray(report.problems) ? report.problems.filter((p): p is string => typeof p === "string") : [];
@@ -1352,7 +1352,7 @@ export async function regenerateFrontDoors(root: string, write: boolean): Promis
 }
 
 /** `harness check`'s front-door step: an invalid brand source or a stale front-door block FAILS the check. */
-export function frontDoorsStep(frontDoors: FrontDoorsArm): CheckStepResult {
+function frontDoorsStep(frontDoors: FrontDoorsArm): CheckStepResult {
   return deepFreeze({
     step: "front-doors",
     status: frontDoors.converged ? "pass" : "fail",
