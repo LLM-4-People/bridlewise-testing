@@ -51,7 +51,7 @@ import { canonicalHash, canonicalJson, deepFreeze } from "../../../kernel/integr
 import { schemaId } from "../../../kernel/product-identity.ts";
 import { auditEvent, debugLog } from "../../../shared/debug/debug-system.ts";
 import { BORN_FIELDS, FIELD_PHASES, PROJECTION_CLASSES, PROJECTOR_OWNED_FIELDS, WRITE_PHASES, type Fields, type Json, type ProjectedObject, type Projection, type ProjectionClass } from "./model.ts";
-import type { LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
+import type { Adoptions, LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
 
 const PROJECTION_RECEIPT_SCHEMA = schemaId("projection-receipt", 1);
 
@@ -108,6 +108,8 @@ export type ApplyOptions = Readonly<{
 }>;
 
 const id = (object: Readonly<{ class: ProjectionClass; key: string }>): string => `${object.class}/${object.key}`;
+/** The receipt's name for an adopted issue's text above its region (the reporter's): no projected field is called this. */
+const ABOVE = "above";
 const same = (left: Json | undefined, right: Json | undefined): boolean => left !== undefined && right !== undefined && canonicalJson(left) === canonicalJson(right);
 
 /** The digest of one field's value (an absent field reads as null). */
@@ -186,7 +188,10 @@ function refusalOf(error: unknown, write: ProjectionWrite | undefined): Projecti
 /** Steps 2–6 of the algorithm for `projection` against `store`; the receipt says what happened (see {@link projectionFailure}). */
 export async function applyProjection(projection: Projection, store: ProjectionStore, options: ApplyOptions): Promise<ProjectionReceipt> {
   const classes = PROJECTION_CLASSES.filter((name) => projection.objects.some((object) => object.class === name));
-  const live = await store.read(classes);
+  // An adoption is established once a receipt recorded the reporter's text: only then are the projector's markers honoured there.
+  const adoptions: Adoptions = new Map(projection.objects.flatMap((object) => (object.adopt === undefined ? []
+    : [[object.key, { number: object.adopt, established: options.previous?.objects[id(object)]?.[ABOVE] !== undefined }] as const])));
+  const live = await store.read(classes, adoptions);
   const liveById = new Map(live.map((object) => [id(object), object]));
   // Foreign changes, field by field: live differs from D and from what the previous run recorded for that field.
   const foreignEdits: ForeignEdit[] = [];
@@ -206,6 +211,15 @@ export async function applyProjection(projection: Projection, store: ProjectionS
       auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "deleted", mode: options.foreignEdit, action });
       continue;
     }
+    // An adopted issue's text above is the reporter's: edited since the digest the previous run recorded, the region is not
+    // written over it — reported, never truncated, whatever the mode (it is no record's field to restore or propose).
+    const aboveRecorded = baseline?.[ABOVE];
+    const aboveEdited = current.above !== undefined && aboveRecorded !== undefined && valueDigest(current.above) !== aboveRecorded;
+    if (aboveEdited) {
+      foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: [ABOVE], mode: options.foreignEdit, action: "reported" });
+      heldFields.set(id(object), new Set(["block"]));
+      auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: [ABOVE], mode: options.foreignEdit, action: "reported" });
+    }
     const edited = Object.keys(object.fields).filter((field) => {
       if (same(current.fields[field], object.fields[field])) return false;
       const recorded = baseline?.[field];
@@ -223,7 +237,7 @@ export async function applyProjection(projection: Projection, store: ProjectionS
     if (recorded.length === 0) continue;
     foreignEdits.push({ class: object.class, key: object.key, change: "edited", fields: recorded, mode: options.foreignEdit, action });
     if (options.foreignEdit === "approval") proposals.push({ class: object.class, key: object.key, change: "edited", fields: Object.fromEntries(recorded.map((field) => [field, current.fields[field] ?? null])) });
-    if (options.foreignEdit !== "auto") heldFields.set(id(object), new Set(recorded));
+    if (options.foreignEdit !== "auto") heldFields.set(id(object), new Set([...(heldFields.get(id(object)) ?? []), ...recorded]));
     auditEvent("forge.projection.drift", { class: object.class, key: object.key, change: "edited", fields: recorded, mode: options.foreignEdit, action });
   }
   const planned = planProjection(projection, live);
@@ -261,7 +275,7 @@ export async function applyProjection(projection: Projection, store: ProjectionS
     }
   }
   const pending = [...new Set(plan.writes.slice(done.length).map(id))].sort();
-  const observed = await store.read(classes);
+  const observed = await store.read(classes, adoptions);
   const observedById = new Map(observed.map((object) => [id(object), object]));
   const unverified = verifyProjection(projection, observed, new Set([...pending, ...heldObjects])).filter((field) => heldFields.get(`${field.class}/${field.key}`)?.has(field.field) !== true);
   // The next run's baseline, field by field: what was observed, except a held field (or object), which keeps its recorded digest — still foreign until met.
@@ -271,10 +285,14 @@ export async function applyProjection(projection: Projection, store: ProjectionS
     if (heldObjects.has(id(object))) return [[id(object), recorded ?? {}]];
     // Never seen on GitHub (a write still pending): nothing is recorded, so the next run creates it rather than judging it deleted.
     if (seen === undefined && recorded === undefined) return [];
-    return [[id(object), Object.fromEntries(Object.keys(object.fields).map((field) => {
+    const fields = Object.keys(object.fields).map((field): [string, string] => {
       const keep = heldFields.get(id(object))?.has(field) === true ? recorded?.[field] : undefined;
       return [field, keep ?? valueDigest(seen?.fields[field])];
-    }))]];
+    });
+    // An adopted issue's text above: its digest as first captured, kept while an edit of it is held, else as observed.
+    const held = heldFields.get(id(object))?.has("block") === true && recorded?.[ABOVE] !== undefined;
+    const above: [string, string][] = seen?.above === undefined ? [] : [[ABOVE, held ? recorded![ABOVE]! : valueDigest(seen.above)]];
+    return [[id(object), Object.fromEntries([...fields, ...above])]];
   }));
   const receipt: ProjectionReceipt = deepFreeze({
     schema: PROJECTION_RECEIPT_SCHEMA,

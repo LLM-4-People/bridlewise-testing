@@ -49,7 +49,7 @@ const LANE = "floor";
 export const V28_CANDIDATE = "issue/PG28-PROBE.type";
 
 const item = (id: string, overrides: Partial<InputItem> = {}): InputItem => ({
-  id, type: "Task", title: `Proving ground: ${id}`, state: "open", resolution: null, lane: LANE, milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null,
+  id, type: "Task", title: `Proving ground: ${id}`, state: "open", resolution: null, lane: LANE, milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null, gh: null,
   body: `The projector's proving-ground fixture item ${id}.`, path: `${TRACKER_BOARD.items}/${id}.md`, ...overrides,
 });
 
