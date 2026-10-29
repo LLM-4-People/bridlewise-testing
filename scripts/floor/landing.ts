@@ -16,7 +16,6 @@
  *
  *   node scripts/floor/landing.ts --site <assembled source> --checks <status.json>
  */
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +26,9 @@ import { readStatus, withFrontBlock } from "../../engine/scripts/brand/cli.ts";
 import { judgeClaims, VERDICT_WORDS, type CheckResult, type JudgedClaim } from "../../engine/scripts/brand/render.ts";
 import { readWords, type Words } from "../../engine/scripts/brand/words.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
+import { boundedEnding } from "../../engine/src/process/subprocess-bounds.ts";
+import { runCpuBounded } from "../../engine/src/process/supervised-run.ts";
+import { configuredSubprocessBounds } from "../../engine/src/workflow/workflow-config.ts";
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { partBarInline, type PartBar } from "../../shared/figures.ts";
 import { escapeHtml } from "../../shared/markup.ts";
@@ -115,10 +117,16 @@ export function ledgerBlock(judged: readonly JudgedClaim[], checks: readonly Che
 /** The harness's answer to a call with no subcommand, as it printed it. */
 export type Refusal = Readonly<{ error: string; message: string; available: readonly string[] }>;
 
-/** Runs the harness from the checkout at `root` with no subcommand and reads its typed refusal. */
-export function runRefusal(root: string): Refusal {
-  const ran = spawnSync(process.execPath, ["src/cli.ts", "harness"], { cwd: join(root, "engine"), encoding: "utf8" });
-  const line = `${ran.stdout ?? ""}\n${ran.stderr ?? ""}`.split("\n").find((text) => text.trim().startsWith("{") && text.includes('"error"'));
+/**
+ * Runs the harness from the checkout at `root` with no subcommand, through the
+ * one bounded run (bounded by its work, the harness's configured bounds; no
+ * wall-clock limit of its own), and reads its typed refusal.
+ */
+export async function runRefusal(root: string): Promise<Refusal> {
+  const bounds = configuredSubprocessBounds();
+  const ran = await runCpuBounded(process.execPath, ["src/cli.ts", "harness"], { cwd: join(root, "engine"), bounds });
+  if (ran.ending !== "exited") throw new LandingRefusal("landing_refusal_missing", `the harness did not answer a call with no subcommand: ${boundedEnding(ran, bounds)}`);
+  const line = `${ran.stdout.toString("utf8")}\n${ran.stderr.toString("utf8")}`.split("\n").find((text) => text.trim().startsWith("{") && text.includes('"error"'));
   if (line === undefined) throw new LandingRefusal("landing_refusal_missing", `the harness printed no typed refusal for a call with no subcommand (exit ${String(ran.status)})`);
   const answer = JSON.parse(line) as Partial<Refusal>;
   if (answer.error !== "no_harness_subcommand" || typeof answer.message !== "string" || !Array.isArray(answer.available)) {
@@ -246,11 +254,11 @@ export function fillLanding(shell: string, blocks: Readonly<Record<LandingBlock,
   return text;
 }
 
-function run(argv: readonly string[]): number {
+async function run(argv: readonly string[]): Promise<number> {
   const { values } = parseArgs({ args: [...argv], options: { site: { type: "string" }, checks: { type: "string" } } });
   if (values.site === undefined || values.checks === undefined) throw new LandingRefusal("landing_usage", "usage: landing.ts --site <assembled source> --checks <status.json>");
   const page = join(values.site, "index.md");
-  const filled = fillLanding(readFileSync(page, "utf8"), landingBlocks(ROOT, values.checks, runRefusal(ROOT)));
+  const filled = fillLanding(readFileSync(page, "utf8"), landingBlocks(ROOT, values.checks, await runRefusal(ROOT)));
   const written = atomicWriteFile(page, filled, { exactMode: 0o644 });
   if (!written.success) throw new LandingRefusal("landing_write_failed", `${page}: ${written.reason ?? "unknown error"}`);
   process.stdout.write(`${JSON.stringify({ page, blocks: LANDING_BLOCKS.length })}\n`);
@@ -259,5 +267,8 @@ function run(argv: readonly string[]): number {
 
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  process.exitCode = run(process.argv.slice(2));
+  run(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (error: unknown) => {
+    process.stderr.write(`[landing] REFUSED ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
 }

@@ -59,8 +59,8 @@ test("the refusal stands under typed-refusals: retracted, it is struck with its 
   assert.throws(() => refusalBlock(refusal, JUDGED.slice(1)), (error) => error instanceof LandingRefusal && error.code === "landing_refusal_unclaimed");
 });
 
-test("the refusal is the harness's own answer, run from this checkout", () => {
-  const refusal = runRefusal(ROOT);
+test("the refusal is the harness's own answer, run from this checkout through the one bounded run", async () => {
+  const refusal = await runRefusal(ROOT);
   assert.equal(refusal.error, "no_harness_subcommand");
   assert.ok(refusal.available.includes("check") && refusal.available.length > 5);
   assert.ok(refusal.message.includes(refusal.available.join(", ")), "the sentence lists every verb it reports");
