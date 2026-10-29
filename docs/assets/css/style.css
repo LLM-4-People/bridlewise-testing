@@ -330,6 +330,9 @@ kbd {
 main {
   display: block;
   padding-block-end: var(--page-section-gap);
+  /* A long address or identifier breaks rather than pushing the page wider
+     than a phone. */
+  overflow-wrap: break-word;
 }
 
 /* Running text keeps the reading measure; ledgers, code and figures take
@@ -582,16 +585,19 @@ main dd {
   list-style: none;
 }
 
+/* A task's text stays one inline run (its code spans wrap with it); the box
+   hangs in the gutter. A flex row would make every code span a column. */
 .task-list-item {
-  display: flex;
-  gap: var(--sp-2);
-  padding-inline-start: 0;
+  position: relative;
+  padding-inline-start: calc(var(--sp-2) + 1em);
 }
 
 .task-list-item-checkbox {
   font: inherit;
-  flex: none;
-  margin-top: 0.4em;
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.4em;
+  margin: 0;
   accent-color: var(--ok);
 }
 
@@ -1209,6 +1215,17 @@ figcaption {
   max-width: 100%;
 }
 
+/* A figure drawn to a fixed width keeps its type legible on a narrow screen:
+   it scrolls inside its own frame (which takes focus, so a keyboard scrolls
+   it too) instead of shrinking its labels below reading size. */
+.system-figure {
+  overflow-x: auto;
+}
+
+.system-figure > .fig {
+  min-width: 600px;
+}
+
 .screenshot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
@@ -1229,6 +1246,114 @@ figcaption {
 
 .floor-banner .wrap {
   padding-block: var(--sp-2);
+}
+
+/* ── Figures drawn inline from data (shared/figures.ts): inked by the live
+   theme, like the page around them. ─────────────────────────────────────── */
+
+.fig {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: var(--hairline-w) solid var(--line-1);
+  border-radius: var(--radius-card);
+}
+
+.fig-ground {
+  fill: var(--ground-1);
+}
+
+.fig-box {
+  fill: var(--ground-2);
+  stroke: var(--line-2);
+}
+
+.fig-box-accent {
+  stroke: var(--accent);
+}
+
+.fig-rule {
+  stroke: var(--line-1);
+}
+
+.fig-heading,
+.fig-label {
+  fill: var(--ink-1);
+  font-family: var(--face-sans);
+  font-size: var(--f-ui-size);
+  font-weight: 600;
+}
+
+.fig-note {
+  fill: var(--ink-2);
+  font-family: var(--face-sans);
+  font-size: var(--f-micro-size);
+}
+
+.fig-tag {
+  fill: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-nano-size);
+}
+
+.fig-edge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: var(--hairline-w);
+}
+
+.fig-edge-muted {
+  stroke: var(--ink-2);
+  stroke-dasharray: 4 4;
+}
+
+.fig-arrow {
+  fill: var(--accent);
+}
+
+.fig-arrow-muted {
+  fill: var(--ink-2);
+}
+
+.fig-count {
+  fill: var(--ink-1);
+  font-family: var(--face-sans);
+  font-size: var(--f-page-h3);
+  font-weight: 600;
+}
+
+/* A part bar's parts (shared/figures.ts PART_INKS): a solid part is filled,
+   a hatched one outlined, its hatching drawn in the same ink. */
+.fig-fill-ok {
+  fill: var(--ok);
+}
+
+.fig-fill-warn {
+  fill: var(--warn);
+}
+
+.fig-fill-alarm {
+  fill: var(--alarm);
+}
+
+.fig-fill-quiet {
+  fill: var(--ink-2);
+}
+
+.fig-line-ok {
+  stroke: var(--ok);
+}
+
+.fig-line-warn {
+  stroke: var(--warn);
+}
+
+.fig-line-alarm {
+  stroke: var(--alarm);
+}
+
+.fig-line-quiet {
+  stroke: var(--ink-2);
 }
 
 /* ── Footer: the index, then the colophon ───────────────────────────────── */

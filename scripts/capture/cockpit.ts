@@ -43,8 +43,9 @@ import type { Browser, BrowserContext, Page } from "playwright-core";
 import { settleFileMode } from "../../engine/src/filesystem/file-mode.ts";
 import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
 import { allProcessIds, ancestorsOf, commandLineOf } from "../../engine/src/process/process-facts.ts";
-import { boundedEnding, spawnBoundedSync } from "../../engine/src/process/subprocess-bounds.ts";
-import { SUBPROCESS_BOUNDS } from "../../engine/src/workflow/workflow-config.ts";
+import { boundedEnding, type SubprocessBounds } from "../../engine/src/process/subprocess-bounds.ts";
+import { runCpuBounded, type CpuBoundedRun } from "../../engine/src/process/supervised-run.ts";
+import { configuredSubprocessBounds } from "../../engine/src/workflow/workflow-config.ts";
 import { portAnswers, portListeners } from "../dev-processes.ts";
 import {
   ACCOUNT_USERNAME,
@@ -114,9 +115,13 @@ function log(message: string): void {
  * How a subprocess the capture runs ended, when it did not end well: its
  * status, the signal, and which bound fired (the one bounds owner's words).
  */
-function endingOf(result: Readonly<{ status: number | null; signal: NodeJS.Signals | null; error?: Error }>): string {
-  const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
-  return boundedEnding({ status: result.status, signal: result.signal, ...(code === undefined ? {} : { errorCode: code }) }, SUBPROCESS_BOUNDS);
+function endingOf(result: CpuBoundedRun, bounds: SubprocessBounds): string {
+  return boundedEnding(result, bounds);
+}
+
+/** Whether a bounded run ended on its own with status 0. */
+function succeeded(result: CpuBoundedRun): boolean {
+  return result.ending === "exited" && result.signal === null && result.status === 0;
 }
 
 /**
@@ -125,13 +130,20 @@ function endingOf(result: Readonly<{ status: number | null; signal: NodeJS.Signa
  * harness's hang backstop is its only wall bound. A loaded host makes a step
  * wait, never fail.
  */
-function run(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: Buffer } = {}): string {
-  const result = spawnBoundedSync(command, args, SUBPROCESS_BOUNDS, { cwd: options.cwd, env: options.env ?? process.env, input: options.input, maxBuffer: 256 * 1024 * 1024 });
-  if (result.error !== undefined || result.status !== 0) {
-    const stderr = result.stderr?.toString().trim().split("\n").slice(-REFUSAL_STDERR_LINES).join("\n") ?? "";
-    throw new CaptureRefusal("command_failed", `${command} ${args.join(" ")}: ${endingOf(result)}\n${stderr}`);
+async function run(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: Buffer; outputBytes?: number } = {}): Promise<string> {
+  return (await runBuffer(command, args, options)).toString();
+}
+
+/** {@link run}, answering the command's stdout as bytes (an archive). */
+async function runBuffer(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: Buffer; outputBytes?: number } = {}): Promise<Buffer> {
+  const configured = configuredSubprocessBounds();
+  const bounds = options.outputBytes === undefined ? configured : { ...configured, outputBytes: options.outputBytes };
+  const result = await runCpuBounded(command, args, { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env, bounds, ...(options.input === undefined ? {} : { input: options.input }) });
+  if (!succeeded(result)) {
+    const stderr = result.stderr.toString().trim().split("\n").slice(-REFUSAL_STDERR_LINES).join("\n");
+    throw new CaptureRefusal("command_failed", `${command} ${args.join(" ")}: ${endingOf(result, bounds)}\n${stderr}`);
   }
-  return result.stdout.toString();
+  return result.stdout;
 }
 
 // ── Arguments ──
@@ -188,25 +200,24 @@ function playwrightFfmpeg(): string {
 // ── The isolated copy, its state and the demo repository ──
 
 /** Hard-links a dependency tree, leaving out Vite's dep cache (Vite rewrites it in place, which would write through a hard link into the source checkout). */
-function linkDependencies(from: string, to: string): void {
+async function linkDependencies(from: string, to: string): Promise<void> {
   if (!existsSync(from)) throw new CaptureRefusal("dependencies_missing", `${from} is absent; run npm ci first`);
   mkdirSync(to, { recursive: true });
   const entries = readdirSync(from).filter((name) => ![".vite", ".vite-temp", ".cache"].includes(name)).map((name) => join(from, name));
-  for (let i = 0; i < entries.length; i += 500) run("cp", ["-al", ...entries.slice(i, i + 500), to]);
+  for (let i = 0; i < entries.length; i += 500) await run("cp", ["-al", ...entries.slice(i, i + 500), to]);
 }
 
-function prepareApp(scratch: string, commit: string): string {
+async function prepareApp(scratch: string, commit: string): Promise<string> {
   const app = join(scratch, "app");
   mkdirSync(app);
-  const archive = spawnBoundedSync("git", ["-C", REPO_ROOT, "archive", commit], SUBPROCESS_BOUNDS, { maxBuffer: 2 * 1024 * 1024 * 1024 });
-  if (archive.error !== undefined || archive.status !== 0) throw new CaptureRefusal("archive_failed", `git archive ${commit}: ${endingOf(archive)}\n${archive.stderr?.toString() ?? ""}`);
-  run("tar", ["-x", "-C", app], { input: archive.stdout });
-  linkDependencies(join(REPO_ROOT, "node_modules"), join(app, "node_modules"));
-  linkDependencies(join(REPO_ROOT, "engine", "node_modules"), join(app, "engine", "node_modules"));
+  const archive = await runBuffer("git", ["-C", REPO_ROOT, "archive", commit], { outputBytes: 2 * 1024 * 1024 * 1024 });
+  await run("tar", ["-x", "-C", app], { input: archive });
+  await linkDependencies(join(REPO_ROOT, "node_modules"), join(app, "node_modules"));
+  await linkDependencies(join(REPO_ROOT, "engine", "node_modules"), join(app, "engine", "node_modules"));
   // The confinement binary is an ignored build output; without it Custody's git and the checks are refused.
   const guardian = join(REPO_ROOT, "engine", "guardian", "build");
   if (!existsSync(join(guardian, "harness-landlock-guardian"))) throw new CaptureRefusal("guardian_missing", `${guardian}/harness-landlock-guardian is absent; build it with: make -C engine/guardian all`);
-  run("cp", ["-a", guardian, join(app, "engine", "guardian", "build")]);
+  await run("cp", ["-a", guardian, join(app, "engine", "guardian", "build")]);
   // The configuration document's required mode, through the one mode owner (changed only when it differs, #293).
   settleFileMode(join(app, "engine", ROOT_POLICY.configuration.basename), Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
   return app;
@@ -231,7 +242,7 @@ function stateEnvironment(scratch: string): NodeJS.ProcessEnv {
   };
 }
 
-function writeDemoRepository(demoRoot: string): string {
+async function writeDemoRepository(demoRoot: string): Promise<string> {
   if (existsSync(demoRoot)) throw new CaptureRefusal("demo_root_exists", `${demoRoot} already exists (another capture running, or a stopped one's leftovers); remove it yourself and run again`);
   mkdirSync(demoRoot, { recursive: true, mode: 0o700 });
   writeFileSync(join(demoRoot, DEMO_MARKER), "");
@@ -239,27 +250,28 @@ function writeDemoRepository(demoRoot: string): string {
   mkdirSync(repo);
   // No global or system git configuration: the commits depend on this plan alone.
   const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-  const git = (...args: string[]): string => run("git", ["-C", repo, ...args], { env });
-  git("init", "-q", "-b", DEMO_REPOSITORY.branch);
+  const git = (...args: string[]): Promise<string> => run("git", ["-C", repo, ...args], { env });
+  await git("init", "-q", "-b", DEMO_REPOSITORY.branch);
   if (!existsSync(join(repo, ".git"))) throw new CaptureRefusal("demo_init_failed", `${repo}/.git was not created`);
   for (const commit of DEMO_REPOSITORY.commits) {
     for (const [path, content] of Object.entries(commit.files)) {
       mkdirSync(dirname(join(repo, path)), { recursive: true });
       writeFileSync(join(repo, path), content);
-      git("add", "--", path);
+      await git("add", "--", path);
     }
-    run("git", ["-C", repo, "-c", `user.name=${DEMO_REPOSITORY.identity.name}`, "-c", `user.email=${DEMO_REPOSITORY.identity.email}`, "commit", "-q", "-m", commit.message], {
+    await run("git", ["-C", repo, "-c", `user.name=${DEMO_REPOSITORY.identity.name}`, "-c", `user.email=${DEMO_REPOSITORY.identity.email}`, "commit", "-q", "-m", commit.message], {
       env: { ...env, GIT_AUTHOR_DATE: commit.date, GIT_COMMITTER_DATE: commit.date },
     });
   }
   return repo;
 }
 
-function sd(app: string, env: NodeJS.ProcessEnv, verb: "start" | "stop"): void {
+async function sd(app: string, env: NodeJS.ProcessEnv, verb: "start" | "stop"): Promise<void> {
   log(`sd.mjs ${verb}`);
-  const result = spawnBoundedSync(process.execPath, ["scripts/sd.mjs", verb], SUBPROCESS_BOUNDS, { cwd: app, env, stdio: ["ignore", "pipe", "pipe"] });
-  const output = `${result.stdout?.toString() ?? ""}${result.stderr?.toString() ?? ""}`.trim();
-  if (result.error !== undefined || result.status !== 0) throw new CaptureRefusal(`server_${verb}_failed`, `sd.mjs ${verb}: ${endingOf(result)}\n${output.split("\n").slice(-25).join("\n")}`);
+  const bounds = configuredSubprocessBounds();
+  const result = await runCpuBounded(process.execPath, ["scripts/sd.mjs", verb], { cwd: app, env, bounds });
+  const output = `${result.stdout.toString()}${result.stderr.toString()}`.trim();
+  if (!succeeded(result)) throw new CaptureRefusal(`server_${verb}_failed`, `sd.mjs ${verb}: ${endingOf(result, bounds)}\n${output.split("\n").slice(-25).join("\n")}`);
 }
 
 // ── BL-GPU: the browser must not have spawned a GPU process ──
@@ -694,7 +706,7 @@ async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const frames = join(state.scratch, "frames");
   mkdirSync(frames);
   const fps = 8;
-  run(state.ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", webm, "-ss", (clipStart / 1000).toFixed(2), "-t", ((clipEnd - clipStart) / 1000).toFixed(2), "-vf", "scale=720:450:flags=lanczos", "-r", String(fps), "-pix_fmt", "rgb24", join(frames, "%04d.png")]);
+  await run(state.ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", webm, "-ss", (clipStart / 1000).toFixed(2), "-t", ((clipEnd - clipStart) / 1000).toFixed(2), "-vf", "scale=720:450:flags=lanczos", "-r", String(fps), "-pix_fmt", "rgb24", join(frames, "%04d.png")]);
   const pngs = readdirSync(frames).filter((f) => f.endsWith(".png")).toSorted();
   const rgb = pngs.map((f) => decodePngRgb(readFileSync(join(frames, f))));
   const gif = encodeGif(rgb, Math.round(100 / fps), 300);
@@ -780,7 +792,7 @@ async function drive(state: Run, browser: Browser): Promise<void> {
 async function main(): Promise<void> {
   const started = Date.now();
   const options = parseArgs(process.argv.slice(2));
-  const commit = run("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"]).trim();
+  const commit = (await run("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"])).trim();
   const out = options.out ?? join(REPO_ROOT, ".bridlewise", "capture", commit);
   // A judgement writes nothing to keep: no output folder, no encoder.
   if (!options.judgeOnly && existsSync(out) && readdirSync(out).length > 0) throw new CaptureRefusal("output_exists", `${out} is not empty; choose another --out or remove it`);
@@ -796,11 +808,11 @@ async function main(): Promise<void> {
   let browser: Browser | null = null;
   try {
     log(`commit ${commit}; scratch ${scratch}`);
-    app = prepareApp(scratch, commit);
+    app = await prepareApp(scratch, commit);
     env = stateEnvironment(scratch);
-    const repo = writeDemoRepository(options.demoRoot);
+    const repo = await writeDemoRepository(options.demoRoot);
     demoCreated = true;
-    sd(app, env, "start");
+    await sd(app, env, "start");
     // The GPU-less flags make the images byte-stable (BL-GPU); a judgement reads computed styles, not
     // pixels, and the runner image's Chrome aborts under --in-process-gpu, so it runs with its defaults.
     browser = await launchBrowser(options.browser, options.judgeOnly ? [] : CHROMIUM_ARGS);
@@ -838,7 +850,7 @@ async function main(): Promise<void> {
   } finally {
     if (browser !== null) await browser.close().catch((error: unknown) => log(`browser close: ${String(error)}`));
     if (app !== null && env !== null) {
-      try { sd(app, env, "stop"); } catch (error) { console.error(`[capture] ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }
+      try { await sd(app, env, "stop"); } catch (error) { console.error(`[capture] ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }
     }
     if (demoCreated && existsSync(join(options.demoRoot, DEMO_MARKER))) rmSync(options.demoRoot, { recursive: true });
     if (options.keepScratch) log(`scratch kept: ${scratch}`);

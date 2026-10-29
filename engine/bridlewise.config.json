@@ -903,7 +903,15 @@
   },
   "harness": {
     "commandErroredRetries": 2,
-    "commandRetryBackoffMs": 60000
+    "commandRetryBackoffMs": 60000,
+    "subprocessBounds": {
+      "cpuBudgetMs": 1800000,
+      "stallMs": 1800000,
+      "hangBackstopMs": 7200000,
+      "pollMs": 1000,
+      "killGraceMs": 5000,
+      "outputBytes": 268435456
+    }
   },
   "workspaceIsolation": {
     "workspaceRoot": "../bridlewise-worktrees",

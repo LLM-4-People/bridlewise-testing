@@ -246,23 +246,31 @@ export class LongTaskRunner {
     }
     const alive = ["active", "activating", "reloading"].includes(activeState);
     const failed = activeState === "failed";
+    // The unit's REAL terminal state: its main process (the wrapper) has exited, so the result it wrote before
+    // exiting is whole. While the unit is still running (or its state cannot be read) the result is not looked
+    // at: a read between the file's creation and its write saw an empty file and took the task for done with no
+    // exit code (#716's `null !== 7`).
+    const terminal = activeState !== "unknown" && !alive && activeState !== "deactivating";
 
     let result: unknown = undefined;
     let done = false;
     let exitCode: number | null = null;
     let stdout: string | undefined;
     let stderr: string | undefined;
-    if (existsSync(resultFile)) {
+    if (terminal && existsSync(resultFile)) {
+      const text = readFileSync(resultFile, "utf8");
       try {
-        result = JSON.parse(readFileSync(resultFile, "utf8"));
-        done = true;
-        const r = result as { exitCode?: number; stdout?: string; stderr?: string };
-        exitCode = r.exitCode ?? null;
-        if (typeof r.stdout === "string") stdout = r.stdout;
-        if (typeof r.stderr === "string") stderr = r.stderr;
-      } catch (e) {handleError(e, { module: "tools-concurrent-long-task-runner", operation: "catch" });
-        done = true;
+        result = JSON.parse(text);
+      } catch {
+        // Published whole (a rename) and read only once its writer is gone: a result that does not parse is
+        // damaged, never a task that is done.
+        throw new HarnessError(`the long task ${unitName} ended with a result that does not parse (${String(text.length)} bytes at ${resultFile})`, "long_task_result_unreadable");
       }
+      done = true;
+      const r = result as { exitCode?: number; stdout?: string; stderr?: string };
+      exitCode = r.exitCode ?? null;
+      if (typeof r.stdout === "string") stdout = r.stdout;
+      if (typeof r.stderr === "string") stderr = r.stderr;
     }
 
     const lastHeartbeatMs = readLastHeartbeatMs(hbFile);
@@ -294,7 +302,6 @@ export class LongTaskRunner {
     if (s.timedOut) return "timed-out";
     if (s.failed) return "failed";
     if (s.alive) return "running";
-    if (existsSync(resolve(this.stateDir, unitName, "result"))) return "done-fail";
     return "unknown";
   }
 

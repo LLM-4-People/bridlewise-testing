@@ -807,17 +807,6 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         cpu_seconds = vcpu->nval;
     }
 
-    /* 3b-iii. memory_bytes (optional number, 64 MiB..1 TiB). When present,
-     * the payload's address space is bounded by RLIMIT_AS (soft = hard): an
-     * allocation past it fails in the kernel, and a runtime that cannot
-     * allocate ends. Inherited across exec and fork. */
-    long memory_bytes = 0;
-    const jval *vmem = obj_get(&root, "memory_bytes");
-    if (vmem) {
-        if (vmem->type != J_NUM || vmem->nval < 67108864L || vmem->nval > 1099511627776L) fail(2, "memory_bytes must be a number from 67108864 (64 MiB) to 1099511627776 (1 TiB)");
-        memory_bytes = vmem->nval;
-    }
-
     /* 3b-iv. signals (optional string, only "refused"). When present, the
      * payload and every descendant can send NO signal (kill, tkill, tgkill,
      * rt_sigqueueinfo, rt_tgsigqueueinfo and pidfd_send_signal answer EPERM,
@@ -1246,12 +1235,6 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
     if (cpu_seconds > 0) {
         struct rlimit limit = { (rlim_t)cpu_seconds, (rlim_t)cpu_seconds };
         if (setrlimit(RLIMIT_CPU, &limit) != 0) fail(12, "setrlimit(RLIMIT_CPU, %ld) failed: %s", cpu_seconds, strerror(errno));
-    }
-
-    /* 12a-ii. The memory ceiling (memory_bytes): inherited across exec and fork. */
-    if (memory_bytes > 0) {
-        struct rlimit limit = { (rlim_t)memory_bytes, (rlim_t)memory_bytes };
-        if (setrlimit(RLIMIT_AS, &limit) != 0) fail(13, "setrlimit(RLIMIT_AS, %ld) failed: %s", memory_bytes, strerror(errno));
     }
 
     /* 12b. The network and signal refusals (network: "refused", signals:

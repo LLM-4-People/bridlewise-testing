@@ -17,7 +17,7 @@ apply here. Per-file mtimes and last-commit shas are in **§7**.
 
 ---
 
-## 0. THE TWO TASK ENTRIES ARE NOT IN `TASKS.md` — §8b absence, established by bytes
+### 0. THE TWO TASK ENTRIES ARE NOT IN `TASKS.md` — §8b absence, established by bytes
 
 The brief said "then the two task entries in `TASKS.md`". They are not there. Counted from
 bytes (`readFileSync` + `indexOf`, never `grep` — §8b.7), over the whole of
@@ -47,9 +47,9 @@ against the paraphrase. This is a workflow finding, recorded in **§6**.
 
 ---
 
-# TARGET A — "the run stream endpoint is the executor, not a subscriber"
+## TARGET A — "the run stream endpoint is the executor, not a subscriber"
 
-## A1. VERDICT: **PROVEN**, and the task entry *understates* it
+### A1. VERDICT: **PROVEN**, and the task entry *understates* it
 
 The entry says a second connection duplicates the run. It does. It also says nothing about the
 two facts that make the endpoint worse than duplicated: **the run is owned by the connection**,
@@ -57,7 +57,7 @@ so (i) either connection closing **kills the other's run**, and (ii) a dropped c
 the run **unreachable forever** — a 404, not a re-attach. All three come from the same root:
 the run's lifetime *is* the HTTP response's lifetime.
 
-### The driving evidence
+#### The driving evidence
 
 **Probe 1 — two concurrent SSE connections to one `runId`, fixture provider**
 (`HARNESS_WEB_LLM_FIXTURES=1`, real router, real SQLite, real `executeToolCall`):
@@ -109,7 +109,7 @@ t=300ms, B's client closed at t=1,200ms:
   reconnect body   = {"error":"not_found","message":"Run run-398f… not found or already completed"}
 ```
 
-## A2. The mechanism, with `file:line`
+### A2. The mechanism, with `file:line`
 
 All in `/home/example/code-harness-workspaces/web-interface-foundation-v1/server/routes/run.ts`.
 
@@ -132,14 +132,14 @@ seeds the context manager, inserts the user message, and returns `{ runId }` at 
 Every byte of work — provider call, tool dispatch, ledger writes, quality check, memory writes —
 happens inside the **GET** handler.
 
-### The field that was going to be the guard, and is dead
+#### The field that was going to be the guard, and is dead
 
 `ActiveRun.isStreaming` is declared at `run.ts:130`, initialised `false` at `run.ts:830`, set
 `true` at `run.ts:1278` and `false` at `run.ts:1533`. Counted from bytes: **4 occurrences, all
 writes, zero reads.** It is the §21 INERT shape in its purest form — the value that would have
 answered "is this run already executing?" is computed and discarded, and nothing gates on it.
 
-## A3. Blast radius — each item separately
+### A3. Blast radius — each item separately
 
 | blast | status | evidence |
 |---|---|---|
@@ -149,7 +149,7 @@ answered "is this run already executing?" is computed and discarded, and nothing
 | **Two runs writing the same `runId`** | **PROVEN** | Both executions carry the identical `runId` into `withRecordingContext({ actor, runId })` (`run.ts:999`), into `persistModelEvent`/`persistToolResult`, and into `recordTimelineForModelEvent` (`run.ts:604`). Both mutate the **same** `ActiveRun` object — `accumulatedText`, `assistantMessageId`, `toolCallRows`, `contextManager` — so the two interleave into one mutable state. |
 | **Ledger visibility** | **PROVEN, and it is silent** | The duplication is *present* (2 assistant rows, 2 turn events, 2 token-usage events under one run) but **nothing labels it**. The chat transcript simply contains two assistant answers to one prompt, and the ledger contains two turns under one run — a shape indistinguishable from a legitimate multi-turn run. There is no `connectionId`, no execution-attempt id, no uniqueness constraint. |
 
-## A4. Can it happen accidentally?
+### A4. Can it happen accidentally?
 
 Answering this honestly required overturning my own first hypothesis.
 
@@ -171,7 +171,7 @@ Answering this honestly required overturning my own first hypothesis.
   `DEFAULT_SSE_MAX_CONNECTIONS_PER_USER = 8`), so **eight simultaneous executions of one run**
   is within policy.
 
-## A5. §0 LADDER VERDICT — target A
+### A5. §0 LADDER VERDICT — target A
 
 > **Rung reached: none.** There is no guard of any kind. `isStreaming` is written twice and read
 > zero times (`run.ts:130/830/1278/1533`), so not even rung 6 (convention) is in place — there is
@@ -207,7 +207,7 @@ Answering this honestly required overturning my own first hypothesis.
 **Recommended landing: rung 1 + rung 3 together.** Rung 1 makes the duplicate impossible at
 runtime whatever the code does; rung 3 makes it impossible to write.
 
-## A6. The fix, precisely enough to implement without re-deriving
+### A6. The fix, precisely enough to implement without re-deriving
 
 **Move the executor to `POST /api/run/start`; make `GET /api/run/:runId/stream` a pure
 subscriber. Six concrete edits.**
@@ -248,7 +248,7 @@ the record."* **Measured false today** (Probe 4): parking closes the EventSource
 handler aborts and deletes the run, and `entry.reopen()` (`run-ownership.ts:160`) gets a 404.
 After this fix that sentence becomes true, which is the point.
 
-## A7. The test that would have caught it, and will catch it next time
+### A7. The test that would have caught it, and will catch it next time
 
 **Two assertions, one behavioural and one structural. Both are needed: the behavioural one
 catches the instance, the structural one catches the class.**
@@ -294,9 +294,9 @@ helper twice.
 
 ---
 
-# TARGET B — "a large conversation cannot be opened at all, and fails silently"
+## TARGET B — "a large conversation cannot be opened at all, and fails silently"
 
-## B1. VERDICT: **NOT PROVEN — the entry is stale.** It was real, it was measured, and it was fixed
+### B1. VERDICT: **NOT PROVEN — the entry is stale.** It was real, it was measured, and it was fixed
 
 The claim is **overturned for the path it names**. Driven on a conversation I built myself
 through `DbClient` (the same write path `bench/fixtures/scale.ts` uses), **21,000 messages,
@@ -358,7 +358,7 @@ callers** — enumerated tree-wide: only `server/db/async-client.ts:716` (the fa
 files. `tests/prevention/history-route-bounded.test.ts:101` carries the mutation
 (*"point the route back at `db.getChatHistory` and this returns…"*).
 
-## B2. What is genuinely still there — the residual, and it is the same class on the door next to it
+### B2. What is genuinely still there — the residual, and it is the same class on the door next to it
 
 `GET /api/chats/:id/history` is bounded. **`POST /api/run/start` is not.**
 
@@ -400,7 +400,7 @@ names, and at the measured shape it is ~2 s, not a failure. But it is *the ident
 class* the paging work fixed, sitting one route away, and it will become the next "cannot be
 opened" as conversations grow.
 
-## B3. §0 LADDER VERDICT — target B
+### B3. §0 LADDER VERDICT — target B
 
 > **Rung reached: 4, with a rung-5 backstop.** The route calls the bounded
 > `getChatHistoryPage`; the unbounded `getChatHistory` is unreferenced in production; a
@@ -428,7 +428,7 @@ opened" as conversations grow.
 > **Rung 5 — the backstop that exists** (`tests/prevention/history-route-bounded.test.ts`), and
 > which does not cover `buildConversationHistory` at all.
 
-## B4. The fix for the residual
+### B4. The fix for the residual
 
 1. **`run.ts:768-769`** — pass the bound: `maxHistoryMessages: serverConfig.chatHistoryTailRows`
    (or a new `runHistoryMaxMessages`, **declared in the global config with default/range/doc per
@@ -445,7 +445,7 @@ opened" as conversations grow.
    which loads **every message of every chat in a project** to answer a per-run turn-number
    question — becomes visible as the unbounded read it is.
 
-## B5. The test that would have caught the residual
+### B5. The test that would have caught the residual
 
 *Population, discovered and floored:* every exported server function that calls `db.listMessages`
 or `db.listToolCallsByChat` **without** a bound argument, found by walking the call graph from
@@ -466,9 +466,9 @@ argument.
 
 ---
 
-# §3. ADJACENT FINDINGS — the three the brief named, and one more
+## §3. ADJACENT FINDINGS — the three the brief named, and one more
 
-### ADJ-1. The transcript store is single-tenant, and the code says so (KNOWN, documented)
+#### ADJ-1. The transcript store is single-tenant, and the code says so (KNOWN, documented)
 
 `src/cockpit/flow/run-ownership.ts:5-21` states the defect in full: `state/chat-messages.ts`
 `messages` is *"the current chat's messages"*, cleared on every chat switch and written by
@@ -483,7 +483,7 @@ premise disproven in §A1 — parking does not leave the run executing on the se
 it. So today the single-tenant store is defended by a mechanism that destroys the thing it was
 defending. **These two must be fixed together**, and the §A6 fix is the prerequisite.
 
-### ADJ-2. The sweep tick counter double-counts, and its ids are minted so that no dedup can ever catch it — **PROVEN BY STRUCTURE**
+#### ADJ-2. The sweep tick counter double-counts, and its ids are minted so that no dedup can ever catch it — **PROVEN BY STRUCTURE**
 
 `src/cockpit/flow/run-stream.ts:88-103`:
 
@@ -530,7 +530,7 @@ counter — e.g. `${runId}:${event.sequence}` (the model frames already carry `s
 in the probe output: `{"sequence":0,…}`, `{"sequence":1,…}`) — and dedup on it inside
 `recordReceivedEvent`, which is the store's documented sole mover.
 
-### ADJ-3. Zombie tool beats — the safety net has exactly one caller, and it is on the path that does not fire — **PROVEN BY ENUMERATION**
+#### ADJ-3. Zombie tool beats — the safety net has exactly one caller, and it is on the path that does not fire — **PROVEN BY ENUMERATION**
 
 `finalizeRunningToolCalls` (`src/state/chat-messages.ts:597`) marks every still-`running` tool
 call as `error` with an honest `incompleteReason` and no synthesised output. It has **exactly one
@@ -556,7 +556,7 @@ row permanently; `chat-history.ts:24` correctly omits it from the LLM history, a
 established by single-writer enumeration, not by execution. The client-side half (one call site,
 `done` only) is settled by enumeration and is not in doubt.
 
-### ADJ-4. `openSseStream` writes `retry:` but never `id:` — resumption is not merely unused, it is unavailable
+#### ADJ-4. `openSseStream` writes `retry:` but never `id:` — resumption is not merely unused, it is unavailable
 
 `server/sse.ts:337` writes `retry: <ms>`, so the browser *is* told to reconnect. No frame carries
 an `id:` field and `Last-Event-ID` is never read (counted from bytes across `sse.ts`: **0**
@@ -567,7 +567,7 @@ disconnect, is three mechanisms pointing in three directions.
 
 ---
 
-# §4. SEVERITY, restated as data
+## §4. SEVERITY, restated as data
 
 | # | finding | verdict | severity | class |
 |---|---|---|---|---|
@@ -584,7 +584,7 @@ disconnect, is three mechanisms pointing in three directions.
 
 ---
 
-# §5. COVERAGE
+## §5. COVERAGE
 
 **What I DROVE** (real router, real SQLite, real `executeToolCall`, ephemeral ports, temp DBs):
 
@@ -640,7 +640,7 @@ disconnect, is three mechanisms pointing in three directions.
 
 ---
 
-# §6. WORKFLOW FINDING (owed by every agent, §20)
+## §6. WORKFLOW FINDING (owed by every agent, §20)
 
 **A brief that cites a tracker entry must carry the entry's anchor, not its title.** This brief
 pointed at "the two task entries in `TASKS.md`". Neither exists there — established by bytes over
@@ -663,7 +663,7 @@ arriving through the brief instead of through the code.
 
 ---
 
-# §7. THE FILES EVERY CLAIM RESTS ON — mtime and last-commit sha (§8b)
+## §7. THE FILES EVERY CLAIM RESTS ON — mtime and last-commit sha (§8b)
 
 Web repo `HEAD = 32dc29f64e9dda245741a00bcd2b1b1ee0131ee7`, working tree **clean**
 (`git status --porcelain` produced no output). Every file below is committed and unmodified, so

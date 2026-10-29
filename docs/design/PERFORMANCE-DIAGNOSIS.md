@@ -12,7 +12,7 @@ Read-only diagnosis. Nothing outside this file was written in either repository.
 
 ---
 
-## Provenance (§8b — a live-defect claim records what it rests on)
+### Provenance (§8b — a live-defect claim records what it rests on)
 
 | fact | value |
 |---|---|
@@ -56,11 +56,11 @@ after it cleared.
 
 ---
 
-# ITEM A — *"Dev API server pinned near 90% CPU; `/api/health` takes ~20s"*
+## ITEM A — *"Dev API server pinned near 90% CPU; `/api/health` takes ~20s"*
 
-## Verdict: **NOT PROVEN.** Measured on two independent servers, one of them 28.8 hours old.
+### Verdict: **NOT PROVEN.** Measured on two independent servers, one of them 28.8 hours old.
 
-### A.1 The measurement
+#### A.1 The measurement
 
 **Server 1 — the dev server that was already running.** PID `131665`,
 `node --experimental-strip-types server/index.ts`, uptime **1-04:47:37 = 103,657 s**.
@@ -94,7 +94,7 @@ a process that had ever been pinned would carry it in the cumulative counter. Fo
 claim about a *standing* condition, `/proc/<pid>/stat` refutes or confirms in one read, with
 no reproduction step at all.
 
-### A.2 `/api/health` cannot be slow by itself
+#### A.2 `/api/health` cannot be slow by itself
 
 `server/routes/health.ts:11-13` — the entire handler is
 `sendJson(ctx.res, { status: "ok", harnessReady: false })`. No I/O, no DB, no await, and it
@@ -102,7 +102,7 @@ is public (`server/routes/registry.ts:88-97`) so it does not even pay the auth g
 **A slow `/api/health` can therefore only ever be head-of-line blocking.** That is the only
 mechanism worth hunting.
 
-### A.3 Nothing is spinning
+#### A.3 Nothing is spinning
 
 Counted from **bytes** (`readFileSync` + match in process — §8b.7, never `grep`), over
 **114 `.ts` files** under `server/` and **362 `.ts`/`.svelte` files** under `src/`:
@@ -121,7 +121,7 @@ Counted from **bytes** (`readFileSync` + match in process — §8b.7, never `gre
 **No poller, no watcher, no spin loop.** The brief's hypothesis list is exhausted with a
 negative.
 
-### A.4 The one synchronous door that survives — and the arithmetic that fits "~20 s"
+#### A.4 The one synchronous door that survives — and the arithmetic that fits "~20 s"
 
 The scan found exactly **one** `spawnSync` in `server/`, and it is not dead code:
 
@@ -154,7 +154,7 @@ synchronous door exists, five live routes go through it, and its cap is 10 s.
 `DatabaseSync` appears only under `server/db/` (15 sites) — never on the main thread, which
 is the interlock `DESIGN-PERFORMANCE.md` §6 item 10 says had to hold.
 
-### A.5 Why the entry was probably true when filed, and is not now
+#### A.5 Why the entry was probably true when filed, and is not now
 
 `DESIGN-PERFORMANCE.md` §5d measured the pre-facade server: `/api/health` during **one**
 75.6 MB history read served **15 requests in 3.18 s**, p95 **2,957 ms**. The async facade
@@ -163,7 +163,7 @@ reads p95 **5 ms**; I measured **2.5 ms max** today, on a day-old server, under 
 **The class this entry describes was closed by work already recorded as done, and the entry
 was never re-measured against it.**
 
-### A.6 §0 LADDER VERDICT — class: *a request path blocks the event loop*
+#### A.6 §0 LADDER VERDICT — class: *a request path blocks the event loop*
 
 > **Rung reached: 4**, and only partially — one door exists, but it has a synchronous shape.
 >
@@ -191,7 +191,7 @@ was never re-measured against it.**
 > **Rung 5 (source scan):** what a *"no `spawnSync` in routes"* lint would give. Not needed —
 > rung 2 is available, and a scan would carry the usual universe problem.
 
-### A.7 The fix
+#### A.7 The fix
 
 Delete the synchronous door.
 
@@ -206,7 +206,7 @@ Delete the synchronous door.
 4. Move `release()` into a `finally` while you are in the file — **ADJ-3** is a real leak on
    the throw path, and it feeds ADJ-1.
 
-### A.8 The guard, and **the population it bounds** (§20b)
+#### A.8 The guard, and **the population it bounds** (§20b)
 
 The right guard half-exists: `DESIGN-PERFORMANCE.md` §5 gates on **event-loop availability**,
 and §5c explains why that number is the sharpest in the table (it has no physical floor,
@@ -232,11 +232,11 @@ population, and *name it*:
 
 ---
 
-# ITEM B — *"Switch mounts every reel: 3,000 rows blocks the main thread for 3.7s"*
+## ITEM B — *"Switch mounts every reel: 3,000 rows blocks the main thread for 3.7s"*
 
-## Verdict: **PROVEN — and the filing names the wrong trigger.** The 3,000-row mount is the **type-to-filter** path. I measured the mounted-row counts and the whole per-keystroke derive; I did **not** re-measure the 3,749 ms mount itself.
+### Verdict: **PROVEN — and the filing names the wrong trigger.** The 3,000-row mount is the **type-to-filter** path. I measured the mounted-row counts and the whole per-keystroke derive; I did **not** re-measure the 3,749 ms mount itself.
 
-### B.1 The measurement — mounted rows, and the derive that precedes them
+#### B.1 The measurement — mounted rows, and the derive that precedes them
 
 Driven over the **real** `src/cockpit/rooms/switch-data.ts` module (the room's own pure
 helpers), n = **9 iterations per row count**, p50 reported, load average **0.48**, node
@@ -272,7 +272,7 @@ have aborted rather than reported a fast time.
    **0.408 ms of it — 0.011 %.** Everything else is component instantiation and DOM
    construction.
 
-### B.2 The mechanism, `file:line`
+#### B.2 The mechanism, `file:line`
 
 The room renders reels with **no windowing whatsoever**:
 
@@ -320,7 +320,7 @@ re-evaluate per arriving datum: **N re-evaluations × N arrivals.** **SUSPECTED*
 one browser run to settle, and it should be settled *before* the windowing fix is designed,
 because if it is real then windowing fixes the mount and leaves a quadratic fill behind it.
 
-### B.3 The guard that should catch this cannot ever fail — the sharpest finding in item B
+#### B.3 The guard that should catch this cannot ever fail — the sharpest finding in item B
 
 `tests/cockpit/switch-perf.test.ts` is the CI-enforced budget. From its own source:
 
@@ -347,7 +347,7 @@ names a population (a pure function at 500 rows) that excludes the defect it was
 prevent, while its NAME ("type-to-filter") implies the surface.** Green forever, 3.7 s in the
 product, and both true.
 
-### B.4 Does the #86 redesign fix it, or does it survive?
+#### B.4 Does the #86 redesign fix it, or does it survive?
 
 **It SURVIVES.** `TASKS.md:2796-2823` decides: `+` beside the project name; **`+` opens the
 EXISTING ⌘J recency river** (`:2801-2803`, marked *"already decided, do not re-litigate"*);
@@ -365,7 +365,7 @@ room's rendering is about to be touched and windowing it twice is the duplicated
 forbids. Not after, because #86 will otherwise ship a rebuilt room with the same defect and
 the checkbox will close over it.
 
-### B.5 §0 LADDER VERDICT — class: *a list mounts an unbounded number of rows in one synchronous update*
+#### B.5 §0 LADDER VERDICT — class: *a list mounts an unbounded number of rows in one synchronous update*
 
 > **Rung reached: 5/6 — and the level-5 guard that exists measures the wrong population, so
 > in practice nothing enforces this at all.**
@@ -397,7 +397,7 @@ the checkbox will close over it.
 > **Rung 6 (documentation):** what `Reel.svelte:22-23` has today — a comment saying a
 > hand-rolled `IntersectionObserver` is forbidden here. Correct, and not enforcement.
 
-### B.6 The fix
+#### B.6 The fix
 
 **Do not write a virtualizer. One already exists, and I found it.**
 
@@ -427,7 +427,7 @@ So the fix is to **extend the existing path, never add a second one** (§2, §16
    three store reads into `ReelCell` so each cell subscribes to its own datum instead of the
    parent subscribing to three whole maps.
 
-### B.7 The guard, and **the population it bounds** (§20b)
+#### B.7 The guard, and **the population it bounds** (§20b)
 
 `DESIGN-PERFORMANCE.md` §5's row *"mount of N list rows — no long task > frame budget"*
 exists and is knowingly red (its after-column reads *"unchanged, item 9"*). It needs a stated
@@ -460,11 +460,11 @@ population and a liveness precondition:
 
 ---
 
-# ITEM C — *"Artifact follow-ups are unaffordable: the full document is re-sent every turn"*
+## ITEM C — *"Artifact follow-ups are unaffordable: the full document is re-sent every turn"*
 
-## Verdict: **PROVEN, measured — and materially worse than filed, because the fix already exists in this codebase and is connected to nothing.**
+### Verdict: **PROVEN, measured — and materially worse than filed, because the fix already exists in this codebase and is connected to nothing.**
 
-### C.1 It is **RE-SENT**, not re-referenced. Proven from source.
+#### C.1 It is **RE-SENT**, not re-referenced. Proven from source.
 
 The single owner of what reaches the model is `server/context-bridge.ts`, and it materialises
 a **fresh `ChatMessage[]` from scratch on every turn**:
@@ -481,7 +481,7 @@ a **fresh `ChatMessage[]` from scratch on every turn**:
 **There is no content hash, no reference, no id-substitution and no retention anywhere on this
 path.** The array is rebuilt from the manager's turn list each time and handed to `streamChat`.
 
-### C.2 The measured cost
+#### C.2 The measured cost
 
 Driven for real with the product's **own** estimator
 (`integration/src/memory/unified/tokenizer.ts`) and its **own** tool-result store. Fixture:
@@ -527,7 +527,7 @@ in the trim policy distinguishes *one enormous immutable blob* from *a hundred t
 dialogue*. The user experiences that as the model forgetting everything immediately after
 making something, which reads as a model defect and is a context-assembly defect.
 
-### C.3 **THE FIX ALREADY EXISTS, IS MEASURED AT 95.1 %, AND HAS ZERO CONSUMERS**
+#### C.3 **THE FIX ALREADY EXISTS, IS MEASURED AT 95.1 %, AND HAS ZERO CONSUMERS**
 
 This is the finding that changes what should be done.
 
@@ -579,7 +579,7 @@ holds **two** implementations of this concept: `memory/unified/unified-tool-resu
 product. **Whichever is wired, the other must be collapsed, not left beside it** — that is the
 exact shape §2 names.
 
-### C.4 The cost that is not tokens
+#### C.4 The cost that is not tokens
 
 `context-bridge.ts:342` calls `redactToolCallArguments(...)` **on every turn, for every tool
 call**. Per `context-bridge.ts:80-81` that helper *"parses + re-stringifies tool_calls JSON"*,
@@ -599,7 +599,7 @@ only by 512 KB. And *"cache or batch"* aims at the wrong thing — caching an im
 document's redaction is right, but the document is still being **sent**, which is the larger
 cost by far (**ADJ-4**).
 
-### C.5 What the product already knows and does not act on
+#### C.5 What the product already knows and does not act on
 
 `context-bridge.ts:517-535` — `estimateHistoryTokens(history)` sums `estimateTokens(content)`
 **plus** `estimateTokens(tc.function.arguments)` for every tool call, and `:507-515` says why:
@@ -610,7 +610,7 @@ truthful figure for the `context` SSE event.
 on it.** §21 in its purest form: computed, reported, gated on by nothing. The number is
 already there; the door that says no is not.
 
-### C.6 What the fix costs — three options, priced
+#### C.6 What the fix costs — three options, priced
 
 | option | what it changes | cost | verdict |
 |---|---|---|---|
@@ -621,7 +621,7 @@ already there; the door that says no is not.
 **Ship order:** the rung-4 assertion (C.7) first — one line, stops the bleeding immediately —
 then option 1.
 
-### C.7 §0 LADDER VERDICT — class: *the same immutable payload is re-serialised into every request*
+#### C.7 §0 LADDER VERDICT — class: *the same immutable payload is re-serialised into every request*
 
 > **Rung reached: none for this invariant.** A token trim exists and it bounds the **wrong
 > quantity**.
@@ -654,7 +654,7 @@ then option 1.
 > mode here. **Measured:** one turn of one artifact is **15,408 tokens**; ten turns is
 > **154,080**. Nothing on this path refuses either.
 
-### C.8 The guard, and **the population it bounds** (§20b)
+#### C.8 The guard, and **the population it bounds** (§20b)
 
 > **Population:** every message in the `ChatMessage[]` returned by `buildTrimmedHistory` for a
 > conversation containing **at least one `create_artifact` tool call**, counted at runtime.
@@ -689,9 +689,9 @@ then option 1.
 
 ---
 
-# ADJACENT FINDINGS
+## ADJACENT FINDINGS
 
-## ADJ-1 — **PROVEN**: `/tmp` was exhausted by **INODES**, not bytes, by **Node's own compile cache** — and it took this session's shell down. *(Already fixed, concurrently, by another agent — my numbers corroborate theirs independently.)*
+### ADJ-1 — **PROVEN**: `/tmp` was exhausted by **INODES**, not bytes, by **Node's own compile cache** — and it took this session's shell down. *(Already fixed, concurrently, by another agent — my numbers corroborate theirs independently.)*
 
 **Measured at the moment the shell came back:**
 
@@ -764,7 +764,7 @@ and it converts a background housekeeping bug into a total loss of tooling.
 `node-compile-cache` alone accounts for 98.5 % of the total. I am not claiming a zero
 contribution; I am claiming the arithmetic rules my probes out as the cause.
 
-## ADJ-2 — **HIGH, LIVE, measured**: `/api/git/*` renders a **refused** read as an **empty result** — fabricated absence on a live route
+### ADJ-2 — **HIGH, LIVE, measured**: `/api/git/*` renders a **refused** read as an **empty result** — fabricated absence on a live route
 
 **Measured**, on a fresh server, against a path the confinement gate correctly refuses:
 
@@ -803,7 +803,7 @@ project folder"*). **Guard:** drive a route against a path the gate refuses and 
 response carries the refusal reason — with a liveness precondition asserting the plan really
 was `refused`, so the guard cannot pass against a repo that merely has no commits.
 
-## ADJ-3 — **MEDIUM, source-proven shape**: the confinement temp directory leaks on the throw path — and it leaks hardest when `/tmp` is already full
+### ADJ-3 — **MEDIUM, source-proven shape**: the confinement temp directory leaks on the throw path — and it leaks hardest when `/tmp` is already full
 
 `server/git-bridge.ts` allocates and releases across a `try` with **no `finally`**:
 
@@ -821,7 +821,7 @@ is not. **Fix:** `try { … } finally { if (plan.kind === "confined") plan.relea
 line, and it is the discipline §8 already demands of mutation harnesses (*"snapshot and
 restore … in a `finally`, before asserting"*) applied to a resource instead of a fixture.
 
-## ADJ-4 — **MEDIUM**: `TASKS.md:2681` understates its own finding by a multiplier, and aims at the wrong half
+### ADJ-4 — **MEDIUM**: `TASKS.md:2681` understates its own finding by a multiplier, and aims at the wrong half
 
 Recorded as *"`redactToolCallArguments` parses + re-stringifies JSON on every tool_call
 (INEFFICIENCY) — could cache or batch."* Per C.4 the real cost is **per tool call × per turn ×
@@ -830,7 +830,7 @@ remedy is aimed at the smaller half: caching the redaction of an immutable docum
 but the document is still being **sent** — 15,408 tokens per turn, measured. The entry should
 be restated against the class.
 
-## ADJ-5 — **MEDIUM, §2**: two tool-result-store implementations, neither reachable
+### ADJ-5 — **MEDIUM, §2**: two tool-result-store implementations, neither reachable
 
 `integration/src/memory/unified/unified-tool-result-store.ts` (`ToolResultConfig`,
 `createToolResultStore`) and `integration/src/memory/tool-result-store.ts`
@@ -842,9 +842,9 @@ justify it"* (§2). It is not required here.
 
 ---
 
-# COVERAGE
+## COVERAGE
 
-## What I measured (live, with n, method, and liveness)
+### What I measured (live, with n, method, and liveness)
 
 - **Live dev API server, PID 131665** (uptime 103,657 s): lifetime CPU from `/proc/<pid>/stat`
   (73,779 ticks @ 100 Hz → **0.712 %**); instantaneous CPU over a **10,005 ms** window
@@ -869,7 +869,7 @@ justify it"* (§2). It is not required here.
   `du -x --inodes -d 2`, `/proc/mounts:29`, `/proc/meminfo:21` twice, `/proc/loadavg` before
   and after the concurrent suite exited.
 
-## Counting method
+### Counting method
 
 Every count came from **bytes** — `readFileSync(f,"utf8")` and matching in process
 (§8b.7), never from `grep`. Populations: **114** `.ts` files under `server/`, **362**
@@ -879,7 +879,7 @@ by basename**, never scoped to a path I expected (§8b.1) — the `spawnPlannedS
 returned 4 hits (1 definition, 1 import, 1 comment, **1 call**), and the tool-result-store
 search returned 28 hits, **all inside the memory module or the manifest**.
 
-## What I read
+### What I read
 
 `server/index.ts`, `routes/health.ts`, `routes/registry.ts`, `routes/git-ops.ts`,
 `routes/auth.ts`, `routes/projects.ts`, `git-bridge.ts`, `landlock-runner.ts`, `config.ts`,
@@ -891,7 +891,7 @@ search returned 28 hits, **all inside the memory module or the manifest**.
 (`unified-tool-result-store.ts`, `unified-context-manager.ts:247-272`, `content-store.ts`),
 `DESIGN-PERFORMANCE.md` (whole), `TIER1-AGENT-CONTRACT.md` (whole), `TASKS.md` (open queue).
 
-## What I did **NOT** establish — read this before acting
+### What I did **NOT** establish — read this before acting
 
 1. **Item A's ~20 s was not reproduced.** The `2 × 10 s` arithmetic (A.4) is a **hypothesis
    that fits**, not a measurement. I could not manufacture a git call slow enough to reach the
@@ -923,7 +923,7 @@ search returned 28 hits, **all inside the memory module or the manifest**.
    anywhere.
 9. **I did not read the three files the brief placed off limits**, and no claim rests on them.
 
-## §23 disclosure — working-tree state, and cleanup
+### §23 disclosure — working-tree state, and cleanup
 
 Compilers: **none run** (no `tsc`, no `svelte-check`), so no emit was possible.
 
@@ -947,7 +947,7 @@ confirmed gone** (`kill` → `CONFIRMED-GONE`, no listener on 5199), and its scr
 directory including its `.bridlewise/` databases was removed. Nothing of mine is left
 running or on disk outside this file.
 
-## Workflow improvement (§20)
+### Workflow improvement (§20)
 
 **A read-only diagnostic agent lost its shell for ~50 minutes mid-measurement — not because
 of anything it did, but because a background cache shared an inode table with the tooling that

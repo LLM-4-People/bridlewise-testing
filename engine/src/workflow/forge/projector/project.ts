@@ -61,9 +61,11 @@ function itemIssue(item: InputItem, status: ItemStatus, input: ProjectionInput):
   // A Milestone is open or closed by its computed state; any other item by its record.
   const closed = milestone ? status.state === "shipped" : item.state === "closed";
   const reason = milestone ? (closed ? "completed" : null) : item.resolution === null ? null : STATE_REASONS[item.resolution];
+  const adopted = item.gh === null ? null : /^issue-([1-9]\d*)$/u.exec(item.gh);
   return {
     class: "issue",
     key: item.id,
+    ...(adopted === null ? {} : { adopt: Number(adopted[1]) }),
     fields: {
       title: item.title ?? item.id,
       block: itemBlock(item, status, input),

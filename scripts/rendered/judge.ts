@@ -114,6 +114,33 @@ function instrumentFrame(binding: string): void {
     scope.__renderedUninstrumented = `the ${binding} binding is missing`;
     return;
   }
+  // The page's own layout shifts, summed (the layout-shift row reads them). The
+  // count opens once the page is ready as it loaded (judgeStates): a shift
+  // made while it loads, a web font's swap among them, lands when the host
+  // lets it, so counting it judged the host, not the page (#632). The judge
+  // stops counting while it changes the viewport and the media itself, and
+  // counts again through the page's future (judgeFuture): a judge resizing a
+  // page is not the page shifting.
+  const shift = { value: 0, counting: false, set: (on: boolean): void => { void on; } };
+  scope.__renderedShift = shift;
+  try {
+    const add = (entries: readonly PerformanceEntry[]): void => {
+      // Every shift while counting: the only input a judged page receives is
+      // the judge's own (forced states, done while the count is off), so the
+      // browser's hadRecentInput would hide the page's next shift, not a reader's.
+      for (const entry of entries as unknown as readonly { value: number }[]) {
+        if (shift.counting) shift.value += entry.value;
+      }
+    };
+    const observer = new PerformanceObserver((list) => add(list.getEntries()));
+    observer.observe({ type: "layout-shift", buffered: true });
+    // Entries are delivered late; before the count is switched, the ones
+    // already made are taken now, so each lands on the side it happened on.
+    shift.set = (on: boolean): void => {
+      add(observer.takeRecords());
+      shift.counting = on;
+    };
+  } catch { /* a frame without the Layout Instability API records no shift */ }
   const sent = new Set<string>();
   const send = (kind: string, value: string): void => {
     const key = `${kind}\n${value}`;
@@ -276,6 +303,12 @@ export async function navigate(page: Page, url: string): Promise<void> {
     process.stderr.write(`[rendered] loading ${url} for ${String(Math.round((Date.now() - started) / 1000))} s: ${String(inFlight.get(page) ?? 0)} requests in flight (${[...(openUrls.get(page) ?? [])].slice(-3).join(", ")})\n`);
   }, 10_000);
   try {
+    // The page's clock holds from before it loads: its timers and frames run
+    // only when the judge runs them (judgeStates' first step, inside the shift
+    // count), never during the wait for the page to be ready, however long the
+    // host makes that wait (#632). Its time is the context's clock's, read from
+    // the page, which may already be ahead of the host's.
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + STEP_MS);
     await page.goto(url, { waitUntil: "load" });
   } finally {
     clearInterval(liveness);
@@ -425,8 +458,35 @@ export type RenderRestore = Readonly<{ media: "screen" | "print"; reducedMotion:
  * the page is ready; then the page is put back as `restore` says. Returns the
  * findings, each naming its state and rule.
  */
+/** Starts or stops counting the page's layout shifts, in every frame (see instrumentFrame). */
+async function countShifts(page: Page, counting: boolean): Promise<void> {
+  for (const frame of page.frames()) {
+    if (frame.isDetached()) continue;
+    await frame.evaluate((on) => {
+      (globalThis as unknown as { __renderedShift?: { set: (on: boolean) => void } }).__renderedShift?.set(on);
+    }, counting).catch(() => undefined);
+  }
+}
+
 export async function judgeStates(page: Page, surface: Surface, restore: RenderRestore | null, rules?: readonly PageRule[], states: readonly RenderState[] = statesOf(surface)): Promise<readonly string[]> {
   const findings: string[] = [];
+  // The load is over once the page is ready as it loaded (its requests done,
+  // its fonts settled) and a frame is drawn: the count opens there, and what
+  // the load moved before it, a late web font's swap among them, is not
+  // counted (#632). The judge's own viewport and media changes that follow
+  // are not the page shifting either. The page's clock holds still while the
+  // judge changes it, so what the page does next (a timer, a frame) happens
+  // after, where its shifts count again. The page's clock, held since before
+  // it loaded (navigate), runs one step on (its load's own timers and frames
+  // fire and count) and then holds; a frame is drawn so those shifts are made
+  // before the count is switched off.
+  await ready(page);
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  await countShifts(page, true);
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + STEP_MS);
+  await ready(page);
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  await countShifts(page, false);
   for (const state of states) {
     await enter(page, state);
     await ready(page);
@@ -438,6 +498,12 @@ export async function judgeStates(page: Page, surface: Surface, restore: RenderR
     await ready(page);
   }
   for (const finding of await judgeForcedStates(page, surface, rules)) findings.push(`(hover, active and focus forced) ${finding}`);
+  // A frame is drawn (a screenshot of one pixel), so every shift the judge's
+  // own changes caused is made and taken before the count runs again; then
+  // the page's clock runs on, and what the page does next is its own shift.
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  await countShifts(page, true);
+  await page.clock.resume();
   return findings;
 }
 

@@ -17,14 +17,17 @@
  * Driven in a working copy (never the live checkout).
  */
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { FRONT_DOOR_GENERATOR, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 
 import { GENERATOR_INPUTS_BEYOND_ENGINE, harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
 import { stageInCopy } from "../../src/git/working-copy.ts";
+import { trackedFiles } from "../../src/git/repository-ownership.ts";
+import { reachabilityClosure } from "../../src/workflow/reachability.ts";
+import { frontDoorGeneratorModules } from "../../src/workflow/messaging.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -46,7 +49,41 @@ test("a generator test's repository copy carries every path an arm declares it n
   }
 });
 
-test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", () => {
+test("the front-door arm's copy carries every module its generator reaches, derived from the generator's own imports (a hand list went stale)", () => {
+  // scripts/brand/claims.ts came to import scripts/floor/status.mjs (and it scripts/floor/files.mjs): the hand-listed
+  // generator modules missed them, and every generator test's copy failed with ERR_MODULE_NOT_FOUND in CI.
+  const reached = reachabilityClosure({
+    entryPoints: [`engine/${FRONT_DOOR_GENERATOR.generator}`],
+    files: trackedFiles(join(import.meta.dirname, "..", "..", "..")) ?? [],
+    readTexts: (paths) => new Map(paths.map((path) => [path, readFileSync(join(import.meta.dirname, "..", "..", "..", path), "utf8")])),
+  });
+  const beyond = [...reached.closure].filter((path) => !path.startsWith("engine/") && !path.startsWith("shared/"));
+  assert.ok(beyond.includes("scripts/floor/status.mjs") && beyond.includes("scripts/floor/files.mjs"), `the generator reaches the floor modules (liveness): ${beyond.join(", ")}`);
+  for (const path of beyond) assert.equal(engineGeneratorPopulation(path), true, `${path} is a module the front-door generator loads`);
+});
+
+test("the front-door generator's modules are derived or refused, never guessed: an unreadable tracked set and an import the walk cannot follow refuse by name", () => {
+  const root = createTempDir("front-door-modules-");
+  const write = (path: string, text: string): void => {
+    mkdirSync(join(root, path, ".."), { recursive: true });
+    writeFileSync(join(root, path), text);
+  };
+  const generator = `engine/${FRONT_DOOR_GENERATOR.generator}`;
+  write(generator, 'import { x } from "../../../scripts/floor/present.mjs";\nexport { x };\n');
+  write("scripts/floor/present.mjs", "export const x = 1;\n");
+  assert.deepEqual([...frontDoorGeneratorModules(root, [generator, "scripts/floor/present.mjs"])].toSorted(), [generator, "scripts/floor/present.mjs"], "a followable import is carried (liveness)");
+  assert.throws(() => frontDoorGeneratorModules(root, undefined), (error: unknown) => (error as { code?: string }).code === "front_door_generator_unreadable", "no tracked set, no empty fallback");
+  write(generator, 'import { x } from "../../../scripts/floor/absent.mjs";\nexport { x };\n');
+  assert.throws(() => frontDoorGeneratorModules(root, [generator, "scripts/floor/present.mjs"]), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "front_door_generator_import_unfollowed");
+    assert.match((error as Error).message, /engine\/scripts\/brand\/cli\.ts imports \.\.\/\.\.\/\.\.\/scripts\/floor\/absent\.mjs, which names no file the tree holds/u);
+    return true;
+  });
+  write(generator, "const name = 'x';\nawait import(`../../../scripts/floor/${name}.mjs`);\n");
+  assert.throws(() => frontDoorGeneratorModules(root, [generator]), (error: unknown) => (error as { code?: string }).code === "front_door_generator_import_unfollowed", "a computed import from the generator refuses");
+});
+
+test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", async () => {
   const copy = createRepositoryWorkingCopy("harness-prune-", { include: engineGeneratorPopulation });
   const nodeOptions = process.env["NODE_OPTIONS"];
   try {
@@ -59,18 +96,18 @@ test("harness regenerate: a deleted test is refused with the typed code and the 
     const warner = join(createTempDir("harness-prune-warning-"), "warn-last.mjs");
     writeFileSync(warner, "process.on('exit', () => process.stderr.write('(node:1) Warning: planted after the refusal\\n'));\n");
     process.env["NODE_OPTIONS"] = `${nodeOptions ?? ""} --import=${warner}`.trim();
-    assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true }), (error: unknown) => {
+    await assert.rejects(harnessRegenerate(copy.engineRoot, { write: true }), (error: unknown) => {
       const { code, message } = error as { code?: string; message?: string };
       assert.equal(code, "test_surface_prune_refused", String(message));
       assert.match(String(message), new RegExp(`--prune ${DELETED.replaceAll(".", "\\.")}`, "u"));
       return true;
     });
     const present = "test/shared-suite/best-effort.test.ts";
-    assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED, present] }),
+    await assert.rejects(harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED, present] }),
       (error: unknown) => (error as { code?: string }).code === "test_surface_prune_not_deleted");
     // The named prune goes through the dispositions; the pinned non-canonical set then asks to be restated by hand
     // (the conservation identity: a pin a generator can rewrite refuses nothing).
-    assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED] }), /the pinned non-canonical test-source set moved/u);
+    await assert.rejects(harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED] }), /the pinned non-canonical test-source set moved/u);
     const manifest = readFileSync(join(copy.engineRoot, "traceability", "test-surface-dispositions.json"), "utf8");
     assert.equal(manifest.includes(`"${DELETED}"`), false, "the named deletion left the manifest");
   } finally {
