@@ -36,10 +36,9 @@ index entry to HEAD — is in `CONTRIBUTING.md`.
   `src/workflow/checkout-setup.ts`): `links` (e.g. `engine/large-codebases`), the
   config's required 0600 mode, then `phases.setup` — `npm ci` from the candidate's
   own lockfiles in both trees, the guardian plus its test binaries
-  (`test_payload`, `test-process-supervisor`), the bundle, and the web suite's
-  module cache (`web-module-cache`: `npx vitest list` collects every test file,
-  so the first web run is warm and judged — a fresh candidate's first run used
-  to build ~90% of its transforms and was never judged);
+  (`test_payload`, `test-process-supervisor`) and the bundle (no web module
+  cache is warmed: a test run's caches live in its own scratch and go with it,
+  decision TEST-CONFINEMENT-SELF-BIND);
 - runs `harness sync --with-bundle` — the candidate's own engine, whose
   command repeats its pass until one changes no generated output (the ONE
   fixed-point loop, `convergeUntilStable` in

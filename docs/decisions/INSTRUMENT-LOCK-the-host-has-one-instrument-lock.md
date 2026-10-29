@@ -36,15 +36,15 @@ nothing about either tree).
   `wholeInstrumentTestFileCount`, and a kind config does not name is refused.
   The vitest door counts the files vitest itself selects (its own CLI parser
   and specification search), a `vitest list` included: no verb is exempt
-  (a setup step that lists the suite, `web-module-cache`, is declared
-  `holdsInstrumentLock`: the checkout runner takes the lock before it starts,
-  its wait counting toward no timeout, once per tree, and a read-only create
-  skips it, so a create waits behind a validate and never fails for it). The
+  (a setup step that runs one is declared `holdsInstrumentLock`: the checkout
+  runner takes the lock before it starts, its wait counting toward no timeout,
+  once per tree, and a read-only create skips it, so a create waits behind a
+  validate and never fails for it). The
   engine runner and the web runner count their own arguments
   (`namedTestFileCount`); a web run that miscounts itself light is still
   caught by the vitest door, which re-runs it inside the supervising door.
   Known limit: the guard that every door reaches the lock is a hand list of
-  source patterns over named files (engine/test/prevention/test-run-lock.test.ts),
+  source patterns over named files (engine/live/test-run-lock.test.ts),
   not a search for every spawn of a runner (L-3, owned by the TASKS row
   LOCK-DOOR-CENSUS).
   **Amendment (round 4):** the claim above is the VITEST DOOR's, and the door

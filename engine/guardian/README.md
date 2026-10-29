@@ -24,20 +24,24 @@ CPU receipts. `make test_process_supervisor` builds
 the product's own command runner needs it: a product checkout builds it from
 what ships.
 
-It also makes a CHECKOUT READ-ONLY to the command (#293's class: a test, or
-anything it started, changed the live checkout). With `--read-only-root <dir>`
-(the checkout, and every directory its git state lives in) and `--writable
-<dir>` (the declared state directories beneath it), the command starts in a
-user and mount namespace of its own where the roots are read-only binds and
-the writable places read-write ones, locked by a second user and mount
-namespace so the command can neither remount nor unmount them: every write,
-chmod, utime, link or rename there is EROFS, for every descendant. The places
-are computed by the one door (`engine/src/process/supervised-run.ts`
-`checkoutConfinement`), which probes the arrangement first
-(`--probe-confinement`) and refuses the run, typed, where the host forbids
-unprivileged user namespaces. On a host whose AppArmor restricts them (Ubuntu
-24.04's default), `node guardian/build.ts --apparmor-profile` prints the
-profile that admits them for this binary alone (CONTRIBUTING's one-time step).
+It also CONFINES the command (decision TEST-CONFINEMENT-SELF-BIND; the one
+test-execution door, `runTestCommand` in `engine/src/process/supervised-run.ts`,
+always passes the confinement). With `--checkout <dir> --scratch <dir>
+[--writable <dir>]…`, the command starts in user, mount, network and IPC
+namespaces of its own where EVERY mount is read-only
+(`mount_setattr(AT_RECURSIVE, MOUNT_ATTR_RDONLY)` on `/`, the one mechanism),
+except the scratch root (outside the checkout) and the writable places (the
+checkout's declared state folders), each opened without following a link,
+checked by its canonical path, refused if a file beneath it has more than one
+name, and bound read-write from that descriptor. `/tmp`, `/run` and `/dev/shm`
+are fresh tmpfs, only a loopback is up, inherited descriptors beyond 0–2 (and
+3 with `--pass-fd`) are closed, and a second user and mount namespace locks
+the mounts. A step that fails is refused with exit 125 and its name; the
+command never starts unconfined. `--probe-confinement` (same places) proves
+the arrangement before a run. On a host whose AppArmor restricts unprivileged
+user namespaces (Ubuntu 24.04's default), `node guardian/build.ts
+--apparmor-install` prints the commands that admit them for this checkout's
+supervisor at its exact path (CONTRIBUTING's one-time step).
 
 ## Build
 

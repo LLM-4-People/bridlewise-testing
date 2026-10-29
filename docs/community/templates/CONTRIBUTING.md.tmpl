@@ -70,17 +70,23 @@ make -C engine/guardian all
 npm --prefix engine run build:bundle
 ```
 
-The test runners make your checkout **read-only to the tests** (a test can
-write only the `.bridlewise/` state folders and outside the checkout), using an
-unprivileged user namespace. On Ubuntu 24.04 and other hosts whose AppArmor
-restricts those (`/proc/sys/kernel/apparmor_restrict_unprivileged_userns`
-is `1`), the first test run stops with `test_confinement_unavailable`. Admit
-user namespaces for the test supervisor binary alone, once per machine:
+Every test run goes through one door that makes the **whole filesystem
+read-only to the tests**: a test can write only its run's own scratch folder
+(its `TMPDIR`, removed after the run) and the checkout's `.bridlewise/` state
+folders, sees fresh `/tmp` and `/run`, and has no network beyond its own
+loopback. It uses unprivileged user namespaces. On Ubuntu 24.04 and other
+hosts whose AppArmor restricts those
+(`/proc/sys/kernel/apparmor_restrict_unprivileged_userns` is `1`), the first
+test run stops with `test_confinement_unavailable` and names the fix: a
+profile that admits user namespaces for this checkout's test supervisor at
+its exact path, once per checkout or workspace. Print the commands with:
 
 ```bash
-node engine/guardian/build.ts --apparmor-profile | sudo tee /etc/apparmor.d/bridlewise-test-process-supervisor >/dev/null
-sudo apparmor_parser -r /etc/apparmor.d/bridlewise-test-process-supervisor
+node engine/guardian/build.ts --apparmor-install
 ```
+
+The profile follows the path, which you can write, so it narrows the
+exemption to one path rather than adding a privilege boundary.
 
 Before you open a pull request, run the local gate:
 
