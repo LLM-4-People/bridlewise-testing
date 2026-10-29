@@ -10,14 +10,17 @@ import { parse } from "yaml";
 
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
 import { buildStatus } from "../../scripts/floor/status.mjs";
+import { repoInfo } from "../../scripts/floor/files.mjs";
 import { memoryCredential } from "../../engine/src/workflow/forge/credentials.ts";
 import { githubClient } from "../../engine/src/workflow/forge/github.ts";
 import { fakeGithub } from "../../engine/test/forge/fake-github.ts";
+import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-/** The repository the tree declares (package.json repository.url), the one source every URL comes from. */
-const REPOSITORY = /github\.com\/([^/]+\/[^/.]+?)(?:\.git)?$/u.exec(JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).repository.url)[1];
-const BLOB = `https://github.com/${REPOSITORY}/blob/main/`;
+/** The repository identity (the forge section), the one source every URL comes from. */
+const IDENTITY = configuredRepositoryIdentity();
+const REPOSITORY = IDENTITY.fullName;
+const BLOB = `${IDENTITY.webUrl}/blob/main/`;
 
 function readJson(path) {
   return JSON.parse(readFileSync(join(ROOT, path), "utf8"));
@@ -45,7 +48,7 @@ test("the floor atlas reconciles its generated counts with tracked sources", () 
   assert.ok(atlas.decisions.length > 0);
 
   for (const entry of atlas.tests) {
-    assert.ok(entry.url.startsWith(BLOB), `${entry.url} is a file of this repository (package.json repository.url)`);
+    assert.ok(entry.url.startsWith(BLOB), `${entry.url} is a file of this repository (the repository identity)`);
     assert.ok(existsSync(join(ROOT, entry.url.slice(BLOB.length))), `${entry.url} names a file this tree holds`);
     assert.ok(entry.category);
     assert.ok(entry.disposition);
@@ -59,21 +62,22 @@ test("the one site's source is this tree's docs/, with no second repository", as
   const out = join(work, "site");
   try {
     const result = await buildSiteSource({ root: ROOT, out, baseurl: "/bridlewise" });
-    // Every coordinate the pages read is written from package.json, the one declaration.
-    const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const repositoryUrl = manifest.repository.url.replace(/\.git$/u, "");
+    // Every coordinate the pages read is written from the repository identity, the one source.
+    const repositoryUrl = IDENTITY.webUrl;
     const config = parse(readFileSync(join(out, "_config.yml"), "utf8"));
     assert.equal(config.baseurl, "/bridlewise");
     assert.equal(config.repository_url, repositoryUrl);
     assert.equal(config.security_url, `${repositoryUrl}/blob/main/SECURITY.md`);
-    assert.equal(config.url, `https://${repositoryUrl.split("/")[3].toLowerCase()}.github.io`);
+    assert.equal(config.url, new URL(IDENTITY.pagesUrl).origin);
     const layout = readFileSync(join(out, "_layouts/default.html"), "utf8");
     assert.match(layout, /assets\/floor\/floor\.css/u);
     assert.match(layout, /assets\/floor\/floor\.js/u);
     assert.doesNotMatch(layout, /page\.floor_assets|floor_notice|testing_url|testing_hub_url/u, "one shell, one design layer, no mirror banner");
     // The front door leads with the product; the contributor hub and the floor are pages of the same site.
     assert.match(readFileSync(join(out, "index.md"), "utf8"), /permalink: \/\n/u);
-    assert.match(readFileSync(join(out, "index.md"), "utf8"), /Every run, recorded/u);
+    // Its words are the messaging source's (docs/brand/messaging.json, written by harness sync), never typed here.
+    const messaging = JSON.parse(readFileSync(join(ROOT, "docs/brand/messaging.json"), "utf8"));
+    assert.ok(readFileSync(join(out, "index.md"), "utf8").includes(`<h1>${messaging.promise}</h1>`));
     assert.match(readFileSync(join(out, "contribute.md"), "utf8"), /permalink: \/contribute\//u);
     assert.ok(readFileSync(join(out, "floor/index.md"), "utf8").includes("The development floor"));
     assert.ok(readFileSync(join(out, "assets/floor/floor.css"), "utf8").includes("floor-table-wrap"));
@@ -156,6 +160,51 @@ test("the floor status reports the product branch of this repository", async () 
     assert.equal(status.promotion.profile, "main-to-product");
     assert.match(status.promotion.reason, reason);
   }
+});
+
+test("each workflow run at the source commit reports its jobs' own conclusions; a run at another commit, or a failed read, reports none", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const run = (id, name, headSha) => ({ id, name, path: `.github/workflows/${id}.yml`, status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
+  const job = (name, conclusion) => ({ id: name.length, name, status: "completed", conclusion, html_url: `https://example.invalid/jobs/${name}` });
+  const { requested, client } = forgeClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [run(11, "CI", commit), run(12, "CodeQL", "0".repeat(40)), run(13, "Secret scan", commit)] } };
+    if (request.path.endsWith("/actions/runs/11/jobs")) {
+      assert.equal(request.query.get("filter"), "latest", "the latest attempt's jobs");
+      return { body: { total_count: 2, jobs: [job("Web shard 1", "success"), job("Engine suite", "failure")] } };
+    }
+    if (request.path.endsWith("/actions/runs/13/jobs")) return { status: 500, body: { message: "boom" } };
+    if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+    return { body: [] };
+  });
+  const status = await buildStatus({ root: ROOT, client, maxPages: 5, now: new Date("2026-01-01T00:00:00.000Z") });
+  const check = (id) => status.checks.find((entry) => entry.id === id);
+  assert.deepEqual(check("ci").jobs, [
+    { name: "Engine suite", status: "completed", conclusion: "failure", url: "https://example.invalid/jobs/Engine suite" },
+    { name: "Web shard 1", status: "completed", conclusion: "success", url: "https://example.invalid/jobs/Web shard 1" },
+  ]);
+  assert.equal(check("codeql").jobs, null, "a run at another commit proves nothing about this one");
+  assert.ok(!requested.some((path) => path.endsWith("/actions/runs/12/jobs")), "no jobs are read for a run at another commit");
+  assert.equal(check("secret").jobs, null);
+  assert.equal(check("secret").jobsNote, "The API did not answer for this run's jobs.");
+  assert.equal(check("docs").jobs, null, "no run, no jobs");
+});
+
+test("a run with more jobs than the page bound holds says so in its own words, never as an API that did not answer", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const path = (page) => `/repos/${REPOSITORY}/actions/runs/21/jobs?filter=latest&per_page=100&page=${page}`;
+  const { client } = forgeClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [{ id: 21, name: "CI", status: "completed", conclusion: "success", head_sha: commit, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: "https://example.invalid/runs/21" }] } };
+    if (request.path.endsWith("/actions/runs/21/jobs")) {
+      const page = Number(request.query.get("page") ?? "1");
+      return { body: { total_count: 300, jobs: [{ id: page, name: `job ${page}`, status: "completed", conclusion: "success", html_url: "https://example.invalid/j" }] }, link: `<${path(page + 1)}>; rel="next"` };
+    }
+    if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+    return { body: [] };
+  });
+  const status = await buildStatus({ root: ROOT, client, maxPages: 2, now: new Date("2026-01-01T00:00:00.000Z") });
+  const ci = status.checks.find((entry) => entry.id === "ci");
+  assert.equal(ci.jobs, null, "a partial job list is never reported");
+  assert.equal(ci.jobsNote, "This run has more jobs than 2 page(s) of 100 hold (forge.request.maxPages); none is reported rather than a partial list.");
 });
 
 const lowAlert = (number) => ({ number, state: "open", rule: { security_severity_level: "low" } });

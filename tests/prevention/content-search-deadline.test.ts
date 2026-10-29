@@ -34,6 +34,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
 
 /** The deadline this file configures, and the one every assertion is derived
  *  from. Long enough that the bomb cannot possibly finish inside it, short
@@ -83,37 +84,29 @@ describe("a catastrophic pattern is contained by a deadline, not by luck", () =>
     expect(result.output).toContain("benign.ts:1");
   });
 
-  test("the search is refused at the deadline, and the event loop runs throughout", async () => {
-    let ticks = 0;
-    let longestStall = 0;
-    let last = Date.now();
-    const beat = setInterval(() => {
-      const now = Date.now();
-      longestStall = Math.max(longestStall, now - last);
-      last = now;
-      ticks += 1;
-    }, 20);
-
+  test("the search is refused at the deadline, and runs OFF the main thread throughout", async () => {
     const started = Date.now();
+    const mainThreadBefore = threadCpuWorkMs();
     const result = await executeToolCall("search_code", { pattern: "(a+)+$" }, { ...ctx, projectRoot: root });
+    const mainThreadWork = threadCpuWorkMs() - mainThreadBefore;
     const elapsed = Date.now() - started;
-    clearInterval(beat);
 
     // Liveness for the cost assertions: the expensive operation must actually
     // have been attempted and actually have been refused. A tool that rejected
-    // every pattern instantly would satisfy the loop measurement below by
-    // never doing any work at all, which is precisely how a cost guard passes
-    // while measuring a refusal.
+    // every pattern instantly would satisfy the measurement below by never
+    // doing any work at all, which is precisely how a cost guard passes while
+    // measuring a refusal. The refusal names the time limit: that is the path
+    // that ended it (a lower bound on the wait stays: load can only lengthen it).
     expect(result.success).toBe(false);
     expect(result.output).toMatch(/time limit/i);
     expect(elapsed, "the deadline was actually reached").toBeGreaterThanOrEqual(DEADLINE_MS * 0.8);
-    expect(elapsed, "and enforced, rather than the match completing").toBeLessThan(DEADLINE_MS * 8);
 
-    // The discriminator the synchronous walk cannot reproduce. Matched inline
-    // on the main thread this pattern pins the loop for its whole duration and
-    // `ticks` is 0; only running it somewhere else produces a moving loop.
-    expect(ticks, "the event loop must have advanced during the search").toBeGreaterThan(elapsed / 100);
-    expect(longestStall, "no long main-thread stall").toBeLessThan(DEADLINE_MS / 2);
+    // The discriminator the synchronous walk cannot reproduce, in CPU WORK,
+    // never in event-loop timing (NO-LOAD-BLOCK: a busy host stalls a moving
+    // loop too). Matched inline on the main thread this pattern costs THIS
+    // thread the whole deadline of CPU; run somewhere else, this thread only
+    // waits for it. The worker's own CPU is not this thread's.
+    expect(mainThreadWork, `the main thread did ${mainThreadWork.toFixed(1)} ms of CPU work during a ${String(DEADLINE_MS)} ms search`).toBeLessThan(DEADLINE_MS / 2);
   });
 
   /**

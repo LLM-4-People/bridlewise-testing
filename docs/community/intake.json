@@ -74,7 +74,7 @@
       "description": "A test that passed and failed on the same tree. Name the test file and the test.",
       "type": "Flake",
       "typeStatus": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/57"
+        "planned": 57
       },
       "fields": [
         {
@@ -199,7 +199,7 @@
       "postedBy": "the publisher",
       "use": "one thread per milestone and one comment per land",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/113"
+        "planned": 113
       }
     },
     {
@@ -209,7 +209,7 @@
       "postedBy": "the publisher",
       "use": "one thread per release",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/113"
+        "planned": 113
       }
     },
     {
@@ -219,7 +219,7 @@
       "postedBy": "the publisher",
       "use": "one thread per decision record; everyone can comment",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/113"
+        "planned": 113
       }
     },
     {
@@ -229,7 +229,7 @@
       "postedBy": "anyone",
       "use": "a proposal for a new decision; an accepted RFC becomes a decision-record pull request",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/113"
+        "planned": 113
       },
       "form": {
         "title": "rfc: ",

@@ -33,6 +33,17 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
   apiUrl: httpsOrigin,
   /** The web origin (`https://github.com`): App creation and installation pages. */
   webUrl: httpsOrigin,
+  /** The domain of the forge's project Pages sites (`github.io`): a project's site is `<owner, lower-cased>.<pagesDomain>/<name>/`. */
+  pagesDomain: z.string().regex(/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/u),
+  /** The uploads origin (`https://uploads.github.com`): release assets are uploaded there as raw bodies. */
+  uploadsUrl: httpsOrigin,
+  /**
+   * The origins a release-asset download may be redirected to. GitHub answers
+   * an asset's bytes with a redirect to a signed URL on its asset hosts. The
+   * client asks that location itself, without the API credential, and only
+   * when its origin is listed here.
+   */
+  assetOrigins: z.array(httpsOrigin).min(1).max(8),
   /** The `User-Agent` every request carries (GitHub requires one). */
   userAgent: z.string().min(1).max(128).regex(/^[\x21-\x7e]+$/u),
   /** Each request's bounds. */
@@ -43,6 +54,28 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     etagCacheEntries: z.number().int().min(1).max(100_000),
     /** The most pages one list read follows (a longer list is refused, never truncated). */
     maxPages: z.number().int().min(1).max(1_000),
+    /**
+     * A release asset's transfer (an upload or a download). It is bounded by
+     * size and by a PROGRESS FLOOR, never by a total wall time: every window
+     * of `progressWindowMs` must move `minBytesPerWindow` bytes (or bring the
+     * far end's answer), so a drip or silence ends (`forge_asset_stalled`),
+     * and a large asset on a loaded host that keeps moving is never cut.
+     */
+    assets: z.strictObject({
+      /** The largest asset uploaded or downloaded (GitHub's own limit is 2 GiB). */
+      maxBytes: z.number().int().min(1_024).max(2_147_483_648),
+      /** The length of one progress window. */
+      progressWindowMs: z.number().int().min(1_000).max(600_000),
+      /** The fewest bytes a window must move. */
+      minBytesPerWindow: z.number().int().min(1).max(1_073_741_824),
+      /**
+       * An upload's last phase: once every byte is handed to the socket, no
+       * byte count observes the kernel's buffers draining or GitHub storing
+       * the asset. GitHub must answer within this declared silence bound
+       * (`forge_asset_unanswered`), which the floor never judges.
+       */
+      answerSilenceMs: z.number().int().min(1_000).max(3_600_000),
+    }),
   }),
   /** An installation token is minted again this long before it expires. */
   tokenRenewBeforeMs: z.number().int().min(0).max(3_000_000),
@@ -50,6 +83,13 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
    * The repository topology: every Bridlewise repository with its `kind`
    * and visibility. Exactly one `trunk`. A `provingGround` repository gets
    * every App installed (the V-tests, runbook P1.11) until it is archived.
+   * Exactly one repository is the `product` one: where the product is
+   * published (the `bridlewise` repository until the P1.10 rename, the trunk
+   * after it). At most one is the public `preview` repository: the product as
+   * published before the rename, kept with its releases (`bridlewise`, then
+   * `bridlewise-preview`). Both are identities of their own
+   * (`productIdentity`, `previewIdentity`), and prose names them only through
+   * generated references (`[text][product:<path>]`, `[text][preview:<path>]`).
    */
   repositories: z.array(z.strictObject({
     name: z.string().regex(NAME),
@@ -58,10 +98,16 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     provingGround: z.boolean().optional(),
     /** A branch the repository protects from deletion and force-pushes by its own ruleset (`protect-<branch>`; the notes repository's working branch). */
     protectedBranch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/u).optional(),
+    /** Where the product is published (exactly one repository). */
+    product: z.literal(true).optional(),
+    /** The public preview repository: the product as published before the rename (at most one). */
+    preview: z.literal(true).optional(),
   })).min(1).superRefine((repositories, context) => {
     const names = repositories.map((repository) => repository.name.toLowerCase());
     if (new Set(names).size !== names.length) context.addIssue({ code: "custom", message: "repository names must be unique" });
     if (repositories.filter((repository) => repository.kind === "trunk").length !== 1) context.addIssue({ code: "custom", message: "exactly one repository is the trunk" });
+    if (repositories.filter((repository) => repository.product === true).length !== 1) context.addIssue({ code: "custom", message: "exactly one repository is the product's (product: true)" });
+    if (repositories.filter((repository) => repository.preview === true).length > 1) context.addIssue({ code: "custom", message: "at most one repository is the preview (preview: true)" });
   }),
   /**
    * How a run of the maintainer's `gh` is bounded: never by the wall clock
@@ -200,6 +246,14 @@ export function repositoriesOfKinds(settings: ForgeSettings, kinds: readonly For
 export function forgeEndpoint(settings: ForgeSettings): ForgeEndpoint {
   return deepFreeze({
     apiUrl: settings.apiUrl.replace(/\/$/u, ""),
+    uploadsUrl: settings.uploadsUrl.replace(/\/$/u, ""),
+    assets: {
+      origins: settings.assetOrigins.map((origin) => origin.replace(/\/$/u, "")),
+      maxBytes: settings.request.assets.maxBytes,
+      progressWindowMs: settings.request.assets.progressWindowMs,
+      minBytesPerWindow: settings.request.assets.minBytesPerWindow,
+      answerSilenceMs: settings.request.assets.answerSilenceMs,
+    },
     allowPrivateAddress: false,
     timeoutMs: settings.request.timeoutMs,
     maxResponseBytes: settings.request.maxResponseBytes,
