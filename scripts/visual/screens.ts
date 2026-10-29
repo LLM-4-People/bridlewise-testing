@@ -110,7 +110,8 @@ async function picture(page: Page): Promise<Buffer> {
 /** Changed pixels between two PNGs, counted (and a diff painted) in the browser's canvas. */
 async function difference(page: Page, before: Buffer, after: Buffer): Promise<{ changed: number; total: number; diff: string }> {
   return page.evaluate(async ([a, b]) => {
-    const load = async (data: string): Promise<ImageBitmap> => createImageBitmap(await (await fetch(`data:image/png;base64,${data}`)).blob());
+    // Decoded in the page from the base64 itself: no request of any kind.
+    const load = async (data: string): Promise<ImageBitmap> => createImageBitmap(new Blob([Uint8Array.from(atob(data), (char) => char.charCodeAt(0))], { type: "image/png" }));
     const [left, right] = [await load(a!), await load(b!)];
     const width = Math.max(left.width, right.width);
     const height = Math.max(left.height, right.height);
