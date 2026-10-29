@@ -2671,6 +2671,10 @@ const ROOT_POLICY_VALUE = {
       // worktree config, a candidate's local config), beside the agent identity: the commit-msg hook
       // refuses a commit there whose identities are not all the agent's (scripts/verification/sign-off.ts).
       agentCheckoutKey: "bridlewise.agentCheckout",
+      // The committer GitHub records on a commit it creates and signs through its API (an App's published branch,
+      // the web editor). Such a commit carries its AUTHOR's sign-off, accepted only when GitHub's own verification
+      // reports the signature valid and made by GitHub (scripts/verification/sign-off.ts); the field alone proves nothing.
+      webFlowCommitter: { name: "GitHub", email: "noreply@github.com" },
     },
     /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs
