@@ -29,6 +29,10 @@ would break the identity and sign-off rule in force (GH-IDENTITY).
   a Bot whose numeric user id is the one the root policy declares
   (`workflow.dependabot`); anything else is refused (`deps_not_dependabot`),
   whatever its login says. So is a closed pull request.
+- **It forks from the trunk itself.** A checkout holding commits its upstream
+  trunk lacks is refused before anything exists (`deps_checkout_not_on_trunk`):
+  the workspace forks from the invoking checkout, and those commits would ride
+  along unleased.
 - **It is applied to the trunk as it is now.** A spec or pin the trunk moved
   since Dependabot read it is refused (`deps_bump_drifted`).
 - **The lockfile is never copied, and nothing is installed on the host.** The

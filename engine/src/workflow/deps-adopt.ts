@@ -18,7 +18,9 @@
  *    a link, a URL, a workspace, a dist-tag or a wider range refuses
  *    (`deps_spec_unsupported`, naming the form). A lockfile is never copied:
  *    the real resolver writes it;
- * 3. in an agent workspace the bump is applied to the trunk as it is now — a
+ * 3. the invoking checkout must hold nothing its upstream trunk does not
+ *    (`deps_checkout_not_on_trunk`): the workspace forks from it;
+ *    in an agent workspace the bump is applied to the trunk as it is now — a
  *    spec that moved on the trunk since Dependabot read it refuses
  *    (`deps_bump_drifted`) — then, for npm, the declared lockfile command runs
  *    through the one command runner, RESOLUTION ONLY (`--package-lock-only
@@ -241,6 +243,8 @@ export function rewriteActionPins(text: string, changes: readonly ActionChange[]
 export type DepsAdoptPorts = Readonly<{
   readPullRequest(number: number): Promise<Readonly<{ authorLogin: string; authorId: number; authorType: string; state: "open" | "closed"; baseSha: string; headSha: string; files: readonly Readonly<{ path: string }>[] }>>;
   readFileAt(path: string, ref: string): Promise<string | null>;
+  /** The commits the invoking checkout holds that its upstream trunk does not (fetched first), and that trunk's name. */
+  checkoutAheadOfTrunk(): Promise<Readonly<{ commits: number; trunk: string }>>;
   /** A feature workspace for the agent, leasing `writeSet`; answers its id and worktree path. */
   createWorkspace(writeSet: readonly string[]): Promise<Readonly<{ id: string; worktree: string }>>;
   readWorkspaceFile(worktree: string, path: string): string;
@@ -297,6 +301,9 @@ export async function adoptDependabotPullRequest(number: number, ports: DepsAdop
     refuse("deps_not_dependabot", `pull request #${String(number)} is by ${pull.authorLogin} (a ${pull.authorType}, id ${String(pull.authorId)}), not Dependabot (a ${dependabot.type}, id ${String(dependabot.userId)}): only Dependabot's bumps are adopted, known by its account, never its login`, { number: String(number) });
   }
   if (pull.state !== "open") refuse("deps_pull_request_closed", `pull request #${String(number)} is closed: there is nothing to adopt`, { number: String(number) });
+  // The workspace forks from the invoking checkout's branch: one carrying its own commits would bring them, unleased, into the bump.
+  const ahead = await ports.checkoutAheadOfTrunk();
+  if (ahead.commits > 0) refuse("deps_checkout_not_on_trunk", `the checkout holds ${String(ahead.commits)} commit(s) ${ahead.trunk} does not: an adoption forks from the trunk itself; run it from a checkout of ${ahead.trunk}`, { trunk: ahead.trunk });
   const files = await Promise.all(pull.files.map(async ({ path }) => ({ path, before: await ports.readFileAt(path, pull.baseSha), after: await ports.readFileAt(path, pull.headSha) })));
   const bump = deriveBump(files);
   const manifest = bump.ecosystem === "npm" ? (bump.directory === "" ? "package.json" : `${bump.directory}/package.json`) : null;

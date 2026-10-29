@@ -43,6 +43,14 @@ export async function runDepsCli(root: string, argv: readonly string[]): Promise
   const ports: DepsAdoptPorts = {
     readPullRequest: (pull) => pullRequestFacts(client, repository, pull, settings.request.maxPages),
     readFileAt: (path, ref) => fileAtRef(client, repository, path, ref),
+    checkoutAheadOfTrunk: async () => {
+      // The upstream the workspace manager lands on (`branch.<name>.remote` / `.merge`), fetched, then what HEAD holds beyond it.
+      const branch = git("git symbolic-ref", ["symbolic-ref", "--short", "HEAD"], root).trim();
+      const remote = git("git config", ["config", "--get", `branch.${branch}.remote`], root).trim();
+      const trunk = git("git config", ["config", "--get", `branch.${branch}.merge`], root).trim().replace(/^refs\/heads\//u, "");
+      git("git fetch", ["fetch", "-q", remote, trunk], root);
+      return { commits: Number(git("git rev-list", ["rev-list", "--count", `${remote}/${trunk}..HEAD`], root).trim()), trunk: `${remote}/${trunk}` };
+    },
     createWorkspace: async (writeSet) => {
       const record = await manager.create({ agentName: `deps-${String(number)}`, mode: "feature", writeSet });
       return { id: record.workspaceId, worktree: record.lease.worktreePath };

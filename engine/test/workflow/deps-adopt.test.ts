@@ -119,6 +119,7 @@ function fakePorts(overrides: Partial<DepsAdoptPorts> = {}, pull: Partial<Awaite
   const texts = new Map<string, string>([["package.json", BEFORE]]);
   const ports: DepsAdoptPorts = {
     readPullRequest: async () => ({ authorLogin: "dependabot[bot]", authorId: ROOT_POLICY.workflow.dependabot.userId, authorType: "Bot", state: "open", baseSha: "base", headSha: "head", files: [{ path: "package.json" }, { path: "package-lock.json" }], ...pull }),
+    checkoutAheadOfTrunk: async () => ({ commits: 0, trunk: "origin/main" }),
     readFileAt: async (path, ref) => (path === "package.json" ? (ref === "base" ? BEFORE : AFTER) : `{"lockfile":"${ref}"}`),
     createWorkspace: async (writeSet) => { calls.push(`create ${writeSet.join(",")}`); return { id: "ws-1", worktree: "/w" }; },
     readWorkspaceFile: (_worktree, path) => texts.get(path) ?? "",
@@ -161,6 +162,7 @@ test("not Dependabot's account (whatever the login), closed, or a resolution tha
     ["a closed pull request", "deps_pull_request_closed", { state: "closed" as const }, {}],
     ["a lockfile command that runs lifecycle scripts", "deps_resolution_executes", {}, { declaredArgv: () => ["npm", "install", "--package-lock-only"] }],
     ["a lockfile command that installs", "deps_resolution_executes", {}, { declaredArgv: () => ["npm", "ci", "--ignore-scripts"] }],
+    ["a checkout carrying commits the trunk lacks", "deps_checkout_not_on_trunk", {}, { checkoutAheadOfTrunk: async () => ({ commits: 3, trunk: "origin/main" }) }],
   ] as const) {
     const { ports, calls } = fakePorts(overrides, pull);
     await assert.rejects(adoptDependabotPullRequest(620, ports), refusedWith(code), why);
