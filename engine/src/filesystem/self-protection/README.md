@@ -109,19 +109,6 @@ is reached (sec-e-correctness M-4):
   keeping its key beside it is recognised directly (its own header and the
   key), never through the bounded listing, so it is never given a new key.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/filesystem/self-protection/`.
-
-- `confined-run.ts` is consumed by `engine/src/workflow/forge/projector/confined.ts`.
-- `guardian-binary.ts` is consumed by `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/index.ts`.
-- `guardian-build-stamp.ts` is consumed by `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/workflow/hash-binding-registry.ts`.
-- `index.ts` is consumed by `server/kernel/canonical.ts`.
-- `keep-out.ts` is consumed by `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/temporary-root.ts`, `engine/src/process/instrument-lock.ts`, `engine/src/workflow/forge/projector/confined.ts`.
-- `key-home.ts` is consumed by `engine/src/filesystem/persisted-key.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/workflow/forge/app-keys.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts` and 1 more.
-- `self-protection-config.ts` is consumed by `engine/src/cli.ts`, `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/keep-out.ts`, `engine/src/filesystem/self-protection/key-home.ts` and 2 more.
-- `self-protection-contracts.ts` is consumed by `engine/scripts/verification/slice-projections.ts`, `engine/src/filesystem/self-protection/confined-run.ts`, `engine/src/filesystem/self-protection/guardian-binary.ts`, `engine/src/filesystem/self-protection/index.ts`, `engine/src/filesystem/self-protection/self-protection-config.ts`, `engine/src/kernel/root-policy.ts`.
-
-<!-- /consumers:generated -->

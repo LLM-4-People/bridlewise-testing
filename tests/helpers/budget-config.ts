@@ -54,10 +54,6 @@ function positiveFinite(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
 }
 
-/** A finite number at or above zero — the ambient envelope's slopes may be 0. */
-function nonNegativeFinite(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
-}
 
 /**
  * The declared rolling budget, or the plain-words reason it cannot be read.
@@ -189,14 +185,11 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
       ...(legacyValue === undefined ? {} : { legacy: legacyValue }),
     };
   }
-  // THE ROLLING SHAPE. Zero is a legal ambient slope now: the calibrated
-  // metric already owns the load normalisation, so a non-zero slope would
-  // double-pay the same effect.
+  // THE ROLLING SHAPE. No ambient envelope: a cap is never scaled by host
+  // load (NO-LOAD-BLOCK, audit A-08).
   const baselineFloorUnitsPerTestFile = positiveFinite(rec.baselineFloorUnitsPerTestFile);
   const sameTreeSpreadFraction = positiveFinite(rec.sameTreeSpreadFraction);
   const baselineWindowRuns = positiveFinite(rec.baselineWindowRuns);
-  const ambientInflationSlopePerCpu = nonNegativeFinite(rec.ambientInflationSlopePerCpu);
-  const ambientInflationCapFraction = nonNegativeFinite(rec.ambientInflationCapFraction);
   if (baselineFloorUnitsPerTestFile === null) {
     return {
       missing:
@@ -223,20 +216,6 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
         `treadmill the rolling derivation exists to end.`,
     };
   }
-  if (
-    ambientInflationSlopePerCpu === null || ambientInflationSlopePerCpu >= 1 ||
-    ambientInflationCapFraction === null || ambientInflationCapFraction >= 1
-  ) {
-    return {
-      missing:
-        `webUiSuiteCpuBudget.ambientInflationSlopePerCpu and ambientInflationCapFraction ` +
-        `under ${CONFIG_SITE} must be fractions from 0 up to (but below) 1 — the measured ` +
-        `CPU-inflation envelope of the recorded 5-minute ambient load, and the bound on the ` +
-        `whole adjustment. ZERO IS LEGAL AND IS THE DECLARED VALUE for the calibrated ` +
-        `metric: the calibration already absorbs the load effect, so a non-zero slope would ` +
-        `double-pay it.`,
-    };
-  }
   return {
     metric,
     baselineFloorUnitsPerTestFile,
@@ -244,8 +223,6 @@ export function readCpuBudget(): CpuBudgetDeclaration | { readonly missing: stri
     maxPopulationDriftFraction,
     sameTreeSpreadFraction,
     baselineWindowRuns,
-    ambientInflationSlopePerCpu,
-    ambientInflationCapFraction,
     calibrationDriftMaxFraction,
     validThroughLoad5PerCpu,
   };
@@ -348,8 +325,8 @@ export function readTestCpuClasses(): TestCpuClasses | { readonly missing: strin
   if (!parsed.success) {
     return {
       missing:
-        `testCpuClasses under ${CONFIG_SITE} must carry defaultCeilingMs (a test's CPU-work ceiling) and classes ` +
-        `(named ceilings, each for the test files it lists): ${parsed.error.issues[0]?.message ?? "invalid"}`,
+        `testCpuClasses under ${CONFIG_SITE} must carry defaultCeilingMs (a test's CPU-work ceiling), headroomFactor and classes ` +
+        `(each the CPU work measured for the test files it lists; its ceiling is that times the headroom): ${parsed.error.issues[0]?.message ?? "invalid"}`,
     };
   }
   return parsed.data;

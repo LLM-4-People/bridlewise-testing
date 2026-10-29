@@ -618,7 +618,7 @@
     "failOnHigh": false,
     "failOnMedium": false,
     "failOnLow": false,
-    "enabledChecks": "duplicate-body-detector,duplicated-literals,dead-exports,schema-drift"
+    "enabledChecks": "duplicate-body-detector,duplicated-literals,dead-exports"
   },
   "safety": {
     "threshold": 0.5,
@@ -707,28 +707,127 @@
   "testExecution": {
     "testCpuClasses": {
       "defaultCeilingMs": 60000,
+      "headroomFactor": 2,
       "classes": [
         {
-          "name": "nested-runner",
-          "ceilingMs": 180000,
+          "name": "test-cpu-class",
+          "measuredCpuMs": 40779,
           "files": [
-            "tests/prevention/test-cpu-class.test.ts",
+            "tests/prevention/test-cpu-class.test.ts"
+          ]
+        },
+        {
+          "name": "test-isolation-contract",
+          "measuredCpuMs": 39589,
+          "files": [
             "tests/prevention/test-isolation-contract.test.ts"
+          ]
+        },
+        {
+          "name": "commit-guard-generated-facts",
+          "measuredCpuMs": 435215,
+          "files": [
+            "engine/test/prevention/commit-guard-generated-facts.test.ts"
+          ]
+        },
+        {
+          "name": "candidate-checkout",
+          "measuredCpuMs": 258478,
+          "files": [
+            "engine/test/workflow/candidate-checkout.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b12",
+          "measuredCpuMs": 195007,
+          "files": [
+            "engine/test/s1-scenarios/b12.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b02",
+          "measuredCpuMs": 176373,
+          "files": [
+            "engine/test/s1-scenarios/b02.test.ts"
+          ]
+        },
+        {
+          "name": "foundation-cascade",
+          "measuredCpuMs": 159494,
+          "files": [
+            "engine/test/foundation-cascade.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b15",
+          "measuredCpuMs": 135077,
+          "files": [
+            "engine/test/s1-scenarios/b15.test.ts"
+          ]
+        },
+        {
+          "name": "repository-path",
+          "measuredCpuMs": 115699,
+          "files": [
+            "engine/test/repository-path.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b08",
+          "measuredCpuMs": 89383,
+          "files": [
+            "engine/test/s1-scenarios/b08.test.ts"
+          ]
+        },
+        {
+          "name": "handoff-continuity",
+          "measuredCpuMs": 84547,
+          "files": [
+            "engine/test/unit/tasks-agents/handoff-continuity.test.ts"
+          ]
+        },
+        {
+          "name": "s1-b13",
+          "measuredCpuMs": 74514,
+          "files": [
+            "engine/test/s1-scenarios/b13.test.ts"
+          ]
+        },
+        {
+          "name": "harness-commands",
+          "measuredCpuMs": 65173,
+          "files": [
+            "engine/test/workflow/harness-commands.test.ts"
+          ]
+        },
+        {
+          "name": "adding-modules-merges",
+          "measuredCpuMs": 117097,
+          "files": [
+            "engine/test/prevention/adding-modules-merges.test.ts"
+          ]
+        },
+        {
+          "name": "architecture-baseline-clean",
+          "measuredCpuMs": 60041,
+          "files": [
+            "engine/test/architecture/architecture-baseline-clean.test.ts"
           ]
         }
       ]
     },
     "testHangBackstopMs": 600000,
     "concurrency": "auto",
-    "runtimeBudgetMs": 120000,
     "serialPhaseConcurrency": 6,
     "fullSuiteSerialPhaseConcurrency": 8,
     "fullSuiteInProcessSerialPhaseConcurrency": 4,
     "fullSuiteParallelConcurrency": 12,
     "compileCachePruning": {
-      "maxEntryAgeDays": 7,
-      "maxEntries": 400000,
-      "timeBudgetMs": 10000
+      "maxBytes": 4294967296,
+      "maxEntryAgeHours": 72,
+      "inUseMinutes": 60,
+      "intervalMinutes": 60,
+      "maxDeletionsPerPrune": 50000
     },
     "integrationSuiteCpuBudget": {
       "metric": "calibrated-work/v1",
@@ -743,7 +842,7 @@
       "phase": "accumulation",
       "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "derivedAtTestFileCount": 536,
+      "derivedAtTestFileCount": 540,
       "calibrationDriftMaxFraction": 0.15,
       "validThroughLoad5PerCpu": 1.7,
       "legacy": {
@@ -757,7 +856,10 @@
     "instrumentLock": {
       "cacheRelativeLockPath": "bridlewise/instrument.lock",
       "minimumTestFiles": 2,
-      "pollIntervalMs": 1000,
+      "perRun": {
+        "memoryMaxPercent": 50,
+        "cpuWeight": 100
+      },
       "wholeInstruments": [
         "playwright",
         "coverage",
@@ -775,7 +877,9 @@
         "engine/test/forge/flake-shim-token-ends-zero.ts",
         "tests/helpers/flake-shim-orchestration-run-id.ts",
         "engine/test/support/flake-shim-cpu-frequency-scaling.ts",
-        "engine/test/support/flake-shim-preempt-after-ready.ts"
+        "engine/test/support/flake-shim-preempt-after-ready.ts",
+        "engine/test/support/flake-shim-concurrent-owner-sweep.ts",
+        "tests/helpers/flake-shim-loaded-runner.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -784,8 +888,8 @@
       "killGraceMs": 3000
     },
     "engineSuiteWatchdog": {
-      "stallTimeoutMs": 300000,
-      "hardCeilingMs": 1800000,
+      "stallTimeoutMs": 900000,
+      "hardCeilingMs": 14400000,
       "killGraceMs": 3000
     }
   },
@@ -1062,13 +1166,25 @@
     "organization": "LLM-4-People",
     "apiUrl": "https://api.github.com",
     "webUrl": "https://github.com",
+    "pagesDomain": "github.io",
+    "uploadsUrl": "https://uploads.github.com",
+    "assetOrigins": [
+      "https://release-assets.githubusercontent.com",
+      "https://objects.githubusercontent.com"
+    ],
     "userAgent": "bridlewise-forge",
     "request": {
       "timeoutMs": 30000,
       "maxResponseBytes": 16777216,
       "cleanupTimeoutMs": 2000,
       "etagCacheEntries": 1024,
-      "maxPages": 50
+      "maxPages": 50,
+      "assets": {
+        "maxBytes": 1073741824,
+        "progressWindowMs": 30000,
+        "minBytesPerWindow": 1024,
+        "answerSilenceMs": 600000
+      }
     },
     "tokenRenewBeforeMs": 300000,
     "repositories": [
@@ -1101,7 +1217,9 @@
       {
         "name": "bridlewise",
         "kind": "archive",
-        "visibility": "public"
+        "visibility": "public",
+        "product": true,
+        "preview": true
       },
       {
         "name": "forge-proving-ground",
@@ -1133,6 +1251,7 @@
       "secretProtection": false
     },
     "maintainer": "amberflag48",
+    "teamMembers": {},
     "p0RequiredChecks": [
       {
         "context": "Typecheck, public tests, build",

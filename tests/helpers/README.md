@@ -4,6 +4,7 @@ The `tests/helpers/` folder of the development surface.
 
 ## What each file does
 
+- `flake-shim-loaded-runner.ts` — a reproduction shim (`harness flake reproduce --preload`, FLAKE-REPRO): every `performance.now()` read made from a test file first waits 20 ms without working, as a thread preempted on a loaded runner does; a wall-clock budget counts the wait, a CPU-work budget does not (NO-LOAD-BLOCK); never imported by a test.
 - `flake-shim-orchestration-run-id.ts` — a reproduction shim (`harness flake reproduce --preload`, FLAKE-REPRO): every `Math.random()` draw from `tests/unit/agent-orchestration.test.ts` answers one whose base-36 digits make `run-orch-tokens-…` read as a credential; never imported by a test.
 - `isolated-config.ts` — select a private harness config copy and assert original bytes/mode/nanosecond mtime/inode remain unchanged; `plantSettingsDocument` lands exact bytes the way an operator edit does and runs the request-start refresh (the config owner never reads the file per call).
 - `native-script.ts` — runs a module source in a fresh native Node process and returns its status and output (for tests of process-wide owners).
@@ -42,12 +43,12 @@ The `tests/helpers/` folder of the development surface.
 - `provider-stream.ts` — a terminal native response for a hand-written provider stream stub, built from the canonical Responses fixtures so a test does not shape a second response format.
 - `rewind-provider-harness.ts` — the shared server, database, run, rewind and restore helpers for the split rewind suites.
 - `rewind-provider-state.ts` — the provider recorder shared by every split rewind suite's module mock.
-- `readme-consumers.ts` — gENERATE the README "what consumes it" section from the import graph. ── THE DEFECT THIS ENDS ────────────────────────────────────────────────── Each….
 - `run-source.ts` — tHE RUN PATH'S SOURCE, AS ONE SUBJECT. The run used to be one file. `GET /api/run/:runId/stream` was the executor, so `server/routes/run.ts`….
 - `hub-population.ts` — the canonical hub's decorated re-export population, derived from the hub's own `engineSpans(...)` destructures — the one scanner the hub-discipline guards and the engine-lane behavioural tests share.
 - `source-scan.ts` — shared source-scan helpers for the prevention test suite.
 - `stub-llm-client.ts` — shared stub for the provider seam: the scripted `SharedLLMClient` mock factory + state, so tests drive the real `streamChat` chain without a live provider.
 - `temp-git-repo.ts` — a throwaway git repository for a fixture: the temp-dir owner's folder, a local fixture identity (never the ambient one), a named first branch (`main` by default), and a `git(...)` that runs without the caller's `GIT_*` variables or global/system config (the engine owner's `directoryGitEnvironment`) and throws with git's own stderr, so a broken fixture fails as a fixture and never touches another repository.
+- `until.ts` — the one wait for a condition (`until`): polls every 10 ms with NO wall deadline (NO-LOAD-BLOCK); a condition that never holds is a hang, ended and named by the hang backstop.
 - `temp-dir.ts` — sINGLE-PARTY OWNER of test temporary directories. ── The defect this exists to make impossible ──────────────────────────── Test files created temp….
 - `timeline-documents.ts` — a timeline document as the ledger admits it: exact JSON text and the digest of that text; fixtures build documents here and never hand-write a digest.
 - `vm-context-pool.ts` — the DOM test process pool: fresh VM contexts per file, cancellation and memory recycling through Vitest's owned child processes.

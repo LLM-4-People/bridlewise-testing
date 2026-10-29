@@ -51,19 +51,91 @@ folder owns what they are told and who may do what.
   forge, and `parseLabels` reads it from a commit's text (the projector's
   source commit) through the same parser (`parseCommunitySource`), whose `harness forge apply` is the one writer and `plan`/`audit` the
   one drift report.
-- `community-cli.ts` — THE `harness community` DOOR (`categories`), on the
-  `forge` configuration's trunk with the token in `GH_TOKEN`; drift exits 1.
+- `commands.ts` — THE ISSUEOPS COMMANDS: the one registry (`/help`, `/status`,
+  `/accept`, `/decline`, `/duplicate`, `/explain`: each one's
+  minimum role, where it works, its usage and summary), `parseCommandLine` (a
+  comment's first line, only when the comment starts with `/`, so a quote
+  never re-runs a command),
+  `authorise` (the commenter's permission against the role ladder, never
+  `author_association`) and `commandTable` (the generated command table).
+- `issue-ops.ts` — THE DECISION, pure: `decide(comment, facts)` answers a reply
+  and possibly an action — a tracker RECORD to add through a pull request
+  (`/accept`, `/decline`, `/duplicate`: the issue's state is the projector's,
+  never a command's); `/explain` is the door's. `parseFormBody` reads an issue form's answers by the intake
+  registry's labels; `untrusted` folds what a person typed to one bounded line.
+  `/accept` refuses, with a reply, a title the tracker could not read back as
+  plain YAML text.
+- `replies.ts` — THE BOT REPLIES (every slot escaped by the markup owner's
+  `escapeGithubText` when rendered, except the named raw slots: the command
+  table and GitHub URLs): `docs/community/replies/<key>.md.tmpl`, each
+  key's slots declared once (`REPLY_SLOTS`, judged by `replyTemplateViolations`
+  in `harness check`), rendered under a marker naming what they answer.
+- `executor.ts` — THE EXECUTOR on the forge port: one `issue_comment` event
+  carried out — the commenter's permission (`GET …/collaborators/{u}/permission`),
+  the tracker records, the door's check run for `/explain` — and the ONE reply
+  per command comment posted or edited (`upsertReply`: only the bot's own
+  comment carrying the marker). A bot's comment, an edit and a comment with no
+  command cost no request; a record action lands FIRST through the caller's
+  `RecordLanding`, dated from the event, and the reply names its pull request;
+  with no landing the command is refused before anything is posted.
+- `record.ts` — THE INTAKE RECORD, LANDED: `intakeItemText` (the decision as a
+  `bridlewise-tracker-item/v1` item in lane `floor`, its title made a plain YAML
+  scalar, its body where it came from — never the reporter's text, which stays
+  the issue's), `writeIntakeRecord` (judged with every other item by the
+  tracker's reader first, then the board regenerated) and `landIntakeRecord`
+  (committed on `intake/<id>`, published by `publishBranch` as a signed twin,
+  one ready pull request). The issue is never touched: the projector adopts it
+  from the record's `gh` field once the record lands.
 
-## Where it lives and what consumes it
+- `welcome.ts` — THE WELCOME AND THE THANK-YOU: a newcomer's first issue
+  (`welcomeIssue`, on the `issues: opened` event) or open pull request
+  (`welcomeOpenPullRequests`, a scheduled pass, since a fork's own run cannot
+  comment) gets one welcome, and a first landed pull request one thank-you
+  (`thankFirstLanding`), each under its marker. "First" is GitHub's search
+  count; `author_association` only picks the greeting; a bot is never greeted.
+- `credit.ts` — CONTRIBUTOR CREDIT by GitHub login, never by email:
+  `landedCommits` (a range as GitHub answers it, each author's login),
+  `contributorsOf` (each commit's author and `Co-authored-by:` people, a
+  co-author known by login only through GitHub's noreply address and
+  otherwise by name; the tooling — bots, Apps, logins the caller declares —
+  never credited; no email in anything it answers) and `releaseCredit` (a
+  release's contributors and its newcomers, for the release notes).
+- `community-config.ts` — the module's limits, named once (`COMMUNITY_LIMITS`:
+  typed text and record title lengths, the short sha, the ISO day, the longest
+  command line).
+- `moderation.ts` — MODERATION, from `docs/community/moderation.json`: the
+  spam signal by mode (`off`, `manual` reports, `approval` proposes a limit;
+  a limit is never applied automatically), `lockDue` (when the projector locks
+  a closed issue) and `applyInteractionLimit` (the maintainer's action).
+- `welcome.ts` — THE WELCOME AND THE THANK-YOU: a newcomer's first issue
+  (`welcomeIssue`, on `issues: opened`) or open pull request
+  (`welcomeOpenPullRequests`, a scheduled pass, since a fork's run cannot
+  comment) gets one welcome, and a first landed pull request one thank-you
+  (`thankLandedRange`: every pull request a push to the trunk landed, from
+  its `before` to its `after`; `thankFirstLanding`), each
+  under its marker. "First" is GitHub's search count; `author_association`
+  only picks the greeting; a bot is never greeted.
+- `credit.ts` — CONTRIBUTOR CREDIT by GitHub login, never by email:
+  `landedCommits` (a range as GitHub answers it, each author's login),
+  `contributorsOf` (each commit's author and `Co-authored-by:` people, a
+  co-author known by login only through GitHub's noreply address and
+  otherwise by name; the tooling never credited; no email in anything it
+  answers) and `releaseCredit` (a release's contributors and newcomers).
+- `moderation.ts` — MODERATION, from `docs/community/moderation.json`: the
+  spam signal by mode (`off`, `manual` reports, `approval` proposes a limit;
+  a limit is never applied automatically), `lockDue` (when the projector locks
+  a closed issue) and `applyInteractionLimit` (the maintainer's action).
+- `community-config.ts` — the module's limits, named once
+  (`COMMUNITY_LIMITS`: the typed-text and record-title lengths, the short sha,
+  the ISO day, the longest command line).
+- `community-cli.ts` — THE `harness community` DOOR: `categories` (the
+  Discussion-category audit, `GH_TOKEN`), the bots `comment`, `issue`,
+  `welcome-pulls` and `thank` (as the publisher App, its token in
+  `BRIDLEWISE_PUBLISHER_TOKEN`; a record lands through GH-3's GitHub adapter of
+  the Git Data port), and `credit`, `spam-signal` and the maintainer's
+  `limit`. Events are read from the file GitHub writes, never from a command
+  line. `.github/workflows/community.yml` runs the bots.
 
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/workflow/community/`.
-
-- `categories.ts` is consumed by `engine/src/workflow/community/community-cli.ts`.
-- `community-cli.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `health-files.ts` is consumed by `engine/src/workflow/harness-commands.ts`.
-- `labels.ts` is consumed by `engine/src/workflow/community/health-files.ts`.
-- `sources.ts` is consumed by `engine/src/workflow/community/categories.ts`, `engine/src/workflow/community/community-cli.ts`, `engine/src/workflow/community/health-files.ts`, `engine/src/workflow/community/labels.ts`, `engine/src/workflow/forge/apps-page.ts`, `engine/src/workflow/forge/cli.ts` and 3 more.
-
-<!-- /consumers:generated -->

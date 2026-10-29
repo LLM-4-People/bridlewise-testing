@@ -499,10 +499,6 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
     "engine/src/workflow/workspace-cli.ts resolves the workspaceGit section from the pinned config document once per command invocation (runWorkspaceCli) and threads timeouts.commitMs into the workspace merge commit (workspace-manager.ts merge: git.commit, whose hooks run the commit guard), so the honest timing is next-run; engine/test/workflow/harness-commands-timeouts.test.ts proves the resolution reads the configured commitMs from the pinned file",
   ],
   [
-    "testExecution.runtimeBudgetMs",
-    "engine/src/workflow/test-result-collector.ts resolves the testExecution section from the pinned config document once per runner invocation (readTestExecutionConfig :318-353, a fresh process per test run) and hands runtimeBudgetMs to the runner as the per-test kill timeout (:332, consumed by executeInventoryTestRun), so the honest timing is next-run; engine/test/workflow/test-execution-config.test.ts drives the real harness-test door consuming the section, and engine/test/workflow/inventory-test-run.test.ts pins the runner's bound consumption",
-  ],
-  [
     "testExecution.serialPhaseConcurrency",
     "engine/src/workflow/test-result-collector.ts resolves the testExecution section from the pinned config document once per runner invocation (readTestExecutionConfig :318-353) and threads serialPhaseConcurrency into the serial phase's tier scheduling (:333, consumed by buildSerialPhases), so the honest timing is next-run; engine/test/workflow/test-execution-config.test.ts drives the real harness-test door consuming the section",
   ],

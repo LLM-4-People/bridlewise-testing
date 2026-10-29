@@ -11,9 +11,7 @@
  */
 import { parentPort } from "node:worker_threads";
 
-if (parentPort === null) {
-  process.exit(1);
-}
+if (parentPort === null) throw new Error("this fixture is a worker thread's entry; start it as a worker");
 // Never post — the pool's timeout should terminate + reject.
 // Keep the worker alive so the timeout (not an early exit) fires.
 setInterval(() => {}, 1000);

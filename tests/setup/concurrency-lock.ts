@@ -1,34 +1,27 @@
 /**
- * THE VITEST DOOR OF THE ONE-INSTRUMENT LOCK.
+ * THE VITEST DOOR OF HEAVY-RUN ADMISSION.
  *
  * Every way of running the web suite — `npx vitest run`, `npm test`,
  * `npm run test:raw`, watch mode — loads `vitest.config.ts` first, and vitest
  * runs this global setup once, in the main process, before any worker
  * starts. There is no path to the runner that does not pass here, which is
- * what makes this the door and not a reminder: start the suite while the
- * engine suite or a browser profile holds the lock and the refusal names
- * the holder instead of letting two instruments contend for the same cores.
+ * what makes this the door and not a reminder: a heavy run is admitted under
+ * its per-run caps (a cgroup scope and a CPU-time limit), beside any other
+ * run — nothing waits for another run, whatever the load (NO-LOAD-BLOCK).
  *
- * Measured while the rule was prose: run together with the engine suite,
- * this suite reported 35.81 s against a 35 s cap and went red; run alone
- * immediately after, it was under. A red caused by your own parallelism is
- * indistinguishable from a regression until you re-run alone.
- *
- * The lock module lives in `engine/scripts/tooling/test-run-lock.ts` and says why a
- * lock file and not a process scan. HEAVY IS ONE DEFINITION: the files this
- * run selects, counted by vitest itself; a run of fewer than the configured
- * number takes nothing. A heavy run never takes the lock HERE (vitest's main
- * process would hold it, and a SIGKILL of that process would free it under
- * workers still running): it borrows the hold of the supervising door that
- * started it — `npm test`, or `harness slot run -- npx vitest run` — and,
- * started outside one (a bare `npx vitest run a b c`), it RE-RUNS ITSELF
- * inside the one supervising door, as the coverage run and the perf profile
- * do, and exits with that run's code. The door takes the lock and its record
- * ADOPTS the run — this process among the processes the record names live —
- * so the protection against a SIGKILL of vitest's main process is that
- * adoption: the door frees the lock only when the adopted run's process tree
- * is gone (design LOW 8: this process is one the record names, not one it
- * never names).
+ * The door's module lives in `engine/scripts/tooling/test-run-lock.ts`.
+ * HEAVY IS ONE DEFINITION: the files this run selects, counted by vitest
+ * itself; a run of fewer than the configured number records nothing. A heavy
+ * run is never admitted HERE (vitest's main process would own the record,
+ * and a SIGKILL of that process would drop it under workers still running):
+ * it borrows the run of the supervising door that started it — `npm test`,
+ * or `harness slot run -- npx vitest run` — from inside that run's scope,
+ * and, started outside one (a bare `npx vitest run a b c`), it RE-RUNS
+ * ITSELF inside the one supervising door, as the coverage run and the perf
+ * profile do, and exits with that run's code. The door's record ADOPTS the
+ * run — this process among the processes the record names live — so a
+ * SIGKILL of vitest's main process leaves the record live until the adopted
+ * run's process tree is gone (design LOW 8).
  */
 
 import { parseCLI, type TestProject } from "vitest/node";
@@ -57,14 +50,14 @@ export async function selectedTestFileCount(project: Pick<TestProject, "vitest">
  * test's own in a test.
  */
 export async function setup(project: TestProject, door: typeof enforceTestRunLock = enforceTestRunLock): Promise<void> {
-  // The vitest main process would hold the lock in its own process: a heavy run only BORROWS the hold of the
+  // The vitest main process would own the run in its own process: a heavy run only BORROWS the run of the
   // supervising door that started it (`npm test`, `harness slot run --`).
   const testFileCount = await selectedTestFileCount(project, process.argv.slice(2));
   try {
     lock = await door("web vitest suite", { testFileCount, inProcess: true });
   } catch (error) {
-    // Outside every door: run this very command again INSIDE the one supervising door (it waits for the lock, adopts
-    // the run and frees the lock only when the run's process tree is gone), and leave with its code. Inside the door
+    // Outside every door: run this very command again INSIDE the one supervising door (it admits the run at once under
+    // its caps, adopts it and drops the record only when the run's process tree is gone), and leave with its code. Inside the door
     // already (its variable is set), a refusal is final: never a second re-run.
     if ((error as { code?: unknown }).code !== "instrument_lock_unsupervised" || process.env[INSIDE_INSTRUMENT_LOCK_VARIABLE] === "1") throw error;
     const { exitCode } = await runInsideInstrumentLock("web vitest suite", testFileCount, [process.execPath, ...process.execArgv, ...process.argv.slice(1)]);

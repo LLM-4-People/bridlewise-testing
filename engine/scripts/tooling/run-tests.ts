@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execPath } from "node:process";
 
-import { enableSharedCompileCache, pruneCompileCacheRoot, scanCompileCache } from "./compile-cache.ts";
+import { enableSharedCompileCache, scanCompileCache } from "./compile-cache.ts";
 import { runRecordedCommand } from "./recorded-command.ts";
 import {
   beginRecordedExecution,
@@ -18,7 +18,7 @@ import {
   type ExecutionOperation,
 } from "./test-execution.ts";
 import { computeTestResultReceiptDeterministicHash, testResultLedgerRows, type TestResultReceipt } from "./test-receipt.ts";
-import { asLockDoor, enforceTestRunLock } from "./test-run-lock.ts";
+import { enforceTestRunLock } from "./test-run-lock.ts";
 import { HarnessError, extractErrorMessage } from "../../src/kernel/errors.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
@@ -50,8 +50,7 @@ import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { configuredRuntimeAdmission, withAdmittedNodeRuntime } from "../../src/runtime/admitted-node-runtime.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { reportLauncherStop, watchLauncher } from "./launcher-watch.ts";
-import { testProcessSupervisorBinary } from "../../guardian/build.ts";
-import type { InstrumentLockStamp } from "../../src/process/instrument-lock.ts";
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../../src/filesystem/temporary-root.ts";
 
 export type WorkerExecutionOptions = Readonly<{
@@ -96,7 +95,7 @@ export async function runWorkerWithEvidence(
     const observation = await runRecordedCommand({
       arguments: arguments_,
       cwd: workingDirectory,
-      supervision: { supervisor: testProcessSupervisorBinary(), hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs, killGraceMs: engineSuiteWatchdog.killGraceMs },
+      supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs, killGraceMs: engineSuiteWatchdog.killGraceMs },
       ...(options.environment === undefined ? {} : { environment: options.environment }),
       ...(options.setupFailureCode === undefined ? {} : { setupFailureCode: options.setupFailureCode }),
       ...(options.stop === undefined ? {} : { stop: options.stop }),
@@ -117,8 +116,14 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     releaseInstrumentLock?.();
     return { operation, exitCode };
   };
+  // OUTSIDE the try: a refused config document is a refusal of the run, never
+  // a caught-and-reported runner failure (config-refusal-propagates.test.ts).
+  const compileCachePruning = readTestExecutionConfig(fileURLToPath(new URL("../../", import.meta.url))).compileCachePruning;
   try {
-    enableSharedCompileCache();
+    // The enabler bounds the cache (testExecution.compileCachePruning), BEFORE
+    // `beginMeasuredRun` takes the CPU baseline and the start-stamp, so the
+    // prune's cost and its deletions stay outside the measured window.
+    enableSharedCompileCache(compileCachePruning);
     process.stderr.write(`${temporaryRootPreflightLine("run-tests", temporaryRootHeadroom())}\n`);
     const keptOut = temporaryRootKeepOutRefusal(fileURLToPath(new URL("../../", import.meta.url)));
     if (keptOut !== undefined) {
@@ -159,16 +164,14 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       // this exits 0 — or it never gets here, because the refusal above threw.
       return finish(0);
     }
-    // ONE INSTRUMENT AT A TIME, ENFORCED HERE — and not at the top of this
-    // function, on purpose: `harness regenerate` shells out to the
-    // `--auto-add-dispositions` sub-CLI above as a DESCENDANT of a run that
-    // already holds the lock, and a lock taken at the top would make that
-    // child refuse against its own ancestor. The sub-CLI returns before this
-    // line; everything below it is the run, and the run is what contends.
-    // THE HOST'S ONE INSTRUMENT LOCK: the whole suite is heavy, so the door
-    // waits here while another heavy run holds the lock (saying who), and the
-    // run's measurement records that it held it (the handle's stamp).
-    const instrumentLock = await enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
+    // HEAVY-RUN ADMISSION, HERE — and not at the top of this function, on
+    // purpose: `harness regenerate` shells out to the `--auto-add-dispositions`
+    // sub-CLI above, which runs no tests and needs no run of its own. The
+    // sub-CLI returns before this line; everything below it is the run. The
+    // whole suite is heavy, so it is admitted at once (never waiting for
+    // another run) and this process enters the run's caps — its cgroup scope
+    // and CPU-time limit — before the worker and every test child start.
+    const instrumentLock = enforceTestRunLock("engine npm test", { testFileCount: inventoryTestFileCount(root) ?? Number.POSITIVE_INFINITY });
     releaseInstrumentLock = instrumentLock.release;
     // BEFORE THE RUN, AND AFTER THE SUB-CLI ABOVE: the corpora git cannot
     // report missing. See scripts/verification/required-fixture-roots.ts — an
@@ -237,6 +240,11 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
     const treeAtStart = readMeasuredTree(fileURLToPath(new URL("../../", import.meta.url)));
     // NO TEST WRITES THE LIVE HARNESS FOLDER (round 13, R3-1): its identity, as a configuration bootstrap compares it,
     // before the first test and after the last; a change fails the run, named (a concurrent gate would have failed on it).
+    // The native supervisor every worker runs under is BUILT HERE, before the
+    // snapshot below: built by the first caller in mid-run, it wrote into the
+    // live harness folder and a concurrent configuration bootstrap refused an
+    // unrelated commit (#293, #132). Every later caller only resolves it.
+    ensureTestProcessSupervisor();
     const harnessAtStart = harnessFolderIdentity(root);
     // NOR MOVES THE REPOSITORY (round 14): the checkout's HEAD and the branch it names, before and after; a test whose
     // git command fell through to the real checkout (a commit, a reset, a checkout) is named and fails the run.
@@ -356,7 +364,6 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       ambientLoadPerCpu,
       ambientLoad5PerCpu,
       ambientLoad15PerCpu,
-      heavySlot: instrumentLock.stamp,
       provisional,
       mutation,
       tree,
@@ -394,10 +401,9 @@ export interface MeasuredRunBegin {
   readonly runStartMs: number;
 }
 
-/** The three order-bearing steps, injectable so a test can OBSERVE the order
+/** The order-bearing steps, injectable so a test can OBSERVE the order
  *  rather than trust the comment that used to be the only guarantee. */
 export interface MeasuredRunBeginSteps {
-  readonly pruneCache: (root: string) => void;
   readonly readCpuBaseline: () => RunCpu | null;
   readonly measureCalibration: () => CalibrationReading | null;
   readonly stampStart: () => number;
@@ -406,13 +412,14 @@ export interface MeasuredRunBeginSteps {
 /**
  * Take every pre-run measurement, IN THE ORDER THE MECHANISM REQUIRES.
  *
- * THE CACHE PRUNE RUNS FIRST — before the run's start-stamp AND before the
- * CPU baseline, and both orderings are load-bearing:
- *   - taken before the start-stamp, the prune can only ever delete entries
- *     whose mtime predates it, so the end-of-run warmth walk
- *     (mtime >= start) cannot be fabricated or eroded by it;
- *   - taken before `cpuBefore`, the prune's own filesystem cost never
- *     inflates the judged CPU figure.
+ * THE CACHE PRUNE HAS ALREADY RUN — the compile-cache enabler bounds the
+ * cache when `runCli` enables it, before this function (held by test), and
+ * both orderings stay load-bearing:
+ *   - before the start-stamp, the prune can only ever delete entries last
+ *     used before it, so the end-of-run warmth walk (mtime >= start) cannot
+ *     be fabricated or eroded by it;
+ *   - before `cpuBefore`, the prune's own filesystem cost never inflates the
+ *     judged CPU figure.
  * The calibration runs BEFORE `cpuBefore`, so its own CPU never sits inside
  * the window the suite's cost is measured over; the head sha and the ambient
  * load are sampled AT RUN START (the load average is a decaying one-minute
@@ -430,13 +437,11 @@ export interface MeasuredRunBeginSteps {
 export function beginMeasuredRun(
   root: string,
   steps: MeasuredRunBeginSteps = {
-    pruneCache: pruneCompileCacheIfDeclared,
     readCpuBaseline: readRunCpu,
     measureCalibration,
     stampStart: Date.now,
   },
 ): MeasuredRunBegin {
-  steps.pruneCache(root);
   // BEFORE the CPU baseline: the calibration's own CPU must not sit inside
   // the window the suite's cost is measured over.
   const calibrationBefore = steps.measureCalibration();
@@ -446,7 +451,7 @@ export function beginMeasuredRun(
   // figure is the covariate recorded beside the verdict, and the 5-/15-minute
   // legs witness the saturation ghost that decays out of the 1-minute figure
   // within minutes of a previous suite finishing. An unreadable sample is
-  // null — the verdict takes no ambient adjustment, never a fabricated zero.
+  // null, never a fabricated zero; no leg ever moves a cap (NO-LOAD-BLOCK).
   const ambient = readAmbientLoadPerCpu();
   const runStartMs = steps.stampStart();
   return {
@@ -458,34 +463,6 @@ export function beginMeasuredRun(
     ambientLoad15PerCpu: ambient.perCpu?.load15 ?? null,
     runStartMs,
   };
-}
-
-function pruneCompileCacheIfDeclared(root: string): void {
-  // The config read stays OUTSIDE the catch: a refused document is a refusal
-  // of the run, not a skipped prune (config-refusal-propagates.test.ts).
-  const policy = readTestExecutionConfig(root).compileCachePruning;
-  try {
-    if (policy === undefined) {
-      process.stdout.write(
-        "[compile-cache] no pruning policy declared (testExecution.compileCachePruning in " +
-          "bridlewise.config.json) — the shared V8 compile cache grows unbounded. Declare " +
-          "{ maxEntryAgeDays, maxEntries, timeBudgetMs } to bound it; nothing is guessed.\n",
-      );
-      return;
-    }
-    const result = pruneCompileCacheRoot(policy);
-    process.stdout.write(
-      `[compile-cache] prune: ${String(result.prunedEntries)} of ` +
-        `${String(result.scannedEntries)} entries removed in ${String(result.tookMs)}ms ` +
-        `(policy: keep newest ${String(policy.maxEntries)}/dir within ` +
-        `${String(policy.maxEntryAgeDays)}d)` +
-        `${result.timeBudgetExhausted ? " — TIME BUDGET EXHAUSTED, the next run continues the trim" : ""}\n`,
-    );
-  } catch (error) {
-    process.stdout.write(
-      `[compile-cache] prune skipped: ${extractErrorMessage(error)}\n`,
-    );
-  }
 }
 
 /**
@@ -531,8 +508,6 @@ export function judgeSuiteRunCost(run: Readonly<{
   ambientLoadPerCpu: number | null;
   ambientLoad5PerCpu: number | null;
   ambientLoad15PerCpu: number | null;
-  /** Whether the measurement held the host's instrument lock: an unslotted one is refused, never judged. */
-  heavySlot: InstrumentLockStamp;
   provisional: Readonly<{ provisionalFailures: true }> | Readonly<Record<string, never>>;
   mutation: ReturnType<typeof mutationRunMark>;
   tree: ReturnType<typeof measuredTreeMark>;
@@ -555,16 +530,9 @@ export function judgeSuiteRunCost(run: Readonly<{
       { atStart: run.calibrationBefore, atEnd: run.calibrationAfter },
       testFileCount ?? 0,
     );
-    // AN UNSLOTTED MEASUREMENT IS REFUSED, NEVER JUDGED: without the host's
-    // instrument lock another writer's heavy run may have shared the cores, so the
-    // figure says nothing about this tree (src/process/instrument-lock.ts).
-    if (run.heavySlot !== "held") {
-      process.stderr.write(
-        `\n[suite-budget] cpu-per-test-file REFUSED: this run did not hold the host's instrument lock, so its CPU cost is not a ` +
-          `measurement of this tree and is neither judged nor recorded. Run the whole suite through its runner, which holds the lock.\n`,
-      );
-      return 1;
-    }
+    // EVERY FULL RUN IS A MEASUREMENT, whatever else ran beside it: the cost
+    // is CPU work, valid at any load (NO-LOAD-BLOCK, audit A-04). There is no
+    // "unslotted" refusal: runs share the host under per-run caps.
     // The warmth scan runs AFTER the CPU readings above, so its own cost
     // (a stat walk of the compile cache) never inflates the judged figure.
     const scan = scanCompileCache(run.runStartMs);
@@ -639,7 +607,6 @@ export function judgeSuiteRunCost(run: Readonly<{
           ...run.provisional,
           ...run.mutation,
           ...run.tree,
-          heavySlot: run.heavySlot,
         },
         historyPath,
       );
@@ -854,7 +821,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   prunedPaths: readonly string[];
 }> {
   const { join } = await import("node:path");
-  const { createTestSurfaceDispositionManifest, isQualifiedCanonicalNodeTestSource, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage } = await import("../verification/test-surface.ts");
+  const { createTestSurfaceDispositionManifest, defaultDispositionEntry, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage, serializeTestSurfaceDispositionManifest } = await import("../../src/kernel/test-surface-manifest.ts");
   const { ROOT_POLICY } = await import("../../src/kernel/root-policy.ts");
   const { listUntrackedRecognizableTestPaths, listRecognizableTestPaths } = await import("../test-inventory.ts");
 
@@ -889,8 +856,9 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   const recognizablePaths = listRecognizableTestPaths(root);
   const recognizableSet = new Set(recognizablePaths);
 
+  // A qualified Node test source is canonical without an entry: only a source outside the qualified patterns needs one.
   const missingPaths = recognizablePaths
-    .filter((path) => !registeredPaths.has(path))
+    .filter((path) => !registeredPaths.has(path) && defaultDispositionEntry(path) === undefined)
     .sort();
   const stalePaths = [...registeredPaths]
     .filter((path) => !recognizableSet.has(path))
@@ -936,7 +904,8 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       `${unnamed.slice(0, 10).join(", ")}${unnamed.length > 10 ? ", …" : ""}. ` +
       `If a directory moved, move the pattern in root-policy.ts with it. If these files were deleted on ` +
       `purpose, name each deletion: node src/cli.ts harness sync ${unnamed.slice(0, 10).map((path) => `--prune ${path}`).join(" ")}` +
-      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags).`,
+      `${unnamed.length > 10 ? " …" : ""} (the candidate tool takes the same --prune flags), and name each in the deleting ` +
+      `commit's own Test-deleted: <path> trailer (scripts/verification/test-deletions.ts).`,
       "test_surface_prune_refused",
     );
   }
@@ -953,16 +922,6 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
       // unreachable; guard for exhaustiveness.
       throw new Error(`auto-add encountered a non-recognizable path: ${path}`);
     }
-    if (language === "javascript-typescript" && isQualifiedCanonicalNodeTestSource(path)) {
-      return {
-        path,
-        language,
-        disposition: "canonical-node-test" as const,
-        rationale: "Auto-registered by npm test auto-heal.",
-        evidenceLinks: [] as string[],
-        blocksFullRepositoryClaim: false,
-      };
-    }
     return {
       path,
       language,
@@ -977,7 +936,7 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
 
   const newEntries = [...keptEntries, ...addedEntries];
   const regenerated = createTestSurfaceDispositionManifest(newEntries);
-  const written = atomicWriteFile(manifestPath, JSON.stringify(regenerated, null, 2) + "\n");
+  const written = atomicWriteFile(manifestPath, serializeTestSurfaceDispositionManifest(regenerated));
   if (!written.success) {
     throw new HarnessError(`Failed to write the disposition manifest ${manifestPath}: ${written.reason ?? "unknown error"}`, "disposition_manifest_write_failed");
   }
@@ -992,7 +951,7 @@ if (isEntryPoint(import.meta.url)) {
   const tree = readMeasuredTree(root);
   let execution: CompletedExecution | undefined;
   let result: TestCommandResult | undefined;
-  await asLockDoor(async () => { result = await runCli(invocationId, (observed) => { execution = observed; }); });
+  result = await runCli(invocationId, (observed) => { execution = observed; });
   if (result === undefined) throw new Error("the engine runner answered nothing");
   process.exitCode = result.exitCode;
   process.stderr.write(`${sweepEndedRunTemporaries("run-tests")}\n`);

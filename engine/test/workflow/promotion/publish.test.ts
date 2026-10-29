@@ -416,7 +416,7 @@ async function unattended(fixture: PromotionFixture, options: Parameters<typeof 
   };
   let outcome: PromotionAnswer | PromotionError;
   try {
-    outcome = await withUnattendedChain(contextOf(PROFILE_NAME, SOURCE), configuredWorktreeGitPort(fixture.document), () => apply(fixture, { ...options, request: { noPublish: false, auto: true, ...options.request } }), contextOf, launch, environment);
+    outcome = await withUnattendedChain(contextOf(PROFILE_NAME, SOURCE), configuredWorktreeGitPort(fixture.document), () => apply(fixture, { ...options, request: { noPublish: false, auto: true, ...options.request } }), launch, environment);
   } catch (error) {
     assert.ok(error instanceof PromotionError, String(error));
     outcome = error;

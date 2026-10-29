@@ -13,7 +13,7 @@
  * suite's own reporter records in its ledger
  * (`.bridlewise/web-test-results/run-history.json`). The arithmetic is the
  * budget owner's (`measureBudgetFloor`, engine/src/shared/budget-verdict.ts):
- * the ambient-adjusted median of the last `baselineWindowRuns` clean judged
+ * the median of the last `baselineWindowRuns` clean judged
  * full runs of the population as it is now. Fewer such runs is
  * `unmeasurable`: reported with the count, never guessed, never tuned — a
  * budget judged under load is re-measured when the runs exist, not edited.

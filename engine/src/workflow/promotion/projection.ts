@@ -37,8 +37,8 @@ import { commandsRun } from "../checkout-setup.ts";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE } from "../../filesystem/private-state.ts";
 import { HarnessError } from "../../kernel/errors.ts";
-import { GITLINK_MODE, SYMLINK_MODE, commitTreeReader, gitOutput, writeBlob, writeTree, type GitRepository, type TreeReader } from "../../git/tree-reader.ts";
-import { generatedOutputPathsOf, isGenerationOnlyChange } from "../hash-binding-registry.ts";
+import { commitTreeReader, GITLINK_MODE, gitOutput, type GitRepository, isAncestor, SYMLINK_MODE, type TreeReader, writeBlob, writeTree } from "../../git/tree-reader.ts";
+import { generatedOutputPaths, isGenerationOnlyChange } from "../hash-binding-registry.ts";
 import { directoryOf, isWalkableModule, normalizeRepositoryPath, packageNameOf, reachabilityChain, reachabilityClosure, type PathAlias, type Reachability } from "../reachability.ts";
 import { PromotionError, mostSevereCode, type PromotionCode } from "./codes.ts";
 import { excludedBy, isOfOverlayKind, pathMatchesEntry, profileCommandNames, type LoadedPromotionProfile, type PromotionProfile } from "./profile.ts";
@@ -361,10 +361,6 @@ function promoterDigest(): string {
   return promoterDigestMemo;
 }
 
-function isAncestor(repository: GitRepository, ancestor: string, descendant: string): boolean {
-  return gitOutput(repository, ["merge-base", "--is-ancestor", ancestor, descendant], { allowed: [0, 1] }).status === 0;
-}
-
 function mergeBase(repository: GitRepository, a: string, b: string): string | null {
   const answer = gitOutput(repository, ["merge-base", a, b], { allowed: [0, 1] });
   return answer.status === 0 ? answer.stdout.toString("utf8").trim() : null;
@@ -511,7 +507,7 @@ export async function planPromotion(input: PromotionPlanInput): Promise<Promotio
 
   const targetReader = input.target === null ? null : commitTreeReader(repository, input.target);
   const targetPaths = targetReader?.paths() ?? [];
-  const generated = generatedOutputPathsOf(reader.paths(), (path) => reader.text(path));
+  const generated = generatedOutputPaths();
   const sameAsTarget = (path: string): boolean => {
     const mine = entries.get(path);
     const theirs = targetReader?.entry(path) ?? null;

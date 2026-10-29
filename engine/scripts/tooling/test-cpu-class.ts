@@ -39,8 +39,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { readRunCpu } from "../../src/shared/run-cpu.ts";
+import { requireRunCpuMs } from "../../src/shared/run-cpu.ts";
 import type { TestExecutionConfig } from "../../src/kernel/config-contracts.ts";
+import { classCeilingMs } from "../../src/workflow/workflow-config.ts";
 
 /** The declaration, as `testExecution.testCpuClasses` holds it. */
 export type TestCpuClasses = NonNullable<TestExecutionConfig["testCpuClasses"]>;
@@ -57,8 +58,9 @@ export const TEST_CPU_CLASSES_SITE = "testExecution.testCpuClasses in engine/bri
  */
 export function cpuClassOf(classes: TestCpuClasses, file: string): Readonly<{ name: string; ceilingMs: number }> {
   const declared = classes.classes.find((one) => one.files.includes(file));
-  return declared === undefined ? { name: "default", ceilingMs: classes.defaultCeilingMs } : { name: declared.name, ceilingMs: declared.ceilingMs };
+  return declared === undefined ? { name: "default", ceilingMs: classes.defaultCeilingMs } : { name: declared.name, ceilingMs: classCeilingMs(classes, declared) };
 }
+
 
 /**
  * A class that names a file the repository does not hold is dead config: the
@@ -68,18 +70,6 @@ export function cpuClassOf(classes: TestCpuClasses, file: string): Readonly<{ na
 export function deadClassFiles(classes: TestCpuClasses, repositoryRoot: string): string | null {
   const dead = classes.classes.flatMap((one) => one.files.filter((file) => !existsSync(join(repositoryRoot, file))).map((file) => `${one.name}: ${file}`));
   return dead.length === 0 ? null : `${TEST_CPU_CLASSES_SITE} names test files that do not exist (${dead.join(", ")}); a class must name the files it was measured for`;
-}
-
-/** This process's CPU work so far (its own and its reaped children's), in ms. */
-function cpuWorkMs(): number {
-  const reading = readRunCpu();
-  if (reading === null) {
-    throw new Error(
-      "test-cpu-class: this process's CPU work is unreadable (no /proc/self/stat), so no test here can be judged; " +
-        "a judgement with no measurement behind it would pass everything",
-    );
-  }
-  return reading.totalCpuMs;
 }
 
 /** The verdict on one test's work, or null when it is within its class. */
@@ -108,21 +98,31 @@ export type PerTestHooks<Context> = Readonly<{
  * Installs the judgement into a runner: `fileOf` names the test file of a
  * hook's context (repository-relative), and `record` (optional) keeps the
  * reading beside the test for its reporters.
+ *
+ * ONE READING PER TEST CONTEXT, never one per process: both runners hand a
+ * test's `beforeEach` and `afterEach` the same context object, and a test's
+ * window may hold others — a nested `t.test` runs its hooks inside its
+ * parent's window, and concurrent tests interleave theirs. Each window is
+ * keyed by its own context. CPU work is the process's, so a parent's reading
+ * includes its subtests' work (it did that work) and concurrent tests each
+ * see the work done during their window: both are over-, never
+ * under-attribution, so no test escapes its ceiling.
  */
-export function installTestCpuJudgement<Context>(
+export function installTestCpuJudgement<Context extends object>(
   hooks: PerTestHooks<Context>,
   classes: TestCpuClasses,
   fileOf: (context: Context) => string,
   record?: (context: Context, reading: Readonly<{ cpuMs: number; wallMs: number }>) => void,
 ): void {
-  let start: Readonly<{ cpuMs: number; wallMs: number }> | null = null;
-  hooks.beforeEach(() => {
-    start = { cpuMs: cpuWorkMs(), wallMs: performance.now() };
+  const starts = new WeakMap<Context, Readonly<{ cpuMs: number; wallMs: number }>>();
+  hooks.beforeEach((context) => {
+    starts.set(context, { cpuMs: requireRunCpuMs(), wallMs: performance.now() });
   });
   hooks.afterEach((context) => {
-    if (start === null) throw new Error("test-cpu-class: an afterEach ran with no beforeEach reading, so this test's work is unmeasured");
-    const reading = { cpuMs: Math.max(0, cpuWorkMs() - start.cpuMs), wallMs: Math.round(performance.now() - start.wallMs) };
-    start = null;
+    const start = starts.get(context);
+    if (start === undefined) throw new Error("test-cpu-class: an afterEach ran with no beforeEach reading for its test, so this test's work is unmeasured");
+    starts.delete(context);
+    const reading = { cpuMs: Math.max(0, requireRunCpuMs() - start.cpuMs), wallMs: Math.round(performance.now() - start.wallMs) };
     record?.(context, reading);
     const failure = cpuCeilingFailure(classes, fileOf(context), reading.cpuMs, reading.wallMs);
     if (failure !== null) throw new Error(failure);

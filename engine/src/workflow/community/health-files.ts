@@ -35,8 +35,12 @@ import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
+import { commandRegistryViolations } from "./commands.ts";
 import { readLabels } from "./labels.ts";
+import { readModeration } from "./moderation.ts";
+import { readReplyTemplates, replyTemplateViolations } from "./replies.ts";
 import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
+import { configuredRepositoryIdentity } from "../forge/repository-identity.ts";
 import {
   COMMUNITY_DIRECTORY,
   CONFIRMATIONS_FIELD_ID,
@@ -67,6 +71,22 @@ export const TEMPLATED_FILES = Object.freeze([
   ".github/PULL_REQUEST_TEMPLATE.md",
 ] as const);
 
+/**
+ * Every repository path the community-files arm reads or writes: its sources
+ * (`docs/community/`), the files it renders from them, its forms, and the
+ * places GitHub reads a health file from, which it judges for shadows. The
+ * population of a generator test's repository copy is derived from this
+ * (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+ */
+export function communityFilesInput(path: string): boolean {
+  if (path.startsWith(`${COMMUNITY_DIRECTORY}/`) || path.startsWith(`${ISSUE_FORMS_DIRECTORY}/`) || path.startsWith(`${DISCUSSION_FORMS_DIRECTORY}/`)) return true;
+  if ((TEMPLATED_FILES as readonly string[]).includes(path)) return true;
+  const slash = path.lastIndexOf("/");
+  const location = slash === -1 ? "" : path.slice(0, slash);
+  const name = path.slice(slash + 1).toLowerCase().replace(/\.[^.]*$/u, "");
+  return (HEALTH_LOCATIONS as readonly string[]).includes(location) && (HEALTH_NAMES as readonly string[]).includes(name);
+}
+
 /** Where GitHub looks for a community health file, repository-relative (`""` is the root). */
 const HEALTH_LOCATIONS = Object.freeze(["", ".github", "docs"] as const);
 /** The health-file names GitHub reads (compared lower-cased, without extension); the template ones may also be folders. */
@@ -76,7 +96,7 @@ export type CommunityFacts = Readonly<{
   roles: CommunityRoles;
   intake: CommunityIntake;
   features: readonly CommunityFeature[];
-  /** `owner/name` of the GitHub repository (`package.json` `repository.url`). */
+  /** `owner/name` of the GitHub repository (the one repository identity, `forge/repository-identity.ts`). */
   repository: string;
   nodeRange: string;
   compiler: string;
@@ -96,23 +116,28 @@ function templateInvalid(path: string, why: string): never {
 
 /** The facts the generated files carry, each read from its one owner. */
 function readCommunityFacts(repositoryRoot: string): CommunityFacts {
-  let manifest: { repository?: { url?: unknown }; engines?: { node?: unknown } };
+  let manifest: { engines?: { node?: unknown } };
   try {
     manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as typeof manifest;
   } catch (error) {
     templateInvalid("package.json", `unreadable as JSON (${(error as Error).message})`);
   }
-  const url = typeof manifest.repository?.url === "string" ? manifest.repository.url : "";
-  const repository = /^https:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?$/u.exec(url)?.[1];
-  if (repository === undefined) templateInvalid("package.json", "repository.url names no GitHub repository");
+  const repository = configuredRepositoryIdentity().fullName;
   const nodeRange = manifest.engines?.node;
   if (typeof nodeRange !== "string") templateInvalid("package.json", "engines.node is not declared");
   const makefile = "engine/guardian/Makefile";
   const compiler = /^CC\s*:=\s*(\S+)$/mu.exec(readFileSync(join(repositoryRoot, makefile), "utf8"))?.[1];
   if (compiler === undefined) templateInvalid(makefile, "declares no CC := … line");
+  const roles = readRoles(repositoryRoot);
+  // The commands, the bot replies and the moderation modes are judged here too, so `harness check` refuses a
+  // command naming an undeclared role, a reply template out of step with its key's slots, or modes that cannot
+  // mean anything, before any live comment does.
+  const disagreements = [...commandRegistryViolations(roles), ...replyTemplateViolations(readReplyTemplates(repositoryRoot))];
+  if (disagreements.length > 0) templateInvalid(COMMUNITY_DIRECTORY, disagreements.join("; "));
+  readModeration(repositoryRoot);
   // The label registry is a community source too: harness check refuses it when it cannot mean anything.
   readLabels(repositoryRoot);
-  return Object.freeze({ roles: readRoles(repositoryRoot), intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
+  return Object.freeze({ roles, intake: readIntake(repositoryRoot), features: readFeatures(repositoryRoot), repository, nodeRange, compiler });
 }
 
 const repositoryUrl = (facts: CommunityFacts): string => `https://github.com/${facts.repository}`;
@@ -124,9 +149,9 @@ function cell(text: string): string {
   return escapeMarkdownTableCell(text).replace(/\s*\n\s*/gu, " ");
 }
 
-/** A planned claim's line: what it will be, and where it is tracked. */
-function plannedLine(text: string, status: ClaimStatus): string {
-  return `- ${text} Planned; tracked in ${"planned" in status ? status.planned : ""}.`;
+/** A planned claim's line: what it will be, and where it is tracked (its issue, under the repository identity). */
+function plannedLine(facts: CommunityFacts, text: string, status: ClaimStatus): string {
+  return `- ${text} Planned; tracked in ${"planned" in status ? `${repositoryUrl(facts)}/issues/${String(status.planned)}` : ""}.`;
 }
 
 /** Every slot a template may name, rendered from the facts. `feature:<id>` is the feature's sentence while live, and empty while planned. */
@@ -136,9 +161,9 @@ function communitySlots(facts: CommunityFacts): ReadonlyMap<string, string> {
   const teamsLive = features.some((feature) => feature.id === "teams" && isLive(feature.status));
   const liveCategories = intake.discussionCategories.filter((category) => isLive(category.status));
   const planned = [
-    ...features.filter((feature) => !isLive(feature.status)).map((feature) => plannedLine(feature.text, feature.status)),
-    ...intake.discussionCategories.filter((category) => !isLive(category.status)).map((category) => plannedLine(`The ${category.name} Discussion category: ${category.use}.`, category.status)),
-    ...intake.issueForms.filter((form) => !isLive(form.typeStatus)).map((form) => plannedLine(`The ${form.type} issue type, set by the ${form.name} form.`, form.typeStatus)),
+    ...features.filter((feature) => !isLive(feature.status)).map((feature) => plannedLine(facts, feature.text, feature.status)),
+    ...intake.discussionCategories.filter((category) => !isLive(category.status)).map((category) => plannedLine(facts, `The ${category.name} Discussion category: ${category.use}.`, category.status)),
+    ...intake.issueForms.filter((form) => !isLive(form.typeStatus)).map((form) => plannedLine(facts, `The ${form.type} issue type, set by the ${form.name} form.`, form.typeStatus)),
   ];
   const slots = new Map([
     ["repository", facts.repository],

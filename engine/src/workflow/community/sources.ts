@@ -31,13 +31,18 @@ export const INTAKE_PATH = `${COMMUNITY_DIRECTORY}/intake.json`;
 export const FEATURES_PATH = `${COMMUNITY_DIRECTORY}/features.json`;
 
 /** GitHub's repository permission levels, weakest first (`GET …/collaborators/{u}/permission` answers one). */
-const PERMISSION_LEVELS = Object.freeze(["read", "triage", "write", "maintain", "admin"] as const);
+export const PERMISSION_LEVELS = Object.freeze(["read", "triage", "write", "maintain", "admin"] as const);
 export type PermissionLevel = (typeof PERMISSION_LEVELS)[number];
 
-/** A claim's status: live, with the receipt that proves it today, or planned, with its tracking item. */
+/**
+ * A claim's status: live, with the receipt that proves it today, or planned,
+ * with its tracking item: an issue NUMBER of this repository, whose URL is
+ * generated from the repository identity (never spelled here, so a rename
+ * moves it).
+ */
 const STATUS = z.union([
   z.strictObject({ live: z.string().min(1) }),
-  z.strictObject({ planned: z.string().regex(/^https:\/\/github\.com\/\S+$/u, "a planned claim links its tracking item (an https://github.com/ URL)") }),
+  z.strictObject({ planned: z.number().int().positive() }),
 ]);
 export type ClaimStatus = z.infer<typeof STATUS>;
 

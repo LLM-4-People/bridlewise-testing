@@ -145,6 +145,29 @@ jobs:
         working-directory: engine
         run: node src/cli.ts harness sync --with-bundle
 
+      # The product projection declares itself (TREE-KIND.txt, shipped by the
+      # promotion overlay); the testing repository never carries the declaration.
+      - name: The testing repository never declares itself the product
+        run: |
+          if [ -e TREE-KIND.txt ]; then
+            echo "::error::TREE-KIND.txt declares the product projection; it ships only from product-only/ (engine/src/workflow/promotion/tree-kind.ts)"
+            exit 1
+          fi
+
+      # A ratchet only shrinks, judged against the base the change lands on (the
+      # local hook judges against HEAD; this is the server's half). On a push
+      # to main there is no base to land on, and nothing to judge.
+      - name: Every ratchet baseline only shrank since the base
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        working-directory: engine
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          SERVER: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          git fetch --no-tags --depth=1 "$SERVER/$REPOSITORY" "$BASE"
+          node scripts/verification/ratchet-baselines.ts --check --grown-since "$BASE"
+
       # Tracked AND untracked: a generator that writes a new file nobody
       # committed (and no ignore rule covers) is as stale as a changed one.
       - name: Require that the generators changed no file
@@ -156,6 +179,84 @@ jobs:
             echo "::error::a generated value is stale; run 'cd engine && node src/cli.ts harness sync --with-bundle' and commit its output"
             exit 1
           fi
+
+  # What the browser actually renders, judged by the one rule table
+  # (scripts/rendered/rules.ts): the brand mark's computed paint and
+  # visibility, the families text renders in, the Content-Security-Policy
+  # meta tag and no violation of it, and no request leaving the origin. The rules first prove themselves on planted breaks; then every
+  # cockpit view the capture walk reaches and every page of the built site
+  # are judged. A static guard reads spellings; this reads the result.
+  rendered:
+    # The check's name is what the trunk ruleset requires: it stays "Rendered
+    # pages" whatever rows the table gains (rules.ts).
+    name: Rendered pages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            engine/package-lock.json
+
+      - name: Install web and engine dependencies
+        run: |
+          npm ci --no-audit --no-fund
+          npm --prefix engine ci --no-audit --no-fund
+
+      - name: Enforce the self-protection config mode
+        run: chmod 600 engine/bridlewise.config.json
+
+      - name: Require the pinned compiler from the runner image
+        run: |
+          # gcc-14 ships in the ubuntu-24.04 image; it is probed, never installed (#333).
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
+
+      - name: Build the guardian (the cockpit's custody and checks need it)
+        run: make -C engine/guardian all
+
+      # The browser is the runner image's Google Chrome, probed like the
+      # compiler, never downloaded: the rendered rules need a real browser,
+      # not a pinned build (they judge computed styles, not pixels).
+      - name: Require the browser from the runner image
+        run: |
+          command -v google-chrome >/dev/null || { echo "::error::google-chrome is not in the runner image; the rendered judgement needs a browser"; exit 1; }
+          google-chrome --version
+          echo "RENDERED_BROWSER=$(command -v google-chrome)" >> "$GITHUB_ENV"
+
+      - name: The rendered rules catch every planted break
+        run: node --experimental-strip-types scripts/rendered/proof.ts --browser "$RENDERED_BROWSER"
+
+      # The app runs from a scratch copy under a private temporary root, outside
+      # the safety floor's keep-out (D-19): never under /tmp beside the checkout.
+      - name: Judge every cockpit view as rendered
+        run: |
+          mkdir -p "$RUNNER_TEMP/capture"
+          TMPDIR="$RUNNER_TEMP/capture" node --experimental-strip-types scripts/capture/cockpit.ts --judge-only --browser "$RENDERED_BROWSER" --demo-root "$RUNNER_TEMP/demo"
+
+      - name: Build the site source
+        run: |
+          mkdir -p "$RUNNER_TEMP/versions"
+          node scripts/build-site.mjs source --out .site --baseurl /rendered --versions "$RUNNER_TEMP/versions"
+
+      - name: Build the site with Jekyll
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
+        with:
+          source: ./.site
+          destination: ./_site
+          build_revision: ${{ github.sha }}
+
+      - name: Judge every built page as rendered
+        run: node --experimental-strip-types scripts/rendered/judge.ts site --site _site --baseurl /rendered --browser "$RENDERED_BROWSER"
 
   shards:
     name: Full suite shards

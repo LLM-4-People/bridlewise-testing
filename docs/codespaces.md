@@ -15,7 +15,7 @@ toolchain essay. One click gives you a Linux workspace with Node 24, the
 native build tools the guardian needs, both lockfiles installed, and ports
 `5173` (cockpit) and `5174` (loopback API) forwarded.
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/LLM-4-People/bridlewise?quickstart=1)
+[Open in GitHub Codespaces](https://codespaces.new/{{ site.product_repository }}?quickstart=1)
 
 The badge opens a new Codespace from `main`. Codespaces is a GitHub-hosted
 development environment, not a hosted demo of Bridlewise. The cockpit still

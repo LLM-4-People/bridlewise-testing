@@ -46,7 +46,7 @@
  * part of the build.
  */
 
-import { parentPort, workerData } from "node:worker_threads";
+import { workerData } from "node:worker_threads";
 import {
   generateRepositoryMapIsolated,
 } from "../../engine/src/intelligence/repository-map.ts";
@@ -57,7 +57,7 @@ import {
   diffStatSnapshot,
   type RepositoryMapCache,
 } from "../../engine/src/intelligence/repository-stat-scan.ts";
-import { postWorkerResult } from "../run/worker-ipc.ts";
+import { postWorkerResult, requireWorkerThread } from "../run/worker-ipc.ts";
 import type { CodeIntelligenceFarmConfig } from "../kernel/harness-config.ts";
 
 type WorkerInput = Readonly<{
@@ -80,10 +80,7 @@ type WorkerResult = WorkerOk | WorkerErr;
 // The `satisfies WorkerResult` checks keep the payload type aliases used
 // (noUnusedLocals) + type-check the posted shape.
 
-if (parentPort === null) {
-  // Spawned without a parent port (e.g. run directly) — nothing to do.
-  process.exit(1);
-}
+requireWorkerThread();
 
 const input = workerData as WorkerInput | undefined;
 if (input === undefined || typeof input.projectPath !== "string" || input.projectPath.length === 0) {

@@ -34,7 +34,7 @@ import { LandingError, branchCheckout, commitCandidate, landCommit, refuseUndecl
 import { importWorkspaceTimelineShard, openWorkspaceTimelineShard } from "./timeline-shard.ts";
 import { createWorkspaceRecordStore, refuseOwnedByOlder, workspaceRecordStores, type WorkspaceRecordStore } from "./workspace-registry.ts";
 import { remoteTrackingRef } from "../git/git-port.ts";
-import { fetchForgeBranches, publishBranch, remoteUrlOf, resolveForgeTarget, type ForgePullRequest, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
+import { fetchForgeBranches, publishBranch, queuePreflightConflict, remoteUrlOf, resolveForgeTarget, type ForgePullRequest, type ForgeTarget, type PublishedRound, type WorkspaceForge, type WorkspaceForgeFactory } from "./workspace-forge.ts";
 import { repositoryRegistryArea, resolveRepositoryRegistry, workspaceRootOf, type RepositoryRegistry } from "./repository-registry.ts";
 import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS, WORKSPACE_NONCE_CHARACTERS, WORKSPACE_REFUSAL_PATHS_NAMED, WORKSPACE_SHORT_ID_CHARACTERS } from "./workflow-config.ts";
 import {
@@ -595,10 +595,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return latestRunOfTree(paths.flatMap((path) => readRunHistory(path)), tree, before);
   }
 
-  /** The runs of `tree` recorded before `before` INSIDE the host's one instrument lock: the only rows a budget is judged against. */
-  function slottedRunsOfTree(paths: readonly string[], tree: string, before: number): readonly JudgedRunRecord[] {
+  /** The runs of `tree` recorded before `before`, whatever ran beside them: the rows a budget is judged against (NO-LOAD-BLOCK, audit A-05). */
+  function measuredRunsOfTree(paths: readonly string[], tree: string, before: number): readonly JudgedRunRecord[] {
     return runsOfTree(paths.flatMap((path) => readRunHistory(path)), tree)
-      .filter((row) => row.heavySlot === "held" && Date.parse(row.timestamp ?? "") < before);
+      .filter((row) => Date.parse(row.timestamp ?? "") < before);
   }
 
   /**
@@ -706,14 +706,13 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     // THE BUDGETS, IN THE SAME JUDGEMENT (UR-24, the coordinator's budget
     // amendment): a breach passes only when it persists from the target NOT
     // WORSE — this change's value no higher than the LOWEST value the target's
-    // tree recorded inside the host's one instrument lock — and an open task
-    // row declares the budget. Only SLOTTED rows of the target count (an
-    // unslotted one may have shared the cores); a target with none is
-    // measured in the lock first ({@link ensureTargetBaselines}). A breach
-    // with no slotted target value, a worse one, an unslotted measurement or
-    // an unowned breach fails. No allowance, no re-run.
+    // tree recorded — and an open task row declares the budget. Every
+    // recorded run of the target counts, whatever ran beside it: the values
+    // are CPU work (NO-LOAD-BLOCK, audit A-05); a target with none is
+    // measured first ({@link ensureTargetBaselines}). A breach with no target
+    // value, a worse one or an unowned breach fails. No allowance, no re-run.
     const targetTree = treeOf(judge.targetTip);
-    const baseRows = targetTree === null ? [] : slottedRunsOfTree(baselineLedgers(judge.record, cwd, ledger), targetTree, before);
+    const baseRows = targetTree === null ? [] : measuredRunsOfTree(baselineLedgers(judge.record, cwd, ledger), targetTree, before);
     const budgetVerdicts = breaches.map((breach) => {
       const spec = budgets[breach.gate]!;
       const field = (row: unknown): number | undefined => budgetFieldOf(row, spec.field);
@@ -721,10 +720,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       const baseValues = baseRows.map(field).filter((v): v is number => v !== undefined);
       const lowest = baseValues.length === 0 ? undefined : Math.min(...baseValues);
       const owners = ownersOf(rows, spec.budget);
-      const base = lowest === undefined ? "the target recorded no slotted value"
-        : `the target's lowest of ${String(baseValues.length)} slotted value(s) is ${lowest.toFixed(1)}`;
-      const reason = current.heavySlot !== "held" ? "this measurement did not hold the instrument lock: refused, not judged"
-        : value === undefined || lowest === undefined ? `unmeasured: ${value === undefined ? "this run" : "the target"} recorded no slotted ${spec.field}`
+      const base = lowest === undefined ? "the target recorded no value"
+        : `the target's lowest of ${String(baseValues.length)} value(s) is ${lowest.toFixed(1)}`;
+      const reason = value === undefined || lowest === undefined ? `unmeasured: ${value === undefined ? "this run" : "the target"} recorded no ${spec.field}`
           : value > lowest ? `WORSE than the target: ${value.toFixed(1)} > ${lowest.toFixed(1)}`
             : owners.length === 0 ? `persists from the target not worse, but no open task row of ${trackerPath} declares ${spec.budget}`
               : undefined;
@@ -741,10 +739,10 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   /** A phase in `cwd`, fail-fast, through the commands port; ledger gates are judged by `judge`. */
   async function runPhase(cwd: string, phase: CheckoutPhase, judge: LedgerJudge): Promise<readonly WorkspaceGateResult[]> {
     const steps = await runCheckoutPhase(config, phase, (name, command) => {
-      // A read-only workspace (a verifier's) runs no heavy setup instrument: it runs single files, its first run warms
-      // the module cache, and its create never waits for the instrument lock a validate holds.
+      // A read-only workspace (a verifier's) runs no heavy setup instrument: it runs single files, and its first run warms
+      // the module cache.
       if (command.holdsInstrumentLock === true && judge.record.lease.kind === "read-only") {
-        return Promise.resolve(builtinGate(name, "skip", "a read-only workspace does not run a heavy setup instrument: its first run warms the cache, and its create never waits for the instrument lock"));
+        return Promise.resolve(builtinGate(name, "skip", "a read-only workspace does not run a heavy setup instrument: its first run warms the cache"));
       }
       progress(`${phase}: ${name}`);
       return judgedByLedger(cwd, name, command, judge);
@@ -797,13 +795,11 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       const ledger = config.commands[name]?.ledger;
       return ledger === undefined ? [] : [ledger];
     }))];
-    // A ledger whose budgets are judged needs a SLOTTED run of the target too:
-    // an unslotted baseline judges the failures, never a budget.
+    // A ledger whose budgets are judged needs a target run carrying the value
+    // of every budget an open task row OWNS (only an owned breach can pass,
+    // and only against the target's value; a perf budget's comes from the
+    // profile step its suite requires). A target without one is measured here.
     const targetTree = treeOf(targetTip);
-    // A slotted target run must carry the value of every budget an open task
-    // row OWNS (only an owned breach can pass, and only against the target's
-    // slotted value; a perf budget's comes from the profile step its suite
-    // requires). A target without one is measured here, in the lock.
     const trackerText = (() => {
       try {
         return readFileSync(join(cwd, ROOT_POLICY.workflow.failureOwners.tracker), "utf8");
@@ -818,7 +814,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const missing = wanted.filter((ledger) => !measuredBaselines.has(baselineKey(targetTip, ledger)) &&
       (targetBaseline(baselineLedgers(record, cwd, ledger), targetTip, Number.POSITIVE_INFINITY) === undefined ||
         (budgetFields(ledger).length > 0 && targetTree !== null &&
-          !slottedRunsOfTree(baselineLedgers(record, cwd, ledger), targetTree, Number.POSITIVE_INFINITY)
+          !measuredRunsOfTree(baselineLedgers(record, cwd, ledger), targetTree, Number.POSITIVE_INFINITY)
             .some((row) => budgetFields(ledger).every((path) => budgetFieldOf(row, path) !== undefined)))));
     if (missing.length === 0) return;
     progress(`baseline: measuring ${missing.join(", ")} at the target's tip ${targetTip}`);
@@ -884,7 +880,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    */
   function branchChange(cwd: string, forkPoint: string, head: string): Readonly<{ changed: readonly string[]; exempt: ReadonlySet<string> }> {
     const changed = git.diffNameOnly({ cwd, refA: forkPoint, refB: head, threeDot: false, timeoutMs: timeouts.inspectMs });
-    return { changed, exempt: generationOnlyPaths(cwd, forkPoint, head, changed, generatedOutputPaths(cwd)) };
+    return { changed, exempt: generationOnlyPaths(cwd, forkPoint, head, changed, generatedOutputPaths()) };
   }
 
   function leaseIdentity(workspaceId: string, writeSet: readonly string[]): string | null {
@@ -1093,7 +1089,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const worktreePath = join(workspaceRoot, workspaceId);
     assertWorkspaceRootPlacement();
     const invokingBranch = git.symbolicBranch(checkoutRoot, timeouts.inspectMs);
-    const generated = generatedOutputPaths(checkoutRoot);
+    const generated = generatedOutputPaths();
 
     let targetBranch: string | null = null;
     let forgeState: WorkspaceForgeState | null = null;
@@ -1196,6 +1192,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       } else {
         git.worktreeAdd({ repoRoot: checkoutRoot, worktreePath, branch, baseSha: overlay?.commit ?? baseSha, timeoutMs: timeouts.worktreeMs });
       }
+      // An agent's checkout commits as the project's agent identity, from the one declared source, and says it is
+      // an agent's: the commit-msg hook then refuses any other identity here (scripts/verification/sign-off.ts).
+      git.agentCheckoutIdentity({ repoRoot: checkoutRoot, worktreePath, identity: ROOT_POLICY.workflow.commitIdentity.agent, markerKey: ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey, timeoutMs: timeouts.worktreeMs });
       applyCheckoutFiles(worktreePath, checkoutRoot, options.engineRelative, config);
       const setup = await runPhase(worktreePath, "setup", { record, targetTip: null });
       if (setup.some((gate) => gate.status === "fail")) throw new WorkspaceGateFailedError(workspaceId, "setup", setup, "workspace_setup_failed");
@@ -1428,7 +1427,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         saveTransition(record, "active", "worktree has uncommitted changes at merge");
         throw new InputError(`workspace ${workspaceId} worktree is dirty at merge`, "workspace_merge_precondition_failed");
       }
-      const generated = generatedOutputPaths(worktreePath);
+      const generated = generatedOutputPaths();
       const targetTip = git.revParse(checkoutRoot, `refs/heads/${target}`, timeouts.inspectMs);
       // The fork point with the target: what `git merge` brings is its diff to the head.
       const forkPoint = git.mergeBase(checkoutRoot, targetTip, head, timeouts.inspectMs);
@@ -1802,7 +1801,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     if (forkPoint !== trunk) {
       const staleness = git.revListCount(worktreePath, forkPoint, trunk, timeouts.inspectMs);
       const merged = git.diffNameOnly({ cwd: worktreePath, refA: forkPoint, refB: trunk, threeDot: false, timeoutMs: timeouts.inspectMs });
-      const mergedExempt = generationOnlyPaths(worktreePath, forkPoint, trunk, merged, generatedOutputPaths(worktreePath));
+      const mergedExempt = generationOnlyPaths(worktreePath, forkPoint, trunk, merged, generatedOutputPaths());
       const mergedConflicts = computeMergedSinceConflicts(authored, merged.filter((path) => !mergedExempt.has(path)));
       if (mergedConflicts.length > 0) refuse(record, "dynamic-overlap", mergedConflicts, "a path landed on the trunk since the fork point; rebase, publish and re-validate");
       if (staleness > config.baseStalenessCommits) {
@@ -1817,6 +1816,22 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const current = await forge.pullRequest(number);
     // A merged one is an answer (a land another tool finished), never a refusal: its head is judged after the merge.
     if (!current.merged) assertOpenAtPublishedHead(record, current, head);
+    // THE QUEUE PREFLIGHT: never enter a queue that would drop this pull request (workspace-forge.ts). It is
+    // read-only and runs BEFORE the record moves: a preflight that fails — a conflict, or the forge or git
+    // failing to answer — leaves the workspace exactly as it was, never `merging` with nothing queued (which
+    // `recover` would later read as a dequeue). Not asked of a land already merged or queued at this head.
+    if (!current.merged && !current.queued) {
+      const queued = (await forge.mergeQueue(target.trunk)).filter((entry) => entry.number !== number);
+      const conflict = queuePreflightConflict(git, worktreePath, target.remote, trunk, queued, head, timeouts);
+      if (conflict !== null) {
+        auditEvent("workspace-land-queue-conflict", { workspaceId, pullRequest: number, head, paths: conflict.paths.join(","), ahead: conflict.ahead.join(",") });
+        throw new HarnessError(
+          `pull request #${String(number)} conflicts with the merge queue ahead of it (${conflict.ahead.length === 0 ? "the trunk" : `#${conflict.ahead.join(", #")}`}) in ${conflict.paths.join(", ")}: ` +
+            "the queue would drop it — wait for those to land, rebase onto the trunk, publish and validate again",
+          "workspace_queue_conflict", false, { workspaceId, paths: conflict.paths.join(","), ahead: conflict.ahead.join(",") },
+        );
+      }
+    }
     // `merging` BEFORE the request, naming the one head that may land: a land that dies after it is found by `recover`.
     record = store.save(transition(deepFreeze({ ...record, forge: deepFreeze({ ...state, land: deepFreeze({ head }) }) }), "merging", `the land of ${head} was requested (pull request #${String(number)})`));
     // Already merged (a land another tool finished) or already queued at this head: nothing to ask, only to wait.

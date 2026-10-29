@@ -12,7 +12,7 @@ import { configuredWorktreeGitPort } from "../../../src/git/worktree-port.ts";
 import { applyPromotion } from "../../../src/workflow/promotion/apply.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { resolvePromotionContext } from "../../../src/workflow/promotion/context.ts";
-import { testProcessSupervisorBinary } from "../../../guardian/build.ts";
+import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { FIXTURE_ENGINE, FIXTURE_GENERATED, PROFILE_NAME, SOURCE, fixtureView } from "./promotion-fixture.ts";
 
 const [root, commandsDirectory, workRoot, crashAt] = process.argv.slice(2);
@@ -22,7 +22,7 @@ const context = resolvePromotionContext(root, PROFILE_NAME, SOURCE, view.documen
 try {
   const result = await applyPromotion(context, { acceptTargetEdits: null, allowDeletions: false, releaseHold: false, reason: null, noPublish: false, noPush: false, auto: false }, {
     git: configuredWorktreeGitPort(view.document),
-    runner: { supervisor: testProcessSupervisorBinary(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } },
+    runner: { supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } },
     generatedOutputs: () => FIXTURE_GENERATED,
     buildOutputs: () => ["build/out.txt"],
     engineRelative: FIXTURE_ENGINE,

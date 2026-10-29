@@ -10,37 +10,44 @@
     },
     {
       "id": "issueops",
-      "text": "Bot commands in issues and pull requests (`/status`, `/accept`, `/decline`, `/duplicate`, `/reproduce`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands.",
+      "text": "Bot commands in issues and pull requests (`/help`, `/status`, `/accept`, `/decline`, `/duplicate`, `/explain`): a triage command opens a pull request adding a record, and the issue follows the record once it lands.",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/105"
+        "planned": 105
+      }
+    },
+    {
+      "id": "reproduce",
+      "text": "`/reproduce` runs the test a Flake report names on a hosted runner with no secrets, and posts the receipt.",
+      "status": {
+        "planned": 105
       }
     },
     {
       "id": "track",
       "text": "`/track` turns an Ideas discussion or an objection to a decision into a tracker record.",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/107"
+        "planned": 107
       }
     },
     {
       "id": "intake-redaction",
       "text": "A secret pasted into an issue is redacted by the publisher, with a comment saying why.",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/109"
+        "planned": 109
       }
     },
     {
       "id": "projection",
       "text": "Issues, milestones and the project board generated from the harness's own records, with one Floor log comment per land.",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/111"
+        "planned": 111
       }
     },
     {
       "id": "teams",
       "text": "The GitHub teams `triagers` and `reviewers`, applied from the role table.",
       "status": {
-        "planned": "https://github.com/LLM-4-People/bridlewise-testing/issues/112"
+        "planned": 112
       }
     }
   ]

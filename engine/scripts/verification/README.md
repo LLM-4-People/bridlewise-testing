@@ -20,6 +20,7 @@ source.
   (the memory rule). A handler named in a comment or string is not handling.
 - `candidate-format.ts` — the candidate-format gate: refuses byte-order
   marks, wrong final newlines, and other non-canonical file bytes.
+- `candidate-manifest.ts` — THE CANDIDATE MANIFEST: the engine runner's setup door (`buildCandidateManifest`) certifies a tree before a test runs; `--root . --verdict` answers only whether it would accept the tree, which `harness check`'s candidate-format step asks. It ships, so a product tree's check asks the same door.
 - `effect-surface.ts` — classifies each module's filesystem and process
   effects for the architecture manifest.
 - `filesystem-cache.ts` — a generic filesystem-backed cache for
@@ -34,8 +35,20 @@ source.
   the commit guard refuses a staged baseline that grew or carries an entry
   with no reason (the inline-literal and web unhandled-catch baselines use it).
 - `ratchet-baselines.ts` — THE RATCHET BASELINES AND THEIR GENERATOR (a2b-design H2): every shrink-only baseline declared in `ROOT_POLICY.verification.ratchetBaselines` (a generated output) with the scan its guard judges (the engine's inline-literal defaults, the web's unhandled catches, the repository's dead Markdown links — `src/workflow/record-links.ts` — the guards call the same function). `harness sync` prunes each baseline (an entry no finding matches is removed; a key is NEVER added), `harness check` reports a stale entry as drift and fails on new debt (`ratchet-baselines` step), and `--introduce <id> --reason <tracker id>` writes a new baseline once (refused when it exists).
+- `repository-git.ts` — what the candidate manifest reads of git: the repository probe, the tree entries, a file's git mode and its blob id.
 - `shipped-hooks.ts` — THE SHIPPED HOOKS GENERATOR (PROMO34FIX-HOOK-GENERATOR): every canonical `.githooks/<hook>` (`SHIPPED_HOOK_FILES`, `src/kernel/verification-paths.ts`) written whole from its owner (`staged-move-loss.ts` `shippedHookText`: a guarded hook's prose and body, the trigger's `promotionTriggerHookText`); `harness sync` writes them (a new one executable), `harness check` reports one that differs (`shipped-hooks` step); a tree without the hooks folder is converged by absence.
 - `decision-index.ts` — THE DECISION INDEX GENERATOR (wf-1b3a-design M1): `docs/decisions/README.md`'s index block rebuilt from the decision files' front matter and titles (`tracker-entries.ts` `renderDecisionIndex`); `harness sync` writes it, `harness check` reports it stale (`decision-index` step); a tree without the decisions folder is converged by absence.
+- `commit-trailers.ts` — THE ONE READER of a commit's trailers (git's own
+  parse, `git interpret-trailers --parse`; the key exact) the commit doors
+  share.
+- `test-deletions.ts` — A DELETED TEST IS A NAMED DECISION: every path a
+  commit takes off the recognizable test surface (renames included) is named
+  in a `Test-deleted: <path>` trailer, and no trailer names a kept test. One
+  judge, asked by the `commit-msg` door (the index), `post-commit` (an amend)
+  and the required `commit-records` workflow (`--range <base>..<head>`, main's
+  code over a pull request's or merge group's commits). Nothing is committed
+  beside the trailer, so no list conflicts (#221); `harness sync --prune`
+  stays only for the entry of a deleted test with an exception disposition.
 - `pattern-liveness.ts` — per-pattern liveness: refuses a guard whose
   per-pattern universe silently dies while the scalar floor stays green.
 - `safe-repository-reader.ts` — descriptor-verified, symlink- and
@@ -70,51 +83,9 @@ source.
 - `source-walk.ts` — THE ownership-pruned source walk both suites use (`walk`, `walkTs`, `repositoryOwnedEntries`, `gitTrackedPaths`): prunes by the versioned ignore rules, takes declared narrowings (`ignore`, `exclude`, `experimentExclusion`), refuses a missing or ignored root, and refuses a result smaller than the git index for the same narrowing.
 - `event-loop-callbacks.ts` — the event-loop callback census (SCALE-CR1 C3, SCALE-CR1-FIX N3): every timer (bare or a member, e.g. `globalThis.setTimeout`), emitter/event-target listener (by name or computed), watch/request/listen callback, node-style completion callback (`COMPLETION_CALLBACK_APIS`: a stream's write/end, exec, the fs/crypto/zlib/dns forms; `get`/`request` of a node HTTP client) and `on<event> =` handler in `server/` and `engine/src/` registered through `guarded(owner, fn)` (or a promise settler); names resolved through their LEXICAL SCOPES (a same-named binding elsewhere, a reassigned `let`, a shadowing parameter are not guards); parsed with `@babel/parser`. The fault policy's doors (`processDoorFindings`, SCALE-CR1-FIX H2): `installProcessFaultPolicy` only in `FAULT_POLICY_DOORS`, and every `new Worker(` spelled `new Worker(...bootstrappedWorker(…))`. And the user-defined SQL function census (`sqliteUserFunctions`: closing a database inside one is a SIGSEGV). Judged by `tests/prevention/guarded-callbacks.test.ts` (counts 0, no allowlist).
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/scripts/verification/`.
-
-- `architecture.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/src/workflow/harness-commands.ts`, `engine/src/workflow/module-registrar.ts`.
-- `authority-graph.ts` is consumed by nothing yet.
-- `candidate-format.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/repository-git.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/test-execution.ts`, `engine/scripts/tooling/verification/artifact-admission.ts`, `engine/scripts/tooling/verification/rejected-binary-fixture.ts` and 1 more.
-- `catch-blocks.ts` is consumed by `engine/scripts/verification/ratchet-baselines.ts`.
-- `consumer-plants.ts` is consumed by nothing yet.
-- `corpus-root.ts` is consumed by `engine/scripts/generation/repository-path-unicode.ts`, `engine/scripts/verification/corpus.ts`.
-- `corpus.ts` is consumed by nothing yet.
-- `decision-index.ts` is consumed by nothing yet.
-- `declared-universe.ts` is consumed by nothing yet.
-- `effect-surface.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/command-effect-inventory.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`.
-- `event-loop-callbacks.ts` is consumed by nothing yet.
-- `filesystem-cache.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/governed-source.ts`, `engine/scripts/verification/architecture.ts`, `engine/scripts/verification/static-source.ts`.
-- `gitignore-anchoring.ts` is consumed by `engine/scripts/bootstrap-hooks.ts`.
-- `guardian-spec-artifact.ts` is consumed by nothing yet.
-- `hermetic-skips.ts` is consumed by nothing yet.
-- `lesson-trailers.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/post-commit.ts`.
-- `measurement-contract.ts` is consumed by nothing yet.
-- `official-fragment-manifest.ts` is consumed by `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-projection-inputs.ts`.
-- `pattern-liveness.ts` is consumed by `engine/scripts/verification/test-surface.ts`, `engine/scripts/verification/tsconfig-include-liveness.ts`.
-- `ratchet-baselines.ts` is consumed by nothing yet.
-- `ratchet.ts` is consumed by `engine/scripts/commit-guard.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
-- `required-fixture-roots.ts` is consumed by `engine/scripts/tooling/run-tests.ts`.
-- `safe-repository-reader.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/artifact-manifest.ts`, `engine/scripts/tooling/candidate-manifest.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/tooling/verification/artifact-admission.ts` and 3 more.
-- `shipped-hooks.ts` is consumed by nothing yet.
-- `slice-declarations.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`.
-- `slice-projection-captured-values.ts` is consumed by `engine/scripts/verification/slice-projection-inputs.ts`, `engine/scripts/verification/slice-projections.ts`.
-- `slice-projection-inputs.ts` is consumed by `engine/scripts/verification/slice-projections.ts`.
-- `slice-projection-paths.ts` is consumed by `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-declarations.ts`, `engine/scripts/verification/slice-projection-captured-values.ts`, `engine/scripts/verification/slice-projection-inputs.ts`, `engine/scripts/verification/slice-source-contracts.ts`.
-- `slice-projections.ts` is consumed by `engine/scripts/build-bundle.ts`, `engine/scripts/verification/guardian-spec-artifact.ts`.
-- `slice-source-contracts.ts` is consumed by `engine/scripts/tooling/verification/slice-traces.ts`, `engine/scripts/verification/slice-projection-inputs.ts`.
-- `source-view.ts` is consumed by `engine/scripts/tooling/verification/raw-source-readers.ts`, `engine/scripts/verification/catch-blocks.ts`, `engine/scripts/verification/declared-universe.ts`, `engine/scripts/verification/measurement-contract.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
-- `source-walk.ts` is consumed by `engine/scripts/verification/consumer-plants.ts`, `engine/scripts/verification/event-loop-callbacks.ts`, `engine/scripts/verification/hermetic-skips.ts`, `engine/scripts/verification/measurement-contract.ts`, `engine/scripts/verification/ratchet-baselines.ts`.
-- `staged-move-loss.ts` is consumed by `engine/scripts/bootstrap-hooks.ts`, `engine/scripts/commit-guard.ts`, `engine/scripts/verification/shipped-hooks.ts`.
-- `static-source.ts` is consumed by `engine/scripts/tooling/s1-verification.ts`, `engine/scripts/verification/architecture.ts`, `engine/src/workflow/module-registrar.ts`.
-- `test-surface.ts` is consumed by `engine/scripts/test-inventory.ts`, `engine/scripts/tooling/planned-node-test-evidence.ts`, `engine/scripts/tooling/run-tests.ts`, `engine/scripts/tooling/test-receipt.ts`.
-- `tracker-entries.ts` is consumed by `engine/scripts/tooling/lessons.ts`, `engine/scripts/verification/decision-index.ts`, `engine/scripts/verification/lesson-trailers.ts`.
-- `tsconfig-include-liveness.ts` is consumed by nothing yet.
-
-<!-- /consumers:generated -->
 
 ## Runtime and erased module references
 

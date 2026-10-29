@@ -9,12 +9,6 @@ The cockpit: the web UI's interactive shell — the HORIZON, FLOW, SWEEP, DESK g
 
 The cockpit's rooms and surfaces live one level down, each a populated subfolder with its own README.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `src/cockpit/`.
-
-- `main.ts` is consumed by `src/main.ts`.
-
-<!-- /consumers:generated -->

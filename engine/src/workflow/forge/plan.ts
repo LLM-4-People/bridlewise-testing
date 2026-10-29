@@ -27,7 +27,7 @@ import { FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError, isForgeError, type ForgeCode } from "./codes.ts";
 import { differences, referenceKey, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
 import { FORGE_LOG_CATEGORY } from "./github.ts";
-import { afterWrite, EXCLUSIVE_KINDS, KIND_ADAPTERS, type LiveContext, type LiveObject } from "./live-state.ts";
+import { EXCLUSIVE_KINDS, KIND_ADAPTERS, type LiveContext, type LiveObject } from "./live-state.ts";
 import { looseningOf, movedPremisesUnmet } from "./strictness.ts";
 
 export type PlanAction = "create" | "update" | "unchanged" | "refused" | "unmanaged" | "retire";
@@ -273,7 +273,6 @@ export async function forgeApply(context: LiveContext, objects: readonly ForgeOb
     const { object, entry, body, found } = item;
     if (entry.action === "create") await KIND_ADAPTERS[object.kind].create(context, object, body);
     else await KIND_ADAPTERS[object.kind].update(context, object, body, found!);
-    await afterWrite(context, object);
     applied.push(entry);
     debugLog(FORGE_LOG_CATEGORY, "info", "forge_object_applied", () => ({ kind: entry.kind, scope: entry.scope, key: entry.key, action: entry.action }));
   };

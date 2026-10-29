@@ -42,7 +42,7 @@ github at 500%".
   `Relative Markdown links`, `Analyze JavaScript and TypeScript
   (javascript-typescript)` and `Full suite shards / Merge one qualification
   receipt`. Check it yourself:
-  `gh api repos/LLM-4-People/bridlewise-testing/rulesets/25593191`.
+  `gh api repos/{owner}/{repo}/rulesets/25593191` (in a clone of this repository, `gh` fills in `{owner}/{repo}`).
 - **The checks run in the queue.** `ci.yml`, `codeql.yml`, `secret-scan.yml`
   and `docs-links.yml` run on `merge_group` (pull request #43, merged as
   `805c43ea`). `test-shards.yml` runs as the `shards` job of `ci.yml`.

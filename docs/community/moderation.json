@@ -1,0 +1,9 @@
+{
+  "schema": "bridlewise-community-moderation/v1",
+  "interactionLimit": {
+    "mode": "approval",
+    "spamSignal": { "windowHours": 24, "newAccountDays": 7, "threshold": 10 }
+  },
+  "lockClosedAfterDays": 30,
+  "agentReplySlaHours": 24
+}

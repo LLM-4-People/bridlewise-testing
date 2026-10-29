@@ -19,7 +19,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 
 const FORGE_OBJECT_KINDS = deepFreeze([
-  "custom-property", "custom-property-values", "org-settings", "team", "team-repository", "security-configuration",
+  "custom-property", "custom-property-values", "org-settings", "team", "team-repository", "security-configuration", "security-configuration-repositories",
   "org-ruleset", "repository-settings", "actions-permissions", "actions-selected", "actions-workflow", "actions-fork-approval",
   "immutable-releases", "environment", "ruleset", "label", "issue-type", "issue-field", "autolink", "project",
 ] as const);
@@ -111,4 +111,9 @@ export function differences(desired: unknown, live: unknown, path: readonly (str
     return Object.entries(desired).flatMap(([key, value]) => differences(value, (live as Record<string, unknown>)[key], [...path, key]));
   }
   return Object.is(desired, live) ? [] : [pointer(path)];
+}
+
+/** THE FORGE'S ONE JSON FILE TEXT: two-space indented, one final newline (every generated file and identity copy). */
+export function jsonText(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
 }

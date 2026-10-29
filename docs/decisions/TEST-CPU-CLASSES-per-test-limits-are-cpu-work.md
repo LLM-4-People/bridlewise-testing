@@ -4,9 +4,8 @@ date: 2026-10-22
 by: coordinator
 group: process
 status: in-force
-implementation: partial
-route: NOLOAD (engine suite next; the web suite's per-test overrides next)
-acted_in: [engine/scripts/tooling/test-cpu-class.ts, tests/setup/test-cpu-class.ts, tests/test-budget.ts, vitest.config.ts, engine/src/kernel/config-contracts.ts, engine/bridlewise.config.json]
+implementation: done
+acted_in: [engine/scripts/tooling/test-cpu-class.ts, engine/scripts/tooling/engine-test-bounds.ts, engine/scripts/tooling/inventory-test-run.ts, tests/setup/test-cpu-class.ts, tests/test-budget.ts, vitest.config.ts, engine/src/kernel/config-contracts.ts, engine/bridlewise.config.json]
 ---
 # Per-test limits are CPU-work classes plus one hang backstop
 
@@ -32,8 +31,7 @@ carries out [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)
   2026-10-22, 12-core host) put every test at or under 15.2 s of CPU work
   except `test-isolation-contract`'s nested runner launches (up to 30.1 s).
   The default ceiling is 60 s (hosted runners spent about 1.3 times this
-  host's CPU on the same test); the `nested-runner` class holds
-  `test-isolation-contract` at 180 s.
+  host's CPU on the same test).
 - **One judgement, installed by each runner's door.**
   `engine/scripts/tooling/test-cpu-class.ts` holds it; the web suite installs
   it from `tests/setup/test-cpu-class.ts` (the reading is kept on each test
@@ -56,6 +54,58 @@ carries out [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)
   refusal fails the run naming the test. `tests/prevention/test-cpu-class.test.ts`
   plants each known spelling (aliased and namespace imports, spread, imported
   and call-built options, a wrapper in a helper, `vi["setConfig"]`, hook
-  bounds, a test with no bound, the DOM pool) in a real nested run. The
-  engine suite's per-test kill timeout
-  (`runtimeBudgetMs`) and its 33 overrides follow with the engine door.
+  bounds, a test with no bound, the DOM pool) in a real nested run.
+- **The engine suite has the same door** (NO-LOAD-BLOCK row G-05). Its
+  per-test WALL cap (`runtimeBudgetMs`, 120 s, node:test's `--test-timeout`)
+  is deleted with its 33 per-test overrides: under full-suite contention it
+  failed foundation-cascade, handoff-continuity and repository-path, which
+  spawn three runtimes each and pass alone. The runner
+  (`engine/scripts/tooling/inventory-test-run.ts`) preloads
+  `engine-test-bounds.ts` into every test file's process: the same CPU-class
+  judgement, node:test's per-test timeout set to `testHangBackstopMs`, and
+  the same run-time refusal of any other bound. node:test arms each test's
+  and hook's timer through `timers.setTimeout`, which the preload wraps
+  before node:test loads, with a liveness witness on every test.
+  `engine/test/workflow/inventory-test-run.test.ts` plants a test timeout,
+  a hook timeout and a CPU burner through the real runner. The engine
+  watchdog's stall bound sits above the backstop (900 s) and its run ceiling
+  is the schema's largest (4 h): both end hangs, neither judges speed.
+- **A class records a measurement, and its ceiling is derived from it.**
+  Each class names its file and `measuredCpuMs`: the most CPU work any of
+  its tests did on a hosted runner. Its ceiling is that measurement times
+  the one declared `headroomFactor` (2), because CPU work still varies with
+  the runner's processor model. One function derives the ceiling
+  (`classCeilingMs` in `engine/src/workflow/workflow-config.ts`, which the
+  judgement and the exposure page both call), and no class carries a
+  hand-picked ceiling. The measurements come from #490's
+  CI run (2026-10-28):
+  - The engine run (10,800 tests) had 13 tests over the 60 s default:
+    commit-guard-generated-facts 435.2 s, candidate-checkout 258.5 s, S1
+    b12 195.0 s, S1 b02 176.4 s, foundation-cascade 159.5 s (FC-E002; FC-E001
+    63.4 s), S1 b15 135.1 s, repository-path 115.7 s (RPA-O003), S1 b08
+    89.4 s, handoff-continuity 84.5 s (HCF-O003), S1 b13 74.5 s,
+    harness-commands 65.2 s and architecture-baseline-clean 60.0 s.
+  - The web shards' heaviest tests were test-cpu-class 40.8 s and
+    test-isolation-contract 39.6 s. Both run nested runners, and they
+    replace the hand-set 180 s `nested-runner` class. The next heaviest web
+    test did 25.4 s.
+  - Every test over about 120 s of CPU work has a performance issue for its
+    owning lane. The class unblocks the suite; the issue makes the test
+    cheaper.
+- **Every engine runner runs under the same bounds.** The targeted door
+  (`engine/scripts/tooling/test-guards.ts`: the engine's test:unit script,
+  and `harness flake reproduce`, which runs there) installs the suite's own
+  bounds, built by the one construction (`engineTestBoundsFrom` in
+  `engine-test-bounds.ts`), for the files it runs, with the backstop as
+  node:test's per-test timeout. A run naming no test file is refused
+  (node would otherwise discover files the bounds do not cover), and so is a
+  folder (node does not expand one). Before, a targeted run had no CPU judgement
+  and no backstop, so a CPU-class failure could never be seen or reproduced
+  there (#615).
+- **Concurrency and threads.** The judgement keeps one reading per test
+  context, never one per process. A nested or concurrent test therefore
+  never clears another test's window: a parent counts its subtests' work,
+  and concurrent tests each count the work done in their window. Both
+  over-count and never under-count. The engine preload installs only in
+  the dispatched test file's own main thread. A worker thread or a child
+  node started with the inherited options is the test's own work.

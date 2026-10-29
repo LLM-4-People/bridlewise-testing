@@ -23,6 +23,7 @@ import { BUILD_CONFIG } from "./vite.config.ts";
 import { TEST_HANG_BACKSTOP_MS } from "./tests/test-budget.ts";
 import { TEST_INCLUDE } from "./tests/test-include.ts";
 import { enableSharedCompileCache } from "./engine/scripts/tooling/compile-cache.ts";
+import { readTestExecutionConfig } from "./engine/src/workflow/test-result-collector.ts";
 import { armCheckoutUnderTest } from "./engine/src/filesystem/checkout-write-door.ts";
 import { armTestKeyHome } from "./engine/test/support/test-key-home.ts";
 import {
@@ -56,7 +57,9 @@ export { TEST_INCLUDE };
 // keeps the directory off tmpfs and outside scanned trees; no warm-up runs
 // or precomputed product state are needed. Dev-server boots never load this
 // file (they read `vite.config.ts`).
-if (process.env.VITEST === "true") enableSharedCompileCache();
+// The enabler bounds the cache (testExecution.compileCachePruning) when this
+// process is the one enabling it; under the web runner it is inherited.
+if (process.env.VITEST === "true") enableSharedCompileCache(readTestExecutionConfig(join(import.meta.dirname, "engine")).compileCachePruning);
 
 // THE SUITE ARMS THE CHECKOUT WRITE DOOR for the checkout it tests, here in
 // vitest's main process and before any worker exists: every worker and every
@@ -146,9 +149,10 @@ export default mergeConfig(BUILD_CONFIG, defineConfig({
     // ordering, a `-t` filter, or a `finally` that restored the wrong bytes.
     // A run left `server/worker-ipc.ts` at zero bytes and was noticed only
     // because other tests imported it.
-    // ONE INSTRUMENT AT A TIME, refused at this door: the lock runs FIRST,
-    // before the fingerprint and before any worker — see
-    // tests/setup/concurrency-lock.ts for the measured contention it ends.
+    // HEAVY-RUN ADMISSION at this door: it runs FIRST, before the fingerprint
+    // and before any worker, and a heavy run borrows the run its supervising
+    // door admitted under per-run caps (never waiting for another run) — see
+    // tests/setup/concurrency-lock.ts.
     globalSetup: ["./tests/setup/concurrency-lock.ts", "./tests/setup/source-tree-immutable.ts"],
     // Persist the transformed module cache to disk so reruns skip the
     // per-file TS→JS transform + module-graph evaluation. The first run

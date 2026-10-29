@@ -19,6 +19,7 @@ import { FEATURES_PATH, INTAKE_PATH, readIntake, readRoles, ROLES_PATH, roleForP
 import { communityFilesStep } from "../../src/workflow/harness-commands.ts";
 import { LABELS_PATH } from "../../src/workflow/community/labels.ts";
 import { withTempDir } from "../support/temp-dir.ts";
+import { configuredRepositoryIdentity } from "../../src/workflow/forge/repository-identity.ts";
 
 const REPOSITORY = dirname(fileURLToPath(new URL("../../", import.meta.url)));
 
@@ -214,7 +215,8 @@ test("a template that names no generated file is drift, and the form schema refu
       ["a textarea without render (it would take attachments)", field({ kind: "textarea", render: undefined })],
       ["the confirmations id", field({ id: "confirmations" })],
       ["a repeated field id", (json: Record<string, unknown>) => { const forms = json.issueForms as { fields: Record<string, unknown>[] }[]; forms[0]!.fields[1]!.id = forms[0]!.fields[0]!.id; }],
-      ["a planned claim with no tracking URL", (json: Record<string, unknown>) => { (json.issueForms as Record<string, unknown>[])[0]!.typeStatus = { planned: "soon" }; }],
+      ["a planned claim with no tracking issue number", (json: Record<string, unknown>) => { (json.issueForms as Record<string, unknown>[])[0]!.typeStatus = { planned: "soon" }; }],
+      ["a planned claim that spells a URL instead of an issue number", (json: Record<string, unknown>) => { (json.issueForms as Record<string, unknown>[])[0]!.typeStatus = { planned: "https://github.com/o/r/issues/1" }; }],
       ["a contact link to a planned category", (json: Record<string, unknown>) => { (json.contactLinks as Record<string, unknown>[])[0]!.category = "rfcs"; }],
     ] as const) {
       plant(root);
@@ -234,7 +236,7 @@ test("the pages state live facts only: a planned category, type or feature is li
     for (const category of intake.discussionCategories) {
       const linked = support.includes(`/discussions/categories/${category.slug})`);
       assert.equal(linked, "live" in category.status, `${category.slug} is linked only while live`);
-      if ("planned" in category.status) assert.ok(support.includes(category.status.planned), `${category.slug}'s tracking link is listed`);
+      if ("planned" in category.status) assert.ok(support.includes(`${configuredRepositoryIdentity().issuesUrl}/${String(category.status.planned)}.`), `${category.slug}'s tracking link is listed, generated from the repository identity`);
       assert.equal(existsSync(join(root, `.github/DISCUSSION_TEMPLATE/${category.slug}.yml`)), category.form !== undefined && "live" in category.status, `${category.slug}'s form exists only while live`);
     }
     for (const form of intake.issueForms) {
@@ -243,10 +245,10 @@ test("the pages state live facts only: a planned category, type or feature is li
     }
     const contributing = () => readFileSync(join(root, "CONTRIBUTING.md"), "utf8");
     assert.match(contributing(), /signed off by GitHub/u);
-    edit(root, FEATURES_PATH, (json) => { const list = json.features as Record<string, unknown>[]; list.find((feature) => feature.id === "web-signoff")!.status = { planned: "https://github.com/o/r/issues/1" }; });
+    edit(root, FEATURES_PATH, (json) => { const list = json.features as Record<string, unknown>[]; list.find((feature) => feature.id === "web-signoff")!.status = { planned: 1 }; });
     syncCommunityFiles(root, true);
     assert.doesNotMatch(contributing(), /signed off by GitHub\./u, "a planned feature's sentence is not stated");
-    assert.match(readFileSync(join(root, "SUPPORT.md"), "utf8"), /signed off by GitHub\. Planned; tracked in https:\/\/github\.com\/o\/r\/issues\/1/u);
+    assert.ok(readFileSync(join(root, "SUPPORT.md"), "utf8").includes(`signed off by GitHub. Planned; tracked in ${configuredRepositoryIdentity().issuesUrl}/1.`), "the tracking link is generated from the issue number and the repository identity");
     assert.doesNotMatch(readFileSync(join(root, "GOVERNANCE.md"), "utf8"), /team `/u, "the teams are planned, so no role names one");
   });
 });

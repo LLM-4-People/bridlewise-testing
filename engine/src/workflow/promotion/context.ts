@@ -42,17 +42,17 @@ import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environme
 import type { JudgedRunRecord } from "../../shared/budget-verdict.ts";
 import { commandsRun, configuredCheckoutCommandRunner, type CheckoutCommandRunner } from "../checkout-setup.ts";
 import { generatedOutputPaths, buildOutputPaths } from "../hash-binding-registry.ts";
-import { repositoryRegistryArea, resolveRepositoryRegistry, type RepositoryRegistry } from "../repository-registry.ts";
+import { resolveRepositoryRegistry, type RepositoryRegistry } from "../repository-registry.ts";
 import { PromotionError, answer, type PromotionAnswer } from "./codes.ts";
 import { applyPromotion, recomputeProjection } from "./apply.ts";
-import { dropPending, promotionErrorOf, promotionFolder, promotionRefs, targetTip, type ApplyRun } from "./promotion-run.ts";
+import { dropPending, profileWorkDirectory, promotionErrorOf, promotionFolder, promotionRefs, targetTip, type ApplyRun } from "./promotion-run.ts";
 import { promotionState, readLastRun, type LastRun } from "./last-run.ts";
 import { localHold } from "./publication.ts";
 import { holdPromotion, releaseHold, rollbackPromotion } from "./rollback.ts";
 import { autoPromotion, launchUnattendedApply, withUnattendedChain, type UnattendedLaunch } from "./trigger.ts";
 import type { PromotionRequest } from "./promote-arguments.ts";
 import { engineRelativeIn, promoterPlacement, runInPromoterHome, type PromoterPlacement } from "./promoter-home.ts";
-import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, selectPromotionProfile, type LoadedPromotionProfile } from "./profile.ts";
+import { branchOf, loadPromotionProfiles, parsePromotionProfile, profileCommandNames, profileTriggerHeaders, selectPromotionProfile, type LoadedPromotionProfile, type ProfileTriggerHeader } from "./profile.ts";
 import { classifyTree, explainPaths, planPromotion, projectSource, type PromotionPlan } from "./projection.ts";
 import { configuredProductForge, forgePublishVerb, type ProductForge } from "../forge/publish/product.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
@@ -76,6 +76,8 @@ export type RepositoryContext = Readonly<{
   commandNames: ReadonlySet<string>;
   /** The profiles `commit` declares, parsed and validated. */
   profilesAt(commit: string): readonly LoadedPromotionProfile[];
+  /** What the trigger reads of the profiles `commit` declares, before any judgement (`profileTriggerHeaders`). */
+  triggerHeadersAt(commit: string): readonly ProfileTriggerHeader[];
 }>;
 
 /** A pair's context: the repository's, one profile read from S, S and T. */
@@ -108,6 +110,7 @@ export function resolveRepositoryContext(root: string, document: PromotionDocume
     registry: resolveRepositoryRegistry(port, top, repository.timeoutMs),
     commandNames,
     profilesAt: (commit: string) => loadPromotionProfiles(commitTreeReader(repository, commit), profileDirectory, commandNames),
+    triggerHeadersAt: (commit: string) => profileTriggerHeaders(commitTreeReader(repository, commit), profileDirectory),
   });
 }
 
@@ -151,7 +154,7 @@ function contextFor(context: RepositoryContext, profileName: string | undefined,
   const { profile } = chosen;
   const target = targetTip(context.repository, profile);
   // Named, not created: only a plan writes there (a read — a signal, status, explain — leaves no state).
-  const workDirectory = join(repositoryRegistryArea(context.registry, "promotion"), profile.name);
+  const workDirectory = profileWorkDirectory(context.registry, profile.name);
   return deepFreeze({ ...context, loaded: chosen, source, target, workDirectory });
 }
 
@@ -244,8 +247,8 @@ function promotionStatus(context: PromotionContext): PromotionAnswer {
  * module).
  */
 async function commandRunner(context: PromotionContext): Promise<CheckoutCommandRunner> {
-  const { testProcessSupervisorBinary } = await import("../../../guardian/build.ts");
-  return configuredCheckoutCommandRunner(context.document, context.isolation, testProcessSupervisorBinary());
+  const { ensureTestProcessSupervisor } = await import("../../../guardian/build.ts");
+  return configuredCheckoutCommandRunner(context.document, context.isolation, ensureTestProcessSupervisor());
 }
 
 /** The lockfile runner of a context: the ONE command runner and the toolchain its lockfile commands run. */
@@ -334,7 +337,7 @@ function applyRun(context: PromotionContext, git: WorktreeGitPort, runner: Check
  * (`trigger.ts` `withUnattendedChain`: latest wins — the top-level process's,
  * never the home's child), once every lock it took is released.
  */
-async function promotionBuild(context: PromotionContext, request: PromotionRequest, contextOf: (profile: string, source: string) => PromotionContext, launch: UnattendedLaunch, chain = request.verb === "apply"): Promise<PromotionAnswer> {
+async function promotionBuild(context: PromotionContext, request: PromotionRequest, launch: UnattendedLaunch, chain = request.verb === "apply"): Promise<PromotionAnswer> {
   const git = configuredWorktreeGitPort(context.document);
   const build = async (): Promise<PromotionAnswer> => {
     const runner = await commandRunner(context);
@@ -358,7 +361,7 @@ async function promotionBuild(context: PromotionContext, request: PromotionReque
       auto: request.auto === true,
     }, run);
   };
-  return chain ? withUnattendedChain(context, git, build, contextOf, launch) : build();
+  return chain ? withUnattendedChain(context, git, build, launch) : build();
 }
 
 /**
@@ -446,8 +449,11 @@ export async function verifyBuiltProjection(context: PromotionContext, run: Appl
  * FIRST-PARENT line. Every landing on the source branch is a merge commit,
  * so the first-parent line is exactly its published history; a commit
  * merged in from a side branch is not a landing. That holds because the
- * trunk's ruleset allows the merge method only, pinned in settings-as-code
- * (#486): a squash or rebase landing would weaken this rule. Only then is the source's own content (its profile, its
+ * forge allows the merge method only, in three declared settings that
+ * `MERGE_ONLY` (forge/declarations.ts, #486) pins together: the
+ * repositories' merge buttons, the baseline's pull-request rule and the
+ * trunk's merge queue. A plan allowing squash or rebase again is a loosening
+ * that is never applied unacknowledged. Only then is the source's own content (its profile, its
  * promoter) read. A branch whose own profile names itself the source proves
  * nothing.
  */
@@ -541,7 +547,7 @@ async function promotionVerify(repository: RepositoryContext, request: Promotion
 /** `harness promote auto --refs <refs>` over the checkout at `root` (see `trigger.ts`); `launch` starts each unattended run (production: in the background). */
 export function promotionAuto(root: string, refs: string, document: PromotionDocument | undefined, launch: UnattendedLaunch = launchUnattendedApply, environment: NodeJS.ProcessEnv = process.env): PromotionAnswer {
   const repository = resolveRepositoryContext(root, document);
-  return autoPromotion(repository, (profile, source) => contextFor(repository, profile, source), refs, launch, environment);
+  return autoPromotion(repository, refs, launch, environment);
 }
 
 async function verbAnswer(root: string, request: PromotionRequest, document: PromotionDocument | undefined, launch: UnattendedLaunch): Promise<PromotionAnswer> {
@@ -551,7 +557,7 @@ async function verbAnswer(root: string, request: PromotionRequest, document: Pro
   if (request.verb === "verify") return promotionVerify(repository, request);
   const context = contextFor(repository, request.profile, request.source);
   if (request.verb === "status") return promotionStatus(context);
-  if (request.verb === "apply" || request.verb === "rollback") return promotionBuild(context, request, (profile, source) => contextFor(repository, profile, source), launch);
+  if (request.verb === "apply" || request.verb === "rollback") return promotionBuild(context, request, launch);
   if (request.verb === "hold") return holdPromotion(context, request.reason!, { git: configuredWorktreeGitPort(context.document) });
   if (request.verb === "release-hold") return releaseHold(context, request.reason!, { git: configuredWorktreeGitPort(context.document) });
   if (request.verb === "explain") {

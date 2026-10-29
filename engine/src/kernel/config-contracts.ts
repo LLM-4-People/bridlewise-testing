@@ -170,6 +170,21 @@ export const REPOSITORY_RELATIVE_PATH_SCHEMA = z.string().min(1).max(1024)
 export const WORKSPACE_COMMAND_NAME_SCHEMA = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u);
 
 /**
+ * THE PROMOTION PROFILE NAME RULE, the one owner: a lower-case letter, then
+ * up to 62 lower-case letters, digits and hyphens. A name is also a folder
+ * (the profile's private directory) and a file name, so the rule is what
+ * keeps it ONE path segment: no `/`, no `..`, never absolute. The profile's
+ * own `name` (`workflow/promotion/profile.ts`, which derives `isProfileName`
+ * and the trigger's header check from it) and `promotion.release.profile`
+ * here both name a profile by this one schema; it lives in the kernel beside
+ * the other shared schemas because `profile.ts` imports from here.
+ */
+export const PROMOTION_PROFILE_NAME_SCHEMA = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u);
+
+/** The profile-name rule, spelled for a refusal. */
+export const PROMOTION_PROFILE_NAME_RULE = "a lower-case letter, then up to 62 lower-case letters, digits or hyphens";
+
+/**
  * Whether provider-interaction payload capture is on when the config file
  * does not say. On: the ledger exists to answer "what did the provider
  * actually send and receive?", the payloads are redacted before write, and
@@ -1163,11 +1178,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     requires: z.array(workspaceCommandName).min(1).max(8).optional(),
     // `holdsInstrumentLock` — declared only on a SETUP command that is a heavy
     // instrument (the web module cache warm-up collects the whole suite): the
-    // runner takes the host's one instrument lock before the command starts
-    // (the wait counts toward no `timeoutMs`), runs it once per tree, and a
-    // READ-ONLY workspace's create does not run it (a verifier runs single
-    // files; its first run warms the cache), so a create never fails while a
-    // validate holds the lock.
+    // runner admits it as a heavy run under its per-run caps before the
+    // command starts (at once: it never waits for another run), runs it once
+    // per tree, and a READ-ONLY workspace's create does not run it (a verifier
+    // runs single files; its first run warms the cache).
     holdsInstrumentLock: z.literal(true).optional(),
   });
   const workspacePhaseSchema = z.array(workspaceCommandName).max(32);
@@ -1326,8 +1340,6 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     unitsPerTestFile: z.number().positive().max(600000),
     derivedAtTestFileCount: z.number().int().positive().max(100000),
     maxPopulationDriftFraction: z.number().positive().lt(1),
-    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
-    ambientInflationCapFraction: z.number().min(0).lt(1),
   });
   const rollingCpuBudgetSchema = z.strictObject({
     ...cpuBudgetValidityFields,
@@ -1336,12 +1348,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     maxPopulationDriftFraction: z.number().positive().lt(1),
     sameTreeSpreadFraction: z.number().positive().lt(1),
     baselineWindowRuns: z.number().int().min(2).max(HISTORY_KEPT),
-    // ZERO IS A LEGAL SLOPE NOW, and it is the value the calibrated metric
-    // declares: the ambient adjustment would double-pay a load effect the
-    // calibration already absorbs. The fields stay in the shape so a future
-    // re-derivation can state a non-zero residual without a schema change.
-    ambientInflationSlopePerCpu: z.number().min(0).lt(1),
-    ambientInflationCapFraction: z.number().min(0).lt(1),
+    // (No ambient-inflation envelope: a cap is never scaled by host load.
+    // The load legs are recorded signals only; NO-LOAD-BLOCK, audit A-08.)
   });
 
   // ── PER-TEST LIMITS: CPU WORK, AND ONE HANG BACKSTOP (NO-LOAD-BLOCK L2) ──
@@ -1351,14 +1359,20 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // host makes a test WAIT for a core, it does not make it do more work. The
   // ceiling is its file's class (`classes`, each naming the repository paths
   // of the files it holds), else `defaultCeilingMs`. A file sits in at most
-  // one class. Wall time survives only as `testHangBackstopMs`: an async hang
+  // one class. A class records what was MEASURED (`measuredCpuMs`, the most
+  // CPU work one of its tests did on a hosted runner), never a hand-picked
+  // ceiling: its ceiling is that measurement times the one declared
+  // `headroomFactor`, derived in one place (`classCeilingMs`,
+  // engine/src/workflow/workflow-config.ts), because CPU work still varies
+  // with the runner's processor model. Wall time survives only as `testHangBackstopMs`: an async hang
   // ends there, classified `hung`, and is never retried. It sits below each
   // suite's stall bound, so a hung test is named before its run is killed.
   const testCpuClassesSchema = z.strictObject({
     defaultCeilingMs: z.number().int().positive().max(3_600_000),
+    headroomFactor: z.number().min(1).max(10),
     classes: z.array(z.strictObject({
       name: z.string().regex(/^[a-z][a-z0-9-]*$/u),
-      ceilingMs: z.number().int().positive().max(3_600_000),
+      measuredCpuMs: z.number().int().positive().max(3_600_000),
       files: z.array(z.string().min(1)).min(1),
     })),
   }).refine((declared) => new Set(declared.classes.map((one) => one.name)).size === declared.classes.length, {
@@ -1378,15 +1392,10 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     ]).default("auto"),
     parallelConcurrency: z.number().int().positive().max(64).optional(),
     fullSuiteParallelConcurrency: z.number().int().positive().max(64).optional(),
-    // `runtimeBudgetMs` is a per-test KILL TIMEOUT, not a budget: it is
-    // passed to the runner as `timeout`, so a test that never settles FAILS
-    // instead of removing the suite. It happens to read 120000 — the same
-    // number the deleted wall-clock suite budget (`suiteRuntimeBudgetMs`)
-    // carried — and that is a COINCIDENCE of history, not a relationship:
-    // the suite budget is a CPU budget now (`integrationSuiteCpuBudget`
-    // below) and this timeout is bounded from below by the slowest single
-    // test, a different derivation entirely.
-    runtimeBudgetMs: z.number().int().positive().max(600000).optional(),
+    // (`runtimeBudgetMs`, the engine's per-test WALL cap, is deleted: a test
+    // is judged by its CPU work against its file's class and ended only by
+    // the hang backstop, `testCpuClasses` and `testHangBackstopMs` below —
+    // NO-LOAD-BLOCK row G-05. The key is refused, never read.)
     serialPhaseConcurrency: z.number().int().positive().max(16).optional(),
     fullSuiteSerialPhaseConcurrency: z.number().int().positive().max(16).optional(),
     fullSuiteInProcessSerialPhaseConcurrency: z.number().int().positive().max(16).optional(),
@@ -1423,18 +1432,25 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // cache passes through). The cache is otherwise unbounded and measured
     // growing ~950k entries/day (1.97M entries / 20 GB two days after a full
     // clear), ~11.5k of them per run being never-reusable temp-path compiles.
-    // An entry survives a prune iff its mtime is within `maxEntryAgeDays`
-    // AND among the newest `maxEntries` of its cache subdirectory; the prune
-    // runs opportunistically at suite start BEFORE the run's start-stamp
-    // (so the warmth instrument cannot be fabricated by it) and stops at
-    // `timeBudgetMs`, trimming a large backlog over several runs rather
-    // than stalling one. OPTIONAL WITH NO DEFAULT on purpose: a missing
-    // policy object means no pruning plus a printed note naming this key —
-    // a bound nobody chose is not a bound.
+    // THE SHARED V8 COMPILE CACHE'S BOUND (engine/scripts/tooling/
+    // compile-cache.ts): the process that enables the cache prunes it, at most
+    // once per `intervalMinutes`, before anything is compiled — every entry
+    // unused for `maxEntryAgeHours`, then least-recently-used until the cache
+    // holds at most `maxBytes`, never an entry used within `inUseMinutes`
+    // (last use is the later of mtime and atime). Pruning an entry a process
+    // still reads costs that process a recompile, never a wrong result (a
+    // missing cache entry is a cache miss), so the in-use window protects the
+    // live runs' work, not correctness. INCREMENTAL, never timed
+    // (NO-LOAD-BLOCK): one prune deletes at most `maxDeletionsPerPrune`, and
+    // when that left work the next enabler continues at once. OPTIONAL WITH NO DEFAULT on
+    // purpose: a missing policy means no pruning plus a printed note naming
+    // this key — a bound nobody chose is not a bound.
     compileCachePruning: z.strictObject({
-      maxEntryAgeDays: z.number().positive().max(365),
-      maxEntries: z.number().int().positive().max(50_000_000),
-      timeBudgetMs: z.number().int().positive().max(600_000),
+      maxBytes: z.number().int().positive(),
+      maxEntryAgeHours: z.number().positive().max(8_760),
+      inUseMinutes: z.number().int().positive().max(525_600),
+      intervalMinutes: z.number().int().positive().max(10_080),
+      maxDeletionsPerPrune: z.number().int().positive().max(10_000_000),
     }).optional(),
     integrationSuiteCpuBudget: z.union([
       accumulatingCpuBudgetSchema,
@@ -1546,22 +1562,31 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // WHOLE retained ledger, and a red suspect stays red until it is explained
     // or owned by a burn-down entry — nothing ages out of a window, design
     // NH-E; src/workflow/flaky-burn-down.ts `judgeFlakyMemory`.)
-    // THE HOST'S ONE INSTRUMENT LOCK (src/process/instrument-lock.ts): the
-    // lock file, relative to the host user's cache folder (`.cache` under the
-    // password database's home: $HOME and $XDG_CACHE_HOME never move it; never
-    // in a checkout, never in the keep-out floor), and what a
-    // heavy run is — this many test files or more; fewer is a light, targeted
-    // run that takes nothing — and which WHOLE INSTRUMENTS are heavy by kind,
-    // whatever files they name (a browser run, the coverage run, the profile,
-    // a slot run, a reproduction: one definition of heavy). REQUIRED:
-    // a heavy run with no declared lock does not start. Every instrument door
-    // takes it; a second one waits.
+    // HEAVY-RUN ADMISSION (src/process/instrument-lock.ts): the run
+    // registry's place, beside this path relative to the host user's cache
+    // folder (`.cache` under the password database's home: $HOME and
+    // $XDG_CACHE_HOME never move it; never in a checkout, never in the
+    // keep-out floor), and what a heavy run is — this many test files or
+    // more; fewer is a light, targeted run that records nothing — and which
+    // WHOLE INSTRUMENTS are heavy by kind, whatever files they name (a browser
+    // run, the coverage run, the profile, a slot run, a reproduction: one
+    // definition of heavy). REQUIRED: a heavy run with no declaration does
+    // not start. Every heavy run is admitted AT ONCE under its caps; none
+    // waits for another (NO-LOAD-BLOCK).
     instrumentLock: z.strictObject({
       cacheRelativeLockPath: z.string().min(1),
       minimumTestFiles: z.number().int().min(2),
       wholeInstruments: z.array(z.enum(WHOLE_INSTRUMENT_KINDS)).min(1).refine((kinds) => new Set(kinds).size === kinds.length, "each instrument once"),
-      // How often a waiting run looks at the lock again.
-      pollIntervalMs: z.number().int().min(10).max(60_000),
+      // Each admitted run's caps (NO-LOAD-BLOCK: runs proceed concurrently,
+      // never waiting for each other): the admitting process, and so
+      // everything the run starts, goes into the run's own cgroup v2 scope
+      // with this memory ceiling (a share of the host's memory) and CPU
+      // weight (1-10000; 100 is the default share). A host that cannot make
+      // the scope refuses the run.
+      perRun: z.strictObject({
+        memoryMaxPercent: z.number().int().min(1).max(100),
+        cpuWeight: z.number().int().min(1).max(10_000),
+      }),
     }),
     // THE FLAKY-CAUSE REPRODUCTION DOOR (`harness flake reproduce`,
     // src/workflow/flake-cli.ts; the FLAKE-REPRO decision). A cause that needs
@@ -1593,14 +1618,15 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     webSuiteWatchdog: suiteWatchdogSchema.optional(),
     // The ENGINE suite's watchdog (`scripts/tooling/inventory-test-run.ts`,
     // held by the worker that dispatches the test files — never by a file's
-    // own process, which is the one that hangs). `runtimeBudgetMs` fails a
-    // TEST that never settles, but a file whose cancelled test left a handle
-    // open never EXITS, and the runner waits for it forever (measured: two
-    // hours on one file's leaked servers). A phase that reports no test event
-    // for `stallTimeoutMs` (above `runtimeBudgetMs`, so a cancelled test
-    // always reports first), or a run still going at `hardCeilingMs`, is
-    // aborted: every file process still running is killed and reported as a
-    // failed, aborted file — a killed run is a failed run.
+    // own process, which is the one that hangs). The hang backstop
+    // (`testHangBackstopMs`) fails a TEST that never settles, but a file whose
+    // cancelled test left a handle open never EXITS, and the runner waits for
+    // it forever (measured: two hours on one file's leaked servers). A phase
+    // that reports no test event for `stallTimeoutMs` (above the backstop, so
+    // a hung test always reports first), or a run still going at
+    // `hardCeilingMs`, is aborted: every file process still running is killed
+    // and reported as a failed, aborted file — a killed run is a failed run.
+    // Both are hang bounds, never judgements of speed (NO-LOAD-BLOCK).
     engineSuiteWatchdog: suiteWatchdogSchema.optional(),
   }).optional();
   // Harness workflow timeouts: subprocess timeouts for harness commands
@@ -1616,7 +1642,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // that merely FAILED (any other non-zero exit) is never retried.
   // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
   // typecheck is bounded by its CPU work and one hang backstop like every
-  // harness subprocess, src/workflow/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
+  // harness subprocess, src/process/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
   const harnessConfigSchema = z.strictObject({
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),
@@ -1634,7 +1660,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   const promotionConfigSchema = z.strictObject({
     profileDirectory: repositoryRelativePath,
     release: z.strictObject({
-      profile: z.string().regex(/^[a-z][a-z0-9-]{0,62}$/u),
+      profile: PROMOTION_PROFILE_NAME_SCHEMA,
       train: z.enum(RELEASE_TRAIN_MODES),
       minIntervalHours: z.number().int().min(0).max(8760),
       tagPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}$/u),

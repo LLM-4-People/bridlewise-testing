@@ -8,12 +8,6 @@ exports, and type annotations.
 
 - `parser.ts` — the JS/TS parser on `@babel/parser`.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/quality/languages/js-ts/`.
-
-- `parser.ts` is consumed by `engine/src/quality/languages/index.ts`.
-
-<!-- /consumers:generated -->

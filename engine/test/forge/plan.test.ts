@@ -23,11 +23,11 @@ import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
 import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
 import { temporaryKeyHome } from "./forge-key-home.ts";
-import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES, TRUNK } from "./forge-settings.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const ORG = "LLM-4-People";
-const REPO = "bridlewise-testing";
+const REPO = TRUNK;
 
 function contextOf(fake: FakeGithub) {
   return { client: githubClient(fake.endpoint(), memoryCredential("user:maintainer", fake.userToken("maintainer"))), organization: ORG, maxPages: 10 };
@@ -88,12 +88,12 @@ test("plan, apply, verify: create and update what differs, leave the rest, repor
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 1, installations: [{ id: 77, app_id: 1234, app_slug: "bridlewise-publisher" }] });
   // Retiring a ruleset weakens protection: refused, nothing written, until it is acknowledged by id.
   const before = fake.requests.filter((request) => request.method !== "GET").length;
-  await assert.rejects(forgeApply(context, objects, retired), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:protect-release-tags/u.test(error.message));
+  await assert.rejects(forgeApply(context, objects, retired), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && error.message.includes(`ruleset:${REPO}:protect-release-tags`));
   assert.equal(fake.requests.filter((request) => request.method !== "GET").length, before, "nothing was written");
-  const outcome = await forgeApply(context, objects, retired, new Set(["ruleset:bridlewise-testing:protect-release-tags"]));
-  assert.deepEqual(outcome.acceptedLoosening, [{ id: "ruleset:bridlewise-testing:protect-release-tags", loosening: ["deletes the ruleset"] }], "the acknowledgement is in the receipt");
+  const outcome = await forgeApply(context, objects, retired, new Set([`ruleset:${REPO}:protect-release-tags`]));
+  assert.deepEqual(outcome.acceptedLoosening, [{ id: `ruleset:${REPO}:protect-release-tags`, loosening: ["deletes the ruleset"] }], "the acknowledgement is in the receipt");
   assert.deepEqual(outcome.applied.map((applied) => `${applied.action} ${applied.kind} ${applied.key}`).sort(), [
-    "create label area:engine", "create ruleset product", "retire ruleset protect-release-tags", "update label lane:gh-1", "update repository-settings bridlewise-testing",
+    "create label area:engine", "create ruleset product", "retire ruleset protect-release-tags", "update label lane:gh-1", `update repository-settings ${REPO}`,
   ]);
   const created = (fake.objects.get(rulesets) as { name: string; bypass_actors?: { actor_id: number }[] }[]).find((ruleset) => ruleset.name === "product");
   assert.equal(created?.bypass_actors?.[0]?.actor_id, 1234, "the reference was resolved to the App's id");
@@ -129,19 +129,109 @@ test("fields the plan does not allow are recorded and never written", async () =
   const fake = fakeGithub();
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
   fake.collection(`/orgs/${ORG}/code-security/configurations`, []);
-  fake.route("POST", /\/code-security\/configurations\/\d+\/attach$/u, () => ({ status: 202, body: {} }));
-  fake.route("PUT", /\/code-security\/configurations\/\d+\/defaults$/u, () => ({ status: 200, body: {} }));
   const security = object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled", secret_scanning_validity_checks: "enabled" }, { kind: "org" }, ["secret_scanning_validity_checks"]);
+  // Its attachment is its own object: the declared repositories only (the organisation holds others), selected by id.
+  fake.objects.set(`/repos/${ORG}/${REPO}`, { name: REPO });
+  fake.objects.set(`/repos/${ORG}/not-governed`, { name: "not-governed" });
+  const attachment = object("security-configuration-repositories", "baseline", { repositories: [REPO], default_for_new_repos: "none" }, { kind: "org" });
   const context = contextOf(fake);
-  const plan = await forgePlan(context, [security], []);
+  const plan = await forgePlan(context, [security, attachment], []);
   assert.deepEqual(entry(plan, "security-configuration", "baseline").unavailableOnPlan, ["secret_scanning_validity_checks"]);
-  const outcome = await forgeApply(context, [security], []);
+  const outcome = await forgeApply(context, [security, attachment], []);
   assert.equal(outcome.verification.drift.length, 0);
   assert.equal(outcome.verified, true);
   const sent = fake.requests.find((request) => request.method === "POST" && request.path.endsWith("/code-security/configurations"));
   assert.deepEqual(sent?.body, { name: "baseline", secret_scanning: "enabled" });
-  assert.ok(fake.requests.some((request) => request.path.endsWith("/attach") && JSON.stringify(request.body) === JSON.stringify({ scope: "all" })));
-  assert.ok(fake.requests.some((request) => request.path.endsWith("/defaults") && JSON.stringify(request.body) === JSON.stringify({ default_for_new_repos: "all" })));
+  const repositoryId = (await contextOf(fake).client.rest<{ id: number }>({ method: "GET", path: `/repos/${ORG}/${REPO}` })).data.id;
+  assert.ok(fake.requests.some((request) => request.path.endsWith("/attach") && JSON.stringify(request.body) === JSON.stringify({ scope: "selected", selected_repository_ids: [repositoryId] })), "the declared repository, by id");
+  assert.ok(!fake.requests.some((request) => request.path.endsWith("/attach") && (request.body as { scope?: string }).scope === "all"), "never every repository");
+  assert.ok(fake.requests.some((request) => request.path.endsWith("/defaults") && JSON.stringify(request.body) === JSON.stringify({ default_for_new_repos: "none" })));
+  // A repository attached by hand is drift, and detaching it is a loosening the plan names.
+  const notGoverned = (await contextOf(fake).client.rest<{ id: number }>({ method: "GET", path: `/repos/${ORG}/not-governed` })).data.id;
+  const configurationId = (fake.objects.get(`/orgs/${ORG}/code-security/configurations`) as { id: number; name: string }[]).find((item) => item.name === "baseline")!.id;
+  await contextOf(fake).client.rest({ method: "POST", path: `/orgs/${ORG}/code-security/configurations/${String(configurationId)}/attach`, body: { scope: "selected", selected_repository_ids: [notGoverned] } });
+  const drifted = entry(await forgePlan(contextOf(fake), [security, attachment], []), "security-configuration-repositories", "baseline");
+  assert.equal(drifted.action, "update");
+  assert.deepEqual(drifted.loosening, [`repositories ["${REPO}","not-governed"] -> ["${REPO}"]`]);
+  // The detach is applied only with its acknowledgement, and leaves the declared repositories alone.
+  await assert.rejects(forgeApply(contextOf(fake), [security, attachment], []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
+  await forgeApply(contextOf(fake), [security, attachment], [], new Set(["security-configuration-repositories:org:baseline"]));
+  assert.ok(fake.requests.some((request) => request.method === "DELETE" && request.path === `/orgs/${ORG}/code-security/configurations/detach` && JSON.stringify(request.body) === JSON.stringify({ selected_repository_ids: [notGoverned] })), "the hand-attached repository is detached by id");
+  assert.equal(entry(await forgePlan(contextOf(fake), [security, attachment], []), "security-configuration-repositories", "baseline").action, "unchanged", "only the declared repository is attached");
+  // A FAILED attach (a feature GitHub cannot enable there) is never a success: the plan refuses it loudly, naming it.
+  fake.objects.set(`/repos/${ORG}/failing`, { name: "failing" });
+  fake.failSecurityAttach(ORG, "failing");
+  const withFailing = object("security-configuration-repositories", "baseline", { repositories: [REPO, "failing"].sort(), default_for_new_repos: "none" }, { kind: "org" });
+  const failedOutcome = await forgeApply(contextOf(fake), [security, withFailing], []);
+  assert.equal(failedOutcome.verified, false, "a failed attach does not verify");
+  const refused = entry(await forgePlan(contextOf(fake), [security, withFailing], []), "security-configuration-repositories", "baseline");
+  assert.equal(refused.code, "forge_security_attach_failed");
+  assert.match(refused.message ?? "", /failing/u);
+});
+
+test("an issue field's update sends each existing option's id (an option sent without it is a new option, and every issue's value would be wiped); options compare without ids", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  fake.collection(`/orgs/${ORG}/issue-fields`, [{ id: 7, name: "Severity", data_type: "single_select", visibility: "organization_members_only", description: "How bad it is (P0 worst)", options: [{ id: 71, name: "P0", color: "gray", priority: 1 }, { id: 72, name: "P1", color: "orange", priority: 2 }] }], "id");
+  const declared = object("issue-field", "Severity", { name: "Severity", data_type: "single_select", visibility: "organization_members_only", description: "How bad it is (P0 worst)", options: [{ name: "P0", color: "red", priority: 1 }, { name: "P1", color: "orange", priority: 2 }, { name: "P2", color: "yellow", priority: 3 }] }, { kind: "org" });
+  const context = contextOf(fake);
+  const planned = entry(await forgePlan(context, [declared], []), "issue-field", "Severity");
+  assert.equal(planned.action, "update");
+  await forgeApply(context, [declared], []);
+  const patch = fake.requests.find((request) => request.method === "PATCH" && request.path === `/orgs/${ORG}/issue-fields/7`);
+  assert.deepEqual((patch?.body as { options: unknown[] }).options, [{ id: 71, name: "P0", color: "red", priority: 1 }, { id: 72, name: "P1", color: "orange", priority: 2 }, { name: "P2", color: "yellow", priority: 3 }]);
+  assert.equal((patch?.body as Record<string, unknown>).data_type, undefined, "the data type is never sent on an update");
+});
+
+test("a team's members are data: a member added in the UI is drift that apply removes, and declaring a new member is a loosening", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  fake.collection(`/orgs/${ORG}/teams`, [{ name: "reviewers", privacy: "closed", description: "The reviewer role" }], "name");
+  const context = contextOf(fake);
+  // Someone added in the UI (or the creator GitHub adds to a team made through the API).
+  await context.client.rest({ method: "PUT", path: `/orgs/${ORG}/teams/reviewers/memberships/somebody`, body: { role: "member" } });
+  const declared = object("team", "reviewers", { name: "reviewers", privacy: "closed", description: "The reviewer role", members: [] }, { kind: "org" });
+  const drift = entry(await forgePlan(context, [declared], []), "team", "reviewers");
+  assert.equal(drift.action, "update");
+  assert.equal(drift.loosening, undefined, "removing a member is never a loosening");
+  await forgeApply(context, [declared], []);
+  assert.equal(entry(await forgePlan(context, [declared], []), "team", "reviewers").action, "unchanged", "the member was removed");
+  assert.ok(fake.requests.some((request) => request.method === "DELETE" && request.path === `/orgs/${ORG}/teams/reviewers/memberships/somebody`));
+  // Declaring a member grants access: a loosening, applied only with its acknowledgement.
+  const widened = object("team", "reviewers", { name: "reviewers", privacy: "closed", description: "The reviewer role", members: ["newcomer"] }, { kind: "org" });
+  assert.deepEqual(entry(await forgePlan(context, [widened], []), "team", "reviewers").loosening, ['members [] -> ["newcomer"]']);
+});
+
+test("a security configuration's two features read back as GitHub answers them (advanced_security only, the per-feature fields null): the declared features match, and a change of either is drift", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  const declared = { name: "baseline", code_security: "disabled", secret_protection: "enabled", secret_scanning: "enabled" };
+  // GitHub's read: advanced_security "secret_protection" (Secret Protection on, Code Security off); code_security and secret_protection null.
+  fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "secret_protection", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  const object_ = object("security-configuration", "baseline", declared, { kind: "org" });
+  assert.equal(entry(await forgePlan(contextOf(fake), [object_], []), "security-configuration", "baseline").action, "unchanged");
+  // GitHub reading both features enabled: Code Security differs from the declaration.
+  const both = fakeGithub();
+  both.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  both.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: "enabled", code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+  assert.deepEqual(entry(await forgePlan(contextOf(both), [object_], []), "security-configuration", "baseline").differences, ["/code_security"]);
+  // Every direction is drift, for each feature. A feature GitHub reads OFF while declared ON is a tightening to apply; one
+  // read ON while declared OFF is drift too (and turning it off would be the loosening, judged by the strictness order).
+  for (const [advanced, declaredFeatures, differing] of [
+    ["disabled", { code_security: "disabled", secret_protection: "enabled" }, ["/secret_protection"]],
+    ["secret_protection", { code_security: "disabled", secret_protection: "disabled" }, ["/secret_protection"]],
+    ["code_security", { code_security: "disabled", secret_protection: "enabled" }, ["/code_security", "/secret_protection"]],
+    ["disabled", { code_security: "enabled", secret_protection: "disabled" }, ["/code_security"]],
+  ] as const) {
+    const live = fakeGithub();
+    live.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    live.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", advanced_security: advanced, code_security: null, secret_protection: null, secret_scanning: "enabled" }], "id");
+    const planned = entry(await forgePlan(contextOf(live), [object("security-configuration", "baseline", { ...declared, ...declaredFeatures }, { kind: "org" })], []), "security-configuration", "baseline");
+    assert.equal(planned.action, "update", `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    assert.deepEqual([...(planned.differences ?? [])].sort(), differing, `${advanced} vs ${JSON.stringify(declaredFeatures)}`);
+    // Declared on, read off: a tightening, never a loosening.
+    if (advanced === "disabled" && declaredFeatures.secret_protection === "enabled") assert.equal(planned.loosening, undefined, "turning Secret Protection on is a tightening");
+  }
 });
 
 /** A fake GitHub that answers every kind the declarations use, statefully. */
@@ -155,8 +245,6 @@ function wholeGithub(): FakeGithub {
   fake.collection(`/orgs/${ORG}/issue-types`, [{ name: "Task", color: "yellow", is_enabled: true, description: "" }]);
   fake.collection(`/orgs/${ORG}/issue-fields`, []);
   fake.collection(`/orgs/${ORG}/code-security/configurations`, []);
-  fake.route("POST", /\/code-security\/configurations\/\d+\/(attach)$/u, () => ({ status: 202, body: {} }));
-  fake.route("PUT", /\/code-security\/configurations\/\d+\/defaults$/u, () => ({ status: 200, body: {} }));
   const propertyValues = new Map<string, Record<string, unknown>[]>();
   fake.route("GET", /^\/repos\/[^/]+\/([^/]+)\/properties\/values$/u, (_request, match) => ({ status: 200, body: propertyValues.get(match[1]!) ?? [] }));
   fake.route("PATCH", /^\/repos\/[^/]+\/([^/]+)\/properties\/values$/u, (request, match) => {
@@ -185,7 +273,7 @@ function wholeGithub(): FakeGithub {
   fake.route("PUT", /^\/repos\/[^/]+\/[^/]+\/environments\/([^/]+)$/u, (request, match) => {
     const body = request.body as { reviewers?: { type: string; id: number }[] } & Record<string, unknown>;
     const stored = { name: match[1]!, deployment_branch_policy: body.deployment_branch_policy, can_admins_bypass: body.can_admins_bypass,
-      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
+      protection_rules: body.reviewers === undefined ? [] : [{ type: "required_reviewers", prevent_self_review: body.prevent_self_review === true, reviewers: body.reviewers.map((reviewer) => ({ type: reviewer.type, reviewer: { id: reviewer.id } })) }] };
     fake.objects.set(request.path, stored);
     return { status: 200, body: stored };
   });
@@ -197,7 +285,10 @@ function wholeGithub(): FakeGithub {
     fake.collection(`${base}/autolinks`, [], "id");
   }
   // The Project, through GraphQL.
-  const project = { id: "PVT_1", title: "", public: false, created: false, fields: [{ id: "F_status", name: "Status", dataType: "SINGLE_SELECT", options: [{ name: "Todo" }] }] as { id: string; name: string; dataType: string; options?: { name: string }[] }[] };
+  // A new project carries GitHub's own default fields (as GitHub creates them): the forge declares none of them but Status.
+  const builtIn = [["Title", "TITLE"], ["Assignees", "ASSIGNEES"], ["Labels", "LABELS"], ["Linked pull requests", "LINKED_PULL_REQUESTS"], ["Milestone", "MILESTONE"], ["Repository", "REPOSITORY"], ["Reviewers", "REVIEWERS"], ["Parent issue", "PARENT_ISSUE"], ["Sub-issues progress", "SUB_ISSUES_PROGRESS"]]
+    .map(([name, dataType], index) => ({ id: `F_builtin_${String(index)}`, name: name!, dataType: dataType! }));
+  const project = { id: "PVT_1", title: "", public: false, created: false, fields: [...builtIn, { id: "F_status", name: "Status", dataType: "SINGLE_SELECT", options: [{ name: "Todo" }] }] as { id: string; name: string; dataType: string; options?: { name: string }[] }[] };
   fake.route("POST", /^\/graphql$/u, (request) => {
     const { query, variables } = request.body as { query: string; variables: Record<string, unknown> };
     if (query.includes("projectsV2(")) return { status: 200, body: { data: { organization: { id: "O_1", projectsV2: { nodes: project.created ? [{ id: project.id, title: project.title, public: project.public, fields: { nodes: project.fields } }] : [] } } } } };
@@ -268,7 +359,7 @@ test("barrier 1, tighten first: the baseline is created and read back BEFORE the
   assert.deepEqual([...trunk.loosening!].sort(), ["removes rule pull_request", "removes rule required_status_checks"]);
   assert.equal(trunk.moved, true, "every removed rule is carried by the baseline for this repository's kind");
   const outcome = await forgeApply(context, objects, []);
-  assert.deepEqual(outcome.movedLoosening, ["ruleset:bridlewise-testing:trunk"]);
+  assert.deepEqual(outcome.movedLoosening, [`ruleset:${REPO}:trunk`]);
   const writes = fake.requests.map((request, index) => ({ request, index })).filter(({ request }) => request.method !== "GET");
   const baselineWrite = writes.find(({ request }) => request.method === "POST" && request.path === `/orgs/${ORG}/rulesets`)!.index;
   const trunkWrite = writes.find(({ request }) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`))!.index;
@@ -300,10 +391,10 @@ test("barrier 3, acknowledgement: a weakening that is not a move is refused befo
   const plan = await forgePlan(context, weakened, []);
   assert.equal(entry(plan, "ruleset", "trunk").moved, false);
   assert.ok(entry(plan, "ruleset", "trunk").loosening!.some((reason) => reason.startsWith("adds bypass")));
-  await assert.rejects(forgeApply(context, weakened, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  await assert.rejects(forgeApply(context, weakened, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && error.message.includes(`ruleset:${REPO}:trunk`));
   assert.ok(!fake.requests.some((request) => request.method !== "GET"), "nothing was written, the baseline included");
-  const outcome = await forgeApply(context, weakened, [], new Set(["ruleset:bridlewise-testing:trunk"]));
-  assert.equal(outcome.acceptedLoosening[0]?.id, "ruleset:bridlewise-testing:trunk");
+  const outcome = await forgeApply(context, weakened, [], new Set([`ruleset:${REPO}:trunk`]));
+  assert.equal(outcome.acceptedLoosening[0]?.id, `ruleset:${REPO}:trunk`);
   // The classifier, directly: tightening and neutral changes are not loosenings (near misses).
   assert.deepEqual(looseningOf("ruleset", { enforcement: "active", rules: [{ type: "deletion" }, { type: "creation" }] }, { enforcement: "active", rules: [{ type: "deletion" }] }), []);
   assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: true, allowed_actions: "selected" }, { sha_pinning_required: false, allowed_actions: "all" }), []);
@@ -320,8 +411,8 @@ test("barrier 4, the move's premises are READ FROM GITHUB: a repository whose li
   const plan = await forgePlan(context, objects, []);
   assert.equal(entry(plan, "ruleset", "trunk").moved, true, "by the declarations, the move holds");
   assert.deepEqual(entry(plan, "custom-property-values", "kind").loosening, ['kind "tool" -> "trunk"'], "changing a set kind is not proven stricter");
-  await assert.rejects(forgeApply(context, objects, [], new Set(["custom-property-values:bridlewise-testing:kind"])),
-    (error: unknown) => isForgeError(error, "forge_tighten_unverified") && /does not include kind tool/u.test(error.message) && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  await assert.rejects(forgeApply(context, objects, [], new Set([`custom-property-values:${REPO}:kind`])),
+    (error: unknown) => isForgeError(error, "forge_tighten_unverified") && /does not include kind tool/u.test(error.message) && error.message.includes(`ruleset:${REPO}:trunk`));
   assert.ok(fake.requests.some((request) => request.method === "PATCH" && request.path.endsWith("/properties/values")), "the acknowledged kind change was sent");
   assert.ok(!fake.requests.some((request) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`)), "the trunk kept its rules: main is never left unprotected");
 });
@@ -364,7 +455,7 @@ test("the strictness order is TOTAL: what is not proven stricter or equal is a l
   assert.deepEqual(looseningOf("ruleset", { ...live, enforcement: "evaluate" }, { ...live, enforcement: "disabled" }), [], "evaluate is stricter than disabled");
   // Near misses: wider refs, an extra check, strict on, a new rule, a neutral setting, a kind set where none was: none weakens.
   assert.deepEqual(looseningOf("ruleset", ruleset({ ref_name: { include: ["~ALL"], exclude: [] } }, checks(ci, { context: "More" }), { type: "deletion" }), live), []);
-  assert.deepEqual(looseningOf("repository-settings", { has_wiki: true, allow_squash_merge: true }, { has_wiki: false, allow_squash_merge: false }), []);
+  assert.deepEqual(looseningOf("repository-settings", { has_wiki: true, allow_auto_merge: true }, { has_wiki: false, allow_auto_merge: false }), []);
   assert.deepEqual(looseningOf("custom-property-values", { kind: "trunk" }, {}), []);
   assert.deepEqual(looseningOf("label", { color: "000000" }, { color: "ffffff" }), [], "a label guards nothing");
 });
@@ -438,9 +529,9 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).push({ id: 4242, name: "protect-release-tags", source_type: "Repository", target: "tag", enforcement: "active", rules: [] });
     fake.objects.set(`/repos/${ORG}/${REPO}/rulesets/4242`, (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).at(-1));
     await assert.rejects(run("apply", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
-    const accepted = await run("apply", "--accept-loosening", "ruleset:bridlewise-testing:protect-release-tags", "--token-env", variable);
+    const accepted = await run("apply", "--accept-loosening", `ruleset:${REPO}:protect-release-tags`, "--token-env", variable);
     assert.equal(accepted.result.status, "pass");
-    assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), ["ruleset:bridlewise-testing:protect-release-tags"]);
+    assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), [`ruleset:${REPO}:protect-release-tags`]);
     // A planted drift the apply cannot remove (a write GitHub answers but ignores): the apply's verdict is its post-apply audit, so it FAILS.
     fake.route("PATCH", /^\/repos\/[^/]+\/[^/]+\/labels\/[^/]+$/u, () => ({ status: 200, body: {} }));
     const label = (fake.objects.get(`/repos/${ORG}/${REPO}/labels`) as Record<string, unknown>[]).find((candidate) => candidate.name === "area:engine")!;
@@ -463,7 +554,7 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, notLoggedIn), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed"));
     assert.deepEqual(ghCalls.map((args) => args.slice(0, 2).join(" ")), ["auth status"], "the wired gh, and nothing else, was asked");
     const noDoor = { ...wiring, maintainerCli: recordingGh((args) => args[0] === "auth" ? { status: 0 } : { status: 1, stderr: "gh: Not Found (HTTP 404)" }) };
-    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && /bridlewise-testing/u.test(error.message));
+    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && error.message.includes(REPO));
     // Every input of apps create is the WIRED one: a section whose trunk has a name the configuration never uses, the
     // wired endpoint and key home handed to the page (recorded, not served), and the wired gh asked about that trunk.
     const wiredSettings = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "wired-trunk" } : repository) };
@@ -485,18 +576,44 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     const created = await runForgeCli(top, ["apps", "create"], () => {}, allWired);
     assert.equal(created.result.status, "pass");
     assert.ok(ghCalls.some((args) => args.includes("repos/LLM-4-People/wired-trunk/environments/door")), JSON.stringify(ghCalls));
-    assert.ok(!ghCalls.some((args) => args.some((arg) => arg.includes("bridlewise-testing"))), "the configured trunk is never asked about");
+    assert.ok(!ghCalls.some((args) => args.some((arg) => arg.includes(REPO))), "the configured trunk is never asked about");
     assert.equal(handed?.settings, wiredSettings, "the page gets the wired section");
     assert.equal(handed?.endpoint, wiredEndpoint, "the page gets the wired endpoint");
     assert.equal(handed?.keyHome, wiredKeyHome, "the page gets the wired key home");
     // And a bypass of the wired gh cannot hang: under test the real gh is refused at once, typed.
     await assert.rejects(maintainerCli(SETTINGS.webUrl, SETTINGS.maintainerCli).ready(), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed") && error.facts.underTest === true);
     // A hand edit of a generated file: refused before the credential is read or GitHub is asked.
-    writeFileSync(join(top, ".github/forge/label/bridlewise-testing.area_ci.json"), "{}\n");
+    writeFileSync(join(top, `.github/forge/label/${REPO}.area_ci.json`), "{}\n");
     const asked = fake.requests.length;
-    await assert.rejects(run("plan", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /label\/bridlewise-testing\.area_ci\.json/u.test(error.message));
+    await assert.rejects(run("plan", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && error.message.includes(`label/${REPO}.area_ci.json`));
     assert.equal(fake.requests.length, asked);
   } finally {
     delete process.env[variable];
+  }
+});
+
+test("the public configuration GitHub holds (advanced_security enabled, read back as both features on) plans no loosening: Code Security stays on, and only declared tightenings differ", async () => {
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  // GitHub's answer for the live public configuration, as the 2026-10-28 apply left it (configuration 288622).
+  const live = {
+    id: 288622, name: "bridlewise-baseline", description: "GENERATED by harness sync from engine/src/workflow/forge/declarations.ts", advanced_security: "enabled", code_security: null, secret_protection: null,
+    code_scanning_default_setup: "not_set", code_scanning_default_setup_options: { runner_label: null, runner_type: "not_set" },
+    code_scanning_delegated_alert_dismissal: "disabled", dependabot_alerts: "enabled", dependabot_delegated_alert_dismissal: "disabled",
+    dependabot_security_updates: "enabled", dependency_graph: "enabled", dependency_graph_autosubmit_action: "disabled",
+    enforcement: "enforced", private_vulnerability_reporting: "enabled", secret_scanning: "enabled",
+    secret_scanning_delegated_alert_dismissal: "disabled", secret_scanning_delegated_bypass: "disabled", secret_scanning_extended_metadata: "disabled",
+    secret_scanning_generic_secrets: "disabled", secret_scanning_generic_secrets_push_protection: "disabled", secret_scanning_non_provider_patterns: "disabled",
+    secret_scanning_push_protection: "enabled", secret_scanning_validity_checks: "disabled",
+  };
+  fake.collection(`/orgs/${ORG}/code-security/configurations`, [live], "id");
+  const declared = forgeDeclarations(SOURCES).find((entry) => entry.kind === "security-configuration" && entry.key === "bridlewise-baseline")!;
+  const planned = entry(await forgePlan(contextOf(fake), [declared], []), "security-configuration", "bridlewise-baseline");
+  assert.equal(planned.loosening, undefined, `no loosening: ${JSON.stringify(planned.loosening)}`);
+  assert.ok(!(planned.differences ?? []).includes("/code_security"), "Code Security on, as GitHub holds it");
+  assert.ok(!(planned.differences ?? []).includes("/secret_protection"));
+  // What differs is declared work only: default setup pinned disabled, and Secret Protection's refinements turned on.
+  for (const difference of planned.differences ?? []) {
+    assert.ok(difference === "/code_scanning_default_setup" || difference.startsWith("/secret_scanning_"), difference);
   }
 });

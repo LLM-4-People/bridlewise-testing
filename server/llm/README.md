@@ -21,16 +21,6 @@ message construction. The database is the source of truth for providers.
   with at the single point every text delta crosses.
 - `fixtures.ts` — fixture builders used by tests and demo paths.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/llm/`.
-
-- `fixtures.ts` is consumed by `server/llm/llm-bridge.ts`.
-- `llm-bridge.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/blocks/compose.ts`, `server/context/chat-history.ts`, `server/context/context-bridge.ts`, `server/routes/models.ts`, `server/run/run-executor.ts`.
-- `providers.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/blocks/compose.ts`, `server/llm/llm-bridge.ts`, `server/routes/models.ts`, `server/routes/run.ts`, `server/run/run-registry.ts` and 1 more.
-- `redaction.ts` is consumed by `server/blocks/client-telemetry.ts`, `server/blocks/compose.ts`, `server/blocks/settings.ts`, `server/context/context-bridge.ts`, `server/index.ts`, `server/llm/llm-bridge.ts` and 7 more.
-- `template-tokens.ts` is consumed by `server/llm/llm-bridge.ts`.
-
-<!-- /consumers:generated -->

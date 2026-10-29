@@ -147,8 +147,9 @@ test("test-runtime budget: the concurrency schedule is wired through the config 
   // VALUES for tuning knobs, which is fine; the BUDGET above deliberately has
   // none, because a budget is a claim about a measurement, not a knob.
   const config = readTestExecutionConfig(process.cwd());
-  assert.equal(typeof config.runtimeBudgetMs, "number");
-  assert.ok(config.runtimeBudgetMs > 0, "the per-test kill timeout must stay wired — it is a timeout, not a budget");
+  assert.equal(typeof config.testHangBackstopMs, "number");
+  assert.ok(config.testHangBackstopMs > 0, "the per-test hang backstop must stay wired — it ends a hang, it judges nothing");
+  assert.equal(typeof config.testCpuClasses.defaultCeilingMs, "number", "the per-test CPU classes must stay wired");
   assert.equal(typeof config.serialPhaseConcurrency, "number");
   assert.ok(config.serialPhaseConcurrency > 0);
   assert.equal(typeof config.fullSuiteSerialPhaseConcurrency, "number");
@@ -166,8 +167,7 @@ test("test-runtime budget: the retired wall-clock budget left no second path beh
   // wall-clock suite budget, so the old spelling must be gone from the config
   // owner — two budgets answering "may this suite cost this much" is the
   // two-sources defect this repository's first rule forbids. (The per-test
-  // `runtimeBudgetMs` is not a budget; it is the kill timeout, asserted wired
-  // above.)
+  // hang backstop is not a budget; it ends a hang, asserted wired above.)
   const config = readTestExecutionConfig(process.cwd()) as Record<string, unknown>;
   assert.equal(
     config.suiteRuntimeBudgetMs,

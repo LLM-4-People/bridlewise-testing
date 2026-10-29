@@ -15,15 +15,6 @@ its recorded restrictions.
 - `agent-restrictions.ts` — the single owner of the per-delegation restriction
   sets a sub-agent runs under.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `server/agent/`.
-
-- `agent-restrictions.ts` is consumed by `server/agent/agent-runtime-bridge.ts`.
-- `agent-runtime-bridge.ts` is consumed by `server/run/run-executor.ts`, `server/tools/tool-executor.ts`, `server/tools/tools-bridge.ts`.
-- `agent-types-bridge.ts` is consumed by `server/routes/agents.ts`.
-- `agents-bridge.ts` is consumed by `server/agent/agent-runtime-bridge.ts`, `server/routes/agents.ts`, `server/run/run-executor.ts`.
-
-<!-- /consumers:generated -->

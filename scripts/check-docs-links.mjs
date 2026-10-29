@@ -142,11 +142,12 @@ if (isEntryPoint(import.meta.url)) {
   const { files, missing } = checkDocsLinks();
   const siteMissing = checkSiteLinks();
   const failures = [...missing, ...siteMissing];
+  // The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
   if (failures.length === 0) {
     console.log(`docs links: clean (${files.length} Markdown files)`);
-    process.exit(0);
+  } else {
+    console.error(`docs links: ${failures.length} missing target(s)`);
+    for (const entry of failures) console.error(`  ${entry}`);
+    process.exitCode = 1;
   }
-  console.error(`docs links: ${failures.length} missing target(s)`);
-  for (const entry of failures) console.error(`  ${entry}`);
-  process.exit(1);
 }

@@ -434,22 +434,12 @@ describe("web-UI test-runtime budget", () => {
     }
   });
 
-  test("the calibrated metric RETIRES the ambient envelope instead of paying the load effect twice", () => {
+  test("no declaration scales the cap by host load — the ambient envelope is gone (NO-LOAD-BLOCK, audit A-08)", () => {
     if ("missing" in cpuBudget) throw new Error(`the CPU budget is not declared: ${cpuBudget.missing}`);
-    if ("phase" in cpuBudget) {
-      // The calibration already absorbs the load effect; an ambient
-      // envelope on top would double-pay it. The accumulation declaration
-      // carries no slope, and the metric's validity bound is the only
-      // load-sensitive declaration.
-      expect("ambientInflationSlopePerCpu" in cpuBudget).toBe(false);
-      expect("ambientInflationCapFraction" in cpuBudget).toBe(false);
-    } else {
-      // A rolling declaration in the calibrated metric must declare a ZERO
-      // slope (no double-pay); the cap may also be zero.
-      expect(cpuBudget.ambientInflationSlopePerCpu).toBe(0);
-      expect(cpuBudget.ambientInflationCapFraction).toBeGreaterThanOrEqual(0);
-      expect(cpuBudget.ambientInflationCapFraction).toBeLessThan(0.21);
-    }
+    // The metric's validity bound is the only load-sensitive declaration,
+    // and it defers a verdict; it never moves a cap.
+    expect("ambientInflationSlopePerCpu" in cpuBudget).toBe(false);
+    expect("ambientInflationCapFraction" in cpuBudget).toBe(false);
   });
 
   test("the coverage floor is a real floor, not a formality", () => {

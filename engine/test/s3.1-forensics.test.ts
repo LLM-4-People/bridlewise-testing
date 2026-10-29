@@ -56,7 +56,7 @@ import {
 import { S3_OFFLINE_FORENSIC_HASH, S3_OFFLINE_FORENSIC_IDENTITY } from "../src/forensics/offline-forensics.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import { analyzeStaticSource, verifyS1Repository, verifyS1Structure } from "../scripts/tooling/s1-verification.ts";
-import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../scripts/tooling/candidate-manifest.ts";
+import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../scripts/verification/candidate-manifest.ts";
 import { validateTestReceipt } from "../scripts/tooling/test-receipt.ts";
 import { createCanonicalNodeTestInventoryFixture } from "./support/test-inventory-fixture.ts";
 
