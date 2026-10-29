@@ -88,6 +88,29 @@ export function cpuCeilingFailure(
   );
 }
 
+/**
+ * THE HEADROOM SIGNAL: the tests whose CPU work this run was over their
+ * class's ceiling divided by the headroom factor — tests normally running
+ * that close to their ceiling have less than the headroom every class is
+ * meant to give, and one slower host takes them over it (#615: 60.2 s
+ * against the default's 60 s). A signal, never a failure: a failing line at
+ * half the ceiling would only move the flake to that line. Each one is
+ * fixed by a measured class (`testExecution.testCpuClasses`). `fileOf`
+ * turns a reading's test file into the repository path the classes name.
+ */
+export function thinHeadroom(
+  classes: TestCpuClasses,
+  readings: readonly Readonly<{ identity: string; cpuMs: number }>[],
+  fileOf: (identity: string) => string,
+): readonly Readonly<{ identity: string; cpuMs: number; className: string; ceilingMs: number }>[] {
+  return readings.flatMap((reading) => {
+    const judged = cpuClassOf(classes, fileOf(reading.identity));
+    return reading.cpuMs > judged.ceilingMs / classes.headroomFactor
+      ? [{ identity: reading.identity, cpuMs: reading.cpuMs, className: judged.name, ceilingMs: judged.ceilingMs }]
+      : [];
+  }).toSorted((left, right) => right.cpuMs - left.cpuMs);
+}
+
 /** The two per-test hooks of a runner (vitest's or node:test's), each given that runner's own context. */
 export type PerTestHooks<Context> = Readonly<{
   beforeEach: (hook: (context: Context) => void) => void;

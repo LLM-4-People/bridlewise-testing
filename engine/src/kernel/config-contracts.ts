@@ -1176,13 +1176,6 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     inputs: z.array(repositoryRelativePath).min(1).max(64).optional(),
     ledger: z.enum(SUITE_LEDGER_NAMES).optional(),
     requires: z.array(workspaceCommandName).min(1).max(8).optional(),
-    // `holdsInstrumentLock` — declared only on a SETUP command that is a heavy
-    // instrument (the web module cache warm-up collects the whole suite): the
-    // runner admits it as a heavy run under its per-run caps before the
-    // command starts (at once: it never waits for another run), runs it once
-    // per tree, and a READ-ONLY workspace's create does not run it (a verifier
-    // runs single files; its first run warms the cache).
-    holdsInstrumentLock: z.literal(true).optional(),
   });
   const workspacePhaseSchema = z.array(workspaceCommandName).max(32);
   const workspaceLockSchema = z.strictObject({
@@ -1322,7 +1315,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     phase: z.literal("accumulation"),
     minimumJudgedRuns: z.number().int().min(2).max(50),
     maxPopulationDriftFraction: z.number().positive().lt(1),
-    derivedAtTestFileCount: z.number().int().positive().max(100000).optional(),
+    // No `derivedAtTestFileCount`: in accumulation the population is the live supported one, derived on
+    // every read, never a committed number a branch that adds a test would edit.
     // The retired declaration, recorded and marked incomparable — never
     // rescaled into the new unit and never eligible for the new window.
     legacy: z.strictObject({

@@ -1652,22 +1652,6 @@ test("a land keeps the canonical config's 0600: the merge's fast-forward rewrite
   assert.equal(statSync(join(root, configFile)).mode & 0o777, 0o600, "the landing checkout's config keeps 0600");
 });
 
-test("a read-only create does not run a heavy setup instrument (a verifier runs single files); a feature create runs it", async () => {
-  const { root } = initTempRepo("ws-heavy-setup");
-  const ran: string[] = [];
-  const commands = makeFakeCommands({ warm: (cwd) => { ran.push(cwd); return { step: "warm", status: "pass", message: "warmed", details: [] }; } });
-  const config = makeTestConfig(mkWorkspaceTempDir("ws-heavy-setup-wt"), {
-    commands: { warm: { cwd: ".", argv: ["true"], timeoutMs: 60_000, holdsInstrumentLock: true } },
-    phases: { setup: ["warm"], validate: [], regenerate: [], merge: [] },
-  });
-  const { manager } = makeManager(root, { config, commands });
-  const reader = await manager.create({ agentName: "verifier", mode: "read-only", writeSet: [] });
-  assert.deepEqual(ran, [], "the read-only create ran no heavy setup instrument");
-  assert.equal(reader.state, "active");
-  const writer = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
-  assert.deepEqual(ran, [writer.lease.worktreePath], "a feature create warms its checkout");
-});
-
 test("the merge receipt lists every frozen-record acceptance the merge lands, for review (design MED-3)", async () => {
   const { root } = initTempRepo("ws-frozen-receipt");
   const manifest = ROOT_POLICY.verification.frozenRecordManifest;

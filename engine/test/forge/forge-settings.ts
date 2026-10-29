@@ -5,6 +5,7 @@
  */
 import { join } from "node:path";
 
+import { readLabels } from "../../src/workflow/community/labels.ts";
 import { readIntake, readRoles } from "../../src/workflow/community/sources.ts";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
 import { FORGE_CONFIG_SCHEMA, trunkRepository, type ForgeSettings } from "../../src/workflow/forge/forge-config.ts";
@@ -41,7 +42,6 @@ export const SETTINGS: ForgeSettings = FORGE_CONFIG_SCHEMA.parse({
     { id: "engine", description: "The engine", color: "1d76db", paths: ["/engine/"] },
     { id: "docs", description: "Documentation", color: "0075ca", paths: ["/docs/"] },
   ],
-  labels: [{ name: "lane:gh-1", color: "5319e7", description: "Work of the GH-1 writer lane" }],
   autolinks: [{ keyPrefix: "UR-", urlTemplate: "https://example.github.io/decisions/UR-<num>", isAlphanumeric: true }],
   dependabot: {
     schedule: { interval: "weekly", day: "monday", time: "06:00", timezone: "Etc/UTC" },
@@ -67,6 +67,7 @@ export const SOURCES: ForgeFileSources = Object.freeze({
   settings: SETTINGS,
   intake: readIntake(TOP),
   roles: readRoles(TOP),
+  labels: readLabels(TOP),
   workflowActions: WORKFLOW_ACTIONS,
   facts: Object.freeze({ workflowActions: WORKFLOW_ACTIONS, lockfileDirectories: Object.freeze({ npm: ["/", "/engine"], cargo: [] }), hasWorkflows: true }),
 });

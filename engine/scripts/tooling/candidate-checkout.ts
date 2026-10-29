@@ -20,10 +20,7 @@
  * then copies the source's `core.hooksPath`, applies the declared setup
  * (`workspaceIsolation.links`, the config mode, `phases.setup`: dependency
  * installs from the candidate's own lockfiles, the guardian and test binaries,
- * the bundle, and the web suite's module cache, warmed by collecting every
- * test file (`vitest list`): a fresh candidate's first web run built ~90% of
- * its transforms during the run, so it was cold and never judged —
- * step6-readiness-2 F-2 — `src/workflow/checkout-setup.ts`, each command under
+ * and the bundle — `src/workflow/checkout-setup.ts`, each command under
  * the native supervisor), and runs `harness sync --with-bundle`, which owns its
  * fixed point (it repeats until a pass changes nothing), staging the
  * regenerated outputs in the candidate.

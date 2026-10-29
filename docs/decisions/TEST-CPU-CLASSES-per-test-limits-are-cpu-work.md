@@ -102,6 +102,16 @@ carries out [NO-LOAD-BLOCK](NO-LOAD-BLOCK-nothing-is-blocked-by-cpu-load.md)
   folder (node does not expand one). Before, a targeted run had no CPU judgement
   and no backstop, so a CPU-class failure could never be seen or reproduced
   there (#615).
+- **Every test has the headroom, not only the classed ones (#615).** A test
+  with no class sits under the default ceiling with whatever headroom it
+  happens to have: S1-B09-HOSTILE-REAL did 60,207 ms against the default's
+  60,000 ms on one hosted run. So the run records each test's CPU work, and
+  the engine worker prints a `[cpu-headroom]` line for every test over its
+  class ceiling divided by `headroomFactor` (30 s for the default). Each line
+  is answered by a measured class for that file, from the reading in the
+  line. The line is a signal and never fails the run: a failing line at half
+  the ceiling would only move the flake to that line. B09 now has its class
+  (`s1-b09`, 60,207 ms).
 - **Concurrency and threads.** The judgement keeps one reading per test
   context, never one per process. A nested or concurrent test therefore
   never clears another test's window: a parent counts its subtests' work,

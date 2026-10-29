@@ -219,7 +219,9 @@ export function registerTestExecutionExposure(): void {
     type: "string",
     value: () => {
       const count = readBudgetNumber(`${BUDGET_PATH}.derivedAtTestFileCount`);
-      return count === undefined ? NOT_DECLARED : `judged against ${count} test files`;
+      if (count !== undefined) return `judged against ${count} test files`;
+      // In accumulation the population is never committed: it is the live supported population, derived on every read.
+      return readBudgetNumber(`${BUDGET_PATH}.minimumJudgedRuns`) === undefined ? NOT_DECLARED : "the live supported test files (accumulation: derived, never committed)";
     },
   });
   registerSignal({

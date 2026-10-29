@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "78bb635c2726290b2e6fd233e047299e910816228aecc49bb8c4e7755ed15572",
+      sourceSha256: "e65735c2b8093c8423ae6c9823d3b23a1def33340c7aa019e1d5f2c9a32602f9",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -2671,6 +2671,10 @@ const ROOT_POLICY_VALUE = {
       // worktree config, a candidate's local config), beside the agent identity: the commit-msg hook
       // refuses a commit there whose identities are not all the agent's (scripts/verification/sign-off.ts).
       agentCheckoutKey: "bridlewise.agentCheckout",
+      // The committer GitHub records on a commit it creates and signs through its API (an App's published branch,
+      // the web editor). Such a commit carries its AUTHOR's sign-off, accepted only when GitHub's own verification
+      // reports the signature valid and made by GitHub (scripts/verification/sign-off.ts); the field alone proves nothing.
+      webFlowCommitter: { name: "GitHub", email: "noreply@github.com" },
     },
     /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs

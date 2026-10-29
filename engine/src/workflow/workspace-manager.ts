@@ -739,11 +739,6 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   /** A phase in `cwd`, fail-fast, through the commands port; ledger gates are judged by `judge`. */
   async function runPhase(cwd: string, phase: CheckoutPhase, judge: LedgerJudge): Promise<readonly WorkspaceGateResult[]> {
     const steps = await runCheckoutPhase(config, phase, (name, command) => {
-      // A read-only workspace (a verifier's) runs no heavy setup instrument: it runs single files, and its first run warms
-      // the module cache.
-      if (command.holdsInstrumentLock === true && judge.record.lease.kind === "read-only") {
-        return Promise.resolve(builtinGate(name, "skip", "a read-only workspace does not run a heavy setup instrument: its first run warms the cache"));
-      }
       progress(`${phase}: ${name}`);
       return judgedByLedger(cwd, name, command, judge);
     });

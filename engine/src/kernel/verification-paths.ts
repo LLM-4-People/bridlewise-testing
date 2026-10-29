@@ -51,16 +51,6 @@ export const FRONT_DOOR_GENERATOR = deepFreeze({
 } as const);
 
 /**
- * THE WEB TEST BUDGET'S POPULATION: `generator` (repository-relative) writes
- * the accumulation-phase `derivedAtTestFileCount` from the live supported
- * population on every `harness sync`, and `harness check` judges it, so no
- * pull request types the number (a new test file moves it through here).
- */
-export const WEB_BUDGET_POPULATION = deepFreeze({
-  generator: "scripts/testing/measure-web-budget.ts",
-} as const);
-
-/**
  * THE SERVICE WORKER'S CACHE DIGEST: `generator` (repository-relative) writes
  * the digest line of `path` from every public asset the worker caches, on
  * every `harness sync`, and `harness check` judges it. A hand edit of the line,
