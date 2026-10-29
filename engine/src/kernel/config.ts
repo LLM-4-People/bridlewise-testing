@@ -377,7 +377,13 @@ function assertPinnedRepositoryRoot(candidate: string): string {
   return canonical;
 }
 
-function readConfigDescriptor(
+/**
+ * The configuration document at `path`, read twice-checked under the parent
+ * snapshot `expectedParent` the caller took before it (the pinned loader's
+ * root snapshot): the parent must still be the SAME directory, its identity,
+ * whatever was made beside the document since.
+ */
+export function readConfigDescriptor(
   path: string,
   expectedParent: BigIntStats,
 ): Readonly<{ bytes: Buffer; sourceHash: string; stats: BigIntStats }> {
