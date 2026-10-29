@@ -44,12 +44,13 @@ import { itemStatuses, ROADMAP_STATES, type ItemStatus, type RoadmapState } from
 import { siteDestination, siteProse, siteProseLine, type ProseTarget } from "../../engine/src/workflow/site-prose.ts";
 import { escapeSiteText, stripTags } from "../../shared/markup.ts";
 import { recordedEvidence } from "../../engine/src/workflow/evidence-store.ts";
+import { REPOSITORY_REFERENCE_PREFIX, repositoryReferenceUrl } from "../../engine/src/workflow/forge/repository-reference.ts";
 // The site tooling is plain Node ESM with no declaration file (the same import the floor-site tests make).
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program.
-import { coordinatesOf, spelledUrls } from "./repository.mjs";
+import { COORDINATES as SITE_COORDINATES, spelledUrls } from "./repository.mjs";
 
-/** Where this repository lives, from its one declaration (`package.json` `repository.url`, read by `repository.mjs`). */
-const COORDINATES: Readonly<{ owner: string; name: string; repositoryUrl: string }> = coordinatesOf(resolve(dirname(fileURLToPath(import.meta.url)), "../.."));
+/** Where this repository lives: the one repository identity, as the site tooling shapes it (`repository.mjs`). */
+const COORDINATES: Readonly<{ owner: string; name: string; repositoryUrl: string }> = SITE_COORDINATES;
 /** This repository's URL: only its own pull requests, runs and releases prove a close (`closeProof`). */
 const REPOSITORY_URL = COORDINATES.repositoryUrl;
 
@@ -178,7 +179,7 @@ const ONLINE_EVIDENCE = /^(?:https?:\/\/|\{\{ site\.repository_url \}\}\/)/u;
 
 /** A repository evidence path (`docs/…/page.md#anchor`) that names no file, or no heading of it. */
 function localEvidenceViolation(evidence: string, repositoryRoot: string): string | null {
-  if (ONLINE_EVIDENCE.test(evidence) || evidence.startsWith("evidence:")) return null;
+  if (ONLINE_EVIDENCE.test(evidence) || evidence.startsWith("evidence:") || evidence.startsWith(REPOSITORY_REFERENCE_PREFIX)) return null;
   const hash = evidence.indexOf("#");
   const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
   const anchor = hash === -1 ? "" : evidence.slice(hash + 1);
@@ -339,7 +340,8 @@ function outcome(item: TrackerItem): string {
 
 function link(evidence: string | null): string {
   if (evidence === null) return "—";
-  if (ONLINE_EVIDENCE.test(evidence)) return `[GitHub](${siteDestination(siteSpelled(evidence))})`;
+  const online = repositoryReferenceUrl(evidence, REPOSITORY_URL) ?? evidence;
+  if (ONLINE_EVIDENCE.test(online)) return `[GitHub](${siteDestination(siteSpelled(online))})`;
   const hash = evidence.indexOf("#");
   const pathPart = hash === -1 ? evidence : evidence.slice(0, hash);
   const anchor = hash === -1 ? "" : evidence.slice(hash + 1);

@@ -841,7 +841,7 @@
       "phase": "accumulation",
       "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "derivedAtTestFileCount": 539,
+      "derivedAtTestFileCount": 540,
       "calibrationDriftMaxFraction": 0.15,
       "validThroughLoad5PerCpu": 1.7,
       "legacy": {
@@ -1165,6 +1165,7 @@
     "organization": "LLM-4-People",
     "apiUrl": "https://api.github.com",
     "webUrl": "https://github.com",
+    "pagesDomain": "github.io",
     "uploadsUrl": "https://uploads.github.com",
     "assetOrigins": [
       "https://release-assets.githubusercontent.com",
@@ -1215,7 +1216,9 @@
       {
         "name": "bridlewise",
         "kind": "archive",
-        "visibility": "public"
+        "visibility": "public",
+        "product": true,
+        "preview": true
       },
       {
         "name": "forge-proving-ground",
