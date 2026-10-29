@@ -26,6 +26,7 @@ import { ForgeError } from "./codes.ts";
 import { FORGE_REPOSITORY_KINDS, trunkRepository, type ForgeRepository, type ForgeSettings } from "./forge-config.ts";
 import { rulesetWithGithubDefaults, scopeName, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
 import { TRACKER_ITEM_TYPES, type TrackerItemType } from "../failure-owners.ts";
+import { repositoryIdentity } from "./repository-identity.ts";
 
 /** GitHub's issue-type colours. */
 type IssueTypeColor = "gray" | "blue" | "green" | "yellow" | "orange" | "red" | "pink" | "purple";
@@ -286,6 +287,8 @@ function repositorySettings(settings: ForgeSettings, actionPatterns: readonly st
       object("repository-settings", scope, repository.name, {
         ...MERGE_ONLY.settings,
         merge_commit_title: "PR_TITLE", merge_commit_message: "PR_BODY",
+        // The trunk's homepage is its site, from the one declared address.
+        ...(repository.kind === "trunk" ? { homepage: repositoryIdentity(settings).pagesUrl } : {}),
         // No Update-branch button: GitHub's update commit takes the clicker's identity, and a personal address would
         // re-enter history; a lane merges main itself.
         allow_auto_merge: false, delete_branch_on_merge: true, allow_update_branch: false,
@@ -422,6 +425,30 @@ function vocabulary(settings: ForgeSettings, intake: CommunityIntake, declaredLa
 }
 
 /** THE DECLARATIONS: every object the forge owns, in apply order (what a later object references exists first). */
+/**
+ * THE PAGES SITES (plans/domain-move.md, W2): every repository that declares
+ * `pages`. Each is built the declared way, on its own custom domain
+ * (`site.host`, or none), with HTTPS enforced. The organisation site declares
+ * none, strictly: a domain on it would become every unconfigured project
+ * site's. A repository's `apps` (beyond the registry's kinds) are installed
+ * on it: the organisation site's publisher writes its redirect pages.
+ */
+function pagesSites(settings: ForgeSettings): readonly ForgeObject[] {
+  return settings.repositories.filter((repository) => repository.pages !== undefined).flatMap((repository) => {
+    const scope: ForgeScope = { kind: "repo", repository: repository.name };
+    const pages = repository.pages!;
+    return [
+      object("pages", scope, repository.name, {
+        build_type: pages.build,
+        ...(pages.build === "legacy" ? { source: { branch: pages.branch, path: pages.path } } : {}),
+        cname: repository.site?.host ?? null,
+        https_enforced: true,
+      }),
+      ...(repository.apps ?? []).map((role) => object("app-installation", scope, role, { installed: true })),
+    ];
+  });
+}
+
 export function forgeDeclarations(sources: DeclarationSources): readonly ForgeObject[] {
   const { settings } = sources;
   const objects = [
@@ -430,6 +457,7 @@ export function forgeDeclarations(sources: DeclarationSources): readonly ForgeOb
     ...environments(settings),
     ...rulesets(settings),
     ...provingGrounds(settings),
+    ...pagesSites(settings),
     ...vocabulary(settings, sources.intake, sources.labels),
   ];
   const files = objects.map((entry) => entry.file);

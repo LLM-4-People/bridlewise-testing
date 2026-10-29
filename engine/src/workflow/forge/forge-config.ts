@@ -16,7 +16,7 @@
 import { z } from "zod";
 
 import { deepFreeze, type DeepReadonly } from "../../kernel/integrity.ts";
-import type { ForgeRepositoryKind } from "./app-registry.ts";
+import { FORGE_APP_ROLES, type ForgeRepositoryKind } from "./app-registry.ts";
 import type { ForgeEndpoint } from "./port.ts";
 
 /** The `kind` custom property's allowed values (runbook P1.8); `none` is a repository the topology does not govern. */
@@ -110,6 +110,18 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
       host: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u),
       docsPath: z.string().regex(/^\/(?:[a-z0-9-]+\/)*$/u),
     }).optional(),
+    /**
+     * The repository's Pages site, declared (the `pages` kind): built by a
+     * workflow, or from a branch's folder (`legacy`, the organisation site's
+     * redirect pages). Its custom domain is `site.host` (none without
+     * `site`); HTTPS is always enforced.
+     */
+    pages: z.discriminatedUnion("build", [
+      z.strictObject({ build: z.literal("workflow") }),
+      z.strictObject({ build: z.literal("legacy"), branch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/u), path: z.enum(["/", "/docs"]) }),
+    ]).optional(),
+    /** Apps installed on this repository beyond the registry's kinds (`installedOn`): the organisation site's publisher, which writes its pages. */
+    apps: z.array(z.enum(FORGE_APP_ROLES)).max(4).optional(),
     /** Where the product is published (exactly one repository). */
     product: z.literal(true).optional(),
     /** The public preview repository: the product as published before the rename (at most one). */
