@@ -1017,9 +1017,14 @@ function audit(tree: Tree): Finding[] {
       if (tree.has(workflow)) {
         const document = parsed(workflow);
         const steps: Record<string, unknown>[] = [];
-        const jobs = document?.toJS() as { jobs?: Record<string, { steps?: unknown }> } | undefined;
+        // Each step's job's env: the built commit is the job's SITE_SHA (a rebuild's commit is not github.sha).
+        const jobEnv = new Map<Record<string, unknown>, unknown>();
+        const jobs = document?.toJS() as { jobs?: Record<string, { steps?: unknown; env?: unknown }> } | undefined;
         for (const job of Object.values(jobs?.jobs ?? {})) {
-          if (Array.isArray(job?.steps)) for (const step of job.steps) if (isRecord(step)) steps.push(step);
+          if (Array.isArray(job?.steps)) for (const step of job.steps) if (isRecord(step)) {
+            steps.push(step);
+            jobEnv.set(step, job.env);
+          }
         }
         const jekyll = steps.filter((step) => typeof step["uses"] === "string" && step["uses"].startsWith("actions/jekyll-build-pages@"));
         if (document !== null && jekyll.length === 0) {
@@ -1027,7 +1032,9 @@ function audit(tree: Tree): Finding[] {
         }
         for (const step of jekyll) {
           const withBlock = step["with"];
-          if (!isRecord(withBlock) || withBlock["build_revision"] !== "${{ github.sha }}") {
+          const env = jobEnv.get(step);
+          const siteSha = isRecord(env) ? env["SITE_SHA"] : undefined;
+          if (!isRecord(withBlock) || withBlock["build_revision"] !== "${{ env.SITE_SHA }}" || typeof siteSha !== "string" || !siteSha.includes("github.sha")) {
             findings.push({ rule: "pages-build-path", detail: `${workflow} no longer hands the built commit to Jekyll as build_revision` });
           }
         }
@@ -1371,9 +1378,12 @@ describe("external surfaces — plants fail for the defect they name", () => {
     expect(workflow).toContain(build);
     expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(build, "      - name: Fetch\n        run: git clone https://github.com/LLM-4-People/elsewhere product\n\n" + build) }), "pages-build-path", "fetches another tree");
     // Every Jekyll build hands over the built commit (the site's and the visual check's two).
-    const revision = workflow.replace("build_revision: ${{ github.sha }}", "build_revision: main");
+    const revision = workflow.replace("build_revision: ${{ env.SITE_SHA }}", "build_revision: main");
     expect(revision).not.toBe(workflow);
     expectRule(planted({ ".github/workflows/pages.yml": revision }), "pages-build-path", "build_revision");
+    const siteSha = "      SITE_SHA: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || github.sha }}\n";
+    expect(workflow).toContain(siteSha);
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(siteSha, "") }), "pages-build-path", "build_revision");
     expectRule(planted({ ".github/workflows/pages.yml": workflow.replaceAll("uses: actions/jekyll-build-pages@", "uses: someone/jekyll-build-pages@") }), "pages-build-path", "no longer builds through actions/jekyll-build-pages");
 
     // Near misses: the declared list with extra spacing, a comment naming a
