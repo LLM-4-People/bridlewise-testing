@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { runInNewContext } from "node:vm";
+import { spawnSync } from "node:child_process";
 import { cpSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { read } from "../helpers/source-scan.ts";
@@ -127,6 +128,25 @@ describe("PWA — service worker (public/sw.js)", () => {
     changed.set("icons/icon.svg", Buffer.from("<svg/>"));
     expect(assetsDigest(changed)).not.toBe(assetsDigest(assets));
     expect(() => withAssetsDigest("const x = 1;", "abc")).toThrow(/carries no/);
+  });
+
+  it("a hand-edited digest is stale to the generator harness sync and harness check run, and --write re-derives it", () => {
+    // The real generator, as the sync arm runs it (SERVICE_WORKER_DIGEST, engine/src/workflow/harness-commands.ts),
+    // on a copy of the tree whose worker carries a hand-typed digest.
+    const copy = createTempDir("sw-hand-edit-");
+    cpSync(resolve(root, "public"), resolve(copy, "public"), { recursive: true });
+    const handTyped = sw.replace(/const ASSETS_DIGEST = "[0-9a-f]{12}";/u, 'const ASSETS_DIGEST = "000000000000";');
+    expect(handTyped, "the plant landed").not.toBe(sw);
+    writeFileSync(resolve(copy, "public/sw.js"), handTyped);
+    const generator = (mode: string): { status: number; report: unknown } => {
+      const run = spawnSync(process.execPath, [resolve(root, "scripts/service-worker-cache.ts"), mode, `--root=${copy}`], { encoding: "utf8" });
+      return { status: run.status ?? -1, report: JSON.parse(run.stdout.trim().split("\n").pop() ?? "{}") };
+    };
+    expect(generator("--check")).toEqual({ status: 1, report: { allCurrent: false, status: "stale", changed: ["public/sw.js"] } });
+    expect(readFileSync(resolve(copy, "public/sw.js"), "utf8"), "a check wrote the worker").toBe(handTyped);
+    expect(generator("--write")).toEqual({ status: 0, report: { allCurrent: true, status: "regenerated", changed: ["public/sw.js"] } });
+    expect(readFileSync(resolve(copy, "public/sw.js"), "utf8")).toBe(sw);
+    expect(generator("--check")).toEqual({ status: 0, report: { allCurrent: true, status: "current", changed: [] } });
   });
 
   it("the digest covers exactly what the worker precaches: a file it misses is refused, a file added to the list joins it", () => {

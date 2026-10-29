@@ -233,7 +233,7 @@ const AST_EVALUATION_MAXIMUM_DEPTH = 64;
 const STATIC_PROCESS_MEMBERS = new Set([
   "argv", "cpuUsage", "cwd", "emitWarning", "exit", "exitCode", "execPath", "getgid", "getgroups",
   "getMaxListeners", "getuid", "hrtime", "kill", "memoryUsage", "pid", "platform", "ppid",
-  "resourceUsage", "stderr", "stdout", "uptime", "version",
+  "resourceUsage", "stderr", "stdout", "threadCpuUsage", "uptime", "version",
 ]);
 const READ_ONLY_PROCESS_VERSION_CAPABILITIES = new Set(["icu", "unicode"]);
 const UNREGISTERED_POLICY_DEFINITION_MARKERS = new Set([
