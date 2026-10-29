@@ -78,10 +78,13 @@ test("the custody stores a key at 0600 in the key home, answers the identity wit
   const file = join(keyHome, "forge-apps", "agent.json");
   assert.equal(statSync(file).mode & 0o777, 0o600);
   const custody = keyHomeCustody(keyHome);
-  const read = custody.identity("agent");
+  const state = appKeyState(keyHome, "agent");
+  assert.ok(state.state === "done");
+  const read = state.identity;
   assert.deepEqual(read, identity);
   assert.equal(JSON.stringify(read).includes(app.pem.split("\n")[1]!), false, "the identity never carries the key");
   assert.equal(Object.keys(read).sort().join(","), "appId,clientId,role,slug,storedAt");
+  assert.equal(custody.clientId("agent"), app.clientId, "the custody answers the client id, and signs");
   // A JWT the fake verifies with the public key.
   const jwt = appJwt(custody, "agent", Date.now());
   const claims = JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8")) as { iss: string; exp: number; iat: number };
@@ -90,7 +93,7 @@ test("the custody stores a key at 0600 in the key home, answers the identity wit
   // An environment-custody App: stored right after conversion, HELD, never signed with on the host; pushed, then gone from the host.
   storeAppKey(keyHome, "door", { appId: 7, slug: "bridlewise-door", clientId: "Iv1door", pem: app.pem });
   assert.equal(appKeyState(keyHome, "door").state, "held");
-  await refusedWith("forge_request_invalid", () => custody.identity("door"));
+  await refusedWith("forge_request_invalid", () => custody.clientId("door"));
   await refusedWith("forge_request_invalid", () => custody.signRs256("door", Buffer.from("x")));
   await assert.rejects(pushHeldKey(keyHome, "door", async () => { throw new ForgeError("forge_maintainer_cli_failed", "the push failed", {}); }), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed"));
   assert.equal(appKeyState(keyHome, "door").state, "held", "a failed push keeps the key");
@@ -104,9 +107,9 @@ test("the custody stores a key at 0600 in the key home, answers the identity wit
   // A malformed key, identity or record is refused before or at use.
   await refusedWith("forge_app_key_invalid", () => storeAppKey(keyHome, "verifier", { appId: 1, slug: "bridlewise-verifier", clientId: "Iv1", pem: "not a key in any format" }));
   await refusedWith("forge_request_invalid", () => storeAppKey(keyHome, "agent", { appId: 0, slug: app.slug, clientId: app.clientId, pem: app.pem }));
-  await refusedWith("forge_app_key_unavailable", () => keyHomeCustody(temporaryKeyHome()).identity("verifier"));
+  await refusedWith("forge_app_key_unavailable", () => keyHomeCustody(temporaryKeyHome()).clientId("verifier"));
   writeFileSync(join(keyHome, "forge-apps", "verifier.json"), "{\"schemaVersion\":\"other\"}", { mode: 0o600 });
-  await refusedWith("forge_app_key_invalid", () => custody.identity("verifier"));
+  await refusedWith("forge_app_key_invalid", () => custody.clientId("verifier"));
 });
 
 test("the mode guard: a VALID key record readable by other accounts is refused, by its mode alone", async () => {
@@ -115,12 +118,12 @@ test("the mode guard: a VALID key record readable by other accounts is refused, 
   const keyHome = temporaryKeyHome();
   storeAppKey(keyHome, "verifier", { appId: app.appId, slug: app.slug, clientId: app.clientId, pem: app.pem });
   const custody = keyHomeCustody(keyHome);
-  assert.equal(custody.identity("verifier").appId, app.appId, "the record is valid at 0600");
+  assert.equal(custody.clientId("verifier"), app.clientId, "the record is valid at 0600");
   const file = join(keyHome, "forge-apps", "verifier.json");
   for (const mode of [0o644, 0o640, 0o604, 0o660]) {
     chmodSync(file, mode);
     try {
-      custody.identity("verifier");
+      custody.clientId("verifier");
       assert.fail(`mode ${mode.toString(8)} was accepted`);
     } catch (error) {
       assert.ok(isForgeError(error, "forge_app_key_invalid") && /readable by other accounts/u.test(error.message), String(error));
@@ -128,7 +131,7 @@ test("the mode guard: a VALID key record readable by other accounts is refused, 
     assert.throws(() => custody.signRs256("verifier", Buffer.from("x")), (error: unknown) => isForgeError(error, "forge_app_key_invalid"), "nor does it sign");
   }
   chmodSync(file, 0o600);
-  assert.equal(custody.identity("verifier").appId, app.appId, "0600 is read again");
+  assert.equal(custody.clientId("verifier"), app.clientId, "0600 is read again");
 });
 
 test("the repository check: a token GitHub minted for another repository than asked is an integrity stop, even with the right permissions", async () => {

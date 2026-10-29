@@ -4,6 +4,7 @@
  *
  *   harness forge apps manifests [--check]           write (or check) the generated files from their owners
  *   harness forge apps create                        serve the Apps page (Session 1) until Done
+ *   harness forge apps audit [--role <role>]…         each App's installation, read by the App, against the registry
  *   harness forge plan  (--token-env <VAR> | --token-stdin)   what apply would change (read-only)
  *   harness forge apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]…
  *                                                             send the whole plan, tighten first, then verify it
@@ -27,7 +28,9 @@ import { guarded } from "../../process/fault-policy.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { readIntake } from "../community/sources.ts";
 import { trackedTop } from "../evidence-store.ts";
-import { FORGE_APP_ROLES, FORGE_APPS } from "./app-registry.ts";
+import { FORGE_APP_ROLES, FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
+import { environmentKeyCustody, keyHomeCustody } from "./app-keys.ts";
+import { auditAppInstallation } from "./apps-audit.ts";
 import { serveAppsPage, type AppsPage, type AppsPageOptions } from "./apps-page.ts";
 import { ForgeError } from "./codes.ts";
 import { configuredForge } from "./configured-forge.ts";
@@ -68,7 +71,7 @@ const CONFIGURED: ForgeCliWiring = Object.freeze({
   appsPage: serveAppsPage,
 });
 
-const USAGE = "harness forge takes: apps manifests [--check] | apps create | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
+const USAGE = "harness forge takes: apps manifests [--check] | apps create | apps audit [--role <agent|verifier|door|publisher>]... | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
 
 function usage(): never {
   throw new ForgeError("forge_usage", USAGE, {});
@@ -167,11 +170,37 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
   return { result: wrapResult("forge", deepFreeze({ verb, ...plan }), { status }) };
 }
 
+/**
+ * `harness forge apps audit [--role <role>]…` (runbook P1.11): each App's
+ * installation, read by the App itself, against the registry. Without
+ * `--role` it audits the host Apps (their keys are in the key home). An
+ * environment App is named by `--role` inside its own environment's job,
+ * where its key is handed in (`forge-apps-audit.yml`).
+ */
+async function appsAudit(rest: readonly string[], wiring: ForgeCliWiring): Promise<CommandAnswer> {
+  const roles: ForgeAppRole[] = [];
+  for (let index = 0; index < rest.length; index += 2) {
+    const role = rest[index + 1];
+    if (rest[index] !== "--role" || role === undefined || !(FORGE_APP_ROLES as readonly string[]).includes(role)) usage();
+    roles.push(role as ForgeAppRole);
+  }
+  const settings = wiring.settings();
+  const audited = roles.length > 0 ? roles : FORGE_APP_ROLES.filter((role) => FORGE_APPS[role].custody.kind === "host");
+  const audits = [];
+  for (const role of audited) {
+    const custody = FORGE_APPS[role].custody.kind === "host" ? keyHomeCustody(wiring.keyHome()) : environmentKeyCustody();
+    audits.push(await auditAppInstallation(wiring.endpoint(settings), custody, role, settings));
+  }
+  const ok = audits.every((audit) => audit.ok);
+  return { result: wrapResult("forge", deepFreeze({ verb: "apps audit", ok, audits }), { status: ok ? "pass" : "fail" }) };
+}
+
 /** The `harness forge` dispatch. */
 export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring = CONFIGURED): Promise<CommandAnswer> {
   const [group, verb, ...rest] = argv;
   if (group === "apps" && verb === "manifests") return appsManifests(root, rest, wiring);
   if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress, wiring);
+  if (group === "apps" && verb === "audit") return appsAudit(rest, wiring);
   if (group === "plan" || group === "apply" || group === "audit") return settingsVerb(root, group, argv.slice(1), onProgress, wiring);
   return usage();
 }

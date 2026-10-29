@@ -28,7 +28,7 @@
     },
     {
       "path": ".github/forge/security-configuration/org.bridlewise-baseline.json",
-      "sha256": "c4060a3a0fc3884a961ff740757213aca86b96dc79cea732077ad97c9f0b44fe"
+      "sha256": "6b296b81809d5c53b7064227d4531d19990bb79abefeea178f7bd39f06bb8291"
     },
     {
       "path": ".github/forge/security-configuration-repositories/org.bridlewise-baseline.json",
@@ -36,7 +36,7 @@
     },
     {
       "path": ".github/forge/security-configuration/org.bridlewise-baseline-private.json",
-      "sha256": "a8f034069b16c8e236e9623aeb771b4cd8eb6d2e09d8017acf8d9d67c50b7fd9"
+      "sha256": "2c0a319b8c3c36f2bef1e7a99cce969f87428443cd6eafff2fc9c864e704cd34"
     },
     {
       "path": ".github/forge/security-configuration-repositories/org.bridlewise-baseline-private.json",

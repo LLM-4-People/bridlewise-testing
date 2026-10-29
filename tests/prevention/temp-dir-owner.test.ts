@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 
 import { bucketEndMs, bucketNameFor, createTempDir, createWorkerTempDir, liveTempDirCount } from "../helpers/temp-dir.ts";
 import { readSourceView, sourceViewOf, type SourceView } from "../../engine/scripts/verification/source-view.ts";
+import { cpuWorkOf } from "../../engine/src/shared/run-cpu.ts";
 
 const TESTS_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -323,18 +324,16 @@ describe("prevention: single owner for test temp directories", () => {
       // The property, measured rather than argued: creating many stores must
       // not make the next creation slower, because the reclaim sees buckets
       // and not stores. Under the flat-directory shape this rose linearly.
-      const timeOne = (): number => {
-        const t0 = performance.now();
-        createTempDir("ch-owner-cost-probe-");
-        return performance.now() - t0;
-      };
-      const baseline = Math.min(timeOne(), timeOne(), timeOne());
+      // CPU WORK of one creation (its syscalls included), never wall time
+      // (NO-LOAD-BLOCK): the suite runs 400 files in parallel, and a wall
+      // timing measures the scheduler. Each side is the least of three
+      // samples, each over several scheduler ticks (`cpuWorkOf`). A
+      // per-store scan over 300 extra entries is far outside this bound;
+      // constant work is comfortably inside it.
+      const timeOne = (): number => cpuWorkOf(() => { createTempDir("ch-owner-cost-probe-"); }, 3);
+      const baseline = timeOne();
       for (let i = 0; i < 300; i += 1) createTempDir("ch-owner-cost-bulk-");
-      const loaded = Math.min(timeOne(), timeOne(), timeOne());
-      // Best-of-3 on both sides so this measures the work and not the
-      // scheduler (the suite runs 400 files in parallel). A per-store scan
-      // over 300 extra entries is far outside this bound; constant work is
-      // comfortably inside it.
+      const loaded = timeOne();
       expect(
         loaded,
         `creation took ${baseline.toFixed(3)}ms at baseline and ${loaded.toFixed(3)}ms ` +

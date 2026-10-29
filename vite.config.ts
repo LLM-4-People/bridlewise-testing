@@ -12,6 +12,7 @@
  * (`VITEST` set, mode `test`), naming the runner's own config.
  */
 import { globSync } from "node:fs";
+import { serviceWorkerDigestPlugin } from "./scripts/service-worker-cache.ts";
 import { defineConfig, type ConfigEnv, type UserConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
@@ -88,7 +89,8 @@ if (entriesLiveness !== null) {
 
 /** The build's configuration: what {@link default} answers, and the base `vitest.config.ts` extends. */
 export const BUILD_CONFIG: UserConfig = defineConfig({
-  plugins: [svelte()],
+  // The built worker's cache digest covers every emitted file (scripts/service-worker-cache.ts).
+  plugins: [svelte(), serviceWorkerDigestPlugin()],
   // THE PROJECT ROOT, PINNED TO THIS FILE'S OWN DIRECTORY, so the pages, the
   // public assets and the output directory resolve against the monorepo root
   // whatever the caller's cwd. The web test runner inherits it

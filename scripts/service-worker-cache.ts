@@ -1,0 +1,158 @@
+/**
+ * THE SERVICE WORKER'S CACHE VERSION, DERIVED — the one place it is computed.
+ *
+ * `public/sw.js` names its caches `harness-{static,runtime}-<generation>-<digest>`.
+ * The generation (`CACHE_GENERATION`) is raised by hand only when the
+ * worker's own caching logic changes. The digest (`ASSETS_DIGEST`) is never
+ * typed: it is the content hash of EVERY asset the worker caches, so a changed
+ * icon, font or bundle is a new cache and an installed app refreshes.
+ *
+ * Two writers share this one computation, each for its own artifact:
+ * - the committed `public/sw.js` carries the digest of the public assets it
+ *   precaches and caches (`public/` minus the worker and the READMEs):
+ *   `node scripts/service-worker-cache.ts --write|--check`, run by the
+ *   generators that change those assets (the icon generator, the font
+ *   vendoring) and by every `harness sync` (SERVICE_WORKER_DIGEST, its arm in
+ *   engine/src/workflow/harness-commands.ts), and judged by `harness check`
+ *   and tests/prevention/pwa.test.ts;
+ * - the production build rewrites the BUILT worker's line with the digest of
+ *   every file the build emits next to it (the public assets AND the hashed
+ *   bundles): `serviceWorkerDigestPlugin()`, in vite.config.ts.
+ *
+ * Both refuse a worker that precaches a URL (other than the navigation root)
+ * with no file among the digest's inputs: that file could change without a
+ * new cache, which is the stale-install bug the digest exists to end.
+ */
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
+import { HarnessError } from "../engine/src/kernel/errors.ts";
+import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
+import { sourceViewOf } from "../engine/scripts/verification/source-view.ts";
+
+const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
+export const SERVICE_WORKER_PATH = "public/sw.js";
+export const ASSETS_DIGEST_BLOCK = Object.freeze({
+  begin: "// BEGIN GENERATED: the cached assets' digest (scripts/service-worker-cache.ts)",
+  end: "// END GENERATED: the cached assets' digest",
+});
+const NOT_CACHED = new Set(["sw.js", "README.md"]);
+/** How many hex characters of the sha256 name a cache: enough to tell asset sets apart, short enough to read. */
+const DIGEST_HEX_LENGTH = 12;
+
+/** The digest (sha256, 12 hex) of `files` (name → bytes): each name and its bytes, in name order. */
+export function assetsDigest(files: ReadonlyMap<string, Uint8Array>): string {
+  const hash = createHash("sha256");
+  for (const name of [...files.keys()].sort()) {
+    hash.update(name);
+    hash.update("\0");
+    hash.update(files.get(name)!);
+  }
+  return hash.digest("hex").slice(0, DIGEST_HEX_LENGTH);
+}
+
+/** Every file under `directory` the worker caches (relative POSIX names → bytes): all but the worker itself and READMEs. */
+export function cachedFiles(directory: string): ReadonlyMap<string, Uint8Array> {
+  const files = new Map<string, Uint8Array>();
+  const walk = (dir: string): void => {
+    for (const name of readdirSync(dir).sort()) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (!NOT_CACHED.has(name)) files.set(relative(directory, path).split(sep).join("/"), readFileSync(path));
+    }
+  };
+  walk(directory);
+  return files;
+}
+
+/** Where the worker declares the URLs it precaches at install. */
+const PRECACHE_LIST = Object.freeze({ begin: "const PRECACHE_URLS = [", end: "];" });
+/** The navigation root: precached as the app shell, served from index.html rather than a file of its own name. */
+const NAVIGATION_ROOT = "/";
+
+/**
+ * The URLs the worker precaches at install, read from its `PRECACHE_URLS` list
+ * in the worker's code with its strings (a URL left in a comment is not
+ * precached); refused when the list is missing or empty.
+ */
+export function precachedUrls(worker: string): readonly string[] {
+  const code = sourceViewOf(worker, SERVICE_WORKER_PATH).codeWithStrings();
+  const begin = code.indexOf(PRECACHE_LIST.begin);
+  const end = begin < 0 ? -1 : code.indexOf(PRECACHE_LIST.end, begin);
+  if (end < 0) throw new HarnessError(`the service worker carries no "${PRECACHE_LIST.begin}" list`, "service_worker_precache_list_missing");
+  const urls = [...code.slice(begin + PRECACHE_LIST.begin.length, end).matchAll(/"([^"]*)"/gu)].map((match) => match[1]!);
+  if (urls.length === 0) throw new HarnessError("the service worker's precache list names no URL", "service_worker_precache_list_empty");
+  return urls;
+}
+
+/** Every precached URL (but the navigation root) with no file among `files`, the digest's inputs: each one would ship without a new cache. */
+export function uncoveredPrecache(worker: string, files: ReadonlyMap<string, Uint8Array>): readonly string[] {
+  return precachedUrls(worker).filter((url) => url !== NAVIGATION_ROOT && !files.has(url.replace(/^\//u, "")));
+}
+
+/** The digest of `files` for `worker`, refused when a URL the worker precaches is not one of them. */
+function coveredDigest(worker: string, files: ReadonlyMap<string, Uint8Array>): string {
+  const uncovered = uncoveredPrecache(worker, files);
+  if (uncovered.length > 0) throw new HarnessError(`the service worker precaches ${uncovered.join(", ")}, which the cached-assets digest does not cover`, "service_worker_precache_uncovered");
+  return assetsDigest(files);
+}
+
+/** The worker's text with its digest line set to `digest`; refused when the generated block is missing. */
+export function withAssetsDigest(worker: string, digest: string): string {
+  const begin = worker.indexOf(ASSETS_DIGEST_BLOCK.begin);
+  const end = worker.indexOf(ASSETS_DIGEST_BLOCK.end);
+  if (begin < 0 || end < begin) throw new HarnessError(`the service worker carries no "${ASSETS_DIGEST_BLOCK.begin}" block`, "service_worker_digest_block_missing");
+  return `${worker.slice(0, begin + ASSETS_DIGEST_BLOCK.begin.length)}\nconst ASSETS_DIGEST = "${digest}";\n${worker.slice(end)}`;
+}
+
+/** The committed worker as it should read for the public assets of the repository at `root`. */
+export function committedServiceWorker(root: string = ROOT): string {
+  const committed = readFileSync(join(root, SERVICE_WORKER_PATH), "utf8");
+  return withAssetsDigest(committed, coveredDigest(committed, cachedFiles(join(root, "public"))));
+}
+
+/** Writes (or with `check`, judges) the committed worker's digest line; one JSON line, the generator protocol. */
+export function syncServiceWorker(root: string = ROOT, check = false): Readonly<{ allCurrent: boolean; status: string; changed: readonly string[] }> {
+  const path = join(root, SERVICE_WORKER_PATH);
+  const next = committedServiceWorker(root);
+  if (next === readFileSync(path, "utf8")) return { allCurrent: true, status: "current", changed: [] };
+  if (check) return { allCurrent: false, status: "stale", changed: [SERVICE_WORKER_PATH] };
+  // Served files: world-readable like every other file under public/.
+  const written = atomicWriteFile(path, next, { exactMode: 0o644 });
+  if (!written.success) throw new HarnessError(`could not write ${path}: ${written.reason ?? "unknown"}`, "service_worker_write_failed");
+  return { allCurrent: true, status: "regenerated", changed: [SERVICE_WORKER_PATH] };
+}
+
+/**
+ * The build's writer: after the bundle is written, the built worker's digest
+ * line is set from every file emitted next to it (public assets and hashed
+ * bundles alike), so a new bundle is a new cache.
+ */
+export function serviceWorkerDigestPlugin(): { name: string; apply: "build"; writeBundle: (options: { dir?: string }) => void } {
+  return {
+    name: "bridlewise-service-worker-digest",
+    apply: "build",
+    writeBundle(options) {
+      if (options.dir === undefined) throw new HarnessError("the service worker digest needs the build's output directory", "service_worker_build_dir_missing");
+      const worker = join(options.dir, "sw.js");
+      const text = readFileSync(worker, "utf8");
+      const next = withAssetsDigest(text, coveredDigest(text, cachedFiles(options.dir)));
+      const written = atomicWriteFile(worker, next, { exactMode: 0o644 });
+      if (!written.success) throw new HarnessError(`could not write ${worker}: ${written.reason ?? "unknown"}`, "service_worker_write_failed");
+    },
+  };
+}
+
+if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
+  // `--root=<repository>`: the tree to judge or write (harness sync passes the one it was asked about); this one by default.
+  const [mode, ...rest] = process.argv.slice(2);
+  const rootArg = rest.find((arg) => arg.startsWith("--root="));
+  if ((mode !== "--write" && mode !== "--check") || rest.some((arg) => arg !== rootArg)) throw new HarnessError("usage: service-worker-cache.ts --write | --check [--root=<repository>]", "input_error");
+  const report = syncServiceWorker(rootArg === undefined ? ROOT : resolve(rootArg.slice("--root=".length)), mode === "--check");
+  console.log(JSON.stringify(report));
+  if (!report.allCurrent) process.exitCode = 1;
+}

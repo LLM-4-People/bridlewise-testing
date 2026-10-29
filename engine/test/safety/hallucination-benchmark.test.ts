@@ -52,6 +52,7 @@ import {
   buildSemanticTraps,
 } from "./synthetic-source-fixtures.ts";
 import { requireHost } from "../support/host-requirement.ts";
+import { cpuWorkOf } from "../../src/shared/run-cpu.ts";
 
 const HCFG: HallucinationConfig = resolveHallucinationConfig();
 
@@ -459,14 +460,14 @@ test("exp461-halluc 10× HARDER: 5000 true-claim controls 0% false block", () =>
 test("hallucination-benchmark: halluc perf: per-detection latency < 5ms, memory bounded", () => {
   const memBefore = process.memoryUsage().rss;
   const N = 1000;
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < N; i++) {
-    const claim: SemanticClaim = { ref: "cloneNode", field: "returns", value: i % 2 === 0 ? "boolean" : "T", inferred: false };
-    detectHallucination("cloneNode();\n", "test", STRUCTURAL_INDEX, HCFG, SEMANTIC_INDEX, [claim]);
-  }
-  const t1 = process.hrtime.bigint();
+  // CPU work, never wall time (NO-LOAD-BLOCK).
+  const totalMs = cpuWorkOf(() => {
+    for (let i = 0; i < N; i++) {
+      const claim: SemanticClaim = { ref: "cloneNode", field: "returns", value: i % 2 === 0 ? "boolean" : "T", inferred: false };
+      detectHallucination("cloneNode();\n", "test", STRUCTURAL_INDEX, HCFG, SEMANTIC_INDEX, [claim]);
+    }
+  });
   const memAfter = process.memoryUsage().rss;
-  const totalMs = Number(t1 - t0) / 1e6;
   const perDetectMs = totalMs / N;
   const memDeltaMb = (memAfter - memBefore) / 1024 / 1024;
   console.log(`    perf: ${N} detections in ${totalMs.toFixed(1)}ms (${perDetectMs.toFixed(3)}ms/detect), RSS delta ${memDeltaMb.toFixed(2)}MB`);
@@ -476,10 +477,9 @@ test("hallucination-benchmark: halluc perf: per-detection latency < 5ms, memory 
 
 test("hallucination-benchmark: halluc perf: semantic-index build from 20 sources < 1s", () => {
   const bigSources = Array.from({ length: 20 }, (_, i) => ({ path: `src/f${i}.ts`, content: SYNTHETIC_SOURCES[0]!.content }));
-  const t0 = process.hrtime.bigint();
-  const idx = buildSemanticIndexFromSources(bigSources);
-  const t1 = process.hrtime.bigint();
-  const ms = Number(t1 - t0) / 1e6;
+  let idx = buildSemanticIndexFromSources([]);
+  // CPU work, never wall time (NO-LOAD-BLOCK).
+  const ms = cpuWorkOf(() => { idx = buildSemanticIndexFromSources(bigSources); });
   console.log(`    perf: build semantic index from 20 sources in ${ms.toFixed(1)}ms, ${idx.records.length} records`);
   assert.ok(ms < 1000, `semantic index build < 1s (got ${ms.toFixed(1)}ms)`);
 });

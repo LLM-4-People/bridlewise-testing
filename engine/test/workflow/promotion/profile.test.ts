@@ -4,10 +4,15 @@
  * profile among the ones a source holds.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
+import { getConfigDocumentSchema } from "../../../src/kernel/config-contracts.ts";
+import { engineRoot } from "../../../src/kernel/engine-root.ts";
+import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
-import { isOfOverlayKind, OVERLAY_KINDS, parsePromotionProfile, profileCommandNames, profileTreeViolations, selectPromotionProfile } from "../../../src/workflow/promotion/profile.ts";
+import { isOfOverlayKind, isProfileName, OVERLAY_KINDS, parsePromotionProfile, profileCommandNames, profileTreeViolations, selectPromotionProfile } from "../../../src/workflow/promotion/profile.ts";
 import { PROFILE_DIRECTORY, PROFILE_NAME, PROFILE_PATH, fixtureProfile, json } from "./promotion-fixture.ts";
 
 const COMMANDS: ReadonlySet<string> = new Set(["lockfile", "gate"]);
@@ -115,4 +120,31 @@ test("selecting a profile: by name, or the only one; otherwise refused as missin
   assert.equal(selectPromotionProfile(loaded, PROFILE_NAME, "here").path, PROFILE_PATH);
   assert.throws(() => selectPromotionProfile(loaded, "other", "here"), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_profile_missing");
   assert.throws(() => selectPromotionProfile([], undefined, "here"), (error: unknown) => error instanceof PromotionError && error.promotionCode === "promotion_profile_missing");
+});
+
+/**
+ * The profile-name rule has ONE owner (`PROMOTION_PROFILE_NAME_SCHEMA`, in the
+ * kernel), and every door that takes a profile name judges by it: a name the
+ * profile schema or `promotion.release.profile` accepts but `isProfileName`
+ * refuses (the check that keeps a name one path segment before it becomes a
+ * folder) must be impossible. Each edge is pinned to its verdict, so a
+ * widened owner is red too, not only a second spelling that drifts.
+ */
+test("the profile-name rule: the profile schema, the release config and isProfileName agree on every edge", () => {
+  const live = JSON.parse(readFileSync(join(engineRoot(), ROOT_POLICY.configuration.basename), "utf8")) as { promotion: { release: Record<string, unknown> } };
+  const configAccepts = (name: string): boolean => getConfigDocumentSchema().safeParse({ ...live, promotion: { ...live.promotion, release: { ...live.promotion.release, profile: name } } }).success;
+  const profileAccepts = (name: string): boolean => !pointers({ ...fixtureProfile(), name }, `${PROFILE_DIRECTORY}/${name}.json`).includes("/name");
+  assert.equal(configAccepts(String(live.promotion.release["profile"])), true, "the live release profile is a name");
+  const edges: readonly (readonly [string, boolean])[] = [
+    ["a", true], ["main-to-product", true], ["a1-", true], [`a${"b".repeat(62)}`, true],
+    ["", false], [`a${"b".repeat(63)}`, false], ["Upper", false], ["upPer", false], ["1abc", false], ["-abc", false],
+    ["a_b", false], ["a.b", false], ["a b", false], ["a/b", false], ["..", false], ["../escaped", false],
+    ["/abs", false], ["a\n", false], ["a\u00e9", false],
+  ];
+  for (const [name, verdict] of edges) {
+    const label = JSON.stringify(name);
+    assert.equal(isProfileName(name), verdict, `isProfileName(${label})`);
+    assert.equal(profileAccepts(name), verdict, `the profile schema's name, ${label}`);
+    assert.equal(configAccepts(name), verdict, `promotion.release.profile, ${label}`);
+  }
 });

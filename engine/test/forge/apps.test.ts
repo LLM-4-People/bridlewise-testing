@@ -341,7 +341,7 @@ test("the Apps page end to end: host custody, install links, Done guarded by ses
     const redirect = await call(`${origin}/callback?code=code-agent&state=${agentState}`);
     assert.equal(redirect.status, 303);
     assert.equal(redirect.headers.location, new URL(url).pathname + new URL(url).search, "back to the token-bound page");
-    assert.equal(keyHomeCustody(keyHome).identity("agent").appId, agent.appId);
+    assert.equal(keyHomeCustody(keyHome).clientId("agent"), agent.clientId);
     await call(`${origin}/callback?code=code-agent&state=${agentState}`);
     const after = pageData((await call(url)).body);
     assert.equal(after.error?.code, "forge_apps_page_refused");
