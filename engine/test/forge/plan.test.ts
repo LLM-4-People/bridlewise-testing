@@ -801,3 +801,31 @@ test("a ruleset GitHub answers with its defaults omitted reads as declared; a re
     assert.equal(planned.action, "update", JSON.stringify(overrides));
   }
 });
+
+test("a DECLARED non-default value survives the ruleset normaliser and plans an update against GitHub's default, never overwritten by it", async () => {
+  const restricted = { enabled: true, allowed_actors: [{ actor_id: 9, actor_type: "Team" }] };
+  const declared = rulesetWithGithubDefaults({
+    name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
+    rules: [{ type: "pull_request", parameters: { required_approving_review_count: 0, dismissal_restriction: restricted } }],
+  });
+  const policy = rulesetWithGithubDefaults({ name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], rules: [
+    { type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: ["docs/**"] } },
+  ] });
+  const ledger = rulesetWithGithubDefaults({ name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "update", parameters: { update_allows_fetch_and_merge: true } }] });
+  // The declaration keeps what it names.
+  assert.deepEqual(declared.rules[0]!.parameters.dismissal_restriction, restricted);
+  assert.deepEqual(policy.rules[0]!.parameters.ignored_file_paths, ["docs/**"]);
+  assert.equal(ledger.rules[0]!.parameters.update_allows_fetch_and_merge, true);
+  // GitHub holding the defaults (each omitted, as it answers them): every one plans an update toward the declared value.
+  const fake = fakeGithub();
+  fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+  fake.collection(`/orgs/${ORG}/rulesets`, [{ id: 1, source_type: "Organization", name: "baseline", target: "branch", enforcement: "active", bypass_actors: [], rules: [{ type: "pull_request", parameters: { required_approving_review_count: 0 } }] }], "id", { source_type: "Organization" });
+  fake.collection(`/repos/${ORG}/${REPO}/rulesets`, [
+    { id: 2, source_type: "Repository", name: "content-policy", target: "push", enforcement: "active", bypass_actors: [], conditions: null, rules: [{ type: "max_file_size", parameters: { max_file_size: 10, ignored_file_paths: [] } }] },
+    { id: 3, source_type: "Repository", name: "ledger", target: "branch", enforcement: "active", bypass_actors: [], conditions: null, rules: [{ type: "update" }] },
+  ], "id", { source_type: "Repository" });
+  const plan = await forgePlan(contextOf(fake), [object("org-ruleset", "baseline", declared, { kind: "org" }), object("ruleset", "content-policy", policy), object("ruleset", "ledger", ledger)], []);
+  for (const [kind, key] of [["org-ruleset", "baseline"], ["ruleset", "content-policy"], ["ruleset", "ledger"]] as const) {
+    assert.equal(entry(plan, kind, key).action, "update", key);
+  }
+});
