@@ -49,10 +49,22 @@
     });
   }
 
+  // Each section of a reading page gets a link to itself, for citing a
+  // part of a page. The heading's own text names it for assistive tech.
+  var headings = document.querySelectorAll(".doc h2[id], .doc h3[id]");
+  for (var h = 0; h < headings.length; h += 1) {
+    var link = document.createElement("a");
+    link.className = "heading-anchor";
+    link.href = "#" + headings[h].id;
+    link.textContent = "#";
+    link.setAttribute("aria-label", "Link to the section " + headings[h].textContent.trim());
+    headings[h].appendChild(link);
+  }
+
   // GitHub renders `> [!WARNING]` as an alert; Jekyll does not. Strip the
   // marker from the first text node and tag the blockquote so the static site
   // keeps the same intent as the Markdown on GitHub.
-  var article = document.querySelector(".article");
+  var article = document.querySelector("main");
   if (article) {
     var quotes = article.querySelectorAll("blockquote");
     for (var q = 0; q < quotes.length; q += 1) {
