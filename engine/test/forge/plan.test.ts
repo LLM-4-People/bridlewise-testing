@@ -111,7 +111,7 @@ test("one object's refusal is that object's (plan, permission); a budget refusal
     object("immutable-releases", REPO, { enabled: true }),
   ];
   fake.objects.set(`/repos/${ORG}/${REPO}/actions/permissions/workflow`, { default_workflow_permissions: "read" });
-  fake.refuseNext({ path: /\/actions\/permissions$/u }, { status: 403, message: "Upgrade to GitHub Pro or make this repository public to enable this feature." });
+  fake.refuseNext({ path: new RegExp(`^/repos/${ORG}/${REPO}/actions/permissions$`, "u") }, { status: 403, message: "Upgrade to GitHub Pro or make this repository public to enable this feature." });
   // The allowed-actions list answers 409 until "selected" is on (measured live): it reads as not declared yet, a create.
   objects.push(object("actions-selected", REPO, { github_owned_allowed: true, verified_allowed: false, patterns_allowed: [] }));
   fake.refuseNext({ path: /\/actions\/permissions\/selected-actions$/u }, { status: 409, message: "Selected actions are not enabled for this repository." });
@@ -648,4 +648,135 @@ test("a label renamed only in case is the declared label: the plan updates its s
   assert.deepEqual(patches, [{ path: `${path}/Good First Issue`, body: { color: "5fc78e", description: "Small", new_name: "good first issue" } }], "one PATCH on the live spelling, renaming through new_name");
   assert.ok(!fake.requests.some((request) => request.method === "POST" && request.path === path), "no create GitHub would refuse");
   assert.ok(outcome.verification.entries.filter((verified) => verified.kind === "label" && verified.action !== "unmanaged").every((verified) => verified.action === "unchanged"), "the rename converges");
+});
+
+test("a repository setting the organisation enforces: a contradicting declaration is refused at PLAN time, and a field GitHub locks (commit sign-off) is never written, even unchanged", async () => {
+  const world = (orgSignoff: boolean | undefined): FakeGithub => {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.objects.set(`/orgs/${ORG}`, { login: ORG, ...(orgSignoff === undefined ? {} : { web_commit_signoff_required: orgSignoff }) });
+    fake.objects.set(`/repos/${ORG}/${REPO}`, { name: REPO, merge_commit_title: "MERGE_MESSAGE", web_commit_signoff_required: true });
+    // GitHub refuses ANY repository write of the field while the organisation enforces it (2026-10-28, request 45ED:218A39).
+    fake.route("PATCH", new RegExp(`^/repos/${ORG}/${REPO}$`, "u"), (request) => {
+      const enforced = (fake.objects.get(`/orgs/${ORG}`) as Record<string, unknown>).web_commit_signoff_required === true;
+      return enforced && "web_commit_signoff_required" in (request.body as object) ? { status: 422, body: { message: "Commit signoff is enforced by the organization and cannot be disabled" } } : undefined;
+    });
+    return fake;
+  };
+  const settings = (signoff: boolean): ForgeObject => object("repository-settings", REPO, { merge_commit_title: "PR_TITLE", web_commit_signoff_required: signoff });
+  // Enforced by the organisation, declared true: planned without the field, written without it, and the apply verifies.
+  const enforced = world(true);
+  const planned = entry(await forgePlan(contextOf(enforced), [settings(true)], []), "repository-settings", REPO);
+  assert.deepEqual(planned.differences, ["/merge_commit_title"]);
+  const outcome = await forgeApply(contextOf(enforced), [settings(true)], []);
+  assert.equal(outcome.verified, true);
+  const patch = enforced.requests.find((request) => request.method === "PATCH" && request.path === `/repos/${ORG}/${REPO}`);
+  assert.ok(patch !== undefined && !("web_commit_signoff_required" in (patch.body as object)), "the locked field is never sent");
+  // Declared against the organisation: refused at plan time, typed, and an apply writes nothing.
+  const contradicted = world(true);
+  const refused = entry(await forgePlan(contextOf(contradicted), [settings(false)], []), "repository-settings", REPO);
+  assert.equal(refused.code, "forge_org_policy_contradicted");
+  assert.match(refused.message ?? "", /web_commit_signoff_required false \(the organisation's web_commit_signoff_required is true\)/u);
+  await assert.rejects(forgeApply(contextOf(contradicted), [settings(false)], []), (error: unknown) => isForgeError(error, "forge_plan_incomplete"));
+  assert.ok(!contradicted.requests.some((request) => request.method !== "GET"), "nothing written");
+  // The organisation does not enforce it YET, but the declared org settings do: the apply turns it on first, so the
+  // repository write leaves the field out too.
+  const turnedOn = world(false);
+  const objects = [object("org-settings", ORG, { web_commit_signoff_required: true }, { kind: "org" }), settings(true)];
+  await forgeApply(contextOf(turnedOn), objects, []);
+  const repositoryPatch = turnedOn.requests.find((request) => request.method === "PATCH" && request.path === `/repos/${ORG}/${REPO}`);
+  assert.ok(repositoryPatch !== undefined && !("web_commit_signoff_required" in (repositoryPatch.body as object)));
+});
+
+test("every organisation policy over a declared repository setting is judged at plan time: a weaker repository value is refused, an equal or stricter one passes", async () => {
+  const cases: readonly (readonly [string, ForgeObject["kind"], Record<string, unknown>, string, Record<string, unknown>, boolean])[] = [
+    ["Actions off", "actions-permissions", { enabled: true }, "actions/permissions", { enabled_repositories: "none" }, true],
+    ["an allowed-actions value the forge does not know", "actions-permissions", { allowed_actions: "selected" }, "actions/permissions", { allowed_actions: "enterprise_only" }, true],
+    ["a fork-approval value the forge does not know", "actions-fork-approval", { approval_policy: "first_time_contributors" }, "actions/permissions/fork-pr-contributor-approval", { approval_policy: "new_policy" }, true],
+    ["all actions under selected", "actions-permissions", { allowed_actions: "all" }, "actions/permissions", { allowed_actions: "selected" }, true],
+    ["selected actions under all", "actions-permissions", { allowed_actions: "selected" }, "actions/permissions", { allowed_actions: "all" }, false],
+    ["no SHA pinning under pinning", "actions-permissions", { sha_pinning_required: false }, "actions/permissions", { sha_pinning_required: true }, true],
+    ["SHA pinning under none", "actions-permissions", { sha_pinning_required: true }, "actions/permissions", { sha_pinning_required: false }, false],
+    ["a write token under read", "actions-workflow", { default_workflow_permissions: "write" }, "actions/permissions/workflow", { default_workflow_permissions: "read" }, true],
+    ["approving under no approving", "actions-workflow", { can_approve_pull_request_reviews: true }, "actions/permissions/workflow", { can_approve_pull_request_reviews: false }, true],
+    ["read under read", "actions-workflow", { default_workflow_permissions: "read", can_approve_pull_request_reviews: false }, "actions/permissions/workflow", { default_workflow_permissions: "read", can_approve_pull_request_reviews: false }, false],
+    ["a weaker fork approval", "actions-fork-approval", { approval_policy: "first_time_contributors_new_to_github" }, "actions/permissions/fork-pr-contributor-approval", { approval_policy: "first_time_contributors" }, true],
+    ["a stricter fork approval", "actions-fork-approval", { approval_policy: "all_external_contributors" }, "actions/permissions/fork-pr-contributor-approval", { approval_policy: "first_time_contributors" }, false],
+    ["mutable releases under enforcement", "immutable-releases", { enabled: false }, "settings/immutable-releases", { enforced_repositories: "all" }, true],
+    ["immutable releases under none", "immutable-releases", { enabled: true }, "settings/immutable-releases", { enforced_repositories: "none" }, false],
+  ];
+  for (const [name, kind, desired, orgPath, orgAnswer, refusedExpected] of cases) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.objects.set(`/orgs/${ORG}/${orgPath}`, orgAnswer);
+    const planned = entry(await forgePlan(contextOf(fake), [object(kind, REPO, desired)], []), kind, REPO);
+    assert.equal(planned.code === "forge_org_policy_contradicted", refusedExpected, `${name}: ${planned.action} ${planned.code ?? ""}`);
+  }
+  // Actions enabled for SELECTED repositories only: a repository outside the selection with Actions declared on is refused.
+  for (const [selection, refusedExpected] of [[[REPO, "other"], false], [["other"], true]] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.objects.set(`/orgs/${ORG}/actions/permissions`, { enabled_repositories: "selected", allowed_actions: "all" });
+    fake.objects.set(`/orgs/${ORG}/actions/permissions/repositories`, { total_count: selection.length, repositories: selection.map((name) => ({ name })) });
+    const planned = entry(await forgePlan(contextOf(fake), [object("actions-permissions", REPO, { enabled: true })], []), "actions-permissions", REPO);
+    assert.equal(planned.code === "forge_org_policy_contradicted", refusedExpected, selection.join(","));
+  }
+});
+
+test("only an enablement still in progress is deferred: any other write error (a 422, a 409 whose states read settled) surfaces at once, and no later object is written", async () => {
+  for (const failure of ["422", "409 settled"] as const) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", secret_scanning: "disabled" }], "id");
+    fake.route("GET", /^\/orgs\/[^/]+\/code-security\/configurations\/31\/repositories$/u, () => ({ status: 200, body: [{ status: "enforced", repository: { id: 7, name: REPO } }] }));
+    fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => (failure === "422"
+      ? { status: 422, body: { message: "Validation Failed" } }
+      : { status: 409, body: { message: "Conflict" } }));
+    const later: string[] = [];
+    fake.route("PUT", /\/immutable-releases$/u, () => { later.push("written"); return undefined; });
+    const objects = [
+      object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" }),
+      object("immutable-releases", REPO, { enabled: true }),
+    ];
+    await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, failure === "422" ? "github_validation_failed" : "github_conflict"), failure);
+    assert.deepEqual(later, [], `${failure}: surfaced at once, never deferred past a later write`);
+  }
+});
+
+test("a security configuration GitHub is still rolling out is deferred past the other writes and continued only once its attachments read settled; still in progress, the run stops typed and retryable", async () => {
+  for (const settles of [true, false]) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", code_security: "disabled", secret_protection: "disabled", secret_scanning: "disabled" }], "id");
+    let status = "updating";
+    const order: string[] = [];
+    fake.route("GET", /^\/orgs\/[^/]+\/code-security\/configurations\/31\/repositories$/u, () => ({ status: 200, body: [{ status, repository: { id: 7, name: REPO } }] }));
+    fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => { order.push("configuration"); return undefined; });
+    // Another object's write: by then GitHub has (or has not) finished the rollout.
+    fake.route("PUT", /\/immutable-releases$/u, () => { order.push("other"); if (settles) status = "enforced"; return undefined; });
+    const objects = [
+      object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" }),
+      object("immutable-releases", REPO, { enabled: true }),
+    ];
+    if (settles) {
+      await forgeApply(contextOf(fake), objects, []);
+      assert.deepEqual(order, ["other", "configuration"], "deferred past the other writes, then written once settled");
+    } else {
+      await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, "forge_security_enablement_in_progress") && error.forgeClass === "budget" && error.retryable && new RegExp(REPO, "u").test(error.message));
+      assert.deepEqual(order, ["other"], "the configuration is never written while its rollout is in progress");
+    }
+  }
+});
+
+test("a 409 on a security configuration is judged by the attachment states read right after it: an enablement in progress is the typed refusal, any other conflict stays GitHub's", async () => {
+  for (const rollingOut of [true, false]) {
+    const fake = fakeGithub();
+    fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 0, installations: [] });
+    fake.collection(`/orgs/${ORG}/code-security/configurations`, [{ id: 31, name: "baseline", secret_scanning: "disabled" }], "id");
+    let status = "enforced";
+    fake.route("GET", /^\/orgs\/[^/]+\/code-security\/configurations\/31\/repositories$/u, () => ({ status: 200, body: [{ status, repository: { id: 7, name: REPO } }] }));
+    fake.route("PATCH", /^\/orgs\/[^/]+\/code-security\/configurations\/31$/u, () => { if (rollingOut) status = "updating"; return { status: 409, body: { message: "Another enablement event is in progress" } }; });
+    const objects = [object("security-configuration", "baseline", { name: "baseline", secret_scanning: "enabled" }, { kind: "org" })];
+    await assert.rejects(forgeApply(contextOf(fake), objects, []), (error: unknown) => isForgeError(error, rollingOut ? "forge_security_enablement_in_progress" : "github_conflict"), String(rollingOut));
+  }
 });

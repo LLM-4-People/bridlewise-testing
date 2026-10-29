@@ -41,7 +41,9 @@ test("the declarations: every object once, in apply order, with the plan's unava
   const settingsScopes = objects.filter((entry) => entry.kind === "repository-settings").map((entry) => entry.key);
   assert.deepEqual(settingsScopes, [TRUNK, ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
   // The proving ground (P1.11): its main's queue and signatures, merge commits only, and merged branches deleted; nothing else a governed repository gets.
-  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true, allow_update_branch: false });
+  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true, allow_update_branch: false, web_commit_signoff_required: true });
+  // Commit sign-off (DCO for web commits) is declared on EVERY repository, as the organisation enforces it.
+  for (const settings of objects.filter((entry) => entry.kind === "repository-settings")) assert.equal((settings.desired as Record<string, unknown>).web_commit_signoff_required, true, settings.key);
   const proving = find(objects, "ruleset", "proving-main");
   assert.deepEqual(proving.scope, { kind: "repo", repository: "forge-proving-ground" });
   assert.deepEqual((proving.desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "required_signatures"]);

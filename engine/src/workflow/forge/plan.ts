@@ -27,7 +27,7 @@ import { FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError, isForgeError, type ForgeCode } from "./codes.ts";
 import { differences, referenceKey, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
 import { FORGE_LOG_CATEGORY } from "./github.ts";
-import { EXCLUSIVE_KINDS, KIND_ADAPTERS, type LiveContext, type LiveObject } from "./live-state.ts";
+import { EXCLUSIVE_KINDS, KIND_ADAPTERS, ORG_POLICY_RULES, organisationPolicy, type LiveContext, type LiveObject, type OrgPolicySource } from "./live-state.ts";
 import { looseningOf, movedPremisesUnmet } from "./strictness.ts";
 
 export type PlanAction = "create" | "update" | "unchanged" | "refused" | "unmanaged" | "retire";
@@ -106,11 +106,45 @@ function objectRefusal(error: unknown): ForgeError | undefined {
 
 type Planned = Readonly<{ object: ForgeObject; entry: PlanEntry; body?: unknown; found?: LiveObject }>;
 
+type OrgPolicy = ReadonlyMap<OrgPolicySource, Readonly<Record<string, unknown>>>;
+
+/**
+ * A repository object judged against the organisation's policy: what GitHub
+ * answers now AND what the declarations make it (the organisation's own
+ * settings are written first in an apply, so a policy the apply turns on
+ * binds too). A declared value the policy does not allow is named
+ * (`contradicted`); a field the policy locks is left out of the body, never
+ * written (GitHub refuses it even unchanged).
+ */
+function orgPolicyVerdict(object: ForgeObject, body: unknown, policies: readonly OrgPolicy[]): Readonly<{ body: unknown; contradicted: readonly string[] }> {
+  if (object.scope.kind !== "repo" || typeof body !== "object" || body === null) return { body, contradicted: [] };
+  const declared = body as Record<string, unknown>;
+  const contradicted: string[] = [];
+  const locked = new Set<string>();
+  for (const rule of ORG_POLICY_RULES.filter((entry) => entry.kind === object.kind && entry.field in declared)) {
+    for (const policy of policies) {
+      const org = policy.get(rule.source)?.[rule.orgField];
+      if (org === undefined) continue;
+      const allowed = rule.allows(declared[rule.field], org, policy.get(rule.source)!, object.scope.repository);
+      if (allowed === "unknown") contradicted.push(`${rule.field} ${JSON.stringify(declared[rule.field])} under the organisation's ${rule.orgField} ${JSON.stringify(org)}, a combination the forge does not know`);
+      else if (!allowed) contradicted.push(`${rule.field} ${JSON.stringify(declared[rule.field])} (the organisation's ${rule.orgField} is ${JSON.stringify(org)})`);
+      if (rule.locks?.(org) === true) locked.add(rule.field);
+    }
+  }
+  return { body: Object.fromEntries(Object.entries(declared).filter(([field]) => !locked.has(field))), contradicted: [...new Set(contradicted)] };
+}
+
 async function planObjects(context: LiveContext, objects: readonly ForgeObject[], retired: readonly RetiredObject[]): Promise<Readonly<{ planned: readonly Planned[]; extra: readonly PlanEntry[]; retiredFound: readonly Readonly<{ retired: RetiredObject; found: LiveObject }>[] }>> {
   const resolved = await resolveAll(context, objects);
   /** The declared org baseline, its references resolved: what a move into it is judged against at plan time. */
   const baseline = baselineObject(objects);
   const declaredBaseline = baseline === undefined ? undefined : resolveReferences(baseline.desired, resolved);
+  // The organisation's policy over repository settings: as GitHub answers it, and as the declared org settings make it.
+  const declaredOrganization = objects.find((object) => object.kind === "org-settings")?.desired;
+  const policies: readonly OrgPolicy[] = [
+    await organisationPolicy(context, new Set(objects.filter((object) => object.scope.kind === "repo").map((object) => object.kind))),
+    ...(typeof declaredOrganization === "object" && declaredOrganization !== null ? [new Map([["organization", declaredOrganization as Record<string, unknown>]]) as OrgPolicy] : []),
+  ];
   const planned: Planned[] = [];
   for (const object of objects) {
     const base = { kind: object.kind, scope: scopeName(object.scope), key: object.key, ...(object.unavailableOnPlan.length === 0 ? {} : { unavailableOnPlan: object.unavailableOnPlan }) };
@@ -119,7 +153,12 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
       planned.push({ object, entry: deepFreeze({ ...base, action: "refused", code: "forge_reference_unresolved", message: `GitHub has no ${missing.map(referenceKey).join(", ")} yet.` }) });
       continue;
     }
-    const body = writableBody(object, resolveReferences(object.desired, resolved));
+    const verdict = orgPolicyVerdict(object, writableBody(object, resolveReferences(object.desired, resolved)), policies);
+    if (verdict.contradicted.length > 0) {
+      planned.push({ object, entry: deepFreeze({ ...base, action: "refused", code: "forge_org_policy_contradicted", message: `Declared against the organisation's policy: ${verdict.contradicted.join("; ")}.` }) });
+      continue;
+    }
+    const body = verdict.body;
     try {
       const found = await KIND_ADAPTERS[object.kind].read(context, object);
       if (found === undefined) {
@@ -277,8 +316,21 @@ export async function forgeApply(context: LiveContext, objects: readonly ForgeOb
     applied.push(entry);
     debugLog(FORGE_LOG_CATEGORY, "info", "forge_object_applied", () => ({ kind: entry.kind, scope: entry.scope, key: entry.key, action: entry.action }));
   };
-  // 2. Tighten: every create and every non-loosening update.
-  for (const item of planned) if ((item.entry.action === "create" || item.entry.action === "update") && item.entry.loosening === undefined) await write(item);
+  // 2. Tighten: every create and every non-loosening update. A security configuration GitHub is still rolling out
+  // (its attachments read in progress) is deferred past the other writes, and continued only once its states read
+  // settled: its adapter reads them again, and still in progress, the run stops typed and retryable.
+  const deferred: Planned[] = [];
+  for (const item of planned) {
+    if ((item.entry.action !== "create" && item.entry.action !== "update") || item.entry.loosening !== undefined) continue;
+    try {
+      await write(item);
+    } catch (error) {
+      if (!isForgeError(error, "forge_security_enablement_in_progress")) throw error;
+      debugLog(FORGE_LOG_CATEGORY, "info", "forge_object_deferred", () => ({ kind: item.entry.kind, scope: item.entry.scope, key: item.entry.key, reason: error.message }));
+      deferred.push(item);
+    }
+  }
+  for (const item of deferred) await write(item);
   const loosening = planned.filter((item) => item.entry.action === "update" && item.entry.loosening !== undefined);
   if (loosening.length > 0 || retiredFound.length > 0) {
     // 3. Read the org baseline back before anything is weakened.
