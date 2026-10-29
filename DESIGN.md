@@ -157,3 +157,13 @@ page's rendered second-level headings, shown from three sections up). Below
 header menu and the footer index. A decision record opens with its own front
 matter as a header (record id, status, how far it is built, when and by whom
 it was decided), and each section heading carries a link to itself.
+
+Figures are generated, never drawn by hand (`shared/figures.ts`), and drawn
+inline on the site with `fig-*` classes, so they follow the theme switch. A
+figure declared as data lives in `docs/_data/figures/`; a figure that counts
+records (the decision-status bar on the development floor) is counted and
+drawn when the site is built, and never committed, because a committed count
+is an aggregate every change to the records would rewrite (#527). A README
+links to the site's figure instead of carrying one. Parts are labelled
+directly with their counts, and a hatched part is hatched, so identity is
+never carried by colour alone.
