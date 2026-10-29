@@ -29,8 +29,8 @@
 import { readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
-import { effectiveDispositionEntries, parseTestSurfaceDispositionManifestText } from "../../src/kernel/test-surface-manifest.ts";
+import { effectiveDispositionEntries } from "../../src/kernel/test-surface-manifest.ts";
+import { readDispositionManifest } from "../../src/workflow/disposition-records.ts";
 import { listRecognizableTestPaths } from "../test-inventory.ts";
 import { astNode, astNodeArray, parseSourceModule, walkAst, type AstNode } from "../../src/quality-packs/prevention/ast-helpers.ts";
 import { TEST_INCLUDE } from "../../../tests/test-include.ts";
@@ -290,7 +290,7 @@ function collectBindings(statement: AstNode, into: Map<string, AstNode | undefin
  */
 export function hermeticSources(repositoryRoot: string): readonly string[] {
   const engineRoot = join(repositoryRoot, "engine");
-  const manifest = parseTestSurfaceDispositionManifestText(readFileSync(join(engineRoot, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath), "utf8"));
+  const manifest = readDispositionManifest(engineRoot);
   // Every canonical source: an entry's, or the default a qualified Node test source takes without one.
   const engine = effectiveDispositionEntries(listRecognizableTestPaths(engineRoot), manifest)
     .filter((entry) => entry.disposition === "canonical-node-test").map((entry) => `engine/${entry.path}`);

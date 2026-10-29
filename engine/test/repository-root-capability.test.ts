@@ -59,6 +59,7 @@ import {
   parseTestSurfaceDispositionManifest,
   type TestSurfaceDispositionEntry,
 } from "../scripts/verification/test-surface.ts";
+import { dispositionRecordPath, parseDispositionRecord, serializeDispositionRecord } from "../src/kernel/test-surface-manifest.ts";
 import {
   createQualifiedRepositoryLocalTemporaryDirectory,
   createRepositoryLocalTemporaryDirectory,
@@ -1097,30 +1098,26 @@ test("proxy capabilities are rejected by acquire, borrow, and path-for-internal-
   }
 });
 
-test("test-surface disposition manifest rejects a stale policyHash (hostile drift regression)", () => {
-  const validEntries: readonly TestSurfaceDispositionEntry[] = [];
-  const validManifest = createTestSurfaceDispositionManifest(validEntries);
-  assert.doesNotThrow(() => parseTestSurfaceDispositionManifest(validManifest));
-  const staleManifest = { ...validManifest, policyHash: "0".repeat(64) };
+test("a test-surface disposition record rejects a stale policyHash, by the source it names (hostile drift regression)", () => {
+  const entry: TestSurfaceDispositionEntry = { path: "test/x/oracle.test.ts", language: "javascript-typescript", disposition: "qualified-external-oracle", rationale: "x", evidenceLinks: ["x"], blocksFullRepositoryClaim: false };
+  const recordPath = dispositionRecordPath(entry.path);
+  const text = serializeDispositionRecord(entry);
+  assert.deepEqual(parseDispositionRecord(recordPath, text), entry);
   const staleError = captureCode(
-    () => parseTestSurfaceDispositionManifest(staleManifest),
+    () => parseDispositionRecord(recordPath, text.replace(/"policyHash": "[0-9a-f]{64}"/u, `"policyHash": "${"0".repeat(64)}"`)),
     "test_surface_disposition_policy_stale",
   );
-  assert.equal(staleError.code, "test_surface_disposition_policy_stale");
   assert.equal(staleError.retryable, false);
-  assert.equal(staleError.safeDetails.manifestPolicyHash, "0".repeat(64));
+  assert.equal(staleError.safeDetails.path, entry.path);
+  assert.equal(staleError.safeDetails.recordPolicyHash, "0".repeat(64));
   assert.match(String(staleError.safeDetails.currentPolicyHash), /^[0-9a-f]{64}$/u);
-  assert.notEqual(staleError.safeDetails.currentPolicyHash, "0".repeat(64));
-  const wrongHashFormat = { ...validManifest, policyHash: "not-a-hash" };
-  assert.throws(() => parseTestSurfaceDispositionManifest(wrongHashFormat));
-  const tamperedEntries = { ...validManifest, entries: [{ path: "fake.test.ts", language: "javascript-typescript", disposition: "canonical-node-test", rationale: "x", evidenceLinks: ["x"], blocksFullRepositoryClaim: false }] };
+  assert.throws(() => parseDispositionRecord(recordPath, text.replace(/"policyHash": "[0-9a-f]{64}"/u, `"policyHash": "not-a-hash"`)));
+  const validManifest = createTestSurfaceDispositionManifest([]);
   assert.throws(
-    () => parseTestSurfaceDispositionManifest(tamperedEntries),
+    () => parseTestSurfaceDispositionManifest({ ...validManifest, entries: [{ path: "fake.test.ts", language: "javascript-typescript", disposition: "canonical-node-test", rationale: "x", evidenceLinks: ["x"], blocksFullRepositoryClaim: false }] }),
     /test-surface canonical disposition is invalid/u,
   );
-  assert.throws(
-    () => parseTestSurfaceDispositionManifest({ ...validManifest, integrityHash: "0".repeat(64) }),
-  );
+  assert.throws(() => parseTestSurfaceDispositionManifest({ ...validManifest, policyHash: "0".repeat(64) }), "no whole-manifest policy hash: each record carries its own");
 });
 
 function budgetState(

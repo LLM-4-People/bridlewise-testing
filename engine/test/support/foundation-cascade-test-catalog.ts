@@ -52,7 +52,7 @@ export const FOUNDATION_CASCADE_TEST_CATALOG = deepFreeze([
       assert.equal(new Set(FOUNDATION_EXPECTED_OUTPUTS.map((output) => output.path)).size,
         FOUNDATION_EXPECTED_OUTPUTS.length);
       for (const path of [ROOT_POLICY.configuration.contract.generatedSchemaPath,
-        ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath,
+        ROOT_POLICY.verification.testDiscovery.dispositionRegistry.recordsPath,
         ROOT_POLICY.artifactGovernance.canonicalInventory, SLICE_PROJECTION_PATHS.s2Trace,
         SLICE_PROJECTION_PATHS.s24Trace, SLICE_PROJECTION_PATHS.s31Trace]) {
         assert.ok(FOUNDATION_EXPECTED_OUTPUTS.some((output) => output.path === path));

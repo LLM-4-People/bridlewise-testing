@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "bridlewise-test-surface-disposition-record/v1",
+  "policyHash": "43b55626b67d25eaa174ed5fe510f7502c5528ee9665e66c7396b570f03dca6b",
+  "disposition": "non-test-fixture",
+  "rationale": "Failure-prone project fixture: a deliberately failing Python test suite used as evaluation project context, not a runnable harness test.",
+  "evidenceLinks": [
+    "test/fixtures/eval-projects/py-failing-tests/test_main.py"
+  ],
+  "blocksFullRepositoryClaim": false
+}

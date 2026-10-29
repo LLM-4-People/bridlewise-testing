@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "bridlewise-test-surface-disposition-record/v1",
+  "policyHash": "43b55626b67d25eaa174ed5fe510f7502c5528ee9665e66c7396b570f03dca6b",
+  "disposition": "qualified-external-oracle",
+  "rationale": "The ONE live suite (LIVE-SUITE): third-party MCP servers from the local cache and the hosted endpoints under the root policy's declared live consent. Run by `npm run test:live` only, which refuses at load without the consent; never part of the hermetic run, which has no skips by design.",
+  "evidenceLinks": [
+    "package.json",
+    "test/prevention/hermetic-suites-have-no-skips.test.ts"
+  ],
+  "blocksFullRepositoryClaim": false
+}

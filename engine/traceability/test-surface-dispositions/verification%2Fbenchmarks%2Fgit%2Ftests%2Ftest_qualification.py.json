@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "bridlewise-test-surface-disposition-record/v1",
+  "policyHash": "43b55626b67d25eaa174ed5fe510f7502c5528ee9665e66c7396b570f03dca6b",
+  "disposition": "pending-external-qualification",
+  "rationale": "Preserved Python test or suite runner; interpreter, dependencies, isolation, parent-captured receipts, and execution remain unqualified and are never invoked implicitly by the Node core.",
+  "evidenceLinks": [],
+  "blocksFullRepositoryClaim": true
+}

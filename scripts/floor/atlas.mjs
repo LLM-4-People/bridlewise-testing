@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
+import { dispositionRecordsDigest, readDispositionManifest } from "../../engine/src/workflow/disposition-records.ts";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -46,14 +47,10 @@ function isTestFile(file) {
   );
 }
 
+/** The test-surface dispositions, from their one reader (one record per decided source, each judged by its owner). */
 function readDispositions(root) {
-  const file = join(root, "engine/traceability/test-surface-dispositions.json");
-  const data = readJson(file);
-  const entries = Array.isArray(data) ? data : (data.entries ?? data.dispositions);
-  if (!Array.isArray(entries)) {
-    throw new Error("test-surface-dispositions.json has no dispositions array");
-  }
-  return { file, entries };
+  const engineRoot = join(root, "engine");
+  return { entries: readDispositionManifest(engineRoot).entries, hash: dispositionRecordsDigest(engineRoot) };
 }
 
 /**
@@ -302,7 +299,7 @@ export function buildAtlas({ root, now = new Date() }) {
       commit: repoInfo(root).commit,
       inventoryHash: inventory.data.inventoryHash ?? null,
       inventorySchema: inventory.data.schemaVersion ?? null,
-      dispositionHash: sha256File(dispositions.file),
+      dispositionHash: dispositions.hash,
       requirementsHash: sha256File(requirements.file),
     },
     counts,

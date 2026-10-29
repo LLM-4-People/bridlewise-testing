@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { buildAtlas, readInventory } from "../../scripts/floor/atlas.mjs";
+import { readDispositionManifest } from "../../engine/src/workflow/disposition-records.ts";
 import { parse } from "yaml";
 
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
@@ -30,7 +31,7 @@ test("the floor atlas reconciles its generated counts with tracked sources", () 
   const atlas = buildAtlas({ root: ROOT });
   // The inventory is a cache of the tree, not committed (#221): its owner answers it.
   const inventory = readInventory(ROOT).data;
-  const dispositions = readJson("engine/traceability/test-surface-dispositions.json");
+  const dispositions = readDispositionManifest(join(ROOT, "engine"));
 
   assert.equal(atlas.schemaVersion, "bridlewise-floor-atlas/v1");
   assert.equal(atlas.counts.testNames, inventory.tests.length);

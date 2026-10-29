@@ -253,7 +253,6 @@ test("HashBindingRegistry: repairAllBindings repairs all stale bindings and veri
     writeRelative(tmpRoot, CONTRACT_REL, configContent);
     writeRelative(tmpRoot, "src/filesystem/private-directory-create-worker.mjs", "worker\n");
     writeRelative(tmpRoot, VERIFICATION_PATHS.testInventory, `{"inventoryHash":"${"1".repeat(64)}","tests":[]}\n`);
-    writeRelative(tmpRoot, "traceability/test-surface-dispositions.json", `{"integrityHash":"${"2".repeat(64)}"}\n`);
     writeRelative(tmpRoot, "traceability/requirements.json", registryContent);
     writeRelative(tmpRoot, "traceability/canonical/harness-requirements.md", sourceArtifactContent);
     writeRelative(tmpRoot, "traceability/s2.4-requirements-schema.json", '{"schema":{}}\n');

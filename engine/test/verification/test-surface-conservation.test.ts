@@ -18,7 +18,8 @@ import {
   listRecognizableTestPaths,
 } from "../../scripts/test-inventory.ts";
 import { HarnessError } from "../../src/kernel/errors.ts";
-import { effectiveDispositionEntries, parseTestSurfaceDispositionManifest } from "../../src/kernel/test-surface-manifest.ts";
+import { effectiveDispositionEntries } from "../../src/kernel/test-surface-manifest.ts";
+import { readDispositionManifest } from "../../src/workflow/disposition-records.ts";
 import { canonicalHash } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { bodyCallsWith, functionBody } from "../../src/shared/source-structure.ts";
@@ -534,7 +535,7 @@ function escapeForRegExp(value: string): string {
 function liveScope(): TestSurfaceScope {
   // The EFFECTIVE dispositions (#221): the manifest records only the exceptions, and every qualified Node
   // source with no entry is canonical by default — read through their one owner, never the raw entries.
-  const manifest = parseTestSurfaceDispositionManifest(JSON.parse(readSource(DISCOVERY.dispositionRegistry.manifestPath)));
+  const manifest = readDispositionManifest(ROOT);
   const effective = effectiveDispositionEntries(listRecognizableTestPaths(ROOT), manifest);
   const of = (disposition: string): readonly string[] =>
     effective.filter((entry) => entry.disposition === disposition).map((entry) => entry.path);

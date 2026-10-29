@@ -31,8 +31,8 @@ export const PLANNED_NODE_TEST_SOURCE_AUTHORITY = deepFreeze({
       catalog: {
         role: "catalog",
         path: "test/support/foundation-cascade-test-catalog.ts",
-        byteLength: 21175,
-        sha256: "de2d70efa3b84c54c9fb8d59757f20cae7229439059ffaecb8270b2c010cd4e3",
+        byteLength: 21_174,
+        sha256: "d9e76b8b315dc3b3a027168f4c588caacef89ec7c449ad987946af3209e42179",
       },
     },
     repositoryPath: {

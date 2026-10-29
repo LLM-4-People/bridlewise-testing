@@ -247,7 +247,7 @@ test("assertLeasableWriteSet leases authored files that carry generated parts: p
   assert.doesNotThrow(() => assertLeasableWriteSet([
     "engine/src/kernel/root-policy.ts",
     "engine/src/architecture-modules.ts",
-    "engine/traceability/test-surface-dispositions.json",
+    "engine/traceability/test-surface-dispositions/live%2Fmcp-servers.test.ts.json",
     "engine/src/workflow/README.md",
     "engine/traceability/requirements.json",
   ]));

@@ -13,11 +13,11 @@ import {
 } from "../../scripts/tooling/run-tests.ts";
 import {
   createTestSurfaceDispositionManifest,
-  parseTestSurfaceDispositionManifestText,
   recognizableTestSourceLanguage,
   type TestSurfaceDispositionEntry,
 } from "../../scripts/verification/test-surface.ts";
 import { HarnessError } from "../../src/kernel/errors.ts";
+import { dispositionRecordsDigest, readDispositionManifest, writeDispositionManifest } from "../../src/workflow/disposition-records.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { createRepositoryLocalTemporaryDirectory, createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -26,7 +26,7 @@ import { supervisedCommandOutcome } from "../../src/shared/run-history.ts";
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { checkRequiredFixtureRoots } from "../../scripts/verification/required-fixture-roots.ts";
 
-const MANIFEST_REL_PATH = ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath;
+const RECORDS_REL_PATH = ROOT_POLICY.verification.testDiscovery.dispositionRegistry.recordsPath;
 
 function makeEntry(path: string): TestSurfaceDispositionEntry {
   return {
@@ -41,23 +41,17 @@ function makeEntry(path: string): TestSurfaceDispositionEntry {
 }
 
 function writeManifest(root: string, entries: readonly TestSurfaceDispositionEntry[]): void {
-  const manifest = createTestSurfaceDispositionManifest(entries);
-  const manifestPath = join(root, MANIFEST_REL_PATH);
-  mkdirSync(join(root, "traceability"), { recursive: true });
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  writeDispositionManifest(root, createTestSurfaceDispositionManifest(entries));
 }
 
 function readManifestEntries(root: string): readonly TestSurfaceDispositionEntry[] {
-  const manifestPath = join(root, MANIFEST_REL_PATH);
-  const text = readFileSync(manifestPath, "utf8");
-  return parseTestSurfaceDispositionManifestText(text).entries;
+  return readDispositionManifest(root).entries;
 }
 
 test("auto-heal: actual maintenance CLI preserves a no-op success without a test worker and a real refusal", async () => {
   const copy = createRepositoryWorkingCopy("auto-heal-cli-", { include: engineGeneratorPopulation });
   try {
-    const manifestPath = join(copy.engineRoot, MANIFEST_REL_PATH);
-    const manifestBefore = readFileSync(manifestPath, "utf8");
+    const manifestBefore = dispositionRecordsDigest(copy.engineRoot);
     const untracked = join(copy.engineRoot, "test", "workflow", "maintenance-untracked-fixture.test.ts");
     // A real maintenance refusal first, then exactly the covered copied tree.
     // Those two commands need no worker; the final suite refusal still does.
@@ -85,7 +79,7 @@ test("auto-heal: actual maintenance CLI preserves a no-op success without a test
       });
       const output = stdout.join("") + stderr.join("");
       assert.equal(supervisedCommandOutcome(command, "actual maintenance CLI").kind, "pass", output);
-      assert.equal(readFileSync(manifestPath, "utf8"), manifestBefore, "refusal and no-op preserve disposition bytes");
+      assert.equal(dispositionRecordsDigest(copy.engineRoot), manifestBefore, "refusal and no-op preserve disposition bytes");
       if (refuse) {
         assert.equal(command.exitCode, 1, output);
         assert.match(output, /test_surface_source_untracked/u);
@@ -113,7 +107,7 @@ test("auto-heal: a new qualified Node test file needs no entry — the manifest 
     mkdirSync(join(root, "test", "workflow"), { recursive: true });
     writeFileSync(join(root, existing), `import test from "node:test"; test("pass", () => {});\n`);
     writeManifest(root, [makeEntry(existing)]);
-    const before = readFileSync(join(root, MANIFEST_REL_PATH), "utf8");
+    const before = dispositionRecordsDigest(root);
 
     // A new recognizable test file under a qualified pattern: canonical by default.
     const newFile = "test/workflow/new-fixture.test.ts";
@@ -122,7 +116,7 @@ test("auto-heal: a new qualified Node test file needs no entry — the manifest 
 
     const { addedPaths } = await autoAddMissingDispositionEntries(root);
     assert.deepEqual([...addedPaths], [], "nothing to add: adding a test rewrites no committed aggregate");
-    assert.equal(readFileSync(join(root, MANIFEST_REL_PATH), "utf8"), before);
+    assert.equal(dispositionRecordsDigest(root), before);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -424,8 +418,8 @@ test("auto-heal: an untracked recognizable test source refuses before the manife
     // without one are exempt by design).
     const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
     git("init", "-q");
-    git("add", "--", tracked, MANIFEST_REL_PATH);
-    const before = readFileSync(join(root, MANIFEST_REL_PATH), "utf8");
+    git("add", "--", tracked, RECORDS_REL_PATH);
+    const before = dispositionRecordsDigest(root);
 
     await assert.rejects(
       () => autoAddMissingDispositionEntries(root),
@@ -437,7 +431,7 @@ test("auto-heal: an untracked recognizable test source refuses before the manife
         return true;
       },
     );
-    assert.equal(readFileSync(join(root, MANIFEST_REL_PATH), "utf8"), before, "a refusal must not have written");
+    assert.equal(dispositionRecordsDigest(root), before, "a refusal must not have written");
 
     // The named way out works: intent-to-add puts the file in the index (a qualified source: nothing to add).
     git("add", "-N", "--", untracked);

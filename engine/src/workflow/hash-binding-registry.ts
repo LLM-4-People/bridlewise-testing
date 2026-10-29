@@ -418,7 +418,6 @@ export function listAllBindings(): readonly HashBinding[] {
 export function suiteRegeneratedPaths(): ReadonlySet<string> {
   return new Set([
     ...listAllBindings().map((binding) => `engine/${binding.targetPath}`),
-    `engine/${ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath}`,
     GENERATED_CONFIG_SCHEMA_ARTIFACT,
   ]);
 }

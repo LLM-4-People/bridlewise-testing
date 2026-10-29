@@ -87,7 +87,7 @@ const FOUNDATION_STAGE_REGISTRY_SOURCE = [
     dependsOn: ["generate-code-intelligence-policy-lock"],
     expectedOutputs: [{
       id: "test-surface-dispositions",
-      path: ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath,
+      path: ROOT_POLICY.verification.testDiscovery.dispositionRegistry.recordsPath,
       dependencies: [FOUNDATION_CODE_INTELLIGENCE_POLICY_LOCK_PATH],
       role: "generated-artifact",
     }],
@@ -99,7 +99,7 @@ const FOUNDATION_STAGE_REGISTRY_SOURCE = [
     expectedOutputs: [{
       id: "test-inventory",
       path: VERIFICATION_PATHS.testInventory,
-      dependencies: [ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath],
+      dependencies: [ROOT_POLICY.verification.testDiscovery.dispositionRegistry.recordsPath],
       role: "generated-artifact",
     }],
   },

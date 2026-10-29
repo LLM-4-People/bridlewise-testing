@@ -28,7 +28,6 @@ the generators re-derive the pinned ones rather than hand-editing them.
 - `s3.1-forensic-schemas.json` — the frozen generated forensic schemas.
 - `config-document-schema.json` — the generated schema artifact for the
   configuration document.
-- `test-surface-dispositions.json` — the test-surface disposition manifest.
 
 ## The subfolders
 
@@ -38,6 +37,10 @@ the generators re-derive the pinned ones rather than hand-editing them.
 - `self-protection/` — the published guardian spec schema.
 - `sources/` — the vendored primary sources (licenses, upstream revisions,
   reference vectors) the slices bind, with their digests.
+- `test-surface-dispositions/` — the test-surface disposition records: one per
+  decided source, its path percent-encoded into the file name, each with the
+  discovery-policy hash it was decided under (a policy change refuses every
+  stale decision by name).
 
 ## Where it lives and what consumes it
 

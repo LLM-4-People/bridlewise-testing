@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "bridlewise-test-surface-disposition-record/v1",
+  "policyHash": "43b55626b67d25eaa174ed5fe510f7502c5528ee9665e66c7396b570f03dca6b",
+  "disposition": "qualified-external-oracle",
+  "rationale": "The ONE live suite (LIVE-SUITE): a real chat completion against an ENVIRONMENT-DECLARED provider (HARNESS_SMOKE_BASE_URL, HARNESS_SMOKE_MODEL, HARNESS_API_KEY) under the root policy's declared live consent. Run by `npm run test:live` only, which refuses at load without the consent or the provider; its hermetic half (the typed refusals) stays in test/runtime/makora-smoke.test.ts.",
+  "evidenceLinks": [
+    "package.json",
+    "test/prevention/hermetic-suites-have-no-skips.test.ts",
+    "test/runtime/makora-smoke.test.ts"
+  ],
+  "blocksFullRepositoryClaim": false
+}

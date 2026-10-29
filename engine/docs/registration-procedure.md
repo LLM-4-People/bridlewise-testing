@@ -80,8 +80,10 @@ no encoding argument.
 ## 8. Test files are not modules; deleting one is a named decision
 
 The `test/**/*.test.ts` files are the test surface, not modules. A qualified
-Node test source is canonical by default and has NO entry in
-`traceability/test-surface-dispositions.json`, which holds only exceptions.
+Node test source is canonical by default and has NO record under
+`traceability/test-surface-dispositions/`, which holds only the exceptions, one
+record per decided source, each carrying the discovery-policy hash it was
+decided under.
 
 A deleted test is a decision the deleting commit names: one
 `Test-deleted: <repository path>` trailer per test source the commit takes

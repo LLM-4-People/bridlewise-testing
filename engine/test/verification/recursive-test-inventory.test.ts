@@ -38,7 +38,6 @@ import {
   createTestSurfaceDispositionManifest,
   effectiveDispositionEntries,
   isQualifiedCanonicalNodeTestSource,
-  parseTestSurfaceDispositionManifestText,
   parseTestSurfaceScope,
   recognizableTestSourceLanguage,
   TEST_SURFACE_SCOPE_SCHEMA,
@@ -48,6 +47,7 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { defaultDispositionEntry } from "../../src/kernel/test-surface-manifest.ts";
 import { canonicalDomainHash, canonicalHash, canonicalJson } from "../../src/kernel/integrity.ts";
 import { compareUtf8Bytes } from "../../src/kernel/ordered.ts";
+import { readDispositionManifest } from "../../src/workflow/disposition-records.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { createRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
@@ -890,10 +890,7 @@ test("every canonical node test source in the dispositions manifest is staticall
   // question file by file, so the offending file and its reason are named by
   // an ordinary targeted run.
   const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
-  const manifest = parseTestSurfaceDispositionManifestText(readFileSync(
-    join(repositoryRoot, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath),
-    "utf8",
-  ));
+  const manifest = readDispositionManifest(repositoryRoot);
   // Every canonical source: its entry's, or the default a qualified Node test source takes without one.
   const canonical = effectiveDispositionEntries(listRecognizableTestPaths(repositoryRoot), manifest)
     .filter((entry) => entry.disposition === "canonical-node-test" && existsSync(join(repositoryRoot, entry.path)))
@@ -970,8 +967,8 @@ test("test discovery policy centrally binds recursive traversal and explicit exe
       python: "^(?:.*/)?(?:test(?:_[^/]*)?|[^/]+_test(?:_[^/]*)?)\\.py$",
     },
     dispositionRegistry: {
-      manifestPath: "traceability/test-surface-dispositions.json",
-      schemaVersion: "bridlewise-test-surface-dispositions/v2",
+      recordsPath: "traceability/test-surface-dispositions",
+      schemaVersion: "bridlewise-test-surface-disposition-record/v1",
       allowedDispositions: [
         "canonical-node-test",
         "qualified-external-oracle",
@@ -1059,12 +1056,7 @@ test("every recognizable test file in the repository has a disposition — its e
   process.env.HARNESS_REJECT_HARDLINKS = "0";
   try {
     const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
-    const manifestPath = join(
-      repositoryRoot,
-      ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath,
-    );
-    const manifestText = readFileSync(manifestPath, "utf8");
-    const manifest = parseTestSurfaceDispositionManifestText(manifestText);
+    const manifest = readDispositionManifest(repositoryRoot);
     const manifestPaths = new Set(manifest.entries.map((entry) => entry.path));
 
     // The inventory's own walk: its limits and exclusions (the experiment
@@ -1083,7 +1075,7 @@ test("every recognizable test file in the repository has a disposition — its e
       { missing, extra },
       { missing: [], extra: [] },
       "dispositions manifest must exactly cover every recognizable test file; " +
-        "add missing files to traceability/test-surface-dispositions.json and run " +
+        "add a record under traceability/test-surface-dispositions/ for each missing file and run " +
         "`node scripts/test-inventory.ts --write` then `npx tsx src/cli.ts harness regenerate`",
     );
   } finally {

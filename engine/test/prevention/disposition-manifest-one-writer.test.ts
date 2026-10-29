@@ -1,5 +1,5 @@
 /**
- * ONE WRITER SIGNS THE DISPOSITION MANIFEST, AND A STALE PIN REFUSES.
+ * ONE WRITER SIGNS EACH DISPOSITION RECORD, AND A STALE PIN REFUSES BY NAME.
  *
  * ── THE DEFECT ────────────────────────────────────────────────────────────
  *
@@ -25,160 +25,145 @@
  * distinction the copy erased is now enforced: a stale SIGNATURE heals, a
  * stale POLICY refuses.
  *
- * Every input is built here, in memory, from the manifest's own owner. No test
- * writes to the live manifest.
+ * The records now live one per decision (src/workflow/disposition-records.ts),
+ * each carrying the policy hash it was decided under. Every plant is written
+ * to a scratch copy of the records. No test writes to the live records.
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import test from "node:test";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
 import { canonicalHash } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import {
-  createTestSurfaceDispositionManifest,
   defaultDispositionEntry,
-  parseTestSurfaceDispositionManifestText,
-  rewriteTestSurfaceDispositionManifest,
-  serializeTestSurfaceDispositionManifest,
+  dispositionRecordPath,
+  parseDispositionRecord,
+  serializeDispositionRecord,
   testSurfacePolicyHash,
 } from "../../src/kernel/test-surface-manifest.ts";
+import { dispositionRecordFiles, readDispositionManifest, rewriteDispositionRecords } from "../../src/workflow/disposition-records.ts";
+import { createTempDir } from "../support/temp-dir.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { walk } from "../../scripts/verification/source-walk.ts";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..", "..");
-const MANIFEST_PATH = join(
-  REPOSITORY_ROOT,
-  ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath,
-);
+const RECORDS = ROOT_POLICY.verification.testDiscovery.dispositionRegistry.recordsPath;
 
-/** The live manifest's text — read only, never written by this file. */
-function liveManifestText(): string {
-  return readFileSync(MANIFEST_PATH, "utf8");
+/** A scratch engine root holding a copy of the live records — never the live ones. */
+function scratchRecords(): string {
+  const root = createTempDir("disposition-records-");
+  cpSync(join(REPOSITORY_ROOT, RECORDS), join(root, RECORDS), { recursive: true });
+  return root;
 }
 
-test("the live manifest round-trips through the owner byte-for-byte", () => {
-  // LIVENESS on the whole mechanism, and the format contract in one line: if
-  // the rewrite produced different bytes, `harness regenerate` would rewrite
-  // the file on every run and every diff would be noise.
-  const text = liveManifestText();
-  const rewritten = rewriteTestSurfaceDispositionManifest(text);
-  assert.equal(rewritten.status, "current");
-  assert.equal(rewritten.text, text);
+function writeRecord(root: string, path: string, text: string): void {
+  mkdirSync(dirname(join(root, path)), { recursive: true });
+  writeFileSync(join(root, path), text);
+}
 
-  // The population is the EXCEPTIONS (#221): real, and never a default entry —
-  // a qualified Node test source is canonical without one, so adding a test
-  // rewrites nothing here.
-  const manifest = parseTestSurfaceDispositionManifestText(text);
-  assert.ok(manifest.entries.length > 0, "the exceptions are recorded");
+test("the live records round-trip through the owner byte-for-byte, one record per decision, the exceptions only", () => {
+  // LIVENESS on the whole mechanism, and the format contract: a record the writer would rewrite would be rewritten by
+  // `harness regenerate` on every run, and every diff would be noise.
+  const records = dispositionRecordFiles(REPOSITORY_ROOT);
+  assert.ok(records.length > 0, "the exceptions are recorded");
+  assert.deepEqual(rewriteDispositionRecords(REPOSITORY_ROOT, false), { status: "current", changed: [] });
+  const manifest = readDispositionManifest(REPOSITORY_ROOT);
+  assert.deepEqual(records.map((record) => record.path), manifest.entries.map((entry) => dispositionRecordPath(entry.path)), "one record per decision, at its source's own location");
+  // A qualified Node test source is canonical without a record (#221): adding a test writes nothing here.
   assert.deepEqual(manifest.entries.filter((entry) => entry.disposition === "canonical-node-test" && entry.evidenceLinks.length === 0 && defaultDispositionEntry(entry.path) !== undefined).map((entry) => entry.path), []);
-  assert.doesNotMatch(text, /integrityHash/u, "no whole-file hash: it would change on every edit");
+  for (const record of records) assert.doesNotMatch(record.text, /"(?:path|language|integrityHash)"/u, `${record.path}: the location and the language are derived, never written`);
 });
 
-test("a default entry written out by hand heals, and heals to what the one writer would have written", () => {
-  const manifest = parseTestSurfaceDispositionManifestText(liveManifestText());
-  // The plant: this very file, a qualified Node test source, written out as the canonical entry it takes by default.
+test("a default decision written out by hand heals to what the one writer would have written", () => {
+  const root = scratchRecords();
+  // The plant: this very file, a qualified Node test source, written out as the canonical decision it takes by default.
   const self = "test/prevention/disposition-manifest-one-writer.test.ts";
-  const damaged = serializeTestSurfaceDispositionManifest({
-    ...manifest,
-    entries: [...manifest.entries, { ...defaultDispositionEntry(self)!, rationale: "Auto-registered by hand." }].toSorted((left, right) => left.path < right.path ? -1 : 1),
-  });
-  assert.notEqual(damaged, liveManifestText());
-
-  const healed = rewriteTestSurfaceDispositionManifest(damaged);
-  assert.equal(healed.status, "regenerated");
-  // The healed bytes are the ONE writer's output, not this function's idea of
-  // the format — that is what "one writer" has to mean to be worth anything.
-  assert.equal(
-    healed.text,
-    serializeTestSurfaceDispositionManifest(createTestSurfaceDispositionManifest(manifest.entries)),
-  );
-  assert.equal(healed.text, liveManifestText());
+  writeRecord(root, dispositionRecordPath(self), serializeDispositionRecord({ ...defaultDispositionEntry(self)!, rationale: "Auto-registered by hand." }));
+  assert.equal(rewriteDispositionRecords(root, false).status, "regenerated");
+  const healed = rewriteDispositionRecords(root, true);
+  assert.deepEqual(healed.changed, [dispositionRecordPath(self)]);
+  assert.deepEqual(dispositionRecordFiles(root), dispositionRecordFiles(REPOSITORY_ROOT), "healed to the live records, the one writer's output");
 });
 
-test("a stale POLICY refuses, and the refusal names both hashes", () => {
-  const manifest = parseTestSurfaceDispositionManifestText(liveManifestText());
-  const currentPolicyHash = testSurfacePolicyHash();
-  assert.equal(manifest.policyHash, currentPolicyHash);
-
-  // The plant is the state a renamed test directory produces: the entries are
-  // untouched and the policy they were recorded under is gone. Supplied from
-  // outside as a hash that is well-formed and not the current one, so the
-  // refusal cannot be about a malformed field.
-  const stalePolicyHash = "1".repeat(64);
-  const stale = serializeTestSurfaceDispositionManifest({
-    ...manifest,
-    policyHash: stalePolicyHash,
-  });
-
-  assert.throws(
-    () => rewriteTestSurfaceDispositionManifest(stale),
-    (error: unknown) => {
+test("a record decided under a stale POLICY refuses by name, and nothing is rewritten", () => {
+  const root = scratchRecords();
+  const [first] = dispositionRecordFiles(root);
+  assert.ok(first !== undefined);
+  // The state a renamed test directory produces: the decision untouched, the policy it was made under gone. A hash
+  // well-formed and not the current one, so the refusal cannot be about a malformed field.
+  const stale = first.text.replace(testSurfacePolicyHash(), "1".repeat(64));
+  assert.notEqual(stale, first.text);
+  writeRecord(root, first.path, stale);
+  const source = decodeURIComponent(first.path.slice(RECORDS.length + 1, -".json".length));
+  for (const attempt of [() => rewriteDispositionRecords(root, true), () => readDispositionManifest(root)]) {
+    assert.throws(attempt, (error: unknown) => {
       assert.ok(error instanceof HarnessError, `expected HarnessError, got ${String(error)}`);
       assert.equal(error.code, "test_surface_disposition_policy_stale");
-      assert.match(error.message, /policyHash is stale/u);
+      assert.match(error.message, new RegExp(`test-surface disposition of ${source.replaceAll(".", "\\.")} was decided under another discovery policy`, "u"));
       return true;
-    },
-  );
-
-  // THE POINT, STATED AS AN ASSERTION: the refusal is not merely a different
-  // message — nothing came back that a caller could write to disk. The old
-  // inlined heal returned a manifest here, carrying the CURRENT policy hash
-  // over the OLD entries, and that value is what re-blessed the pin.
-  let produced: unknown = null;
-  try {
-    produced = rewriteTestSurfaceDispositionManifest(stale);
-  } catch {
-    produced = null;
+    });
   }
-  assert.equal(produced, null);
+  // THE POINT: the stale record is still on disk as it was; no writer re-blessed it.
+  assert.equal(readFileSync(join(root, first.path), "utf8"), stale);
 });
 
-test("THE CONSERVATION PINS ARE NOT THE POLICY: restating them keeps the manifest current (the conservation identity checks them against the git index); any other discovery change stales it, and there is no door that re-signs it (design M4)", () => {
+test("THE CONSERVATION PINS ARE NOT THE POLICY: restating them keeps every record current; any other discovery change stales each one, and nothing re-signs it (design M4)", () => {
   const discovery = ROOT_POLICY.verification.testDiscovery;
   const { surfaceConservation: _pins, ...policy } = discovery;
   assert.equal(testSurfacePolicyHash(), canonicalHash(policy), "the pinned policy is the discovery policy without its conservation pins");
   assert.notEqual(testSurfacePolicyHash(), canonicalHash(discovery), "the pins are not part of it");
-  const manifest = parseTestSurfaceDispositionManifestText(liveManifestText());
-  assert.equal(manifest.policyHash, testSurfacePolicyHash(), "the live manifest is signed under the pin-free policy");
-  assert.equal(rewriteTestSurfaceDispositionManifest.length, 1, "the rewrite takes the manifest text and nothing else: no token re-blesses a stale policy");
+  for (const record of dispositionRecordFiles(REPOSITORY_ROOT)) {
+    assert.equal((JSON.parse(record.text) as { policyHash: string }).policyHash, testSurfacePolicyHash(), `${record.path} is decided under the pin-free policy`);
+  }
+  assert.equal(rewriteDispositionRecords.length, 2, "the rewrite takes the engine root and the write flag, nothing else: no token re-blesses a stale policy");
 });
 
-test("a hand-edited entry is rejected by the SCHEMA, not by two checks", () => {
-  const manifest = parseTestSurfaceDispositionManifestText(liveManifestText());
-  const first = manifest.entries[0];
+test("a hand-edited record is rejected by the SCHEMA", () => {
+  const [first] = dispositionRecordFiles(REPOSITORY_ROOT);
   assert.ok(first !== undefined);
+  const record = JSON.parse(first.text) as Record<string, unknown>;
+  assert.throws(() => parseDispositionRecord(first.path, JSON.stringify({ ...record, unexpectedField: "smuggled" })), /unrecognized_keys|Unrecognized key/u);
+  assert.throws(() => parseDispositionRecord(first.path, JSON.stringify({ ...record, disposition: "definitely-fine" })));
+  assert.throws(() => parseDispositionRecord(first.path, JSON.stringify({ ...record, path: "elsewhere.test.ts" })), "the location is the path: a record may not name another");
+  assert.throws(() => parseDispositionRecord("traceability/elsewhere/x.test.ts.json", first.text), /not a disposition record/u);
+  assert.throws(() => parseDispositionRecord(`${RECORDS}/live/x.test.ts.json`, first.text), /not a disposition record/u, "the directory is flat");
+  // BENIGN CONTROL: the record as it is parses, and its location is its source's one spelling.
+  const parsed = parseDispositionRecord(first.path, first.text);
+  assert.equal(dispositionRecordPath(parsed.path), first.path);
+});
 
-  // An invented field. The replaced implementation validated `schemaVersion`
-  // and `entries`-is-an-array by hand and let everything else through, so this
-  // reached the signature and was signed into the manifest.
-  const withExtraField = JSON.parse(serializeTestSurfaceDispositionManifest(manifest)) as {
-    entries: Record<string, unknown>[];
+test("two branches that each decide a source merge with no conflict: each decision is its own file (git merge-tree)", () => {
+  const repository = createTempDir("disposition-records-merge-");
+  const git = (...args: readonly string[]): string => execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd: repository, encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  cpSync(join(REPOSITORY_ROOT, RECORDS), join(repository, RECORDS), { recursive: true });
+  git("add", "--", RECORDS);
+  git("commit", "-q", "-m", "base");
+  const decide = (branch: string, source: string): void => {
+    git("checkout", "-q", "-b", branch, "main");
+    const entry = { path: source, language: "javascript-typescript" as const, disposition: "qualified-external-oracle" as const, rationale: `decided on ${branch}`, evidenceLinks: ["package.json"], blocksFullRepositoryClaim: false };
+    writeRecord(repository, dispositionRecordPath(source), serializeDispositionRecord(entry));
+    git("add", "--", RECORDS);
+    git("commit", "-q", "-m", branch);
   };
-  withExtraField.entries[0] = { ...first, unexpectedField: "smuggled" };
-  assert.throws(() => rewriteTestSurfaceDispositionManifest(`${JSON.stringify(withExtraField, null, 2)}\n`));
-
-  // An invented disposition — a value the enum does not admit.
-  const withBadDisposition = JSON.parse(serializeTestSurfaceDispositionManifest(manifest)) as {
-    entries: Record<string, unknown>[];
-  };
-  withBadDisposition.entries[0] = { ...first, disposition: "definitely-fine" };
-  assert.throws(() => rewriteTestSurfaceDispositionManifest(`${JSON.stringify(withBadDisposition, null, 2)}\n`));
-
-  // BENIGN CONTROL: the same construction with nothing changed still heals, so
-  // the two refusals above are about the edits and not about the rebuild.
-  const untouched = JSON.parse(serializeTestSurfaceDispositionManifest(manifest)) as unknown;
-  assert.equal(
-    rewriteTestSurfaceDispositionManifest(`${JSON.stringify(untouched, null, 2)}\n`).status,
-    "current",
-  );
+  // Neighbours in sort order: the shape that conflicted in the one-file manifest.
+  decide("one", "live/aaa-oracle.test.ts");
+  decide("two", "live/aab-oracle.test.ts");
+  const merged = spawnSync("git", ["merge-tree", "--write-tree", "--name-only", "one", "two"], { cwd: repository, encoding: "utf8" });
+  assert.equal(merged.status, 0, `the two decisions conflicted:\n${merged.stdout}`);
+  const tree = merged.stdout.split("\n")[0]!;
+  const files = execFileSync("git", ["ls-tree", "-r", "--name-only", tree], { cwd: repository, encoding: "utf8" }).split("\n");
+  for (const source of ["live/aaa-oracle.test.ts", "live/aab-oracle.test.ts"]) assert.ok(files.includes(dispositionRecordPath(source)), `${source}'s record survived the merge`);
 });
 
 test("there is exactly one module that writes a disposition manifest", () => {
-  // The structural half. `createTestSurfaceDispositionManifest` is the only
-  // thing that assembles the manifest (its role, its policy pin), so the
+  // The structural half. The owner is the only thing that assembles the
+  // manifest (its role) and stamps a record's policy, so the
   // search is for a SECOND place that assembles it — the shape the inlined
   // copy had. Derived from the source, tree-wide, read as bytes.
   // The owner's src/-relative path, resolved from the tree — the fold moved it

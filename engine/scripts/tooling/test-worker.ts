@@ -41,7 +41,6 @@ const RUNNER_WRITTEN_PATHS = deepFreeze([
   VERIFICATION_PATHS.testInventory,
   "src/root-policy.ts",
   ARCHITECTURE_MODULES_PATH,
-  "traceability/test-surface-dispositions.json",
   ".bridlewise/state/test-results/latest-collection.json",
   ".bridlewise/state/test-results/latest-summary.json",
   TEST_RUN_HISTORY_PATH,

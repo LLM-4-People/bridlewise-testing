@@ -29,13 +29,13 @@ import {
   type SafeRepositoryTreeEntry,
 } from "./verification/safe-repository-reader.ts";
 import { shouldExcludeExperiment } from "../src/shared/source-scan.ts";
+import { dispositionRecordsDigest, readDispositionManifest } from "../src/workflow/disposition-records.ts";
 import { bootstrapProcess, isEntryPoint } from "../src/runtime/cli-debug.ts";
 import {
   assertTestSurfaceConservation,
   buildTestSurfaceScope,
   isQualifiedCanonicalNodeTestSource,
   isScannedRecognizableTestSource,
-  parseTestSurfaceDispositionManifestText,
   parseTestSurfaceScope,
   recognizableTestSourceLanguage,
   TEST_SURFACE_SCOPE_SCHEMA,
@@ -566,7 +566,7 @@ export function computeTestSurfaceFingerprint(candidateRoot: string): string {
   });
   return canonicalDomainHash(TEST_SURFACE_FINGERPRINT_HASH_DOMAIN, {
     sources,
-    dispositionManifest: sha256(readFileSync(join(root, TEST_DISCOVERY.dispositionRegistry.manifestPath))),
+    dispositionManifest: dispositionRecordsDigest(root),
     inventory: existsSync(join(root, INVENTORY_PATH)) ? sha256(readFileSync(join(root, INVENTORY_PATH))) : "absent",
     rootPolicy: sha256(readFileSync(join(root, ROOT_POLICY_PATH))),
     // The git-tracked recognizable set is part of the fingerprint because it
@@ -782,16 +782,8 @@ function readCanonicalTestSources(
 }
 
 function loadBoundTestSurfaceManifest(root: string): TestSurfaceDispositionManifest {
-  const manifestRead = readSafeRepositoryFile(
-    root,
-    TEST_DISCOVERY.dispositionRegistry.manifestPath,
-    TEST_DISCOVERY.maximumInventoryBytes,
-  );
-  const manifest = parseTestSurfaceDispositionManifestText(decodeTestSource(
-    manifestRead.bytes,
-    TEST_DISCOVERY.dispositionRegistry.manifestPath,
-  ));
-  return manifest;
+  // One record per decided source (src/workflow/disposition-records.ts, the one reader); a stale policy refuses by name.
+  return readDispositionManifest(root);
 }
 
 /** The repository walk test discovery reads (ONE set of limits and exclusions, the dispositions check included). */

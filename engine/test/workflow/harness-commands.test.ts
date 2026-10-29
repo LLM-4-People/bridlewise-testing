@@ -41,6 +41,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
+import { dispositionRecordsDigest } from "../../src/workflow/disposition-records.ts";
 import { SERVICE_WORKER_DIGEST, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
@@ -1229,8 +1230,7 @@ test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qual
   const copy = createRepositoryWorkingCopy("regen-autodispo-", { include: engineGeneratorPopulation });
   const fixtureRoot = copy.engineRoot;
   try {
-    const manifestPath = join(fixtureRoot, "traceability", "test-surface-dispositions.json");
-    const before = readFileSync(manifestPath, "utf8");
+    const before = dispositionRecordsDigest(fixtureRoot);
     // A new qualified Node test file is canonical by default: nothing is written (#221).
     const newFile = "test/workflow/regen-autodispo-fixture.test.ts";
     writeFileSync(join(fixtureRoot, newFile), `import test from "node:test";\ntest("fixture", () => {});\n`);
@@ -1240,7 +1240,7 @@ test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qual
     assert.equal(result.command, "regenerate");
     assert.equal(result.result.dispositionAutoAdd.status, "current");
     assert.equal(result.result.dispositionAutoAdd.addedCount, 0);
-    assert.equal(readFileSync(manifestPath, "utf8"), before, "adding a test rewrites nothing here");
+    assert.equal(dispositionRecordsDigest(fixtureRoot), before, "adding a test writes no record");
     // (A recognizable source OUTSIDE the qualified patterns is an exception the auto-heal records as pending, and the
     // conservation pin of the non-canonical set then refuses until it is restated: auto-heal.test.ts and the
     // conservation tests own that.)

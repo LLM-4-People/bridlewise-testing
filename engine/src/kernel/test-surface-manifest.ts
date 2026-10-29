@@ -14,11 +14,23 @@ import { shouldExcludeExperiment } from "../shared/source-scan.ts";
  * ── WHY THIS FILE EXISTS AT ALL ───────────────────────────────────────────
  *
  * This manifest is a PIN. It records which recognizable test source is
- * canonical, which is a fixture, which is unsupported — and its `policyHash`
- * ties that record to the discovery policy the record was made under. When a
- * directory is renamed, the stale `policyHash` is one of the eight refusals
- * that stop a suite from silently running a smaller set of tests than it
- * claims.
+ * canonical, which is a fixture, which is unsupported — and each record's
+ * `policyHash` ties that decision to the discovery policy it was made under.
+ * When a directory is renamed, a stale `policyHash` is one of the eight
+ * refusals that stop a suite from silently running a smaller set of tests
+ * than it claims.
+ *
+ * ── ONE RECORD PER DECISION ───────────────────────────────────────────────
+ *
+ * On disk the manifest is a directory (`dispositionRegistry.recordsPath`), one
+ * record per decided source, its path percent-encoded into the record's file
+ * name (`dispositionRecordPath`): the source's path is the record's location, its language is derived from the path, and
+ * the record holds the decision and the policy hash it was made under. Two
+ * branches that each decide a source never touch the same file, and no
+ * whole-manifest hash moves (a single shared `policyHash` line used to
+ * conflict on every merge that touched the discovery policy). The policy's
+ * identity is computed from the root policy whenever a record is read
+ * ({@link testSurfacePolicyHash}), never committed beside the records.
  *
  * There were TWO writers. The builder-layer verification module had the
  * schema-validated one; `harness regenerate` carried an inlined copy that
@@ -52,11 +64,11 @@ import { shouldExcludeExperiment } from "../shared/source-scan.ts";
  *
  * ── THE PROPERTY THAT MATTERS ─────────────────────────────────────────────
  *
- * `policyHash` is written by `createTestSurfaceDispositionManifest` and
- * verified by `parseTestSurfaceDispositionManifest`, and there is no third
- * path. A caller that rewrites the manifest round-trips through both — so a
- * manifest whose policy has genuinely moved on REFUSES instead of being
- * quietly re-blessed, which is the whole point of pinning it.
+ * A record's `policyHash` is written by `serializeDispositionRecord` and
+ * verified by `parseDispositionRecord`, and there is no third path. A caller
+ * that rewrites the records round-trips through both — so a decision whose
+ * policy has genuinely moved on REFUSES instead of being quietly re-blessed,
+ * which is the whole point of pinning it.
  *
  * ── ONLY THE EXCEPTIONS ARE WRITTEN (#221) ────────────────────────────────
  *
@@ -112,11 +124,21 @@ const ENTRY_SCHEMA = z.strictObject({
   blocksFullRepositoryClaim: z.boolean(),
 });
 const MANIFEST_SCHEMA = z.strictObject({
-  schemaVersion: z.literal(DISCOVERY.dispositionRegistry.schemaVersion),
   role: z.literal("recognizable-test-surface-disposition-exceptions"),
-  policyHash: z.string().regex(/^[0-9a-f]{64}$/u),
   entries: z.array(ENTRY_SCHEMA),
 });
+/** One record on disk: the decision about the source its location names, and the policy it was decided under. */
+const RECORD_SCHEMA = z.strictObject({
+  schemaVersion: z.literal(DISCOVERY.dispositionRegistry.schemaVersion),
+  policyHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  disposition: z.enum(DISPOSITIONS),
+  rationale: NONEMPTY_STRING,
+  evidenceLinks: z.array(NONEMPTY_STRING),
+  blocksFullRepositoryClaim: z.boolean(),
+});
+/** The records' directory, engine-relative. */
+export const DISPOSITION_RECORDS_PATH: string = DISCOVERY.dispositionRegistry.recordsPath;
+const RECORD_SUFFIX = ".json";
 
 export type TestSurfaceDispositionEntry = Readonly<z.infer<typeof ENTRY_SCHEMA>>;
 export type TestSurfaceDispositionManifest = Readonly<z.infer<typeof MANIFEST_SCHEMA>>;
@@ -218,64 +240,87 @@ export function isScannedRecognizableTestSource(path: string): boolean {
   return !shouldExcludeExperiment(path);
 }
 
-export function parseTestSurfaceDispositionManifestText(text: string): TestSurfaceDispositionManifest {
-  assertNoDuplicateJsonObjectKeys(
-    text,
-    "Test-surface disposition manifest contains a duplicate key",
-    "test_surface_disposition_key_duplicate",
-  );
-  return parseTestSurfaceDispositionManifest(JSON.parse(text) as unknown);
-}
-
 /** The manifest in its one form: the exceptions only (an entry a path takes by default is dropped), sorted by path. */
 export function createTestSurfaceDispositionManifest(
   entries: readonly TestSurfaceDispositionEntry[],
 ): TestSurfaceDispositionManifest {
   return parseTestSurfaceDispositionManifest({
-    schemaVersion: DISCOVERY.dispositionRegistry.schemaVersion,
     role: "recognizable-test-surface-disposition-exceptions",
-    policyHash: testSurfacePolicyHash(),
     entries: entries.filter((entry) => !isDefaultDisposition(entry)).toSorted((left, right) => compareUtf8Bytes(left.path, right.path)),
   });
 }
 
-/** The manifest as bytes, in the one format every writer of it produces. */
-export function serializeTestSurfaceDispositionManifest(
-  manifest: TestSurfaceDispositionManifest,
-): string {
-  return `${JSON.stringify(manifest, null, 2)}\n`;
+/**
+ * The engine-relative location of `source`'s record: ONE flat directory, the
+ * source's path percent-encoded into the file name (`live%2Fx.test.ts.json`),
+ * reversibly and without collision, so the directory holds files and its README only.
+ */
+export function dispositionRecordPath(source: string): string {
+  return `${DISPOSITION_RECORDS_PATH}/${encodeURIComponent(source)}${RECORD_SUFFIX}`;
+}
+
+/** The record's bytes for `entry`, decided under the CURRENT policy (the only writer stamps the hash it writes under). */
+export function serializeDispositionRecord(entry: TestSurfaceDispositionEntry): string {
+  const record = RECORD_SCHEMA.parse({
+    schemaVersion: DISCOVERY.dispositionRegistry.schemaVersion,
+    policyHash: testSurfacePolicyHash(),
+    disposition: entry.disposition,
+    rationale: entry.rationale,
+    evidenceLinks: entry.evidenceLinks,
+    blocksFullRepositoryClaim: entry.blocksFullRepositoryClaim,
+  });
+  return `${JSON.stringify(record, null, 2)}\n`;
 }
 
 /**
- * REWRITE A MANIFEST IN ITS ONE FORM — and refuse one whose POLICY has moved.
- *
- * A hand edit (an entry out of order, a default entry written out) is an
- * ordinary, recoverable state: the entries are the truth and the file is
- * rewritten through `createTestSurfaceDispositionManifest`, the one writer.
- * A stale `policyHash` is not: the dispositions were made under discovery
- * rules that no longer apply, and rewriting would launder them, so it
- * refuses. The entries are validated by the reader's schema, so a hand edit
- * that invented a field or a disposition is rejected here.
+ * ONE RECORD READ: the entry for the source its location names, its language
+ * derived from the path. A record decided under another discovery policy is
+ * REFUSED by name (`test_surface_disposition_policy_stale`): the decision was
+ * made under rules that no longer apply, and no writer re-blesses it.
  */
-export function rewriteTestSurfaceDispositionManifest(text: string): Readonly<{
-  status: "current" | "regenerated";
-  text: string;
-}> {
-  const parsed = parseTestSurfaceDispositionManifestText(text);
-  const rewritten = serializeTestSurfaceDispositionManifest(createTestSurfaceDispositionManifest(parsed.entries));
-  return deepFreeze({ status: rewritten === text ? "current" : "regenerated", text: rewritten });
+export function parseDispositionRecord(recordPath: string, text: string): TestSurfaceDispositionEntry {
+  const name = recordPath.slice(DISPOSITION_RECORDS_PATH.length + 1);
+  if (!recordPath.startsWith(`${DISPOSITION_RECORDS_PATH}/`) || name.includes("/") || !name.endsWith(RECORD_SUFFIX)) {
+    throw new HarnessError(`not a disposition record: ${recordPath}`, "test_surface_disposition_record_misplaced", false, { recordPath });
+  }
+  assertNoDuplicateJsonObjectKeys(text, `Test-surface disposition record contains a duplicate key: ${recordPath}`, "test_surface_disposition_key_duplicate");
+  const record = RECORD_SCHEMA.parse(JSON.parse(text) as unknown);
+  const path = decodeURIComponent(name.slice(0, -RECORD_SUFFIX.length));
+  if (dispositionRecordPath(path) !== recordPath) {
+    throw new HarnessError(`not a disposition record's one spelling: ${recordPath}`, "test_surface_disposition_record_misplaced", false, { recordPath });
+  }
+  if (record.policyHash !== testSurfacePolicyHash()) {
+    throw new HarnessError(
+      `test-surface disposition of ${path} was decided under another discovery policy (its policyHash is stale): re-decide it under the current policy`,
+      "test_surface_disposition_policy_stale",
+      false,
+      { path, recordPolicyHash: record.policyHash, currentPolicyHash: testSurfacePolicyHash() },
+    );
+  }
+  const language = recognizableTestSourceLanguage(path);
+  if (language === undefined) {
+    throw new HarnessError(`test-surface disposition names no recognizable test source: ${path}`, "test_surface_disposition_language_invalid", false, { path, declared: "derived", recognized: "none" });
+  }
+  const { schemaVersion: _version, policyHash: _policy, ...decision } = record;
+  return deepFreeze({ path, language, ...decision });
+}
+
+/** The manifest the records at `records` (engine-relative paths and their bytes) hold. */
+export function dispositionManifestFromRecords(records: readonly Readonly<{ path: string; text: string }>[]): TestSurfaceDispositionManifest {
+  const entries = records.map((record) => parseDispositionRecord(record.path, record.text));
+  return parseTestSurfaceDispositionManifest({
+    role: "recognizable-test-surface-disposition-exceptions",
+    entries: entries.toSorted((left, right) => compareUtf8Bytes(left.path, right.path)),
+  });
+}
+
+/** The records `manifest` is written as: one per entry, at its location, in the one form. */
+export function dispositionRecordsOf(manifest: TestSurfaceDispositionManifest): readonly Readonly<{ path: string; text: string }>[] {
+  return deepFreeze(manifest.entries.map((entry) => ({ path: dispositionRecordPath(entry.path), text: serializeDispositionRecord(entry) })));
 }
 
 export function parseTestSurfaceDispositionManifest(value: unknown): TestSurfaceDispositionManifest {
   const parsed = MANIFEST_SCHEMA.parse(value);
-  if (parsed.policyHash !== testSurfacePolicyHash()) {
-    throw new HarnessError(
-      "test-surface disposition manifest policyHash is stale relative to current discovery policy",
-      "test_surface_disposition_policy_stale",
-      false,
-      { manifestPolicyHash: parsed.policyHash, currentPolicyHash: testSurfacePolicyHash() },
-    );
-  }
   const sorted = [...parsed.entries].toSorted((left, right) => compareUtf8Bytes(left.path, right.path));
   if (new Set(parsed.entries.map((entry) => entry.path)).size !== parsed.entries.length ||
     canonicalHash(sorted) !== canonicalHash(parsed.entries)) {

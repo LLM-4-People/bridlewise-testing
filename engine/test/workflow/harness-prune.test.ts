@@ -17,13 +17,14 @@
  * Driven in a working copy (never the live checkout).
  */
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 
 import { GENERATOR_INPUTS_BEYOND_ENGINE, harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
+import { dispositionRecordPath } from "../../src/kernel/test-surface-manifest.ts";
 import { stageInCopy } from "../../src/git/working-copy.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -71,8 +72,7 @@ test("harness regenerate: a deleted test is refused with the typed code and the 
     // The named prune goes through the dispositions; the pinned non-canonical set then asks to be restated by hand
     // (the conservation identity: a pin a generator can rewrite refuses nothing).
     assert.throws(() => harnessRegenerate(copy.engineRoot, { write: true, prune: [DELETED] }), /the pinned non-canonical test-source set moved/u);
-    const manifest = readFileSync(join(copy.engineRoot, "traceability", "test-surface-dispositions.json"), "utf8");
-    assert.equal(manifest.includes(`"${DELETED}"`), false, "the named deletion left the manifest");
+    assert.equal(existsSync(join(copy.engineRoot, dispositionRecordPath(DELETED))), false, "the named deletion removed its record");
   } finally {
     if (nodeOptions === undefined) delete process.env["NODE_OPTIONS"];
     else process.env["NODE_OPTIONS"] = nodeOptions;

@@ -17,7 +17,6 @@ import {
   isScannedRecognizableTestSource,
   NONEMPTY_STRING,
   parseTestSurfaceDispositionManifest,
-  parseTestSurfaceDispositionManifestText,
   QUALIFIED_TEST_SOURCE_MATCHERS,
   recognizableTestSourceLanguage,
   type TestSurfaceDispositionEntry,
@@ -35,7 +34,6 @@ export {
   isQualifiedCanonicalNodeTestSource,
   isScannedRecognizableTestSource,
   parseTestSurfaceDispositionManifest,
-  parseTestSurfaceDispositionManifestText,
   recognizableTestSourceLanguage,
 };
 export type { TestSurfaceDispositionEntry, TestSurfaceDispositionManifest };

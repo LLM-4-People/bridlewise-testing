@@ -2275,8 +2275,11 @@ const ROOT_POLICY_VALUE = {
         python: "^(?:.*/)?(?:test(?:_[^/]*)?|[^/]+_test(?:_[^/]*)?)\\.py$",
       },
       dispositionRegistry: {
-        manifestPath: "traceability/test-surface-dispositions.json",
-        schemaVersion: schemaId("test-surface-dispositions", 2),
+        // One record per decided source, its path percent-encoded into the file name (engine-relative): two branches
+        // that each decide a source never touch the same file. Each record carries the discovery-policy hash it
+        // was decided under, so a policy change refuses every stale decision by name.
+        recordsPath: "traceability/test-surface-dispositions",
+        schemaVersion: schemaId("test-surface-disposition-record", 1),
         allowedDispositions: [
           "canonical-node-test",
           "qualified-external-oracle",

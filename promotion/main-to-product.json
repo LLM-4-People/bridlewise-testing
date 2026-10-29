@@ -53,7 +53,7 @@
       "engine/traceability/artifacts/",
       "engine/traceability/requirements.json",
       "engine/traceability/config-document-schema.json",
-      "engine/traceability/test-surface-dispositions.json",
+      "engine/traceability/test-surface-dispositions/",
       "engine/traceability/s1.json",
       "engine/traceability/s2.json",
       "engine/traceability/s2.4.json",

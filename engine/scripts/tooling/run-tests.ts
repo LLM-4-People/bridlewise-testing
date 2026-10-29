@@ -820,9 +820,8 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   addedPaths: readonly string[];
   prunedPaths: readonly string[];
 }> {
-  const { join } = await import("node:path");
-  const { createTestSurfaceDispositionManifest, defaultDispositionEntry, parseTestSurfaceDispositionManifestText, recognizableTestSourceLanguage, serializeTestSurfaceDispositionManifest } = await import("../../src/kernel/test-surface-manifest.ts");
-  const { ROOT_POLICY } = await import("../../src/kernel/root-policy.ts");
+  const { createTestSurfaceDispositionManifest, defaultDispositionEntry, recognizableTestSourceLanguage } = await import("../../src/kernel/test-surface-manifest.ts");
+  const { readDispositionManifest, writeDispositionManifest } = await import("../../src/workflow/disposition-records.ts");
   const { listUntrackedRecognizableTestPaths, listRecognizableTestPaths } = await import("../test-inventory.ts");
 
   // REFUSE ON UNTRACKED — before anything is written.
@@ -844,9 +843,8 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
     );
   }
 
-  const manifestPath = join(root, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath);
-  const text = readFileSync(manifestPath, "utf8");
-  const manifest = parseTestSurfaceDispositionManifestText(text);
+  // One record per decided source; a record decided under another policy refuses here, before anything is written.
+  const manifest = readDispositionManifest(root);
   const registeredByPath = new Map(manifest.entries.map((e) => [e.path, e] as const));
   const registeredPaths = new Set(registeredByPath.keys());
 
@@ -935,11 +933,8 @@ export async function autoAddMissingDispositionEntries(root: string, prune: read
   });
 
   const newEntries = [...keptEntries, ...addedEntries];
-  const regenerated = createTestSurfaceDispositionManifest(newEntries);
-  const written = atomicWriteFile(manifestPath, serializeTestSurfaceDispositionManifest(regenerated));
-  if (!written.success) {
-    throw new HarnessError(`Failed to write the disposition manifest ${manifestPath}: ${written.reason ?? "unknown error"}`, "disposition_manifest_write_failed");
-  }
+  // Each added source gets its own record, each pruned one loses its own: no shared file is rewritten.
+  writeDispositionManifest(root, createTestSurfaceDispositionManifest(newEntries));
   process.stderr.write(`${canonicalJson({ auto_heal: "dispositions", added: missingPaths.length, pruned: stalePaths.length, files: missingPaths, prunedFiles: stalePaths })}\n`);
   return { addedPaths: missingPaths, prunedPaths: stalePaths };
 }
