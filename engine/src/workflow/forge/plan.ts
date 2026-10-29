@@ -147,14 +147,15 @@ async function planObjects(context: LiveContext, objects: readonly ForgeObject[]
   for (const object of objects) if (KIND_ADAPTERS[object.kind].names !== undefined) scopes.set(`${object.kind} ${scopeName(object.scope)}`, { kind: object.kind, scope: object.scope });
   const retiredFound: { retired: RetiredObject; found: LiveObject }[] = [];
   for (const { kind, scope } of scopes.values()) {
-    const declared = new Set(objects.filter((object) => object.kind === kind && scopeName(object.scope) === scopeName(scope)).map((object) => object.key));
+    const nameKey = KIND_ADAPTERS[kind].nameKey ?? ((name: string) => name);
+    const declared = new Set(objects.filter((object) => object.kind === kind && scopeName(object.scope) === scopeName(scope)).map((object) => nameKey(object.key)));
     let names: readonly string[];
     try { names = await KIND_ADAPTERS[kind].names!(context, scope); } catch (error) {
       if (objectRefusal(error) === undefined) throw error;
       continue;
     }
     for (const name of names) {
-      if (declared.has(name)) continue;
+      if (declared.has(nameKey(name))) continue;
       const retiredEntry = retired.find((entry) => entry.kind === kind && scope.kind === "repo" && entry.repository === scope.repository && entry.name === name);
       if (retiredEntry !== undefined) {
         const found = await KIND_ADAPTERS[kind].read(context, { kind, scope, key: name, file: "", desired: {}, unavailableOnPlan: [] });

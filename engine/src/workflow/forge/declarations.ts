@@ -4,13 +4,14 @@
  * P2.2):
  *
  * - the `forge` configuration section (`forge-config.ts`): the topology, the
- *   stage, the plan, the merge-queue parameters, the areas, labels, autolinks
- *   and the Project;
+ *   stage, the plan, the merge-queue parameters, the areas (and their `area:`
+ *   labels), autolinks and the Project;
  * - the App registry (`app-registry.ts`): every App id a ruleset names is a
  *   reference to it, resolved at plan time;
  * - the community sources (`../community/sources.ts`, GH-9): the teams the
  *   role table declares, and the issue types the issue forms set (every one
- *   must be in {@link FORGE_ISSUE_TYPES}, or the declarations are refused);
+ *   must be in {@link FORGE_ISSUE_TYPES}, or the declarations are refused),
+ *   and every other label (`docs/community/labels.json`, the one declaration);
  * - the workflows in the tree: the third-party actions they pin are the
  *   allowed-actions list.
  *
@@ -20,6 +21,7 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import type { CommunityIntake, CommunityRoles } from "../community/sources.ts";
 import { teamsOf } from "../community/sources.ts";
+import type { DeclaredLabel } from "../community/labels.ts";
 import { ForgeError } from "./codes.ts";
 import { FORGE_REPOSITORY_KINDS, trunkRepository, type ForgeRepository, type ForgeSettings } from "./forge-config.ts";
 import { scopeName, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
@@ -100,6 +102,8 @@ export type DeclarationSources = Readonly<{
   settings: ForgeSettings;
   intake: CommunityIntake;
   roles: CommunityRoles;
+  /** Every label but the `area:` ones: the ONE declaration, `docs/community/labels.json` (`../community/labels.ts`). */
+  labels: readonly DeclaredLabel[];
   /** Every `uses:` reference in the tree's workflows (`owner/repo@ref`, `owner/repo/path@ref`, `./local`). */
   workflowActions: readonly string[];
 }>;
@@ -378,7 +382,7 @@ function organisation(settings: ForgeSettings, roles: CommunityRoles): readonly 
 }
 
 /** The vocabulary: labels, issue types and fields, autolinks, the Project (github-only §9.2). */
-function vocabulary(settings: ForgeSettings, intake: CommunityIntake): readonly ForgeObject[] {
+function vocabulary(settings: ForgeSettings, intake: CommunityIntake, declaredLabels: readonly DeclaredLabel[]): readonly ForgeObject[] {
   const org: ForgeScope = { kind: "org" };
   const trunk: ForgeScope = { kind: "repo", repository: trunkRepository(settings).name };
   const typeNames = new Set(FORGE_ISSUE_TYPES.map((type) => type.name));
@@ -388,7 +392,7 @@ function vocabulary(settings: ForgeSettings, intake: CommunityIntake): readonly 
   }
   const labels = [
     ...settings.areas.map((area) => ({ name: `area:${area.id}`, color: area.color, description: area.description })),
-    ...settings.labels,
+    ...declaredLabels,
   ];
   const names = labels.map((label) => label.name.toLowerCase());
   if (new Set(names).size !== names.length) throw new ForgeError("forge_declaration_invalid", "Two labels share a name.", {});
@@ -423,7 +427,7 @@ export function forgeDeclarations(sources: DeclarationSources): readonly ForgeOb
     ...environments(settings),
     ...rulesets(settings),
     ...provingGrounds(settings),
-    ...vocabulary(settings, sources.intake),
+    ...vocabulary(settings, sources.intake, sources.labels),
   ];
   const files = objects.map((entry) => entry.file);
   if (new Set(files).size !== files.length) throw new ForgeError("forge_declaration_invalid", "Two declared objects share a file.", {});

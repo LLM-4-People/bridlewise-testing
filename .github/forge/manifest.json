@@ -255,6 +255,22 @@
       "sha256": "c4fa91d9e880db388913f05a6b58388c5c58244b2acb5486a234d1dc878cb221"
     },
     {
+      "path": ".github/forge/label/bridlewise-testing.good_first_issue.json",
+      "sha256": "d6956737fafc288e4d03fda27e3210fc3f8c5643da10404a1fe392992110b0eb"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.help_wanted.json",
+      "sha256": "25373b82a51c38aa9e48a183522a4cb25329177598403e07872b3038e260d528"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.dependencies.json",
+      "sha256": "aa0d78f6b4668b6d45c3d1e9716eef6003c382338aa892028499fefeed044092"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.javascript.json",
+      "sha256": "72bbafd8cfe4ee3ce747a6ba8809435439a08dbb9991f308198f88e9e57a0737"
+    },
+    {
       "path": ".github/forge/label/bridlewise-testing.lane_gh-1.json",
       "sha256": "fc6f22b56438b1ad393f79184dc8d48f398e3855f7b89c07df196fc9a2f1b906"
     },
@@ -295,6 +311,22 @@
       "sha256": "b8707a959f4bb6585f244e02f3fc03a10ca01ce760a5b0afefd8d9e41ba7adde"
     },
     {
+      "path": ".github/forge/label/bridlewise-testing.lane_floor.json",
+      "sha256": "c16980b9774bd52ccf379341f2c98c10d001bfe9bbc105d1a26b95373b9b33d9"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.lane_roadmap.json",
+      "sha256": "eec0fdf3f998905777d092bf14b8ff838cacf519d2eebcce4ef6080a1dc99d2d"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.lane_flaky-burn-down.json",
+      "sha256": "103b0f9b7761e73328cddcae108a473530ea45b1d8c54215d4dca74eb44ce82d"
+    },
+    {
+      "path": ".github/forge/label/bridlewise-testing.lane_private-web.json",
+      "sha256": "af7550c23de51afd43176b2dd25c53d315754de9bff33164c700e732c7f9377d"
+    },
+    {
       "path": ".github/forge/label/bridlewise-testing.forge-drift.json",
       "sha256": "ab85a77871b0318d82cee5433eb07161934a956c583492497a57f5adbcd5286e"
     },
@@ -304,15 +336,11 @@
     },
     {
       "path": ".github/forge/label/bridlewise-testing.ci-failure.json",
-      "sha256": "f4a02cdaa1b8eb56c41f82144e93a0232dbf09a8d1ee572a665356aa42ce747a"
+      "sha256": "0987e275877a8dc93f3d7ad458cf5a2e6a359f2e2659118b91cc26267aceab9b"
     },
     {
       "path": ".github/forge/label/bridlewise-testing.needs-evidence.json",
       "sha256": "554dbc01f2a0763d8bf78c5b7ef0653f08fddc2a0c4b26775a3123cc842d5086"
-    },
-    {
-      "path": ".github/forge/label/bridlewise-testing.dependencies.json",
-      "sha256": "aa0d78f6b4668b6d45c3d1e9716eef6003c382338aa892028499fefeed044092"
     },
     {
       "path": ".github/forge/issue-type/org.Milestone.json",
