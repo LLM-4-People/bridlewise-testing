@@ -10,6 +10,7 @@ import { parse } from "yaml";
 
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
 import { buildStatus } from "../../scripts/floor/status.mjs";
+import { repoInfo } from "../../scripts/floor/files.mjs";
 import { memoryCredential } from "../../engine/src/workflow/forge/credentials.ts";
 import { githubClient } from "../../engine/src/workflow/forge/github.ts";
 import { fakeGithub } from "../../engine/test/forge/fake-github.ts";
@@ -159,6 +160,33 @@ test("the floor status reports the product branch of this repository", async () 
     assert.equal(status.promotion.profile, "main-to-product");
     assert.match(status.promotion.reason, reason);
   }
+});
+
+test("each workflow run at the source commit reports its jobs' own conclusions; a run at another commit, or a failed read, reports none", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const run = (id, name, headSha) => ({ id, name, path: `.github/workflows/${id}.yml`, status: "completed", conclusion: "success", head_sha: headSha, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
+  const job = (name, conclusion) => ({ id: name.length, name, status: "completed", conclusion, html_url: `https://example.invalid/jobs/${name}` });
+  const { requested, client } = forgeClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [run(11, "CI", commit), run(12, "CodeQL", "0".repeat(40)), run(13, "Secret scan", commit)] } };
+    if (request.path.endsWith("/actions/runs/11/jobs")) {
+      assert.equal(request.query.get("filter"), "latest", "the latest attempt's jobs");
+      return { body: { total_count: 2, jobs: [job("Web shard 1", "success"), job("Engine suite", "failure")] } };
+    }
+    if (request.path.endsWith("/actions/runs/13/jobs")) return { status: 500, body: { message: "boom" } };
+    if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+    return { body: [] };
+  });
+  const status = await buildStatus({ root: ROOT, client, maxPages: 5, now: new Date("2026-01-01T00:00:00.000Z") });
+  const check = (id) => status.checks.find((entry) => entry.id === id);
+  assert.deepEqual(check("ci").jobs, [
+    { name: "Engine suite", status: "completed", conclusion: "failure", url: "https://example.invalid/jobs/Engine suite" },
+    { name: "Web shard 1", status: "completed", conclusion: "success", url: "https://example.invalid/jobs/Web shard 1" },
+  ]);
+  assert.equal(check("codeql").jobs, null, "a run at another commit proves nothing about this one");
+  assert.ok(!requested.some((path) => path.endsWith("/actions/runs/12/jobs")), "no jobs are read for a run at another commit");
+  assert.equal(check("secret").jobs, null);
+  assert.equal(check("secret").jobsNote, "The API did not answer for this run's jobs.");
+  assert.equal(check("docs").jobs, null, "no run, no jobs");
 });
 
 const lowAlert = (number) => ({ number, state: "open", rule: { security_severity_level: "low" } });

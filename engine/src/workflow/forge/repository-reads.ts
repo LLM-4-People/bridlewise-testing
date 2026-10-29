@@ -1,5 +1,5 @@
 /**
- * THE FLOOR'S GITHUB READS, on the forge port — the workflow runs, the open
+ * THE FLOOR'S GITHUB READS, on the forge port — the workflow runs and their jobs, the open
  * code-scanning and Dependabot alerts (with the completeness the floor
  * judges), the releases and the `product` branch's tip the floor status page
  * shows (`scripts/floor/status.mjs`), and the Pages deployments and commit
@@ -58,6 +58,36 @@ export async function workflowRuns(client: ForgeClient, repository: string, head
     id: Number(run.id), name: text(run.name), path: text(run.path), event: text(run.event), status: text(run.status), conclusion: text(run.conclusion),
     headSha: text(run.head_sha), headBranch: text(run.head_branch), createdAt: text(run.created_at), updatedAt: text(run.updated_at), url: text(run.html_url),
   }));
+}
+
+export type WorkflowJob = Readonly<{
+  id: number;
+  name: string | null;
+  status: string | null;
+  conclusion: string | null;
+  url: string | null;
+}>;
+
+/**
+ * Every job of one workflow run (its latest attempt: `filter=latest`), read
+ * page by page up to `maxPages` (the configured `forge.request.maxPages`): a
+ * longer list is refused, never truncated, since a claim bound to a job is
+ * judged against that job's own conclusion.
+ */
+export async function workflowJobs(client: ForgeClient, repository: string, runId: number, maxPages: number): Promise<readonly WorkflowJob[]> {
+  const jobs = await client.paginate<Record<string, unknown>>(
+    { path: `${repositoryPath(repository)}/actions/runs/${String(runId)}/jobs`, query: { filter: "latest" } },
+    {
+      maxPages, perPage: 100,
+      items: (data) => {
+        const list = (data as { jobs?: unknown } | null)?.jobs;
+        if (!Array.isArray(list)) throw new ForgeError("github_response_invalid", `The jobs of workflow run ${String(runId)} are not a list.`, { runId });
+        return list as Record<string, unknown>[];
+      },
+    },
+  );
+  const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
+  return jobs.map((job) => Object.freeze({ id: Number(job.id), name: text(job.name), status: text(job.status), conclusion: text(job.conclusion), url: text(job.html_url) }));
 }
 
 /** The latest run of each workflow (by name, then path). */
