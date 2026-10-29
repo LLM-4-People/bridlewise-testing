@@ -1,0 +1,18 @@
+{%- comment -%}
+  "On this page": the page's own second-level headings, read from the
+  rendered content (kramdown gives each an id). No script; shown only when a
+  page has three sections or more.
+{%- endcomment -%}
+{%- assign toc_parts = include.content | split: '<h2 id="' -%}
+{%- if toc_parts.size > 3 -%}
+<nav class="page-toc" aria-labelledby="page-toc-title">
+  <p class="page-toc-title" id="page-toc-title">On this page</p>
+  <ol>
+    {%- for part in toc_parts offset: 1 %}
+    {%- assign toc_id = part | split: '"' | first %}
+    {%- assign toc_text = part | split: '</h2>' | first | prepend: '<h2 id="' | strip_html | strip %}
+    <li><a href="#{{ toc_id }}">{{ toc_text }}</a></li>
+    {%- endfor %}
+  </ol>
+</nav>
+{%- endif -%}

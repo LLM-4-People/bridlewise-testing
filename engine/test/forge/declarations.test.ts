@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations } from "../../src/workflow/forge/declarations.ts";
+import { allowedActionPatterns, FORGE_ISSUE_TYPES, forgeDeclarations, SECURITY_FEATURE_DEPENDENTS } from "../../src/workflow/forge/declarations.ts";
 import { differences, referencesOf, resolveReferences, scopeName, writableBody, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
 import { codeownersFile, dependabotEntryViolations, dependabotFile, dependabotUpdates, forgeTreeFacts, workflowUsesOf } from "../../src/workflow/forge/repository-files.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
@@ -15,7 +15,7 @@ import { TRACKER_ITEM_TYPES } from "../../src/workflow/failure-owners.ts";
 import { workingTreeReader, type TreeReader } from "../../src/git/tree-reader.ts";
 import { join } from "node:path";
 import { trackedTop } from "../../src/workflow/evidence-store.ts";
-import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES, TRUNK } from "./forge-settings.ts";
 
 function find(objects: readonly ForgeObject[], kind: string, key: string): ForgeObject {
   const found = objects.find((entry) => entry.kind === kind && entry.key === key);
@@ -39,9 +39,11 @@ test("the declarations: every object once, in apply order, with the plan's unava
   assert.equal((writableBody(security, security.desired) as Record<string, unknown>).secret_scanning_validity_checks, undefined);
   // Every governed repository gets its settings; the archive never does; only public ones get fork approval and immutable releases.
   const settingsScopes = objects.filter((entry) => entry.kind === "repository-settings").map((entry) => entry.key);
-  assert.deepEqual(settingsScopes, ["bridlewise-testing", ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
+  assert.deepEqual(settingsScopes, [TRUNK, ".github", "bridlewise-evidence", "bridlewise-coordination", "forge-proving-ground"]);
   // The proving ground (P1.11): its main's queue and signatures, merge commits only, and merged branches deleted; nothing else a governed repository gets.
-  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true, allow_update_branch: false });
+  assert.deepEqual(find(objects, "repository-settings", "forge-proving-ground").desired, { allow_merge_commit: true, allow_rebase_merge: false, allow_squash_merge: false, delete_branch_on_merge: true, allow_update_branch: false, web_commit_signoff_required: true });
+  // Commit sign-off (DCO for web commits) is declared on EVERY repository, as the organisation enforces it.
+  for (const settings of objects.filter((entry) => entry.kind === "repository-settings")) assert.equal((settings.desired as Record<string, unknown>).web_commit_signoff_required, true, settings.key);
   const proving = find(objects, "ruleset", "proving-main");
   assert.deepEqual(proving.scope, { kind: "repo", repository: "forge-proving-ground" });
   assert.deepEqual((proving.desired as { rules: { type: string }[] }).rules.map((rule) => rule.type), ["merge_queue", "required_signatures"]);
@@ -53,10 +55,10 @@ test("the declarations: every object once, in apply order, with the plan's unava
     reviewers: [{ type: "User", id: { $ref: "user", name: "amberflag48" } }], prevent_self_review: false,
   });
   assert.ok(!objects.some((entry) => entry.kind === "actions-fork-approval" && entry.key === "bridlewise-coordination"));
-  assert.equal((find(objects, "repository-settings", "bridlewise-testing").desired as Record<string, unknown>).has_discussions, true);
+  assert.equal((find(objects, "repository-settings", TRUNK).desired as Record<string, unknown>).has_discussions, true);
   assert.equal((find(objects, "repository-settings", ".github").desired as Record<string, unknown>).has_discussions, false);
   // The allowed actions come from the workflows: third parties only, as owner/repo@*.
-  assert.deepEqual((find(objects, "actions-selected", "bridlewise-testing").desired as { patterns_allowed: string[] }).patterns_allowed, ["ossf/scorecard-action@*"]);
+  assert.deepEqual((find(objects, "actions-selected", TRUNK).desired as { patterns_allowed: string[] }).patterns_allowed, ["ossf/scorecard-action@*"]);
   // References: the rulesets name Apps by role, the rotation environment the maintainer by login.
   assert.deepEqual(referencesOf(find(objects, "ruleset", "product").desired), [{ $ref: "app", name: "publisher" }]);
   assert.deepEqual(referencesOf(find(objects, "ruleset", "agent-branches").desired), [{ $ref: "app", name: "agent" }]);
@@ -77,9 +79,9 @@ test("the declarations: every object once, in apply order, with the plan's unava
   const pushRulesets = objects.filter((entry) => entry.kind === "ruleset" && (entry.desired as { target: string }).target === "push");
   assert.deepEqual(pushRulesets.map((entry) => `${scopeName(entry.scope)}:${entry.key}`), ["bridlewise-coordination:content-policy"]);
   assert.deepEqual((pushRulesets[0]!.desired as { rules: unknown[] }).rules, [
-    { type: "max_file_size", parameters: { max_file_size: 10 } },
+    { type: "max_file_size", parameters: { ignored_file_paths: [], max_file_size: 10 } },
     { type: "file_extension_restriction", parameters: { restricted_file_extensions: ["*.pem", "*.key", "*.env"] } },
-    { type: "file_path_restriction", parameters: { restricted_file_paths: ["**/secrets/**", "**/tokens/**"] } },
+    { type: "file_path_restriction", parameters: { ignored_file_paths: [], restricted_file_paths: ["**/secrets/**", "**/tokens/**"] } },
   ]);
 });
 
@@ -98,7 +100,8 @@ function specifiedBaseline(stage: "p0" | "door"): unknown {
   return {
     name: "baseline", target: "branch", enforcement: "active", bypass_actors: [],
     conditions: {
-      repository_property: { include: [{ name: "kind", property_values: door ? ["trunk", "notes", "evidence", "meta"] : ["trunk"] }], exclude: [] },
+      // GitHub's stored shape: a custom property's condition names its source (GitHub answers it even when a write omits it).
+      repository_property: { include: [{ name: "kind", source: "custom", property_values: door ? ["trunk", "notes", "evidence", "meta"] : ["trunk"] }], exclude: [] },
       ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
     },
     rules: [
@@ -191,17 +194,29 @@ test("the plan review's decisions, pinned: a security configuration per visibili
   // Private repositories on this plan (no Secret Protection): neither, or the attach would fail there.
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning, "disabled");
   assert.equal(configuration("bridlewise-baseline-private").secret_scanning_push_protection, "disabled");
-  // Secret scanning needs Secret Protection in a configuration (GitHub refuses one without it): advanced_security goes with it.
-  assert.equal(configuration("bridlewise-baseline").advanced_security, "enabled");
-  assert.equal(configuration("bridlewise-baseline-private").advanced_security, "disabled");
-  for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "not_set", `${key}: CodeQL runs in advanced setup`);
+  // Each Advanced Security feature is declared. Code Security ON for public repositories (free there, and what GitHub
+  // holds: turning it off would be a loosening), OFF for private ones without the add-on; its dependents disabled in both
+  // (code scanning's default setup: our own CodeQL workflow is the scanner). Secret Protection on the public
+  // configuration, off on the private one without the add-on. No deprecated advanced_security is sent.
+  assert.equal(configuration("bridlewise-baseline").code_security, "enabled");
+  assert.equal(configuration("bridlewise-baseline-private").code_security, "disabled");
+  for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) {
+    assert.equal(configuration(key).advanced_security, undefined, key);
+    for (const field of SECURITY_FEATURE_DEPENDENTS.code_security) assert.equal(configuration(key)[field], "disabled", `${key} ${field}`);
+  }
+  assert.equal(configuration("bridlewise-baseline").secret_protection, "enabled");
+  assert.equal(configuration("bridlewise-baseline-private").secret_protection, "disabled");
+  // Private vulnerability reporting exists for public repositories only.
+  assert.equal(configuration("bridlewise-baseline").private_vulnerability_reporting, "enabled");
+  assert.equal(configuration("bridlewise-baseline-private").private_vulnerability_reporting, "disabled");
+  for (const key of ["bridlewise-baseline", "bridlewise-baseline-private"]) assert.equal(configuration(key).code_scanning_default_setup, "disabled", `${key}: Code Security is off; CodeQL runs as our own workflow`);
   // Attached to the governed repositories only, by visibility, and default for no new repository.
-  assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", "bridlewise-testing"], default_for_new_repos: "none" });
+  assert.deepEqual(attachment("bridlewise-baseline"), { repositories: [".github", "bridlewise-evidence", TRUNK].sort(), default_for_new_repos: "none" });
   assert.deepEqual(attachment("bridlewise-baseline-private"), { repositories: ["bridlewise-coordination"], default_for_new_repos: "none" });
   // With the add-on, the private configuration carries secret scanning too.
   const withAddOn = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection: true } } });
   assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).secret_scanning, "enabled");
-  assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).advanced_security, "enabled");
+  assert.equal((find(withAddOn, "security-configuration", "bridlewise-baseline-private").desired as Record<string, unknown>).secret_protection, "enabled");
   // The project is private; no repository offers the Update-branch button; the Pages environment is governed.
   assert.equal((find(objects, "project", SETTINGS.project.title).desired as { public: boolean }).public, false);
   for (const settings of objects.filter((entry) => entry.kind === "repository-settings")) assert.equal((settings.desired as Record<string, unknown>).allow_update_branch, false, settings.key);
@@ -222,6 +237,33 @@ test("a custom property's allowed values compare as a set: a reorder is neutral,
   assert.notDeepEqual(looseningOf("custom-property", { ...property(live.allowed_values), value_type: "string" }, live), []);
 });
 
+test("every field GitHub validates against an Advanced Security feature follows it, in every declared configuration, as GitHub receives it (after the plan's unavailable fields are taken out)", () => {
+  for (const secretProtection of [false, true]) {
+    const objects = forgeDeclarations({ ...SOURCES, settings: { ...SETTINGS, plan: { ...SETTINGS.plan, secretProtection } } });
+    for (const configuration of objects.filter((entry) => entry.kind === "security-configuration")) {
+      const sent = writableBody(configuration, configuration.desired) as Record<string, unknown>;
+      for (const [feature, dependents] of Object.entries(SECURITY_FEATURE_DEPENDENTS)) {
+        for (const field of dependents) {
+          if (sent[field] === undefined) continue; // not on this plan: never sent
+          assert.ok(sent[feature] === "enabled" || sent[field] === "disabled", `${configuration.key} (add-on ${String(secretProtection)}): ${field} is ${String(sent[field])} while ${feature} is ${String(sent[feature])}`);
+        }
+      }
+      // Dependabot's own chain: security updates need alerts, alerts need the dependency graph.
+      if (sent.dependabot_security_updates === "enabled") assert.equal(sent.dependabot_alerts, "enabled");
+      if (sent.dependabot_alerts === "enabled") assert.equal(sent.dependency_graph, "enabled");
+    }
+  }
+  // GitHub's 422 named exactly these as Code Security's.
+  assert.deepEqual([...SECURITY_FEATURE_DEPENDENTS.code_security].sort(), ["code_scanning_default_setup", "code_scanning_delegated_alert_dismissal", "dependabot_delegated_alert_dismissal"]);
+});
+
+test("each Advanced Security feature is strict: turning Secret Protection or Code Security off is a loosening, turning it on is not", () => {
+  for (const feature of ["secret_protection", "code_security"] as const) {
+    assert.deepEqual(looseningOf("security-configuration", { [feature]: "disabled" }, { [feature]: "enabled" }), [`${feature} "enabled" -> "disabled"`], `${feature} off`);
+    assert.deepEqual(looseningOf("security-configuration", { [feature]: "enabled" }, { [feature]: "disabled" }), [], `${feature} on`);
+  }
+});
+
 test("an ENABLED dismissal restriction may only stay enabled with fewer allowed actors; an unrestricted one restricts nothing", () => {
   const rule = (restriction: unknown) => ({ name: "r", target: "branch", enforcement: "active", rules: [{ type: "pull_request", parameters: { dismissal_restriction: restriction } }] });
   const live = rule({ enabled: true, allowed_actors: [{ actor_id: 1 }, { actor_id: 2 }] });
@@ -229,6 +271,27 @@ test("an ENABLED dismissal restriction may only stay enabled with fewer allowed 
   assert.notDeepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [{ actor_id: 1 }, { actor_id: 2 }, { actor_id: 3 }] }), live), [], "another dismisser loosens");
   assert.deepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [{ actor_id: 1 }] }), live), [], "fewer dismissers is stricter");
   assert.deepEqual(looseningOf("ruleset", rule({ enabled: true, allowed_actors: [] }), rule({ enabled: false, allowed_actors: [] })), [], "restricting where nothing was is stricter");
+});
+
+test("the Pages sites (W2): each declared repository's site, built its declared way, on its own domain or none, HTTPS enforced; the organisation site with no domain and its publisher installed; the trunk's homepage is its site", () => {
+  const withSites = { ...SETTINGS, repositories: [
+    ...SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, site: { host: "bridlewise.llm4people.dev", docsPath: "/docs/" }, pages: { build: "workflow" as const } }
+      : repository.provingGround === true ? { ...repository, pages: { build: "workflow" as const } } : repository),
+    { name: "LLM-4-People.github.io", kind: "none" as const, visibility: "public" as const, pages: { build: "legacy" as const, branch: "main", path: "/" as const }, apps: ["publisher" as const] },
+  ] };
+  const objects = forgeDeclarations({ ...SOURCES, settings: withSites });
+  assert.deepEqual(find(objects, "pages", TRUNK).desired, { build_type: "workflow", cname: "bridlewise.llm4people.dev", https_enforced: true });
+  assert.deepEqual(find(objects, "pages", "forge-proving-ground").desired, { build_type: "workflow", cname: null, https_enforced: true });
+  assert.deepEqual(find(objects, "pages", "LLM-4-People.github.io").desired, { build_type: "legacy", source: { branch: "main", path: "/" }, cname: null, https_enforced: true });
+  assert.deepEqual(find(objects, "app-installation", "publisher").scope, { kind: "repo", repository: "LLM-4-People.github.io" });
+  assert.equal((find(objects, "repository-settings", TRUNK).desired as Record<string, unknown>).homepage, "https://bridlewise.llm4people.dev/");
+  // A repository without a pages declaration has no Pages object (nothing invisible is created).
+  assert.ok(!objects.some((entry) => entry.kind === "pages" && entry.key === "bridlewise-evidence"));
+  // The order: removing or changing a custom domain is a loosening, setting one where none was is not; HTTPS only stays on.
+  assert.deepEqual(looseningOf("pages", { cname: "bridlewise.llm4people.dev", https_enforced: true }, { cname: null, https_enforced: true }), []);
+  assert.notDeepEqual(looseningOf("pages", { cname: null, https_enforced: true }, { cname: "bridlewise.llm4people.dev", https_enforced: true }), [], "removing the domain");
+  assert.notDeepEqual(looseningOf("pages", { cname: "other.example", https_enforced: true }, { cname: "bridlewise.llm4people.dev", https_enforced: true }), [], "changing it");
+  assert.notDeepEqual(looseningOf("pages", { cname: null, https_enforced: false }, { cname: null, https_enforced: true }), [], "HTTPS off");
 });
 
 test("a form naming a type outside the registry, or two labels with one name, refuses the declarations", () => {

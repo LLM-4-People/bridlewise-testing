@@ -18,6 +18,7 @@ This README is integration notes, not a site page. `published: false` keeps it o
 | `floor/help.md` | `/floor/help/` | Contribution lanes and review checklist |
 | `floor/roadmap.md` | `/floor/roadmap/` | Milestones, workstreams, exit criteria, and generated status blocks |
 | `floor/promotion.md` | `/floor/promotion/` | Projection and gate contract |
+| `floor/claims.md` | `/floor/claims/` | Every public claim, judged at the published commit (body written at publish by `engine/scripts/brand/cli.ts build`) |
 | `floor/atlas.md` | `/floor/atlas/` | Generated test atlas and filter UI |
 | `floor/evidence.md` | `/floor/evidence/` | Rerunnable checks and non-proofs |
 | `floor/status.md` | `/floor/status/` | Generated status console and fallback |
@@ -59,7 +60,7 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
   "schemaVersion": "bridlewise-floor-atlas/v1",
   "generatedAt": "2026-10-19T00:00:00Z",
   "source": {
-    "repository": "LLM-4-People/bridlewise",
+    "repository": "{{ site.product_repository }}",
     "commit": "<sha>",
     "inventoryHash": "<sha256>",
     "dispositionHash": "<sha256>"
@@ -120,13 +121,13 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
   "schemaVersion": "bridlewise-floor-status/v1",
   "generatedAt": "2026-10-19T00:00:00Z",
   "source": {
-    "repository": "LLM-4-People/bridlewise",
+    "repository": "{{ site.product_repository }}",
     "ref": "refs/heads/main",
     "commit": "<sha>",
     "committedAt": "2026-10-19T00:00:00Z"
   },
   "product": {
-    "repository": "LLM-4-People/bridlewise",
+    "repository": "{{ site.product_repository }}",
     "ref": "refs/heads/product",
     "commit": "<sha>",
     "committedAt": "2026-10-19T00:00:00Z"
@@ -161,7 +162,7 @@ Write them into the Jekyll source before the build, not into `_site` after it. D
     "reason": null,
     "runs": [
       {
-        "repository": "LLM-4-People/bridlewise",
+        "repository": "{{ site.product_repository }}",
         "workflow": "ci.yml",
         "runId": 123,
         "status": "completed",

@@ -9,7 +9,8 @@
  *    (its body wrapped as raw text: a GitHub Markdown page holds no Liquid),
  *    the redirect pages for older URLs, the `/v/` versions page and
  *    `versions.json` listing the released docs snapshots, and the deployment
- *    base path written into `_config.yml`.
+ *    base path written into `_config.yml`, and the design system's generated
+ *    assets (`site-design.mjs`).
  * 2. Jekyll (`actions/jekyll-build-pages`) turns that source into `_site`.
  * 3. `finishSite` — each release's PRE-BUILT docs snapshot (built at release
  *    time with the base path `<base>/v/<version>`, an immutable release
@@ -35,8 +36,10 @@ import { escapeHtml } from "../../shared/markup.ts";
 import { buildAtlas } from "./atlas.mjs";
 import { coverage } from "./design-coverage.mjs";
 import { stableJson } from "./files.mjs";
-import { LEGACY_SITE_URL, SITE_URL, coordinatesOf } from "./repository.mjs";
+import { COORDINATES, LEGACY_SITE_URL, SITE_URL } from "./repository.mjs";
 import { crawlSiteLinks } from "./site-links.mjs";
+import { writeSiteDesign } from "./site-design.mjs";
+import { builtPolicyViolations, judgeSiteStyles } from "./site-style.mjs";
 import { BUILDER_OWNED_CONFIG_KEYS, DOCS_ROOT, landingMap, landingPath, legacyAliases, rewritePageLinks, siteLinkTargets, siteSourceViolations, sitePlan, siteUrlForPermalink } from "./site-pages.mjs";
 import { buildStatus } from "./status.mjs";
 
@@ -59,6 +62,8 @@ const MARKUP_OWNER = "shared/markup.ts";
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$/u;
 /** The site folder that holds the released snapshots; the source must not publish into it. */
 export const VERSIONS_FOLDER = "v";
+/** The file beside each moved page that forwards the reader to its new place. */
+export const MOVED_SCRIPT = "moved.js";
 
 function fail(message) {
   throw new Error(message);
@@ -88,7 +93,7 @@ function configWith(text, values) {
   const { document, errors, keys } = readSiteConfig(text);
   if (errors.length > 0) fail(`${DOCS_ROOT}/_config.yml is unreadable: ${errors.join("; ")}`);
   const declared = keys.filter((key) => BUILDER_OWNED_CONFIG_KEYS.includes(key));
-  if (declared.length > 0) fail(`${DOCS_ROOT}/_config.yml declares ${declared.join(", ")}, which the builder writes from package.json and the deployment`);
+  if (declared.length > 0) fail(`${DOCS_ROOT}/_config.yml declares ${declared.join(", ")}, which the builder writes from the repository identity and the deployment`);
   for (const [key, value] of Object.entries(values)) document.set(key, value);
   return String(document);
 }
@@ -152,16 +157,15 @@ export async function floorDataOf(root) {
   return { atlas, status: await buildStatus({ root, offline: true, counts: atlas.counts }) };
 }
 
-export async function buildSiteSource({ root, out, baseurl, versionsDir = null, release = null, floorData = floorDataOf }) {
+export async function buildSiteSource({ root, out, baseurl, versionsDir = null, release = null, floorData = floorDataOf, coordinates = COORDINATES }) {
   const repositoryRoot = resolve(root);
   const outRoot = resolve(out);
   const docs = join(repositoryRoot, DOCS_ROOT);
   if (!existsSync(join(docs, "_config.yml"))) fail(`${DOCS_ROOT}/_config.yml is missing: the tree at ${repositoryRoot} holds no site`);
   if (existsSync(join(docs, VERSIONS_FOLDER))) fail(`${DOCS_ROOT}/${VERSIONS_FOLDER}/ exists: that folder is the released snapshots' place on the site`);
-  const violations = siteSourceViolations({ root: repositoryRoot });
+  const violations = siteSourceViolations({ root: repositoryRoot, coordinates });
   if (violations.length > 0) fail(`the site source refuses (${String(violations.length)}):\n  ${violations.join("\n  ")}`);
-  const plan = sitePlan({ root: repositoryRoot });
-  const coordinates = coordinatesOf(repositoryRoot);
+  const plan = sitePlan({ root: repositoryRoot, coordinates });
   // A release snapshot is built once, at release time, for its own place on
   // the site (`<base>/v/<version>`); it carries no versions list of its own
   // and links the live one.
@@ -222,8 +226,11 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
       join(directory, "index.html"),
       frontMatter({ layout: "default", page_class: "article", title: `Moved: ${name}` })
         + `<div class="callout-warning" role="status">\n  <p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</div>\n`
-        + `<script>location.replace(${JSON.stringify(target)});</script>\n`,
+        // The forward is a file beside the page, not an inline script: the
+        // page's Content-Security-Policies run only files under the site's path.
+        + `<script src="${MOVED_SCRIPT}"></script>\n`,
     );
+    writeFileSync(join(directory, MOVED_SCRIPT), `location.replace(${JSON.stringify(target)});\n`);
     redirectedPaths += 1;
   }
 
@@ -234,7 +241,7 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   }
 
   // Every coordinate a page reads comes from the repository's one
-  // declaration (package.json) and the deployment's base path.
+  // identity (the forge section) and the deployment's base path.
   const configPath = join(outRoot, "_config.yml");
   writeFileSync(configPath, configWith(readFileSync(configPath, "utf8"), {
     url: coordinates.siteOrigin,
@@ -242,6 +249,10 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
     repository: coordinates.repository,
     repository_url: coordinates.repositoryUrl,
     security_url: `${coordinates.repositoryUrl}/blob/${coordinates.defaultBranch}/SECURITY.md`,
+    product_repository: coordinates.productRepository,
+    product_repository_url: coordinates.productRepositoryUrl,
+    docs_url: coordinates.docsUrl,
+    preview_repository_url: coordinates.previewRepositoryUrl,
     versions_url: `${siteBase.replace(/\/$/u, "")}/${VERSIONS_FOLDER}/`,
     release_version: release ?? "",
   }));
@@ -254,6 +265,14 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   mkdirSync(join(outRoot, "floor/data"), { recursive: true });
   writeFileSync(join(outRoot, "floor/data/atlas.json"), stableJson(atlas));
   writeFileSync(join(outRoot, "floor/data/status.json"), stableJson(status));
+  // The design system's generated half: the token sheet, fonts, icon, mark
+  // and figures, from their one owners (`site-design.mjs`).
+  writeSiteDesign({ root: repositoryRoot, outRoot, baseurl });
+  // Every stylesheet this source hands Jekyll reads the owner's tokens and
+  // declares none of its own, and no layout, include or HTML page carries a
+  // style or loads from elsewhere (`site-style.mjs`).
+  const style = judgeSiteStyles({ root: repositoryRoot, sourceRoot: outRoot });
+  if (style.findings.length > 0) fail(`${String(style.findings.length)} style finding(s): the site's sheets and markup read the one design system (scripts/floor/site-style.mjs):\n  ${style.findings.join("\n  ")}`);
 
   // Every site path a page or layout names must be one this source builds:
   // a page, a redirect, the versions page, a served file, or one Jekyll
@@ -313,6 +332,9 @@ export function finishSite({ site, baseurl, versionsDir = null }) {
   const links = crawlSiteLinks({ siteRoot, baseurl });
   const design = coverage(siteRoot, { exclude: versions.map((version) => `/${VERSIONS_FOLDER}/${version}/`) });
   const findings = [
+    // An allow-list judged on what was built: every HTML file Pages serves
+    // carries the site's two policies first, whatever produced it.
+    ...builtPolicyViolations({ siteRoot, baseurl, versions }).map((finding) => `policy: ${finding}`),
     ...links.unresolved.map((entry) => `link: ${entry.page}: ${entry.href} → ${entry.resolved}`),
     ...[...design.missing].map(([name, pages]) => `design: .${name} has no CSS rule (${pages.slice(0, 3).join(", ")})`),
     ...[...design.unused].map(([name]) => `design: floor.css declares .${name} but no page uses it`),

@@ -14,6 +14,8 @@
  */
 import { describe, expect, test } from "vitest";
 
+import { cpuWorkOf, threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
+
 import {
   buildGroups,
   resolveVerbs,
@@ -67,17 +69,10 @@ const schema = {
   blockActions: {},
 } as unknown as UiSchema;
 
-/** Best-of-N wall time — the honest CI shape (absorbs scheduler noise
- * without hiding a real regression). */
+/** Best-of-N CPU WORK, never wall time (NO-LOAD-BLOCK): a busy host makes
+ * the pass wait for a core, which is not its cost (engine/src/shared/run-cpu.ts). */
 function bestOf(n: number, fn: () => void): number {
-  let best = Infinity;
-  for (let i = 0; i < n; i += 1) {
-    const t0 = performance.now();
-    fn();
-    const dt = performance.now() - t0;
-    if (dt < best) best = dt;
-  }
-  return best;
+  return cpuWorkOf(fn, n);
 }
 
 function openOnce(): void {
@@ -96,8 +91,9 @@ describe("room open stays inside the budget", () => {
   test("MUTATION: the stopwatch can fail — a slowed pass exceeds the budget", () => {
     const slow = (): void => {
       openOnce();
-      const until = performance.now() + OPEN_BUDGET_MS + 20;
-      while (performance.now() < until) {
+      // The deliberate slowness is CPU WORK, so the plant is the same work at any load.
+      const until = threadCpuWorkMs() + OPEN_BUDGET_MS + 20;
+      while (threadCpuWorkMs() < until) {
         /* deliberate stall */
       }
     };

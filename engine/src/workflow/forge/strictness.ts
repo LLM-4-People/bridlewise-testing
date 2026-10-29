@@ -76,6 +76,9 @@ const SET_ONCE: Order = (next, now) => now === undefined || now === null || same
 /** Security-configuration features: `enabled` is strict; every other value is the same "off". */
 const FEATURE: Order = (next, now) => now !== "enabled" || next === "enabled";
 
+/** A custom domain: setting one where none was is declared work; changing or removing one moves the site off a verified domain. */
+const CNAME: Order = (next, now) => now === null || now === undefined || same(next, now);
+
 /** The rule parameters with a proven order; any other parameter must be equal. */
 const RULE_PARAMETERS: Readonly<Record<string, Order>> = Object.freeze({
   required_approving_review_count: HIGHER_IS_STRICT,
@@ -203,6 +206,11 @@ const KIND_FIELDS: Readonly<Record<ForgeObjectKind, "neutral" | "ruleset" | Read
   "issue-field": "neutral",
   "project": "neutral",
   "autolink": "neutral",
+  // A Pages site: HTTPS may only stay enforced; a custom domain may be set where none was, never changed or removed
+  // without an acknowledgement (the organisation site's null is strict: it must never take one).
+  "pages": { https_enforced: TRUE_IS_STRICT, cname: CNAME },
+  // An App installed on a repository is declared access; the fact is judged by the plan, never ordered.
+  "app-installation": "neutral",
   // A member added is access granted: membership may only shrink without an acknowledgement.
   "team": { name: NEUTRAL, privacy: NEUTRAL, description: NEUTRAL, members: SUBSET_IS_STRICT },
   "ruleset": "ruleset",
@@ -224,6 +232,7 @@ const KIND_FIELDS: Readonly<Record<ForgeObjectKind, "neutral" | "ruleset" | Read
     enforcement: levels("unenforced", "enforced"),
     advanced_security: FEATURE, dependency_graph: FEATURE, dependency_graph_autosubmit_action: FEATURE,
     dependabot_alerts: FEATURE, dependabot_security_updates: FEATURE, code_scanning_default_setup: FEATURE,
+    code_security: FEATURE, secret_protection: FEATURE, code_scanning_delegated_alert_dismissal: FEATURE, dependabot_delegated_alert_dismissal: FEATURE,
     secret_scanning: FEATURE, secret_scanning_push_protection: FEATURE, secret_scanning_non_provider_patterns: FEATURE,
     secret_scanning_validity_checks: FEATURE, secret_scanning_generic_secrets: FEATURE, secret_scanning_delegated_bypass: FEATURE,
     secret_scanning_delegated_alert_dismissal: FEATURE, private_vulnerability_reporting: FEATURE,

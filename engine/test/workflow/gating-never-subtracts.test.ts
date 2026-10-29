@@ -29,7 +29,7 @@ import test, { type TestContext } from "node:test";
 
 import { createInventoryTestAccountant } from "../../scripts/tooling/inventory-test-run.ts";
 import { createTestReceipt, createTestResultReceipt } from "../../scripts/tooling/test-receipt.ts";
-import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../../scripts/tooling/candidate-manifest.ts";
+import { CANDIDATE_MANIFEST_SCHEMA_VERSION } from "../../scripts/verification/candidate-manifest.ts";
 import { buildTestInventory as buildBoundTestInventory } from "../../scripts/test-inventory.ts";
 import {
   createTestSurfaceDispositionManifest,

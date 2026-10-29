@@ -233,6 +233,11 @@ export function readEntries(root: string, directory: string): readonly { readonl
 // ── The structured tracker items ────────────────────────────────────────────
 
 const TRACKER_ITEM_SCHEMA = schemaId("tracker-item", 1);
+
+/** The schema id every tracker item's front matter names (for a writer outside this module). */
+export function trackerItemSchema(): string {
+  return TRACKER_ITEM_SCHEMA;
+}
 /** An item id: upper-case words and numbers joined by hyphens; the file is `<id>.md`. */
 const TRACKER_ITEM_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$/u;
 /**
@@ -283,7 +288,7 @@ export type TrackerItem = Readonly<{
   relates: readonly string[];
   severity: typeof TRACKER_ITEM_SEVERITIES[number] | null;
   area: readonly string[];
-  /** An `evidence:<path>` record link, a repository document (`docs/…/page.md#anchor`) or an https URL. */
+  /** An `evidence:<path>` record link, a `repo:<path>` address of this repository (a pull request, run or release), a repository document (`docs/…/page.md#anchor`) or an https URL. */
   evidence: string | null;
   /** The plan's rank among its siblings (lower first); `null` when unranked. */
   order: number | null;
@@ -304,8 +309,14 @@ export type TrackerItem = Readonly<{
 }>;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
+
+/** Whether `value` is a tracker date, `YYYY-MM-DD` (the one pattern every writer of an item checks against). */
+export function isTrackerDate(value: string): boolean {
+  return DATE.test(value);
+}
 /** A value YAML reads back as the same plain STRING (the site reads item front matter as YAML; a YAML 1.1 reader turns `No` into false). */
-function yamlPlain(item: string): string | null {
+/** Why `item` is not a value YAML reads back as the same plain string (the site reads item front matter as YAML), or `null`. */
+export function yamlPlain(item: string): string | null {
   if (/^[-?:,[\]{}#&*!|>'"%@`]|: | #|\s$/u.test(item)) return `${JSON.stringify(item)} is not a plain YAML scalar (no leading indicator, ": " or " #")`;
   if (/^(?:y|yes|n|no|true|false|on|off|null|~)$/iu.test(item) || /^[-+]?(?:\.?\d)[\d._:eE+-]*$/u.test(item)) return `${JSON.stringify(item)} reads as a YAML boolean, null or number, not text`;
   return null;
@@ -364,7 +375,7 @@ export function trackerItemViolations(entries: readonly { readonly name: string;
         relates: { list: true, pattern: TRACKER_ITEM_ID, check: otherItem },
         severity: { values: TRACKER_ITEM_SEVERITIES },
         area: { list: true, check: yamlPlain },
-        evidence: { pattern: /^(?:evidence:\S+|https:\/\/\S+|(?:[\w.-]+\/)*[\w.-]+\.md(?:#[\w-]+)?)$/u },
+        evidence: { pattern: /^(?:evidence:\S+|repo:\S+|https:\/\/\S+|(?:[\w.-]+\/)*[\w.-]+\.md(?:#[\w-]+)?)$/u },
         order: { pattern: /^(?:0|[1-9]\d{0,5})$/u },
         horizon: { forbiddenWhen: (fields) => closed(fields) || milestone(fields), values: TRACKER_HORIZONS },
         decisions: { list: true, pattern: /^[A-Z][A-Z0-9]*[a-z]?(?:-[A-Z0-9]+[a-z]?)*$/u, check: decision },

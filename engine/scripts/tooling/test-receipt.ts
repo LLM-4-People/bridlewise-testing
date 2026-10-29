@@ -10,7 +10,7 @@ import {
 import {
   CANDIDATE_MANIFEST_SCHEMA_VERSION,
   type CandidateTestIdentity,
-} from "./candidate-manifest.ts";
+} from "../verification/candidate-manifest.ts";
 import { TEST_SURFACE_SCOPE_SCHEMA } from "../verification/test-surface.ts";
 import {
   canonicalHash,

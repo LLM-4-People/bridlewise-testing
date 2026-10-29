@@ -6,6 +6,8 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { HARNESS_SUBCOMMANDS } from "../../engine/src/workflow/harness-commands.ts";
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const BIN = join(ROOT, "bin/bridlewise.mjs");
 
@@ -33,14 +35,13 @@ test("the CLI reports a version", () => {
   assert.match(result.stdout, /^bridlewise \d+\.\d+\.\d+/);
 });
 
-test("harness without a subcommand is a typed refusal that lists the verbs", () => {
+test("harness without a subcommand is a typed refusal that lists every available verb", () => {
   const result = run(["harness"]);
   assert.equal(result.status, 1);
   const payload = JSON.parse(result.stderr.trim());
   assert.equal(payload.error, "no_harness_subcommand");
-  for (const verb of ["check", "test", "new-module", "sync", "timeline", "metrics"]) {
-    assert.ok(payload.available.includes(verb), `missing ${verb}`);
-  }
+  // Every verb the harness dispatches, from its one owner, in its order: a verb added there and left out here is caught.
+  assert.deepEqual(payload.available, [...HARNESS_SUBCOMMANDS]);
 });
 
 test("preflight is honest about readiness", () => {

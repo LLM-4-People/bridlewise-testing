@@ -20,6 +20,7 @@ source.
   (the memory rule). A handler named in a comment or string is not handling.
 - `candidate-format.ts` — the candidate-format gate: refuses byte-order
   marks, wrong final newlines, and other non-canonical file bytes.
+- `candidate-manifest.ts` — THE CANDIDATE MANIFEST: the engine runner's setup door (`buildCandidateManifest`) certifies a tree before a test runs; `--root . --verdict` answers only whether it would accept the tree, which `harness check`'s candidate-format step asks. It ships, so a product tree's check asks the same door.
 - `effect-surface.ts` — classifies each module's filesystem and process
   effects for the architecture manifest.
 - `filesystem-cache.ts` — a generic filesystem-backed cache for
@@ -34,6 +35,7 @@ source.
   the commit guard refuses a staged baseline that grew or carries an entry
   with no reason (the inline-literal and web unhandled-catch baselines use it).
 - `ratchet-baselines.ts` — THE RATCHET BASELINES AND THEIR GENERATOR (a2b-design H2): every shrink-only baseline declared in `ROOT_POLICY.verification.ratchetBaselines` (a generated output) with the scan its guard judges (the engine's inline-literal defaults, the web's unhandled catches, the repository's dead Markdown links — `src/workflow/record-links.ts` — the guards call the same function). `harness sync` prunes each baseline (an entry no finding matches is removed; a key is NEVER added), `harness check` reports a stale entry as drift and fails on new debt (`ratchet-baselines` step), and `--introduce <id> --reason <tracker id>` writes a new baseline once (refused when it exists).
+- `repository-git.ts` — what the candidate manifest reads of git: the repository probe, the tree entries, a file's git mode and its blob id.
 - `shipped-hooks.ts` — THE SHIPPED HOOKS GENERATOR (PROMO34FIX-HOOK-GENERATOR): every canonical `.githooks/<hook>` (`SHIPPED_HOOK_FILES`, `src/kernel/verification-paths.ts`) written whole from its owner (`staged-move-loss.ts` `shippedHookText`: a guarded hook's prose and body, the trigger's `promotionTriggerHookText`); `harness sync` writes them (a new one executable), `harness check` reports one that differs (`shipped-hooks` step); a tree without the hooks folder is converged by absence.
 - `decision-index.ts` — THE DECISION INDEX GENERATOR (wf-1b3a-design M1): `docs/decisions/README.md`'s index block rebuilt from the decision files' front matter and titles (`tracker-entries.ts` `renderDecisionIndex`); `harness sync` writes it, `harness check` reports it stale (`decision-index` step); a tree without the decisions folder is converged by absence.
 - `commit-trailers.ts` — THE ONE READER of a commit's trailers (git's own

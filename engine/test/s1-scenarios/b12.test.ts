@@ -286,7 +286,7 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
         FORENSIC_PROJECTION_REL,
         'export const localAuthority = { ["policy" + "Compiler"]: true };',
       ],
-      ["scripts/tooling/candidate-manifest.ts", "const undocumentedException = true;"],
+      ["scripts/verification/candidate-manifest.ts", "const undocumentedException = true;"],
       [
         FORENSIC_STATE_REL,
         'const joinedAuthority = { [["policy", "Compiler"].join("")]: true };',
@@ -296,14 +296,14 @@ const scenarios: Readonly<Record<string, () => void | Promise<void>>> = {
         'const markerKey = ["operation", "Envelope"].join(""); const aliasedAuthority = { [markerKey]: true };',
       ],
       [
-        "scripts/tooling/candidate-manifest.ts",
+        "scripts/verification/candidate-manifest.ts",
         'const policyPart = "Policy"; const templatedAuthority = { [`${policyPart}Registry`]: true };',
       ],
       [FORENSIC_STATE_REL, "type OperationEnvelope = { enabled: true };"],
       [FORENSIC_PROJECTION_REL, "interface PolicyRegistry { enabled: true }"],
       [FORENSIC_STATE_REL, "const alignmentMonitorStore = Object.freeze({});"],
       [FORENSIC_PROJECTION_REL, "const alignmentCheckpointStore = Object.freeze({});"],
-      ["scripts/tooling/candidate-manifest.ts", "const goalAlignmentStore = Object.freeze({});"],
+      ["scripts/verification/candidate-manifest.ts", "const goalAlignmentStore = Object.freeze({});"],
     ] as const;
     for (const [path, source] of parallelAuthorityVariants) {
       const root = makeRuntimeCandidate();

@@ -11,6 +11,7 @@ import {
 } from "../../src/intelligence/symbol-search.ts";
 import { resolveIntelligenceConfig } from "../../src/intelligence/intelligence-config.ts";
 import { InputError } from "../../src/kernel/errors.ts";
+import { threadCpuWorkMs } from "../../src/shared/run-cpu.ts";
 import {
   createSymbolSearchQuery,
   type ModuleInfo,
@@ -246,11 +247,12 @@ test("exp429 search HARD: 50 specific queries — top-1 >80%, wrong-dir 0%, <100
   let maxMs = 0;
   for (const { query, expectedSymbol, expectedDir } of SPECIFIC_QUERIES) {
     const q = createSymbolSearchQuery({ name: query, matchMode: "fuzzy", limit: 5 });
-    const start = performance.now();
+    // CPU work, never wall time (NO-LOAD-BLOCK).
+    const start = threadCpuWorkMs();
     const result = hybridSearchSymbols(REPO_MAP, q);
-    const elapsed = performance.now() - start;
+    const elapsed = threadCpuWorkMs() - start;
     if (elapsed > maxMs) maxMs = elapsed;
-    assert.ok(elapsed < 100, `query '${query}' took ${elapsed}ms (limit 100ms)`);
+    assert.ok(elapsed < 100, `query '${query}' did ${elapsed}ms of CPU work (limit 100ms)`);
     const top = result.results[0];
     if (top !== undefined && top.symbol.name === expectedSymbol) top1Hits++;
     if (top !== undefined && !top.filePath.startsWith(expectedDir)) wrongDir++;
@@ -332,11 +334,12 @@ test("exp429 search HARD: 50 vague queries — top-1 >80%, wrong-dir 0%, <100ms"
   let maxMs = 0;
   for (const { query, expectedSymbol, expectedDir } of VAGUE_QUERIES) {
     const q = createSymbolSearchQuery({ name: query, matchMode: "fuzzy", limit: 5 });
-    const start = performance.now();
+    // CPU work, never wall time (NO-LOAD-BLOCK).
+    const start = threadCpuWorkMs();
     const result = hybridSearchSymbols(REPO_MAP, q);
-    const elapsed = performance.now() - start;
+    const elapsed = threadCpuWorkMs() - start;
     if (elapsed > maxMs) maxMs = elapsed;
-    assert.ok(elapsed < 100, `vague query '${query}' took ${elapsed}ms`);
+    assert.ok(elapsed < 100, `vague query '${query}' did ${elapsed}ms of CPU work`);
     const top = result.results[0];
     if (top !== undefined && top.symbol.name === expectedSymbol) top1Hits++;
     if (top !== undefined && !top.filePath.startsWith(expectedDir)) wrongDir++;
@@ -395,11 +398,12 @@ test("exp429 search HARD: 50+ multi-language name-form queries — top-1 >80%, <
   let maxMs = 0;
   for (const { query, expectedSymbol, expectedDir } of queries) {
     const q = createSymbolSearchQuery({ name: query, matchMode: "fuzzy", limit: 5 });
-    const start = performance.now();
+    // CPU work, never wall time (NO-LOAD-BLOCK).
+    const start = threadCpuWorkMs();
     const result = hybridSearchSymbols(REPO_MAP, q);
-    const elapsed = performance.now() - start;
+    const elapsed = threadCpuWorkMs() - start;
     if (elapsed > maxMs) maxMs = elapsed;
-    assert.ok(elapsed < 100, `multi-lang query '${query}' took ${elapsed}ms`);
+    assert.ok(elapsed < 100, `multi-lang query '${query}' did ${elapsed}ms of CPU work`);
     const top = result.results[0];
     if (top !== undefined && top.symbol.name === expectedSymbol) top1Hits++;
     if (top !== undefined && !top.filePath.startsWith(expectedDir)) wrongDir++;

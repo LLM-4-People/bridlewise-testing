@@ -7,8 +7,10 @@
       ".github/workflows/ci.yml",
       ".github/workflows/codeql.yml",
       ".github/workflows/commit-records.yml",
+      ".github/workflows/community.yml",
       ".github/workflows/dependency-review.yml",
       ".github/workflows/docs-links.yml",
+      ".github/workflows/forge-apps-audit.yml",
       ".github/workflows/pages.yml",
       ".github/workflows/reusable-workflow-failure.yml",
       ".github/workflows/scorecard.yml",
@@ -44,8 +46,10 @@
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/secret-scan.yml",
@@ -63,12 +67,26 @@
       "usedIn": [
         ".github/workflows/ci.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",
         ".github/workflows/test-shards.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The Node tarball it installs is pinned by the node-runtime surface; a moved action SHA is refused until this declaration moves with it."
+    },
+    {
+      "id": "actions/create-github-app-token",
+      "kind": "github-action",
+      "pinned": {
+        "commit": "fee1f7d63c2ff003460e3d139729b119787bc349",
+        "version": "v2.2.2"
+      },
+      "usedIn": [
+        ".github/workflows/community.yml"
+      ],
+      "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. It mints the publisher App's installation token in the `publish` environment for the community bots, narrowed to the permissions each job names; a moved action SHA is refused until this declaration moves with it."
     },
     {
       "id": "actions/upload-artifact",
@@ -78,6 +96,7 @@
         "version": "v7"
       },
       "usedIn": [
+        ".github/workflows/ci.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/test-shards.yml"
       ],
@@ -163,6 +182,7 @@
         "version": "v1"
       },
       "usedIn": [
+        ".github/workflows/ci.yml",
         ".github/workflows/pages.yml"
       ],
       "drift": "This guard matches every `uses:` reference, its version comment, and its call sites against this entry. The action carries the Jekyll/Ruby builder image; its SHA is the only pin this tree can see for that image, so a moved tag or SHA is refused until this declaration moves with it."
@@ -237,8 +257,10 @@
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/dependency-review.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/reusable-workflow-failure.yml",
         ".github/workflows/scorecard.yml",
@@ -269,16 +291,18 @@
         ]
       },
       "usedIn": [
-        ".node-version",
-        ".nvmrc",
-        "package.json",
-        "engine/package.json",
         ".github/workflows/ci.yml",
         ".github/workflows/commit-records.yml",
+        ".github/workflows/community.yml",
         ".github/workflows/docs-links.yml",
+        ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",
         ".github/workflows/secret-scan.yml",
-        ".github/workflows/test-shards.yml"
+        ".github/workflows/test-shards.yml",
+        ".node-version",
+        ".nvmrc",
+        "engine/package.json",
+        "package.json"
       ],
       "drift": "The guard requires .node-version and .nvmrc to equal 24.20.0 and every workflow setup-node to read .nvmrc (node-version-file), refusing a workflow that spells an exact node-version; the two floor manifests to share >=24.18.0 <25.0.0; and every declared verification manifest to keep its exact 24.18.0 pin inside that floor range. Any tracked package.json with an engines.node outside this declaration is refused. A Node move changes the two pin files and the manifests."
     },
@@ -436,6 +460,19 @@
       "drift": "The compiler comes from the runner image and is PROBED, never installed: a network install only ever waited on a package mirror (#333), and the guard refuses any apt install line. The exact version is runner-image-specific, so the runner label and this name are the pin; each job logs the version it found. The compiler itself is declared once, by engine/guardian/Makefile (CC := gcc-14), and both call sites (.github/workflows/ci.yml and .github/workflows/test-shards.yml) probe this package and invoke that owner without a CC= literal. This is listed in knownExceptions; the owner is the guardian build owner."
     },
     {
+      "id": "runner-image:google-chrome",
+      "kind": "system-package",
+      "pinned": {
+        "package": "google-chrome",
+        "version": "as shipped in the ubuntu-24.04 runner image (the job logs `google-chrome --version`)",
+        "probe": "command -v google-chrome"
+      },
+      "usedIn": [
+        ".github/workflows/ci.yml"
+      ],
+      "drift": "The browser the rendered judgement drives (scripts/rendered/, CI's \"Rendered pages\" job) is the runner image's Google Chrome, PROBED, never installed or downloaded: the rules judge computed styles, fonts and requests, not pixels, so a browser that floats with the image is the right instrument and no browser download enters the build. The exact version is runner-image-specific; the runner label and this name are the pin, and the job logs the version it found."
+    },
+    {
       "id": "apt:build-essential",
       "kind": "system-package",
       "pinned": {
@@ -474,6 +511,11 @@
       "surface": "runner-image:gcc-14",
       "reason": "An exact version string is runner-image-specific and would drift with the provider's image; the runner label plus the declared package name is the reproducible pin available to this tree, and each job logs the version it found.",
       "owner": "engine/guardian/Makefile"
+    },
+    {
+      "surface": "runner-image:google-chrome",
+      "reason": "An exact browser version is runner-image-specific and would drift with the provider's image; the runner label plus the declared package name is the reproducible pin available to this tree, and the job logs the version it found.",
+      "owner": "scripts/rendered/judge.ts"
     },
     {
       "surface": "apt:build-essential",
