@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import { mergeShardReports } from "../../scripts/test-shard-merge.mjs";
 import {
-  MANIFEST_SCHEMA,
+  WEIGHTS_SCHEMA,
   SHARD_REPORT_SCHEMA,
   assignmentHash,
   planShards,
@@ -54,18 +54,26 @@ function shardReport(files, { success = true, tests = 1 } = {}) {
  * so the exact-assignment check is exercised rather than bypassed.
  */
 function planFixture(work, files, { shardCount = 1, excluded = [] } = {}) {
-  mkdirSync(join(work, "tests"), { recursive: true });
-  for (const file of files) writeFileSync(join(work, file), "");
-  const source = join(work, "source-manifest.json");
+  // The population is derived from the tree: the supported files, each excluded file declaring its own
+  // exclusion in its header, and the measured weights beside them.
+  for (const file of files) {
+    mkdirSync(dirname(join(work, file)), { recursive: true });
+    writeFileSync(join(work, file), "");
+  }
+  for (const { path, reason, evidence } of excluded) {
+    mkdirSync(dirname(join(work, path)), { recursive: true });
+    writeFileSync(join(work, path), `// @shard-exclude: ${reason} (evidence: ${evidence})\n`);
+  }
+  const source = join(work, "weights.json");
   writeJson(source, {
-    schemaVersion: MANIFEST_SCHEMA,
+    schemaVersion: WEIGHTS_SCHEMA,
     measuredHeadSha: HEAD,
     measuredAt: "2026-01-01T00:00:00.000Z",
-    files: files.map((file) => ({ path: file, weightMs: 1 })),
-    excluded,
+    weightSource: "fixture",
+    weights: files.map((file) => ({ path: file, weightMs: 1 })),
   });
   const planDir = join(work, "plan");
-  planShards({ root: work, manifestPath: source, shardCount, headSha: HEAD, outDir: planDir });
+  planShards({ root: work, weightsPath: source, shardCount, headSha: HEAD, outDir: planDir });
   const plan = JSON.parse(readFileSync(join(planDir, "plan.json"), "utf8"));
   return { planDir, manifest: join(planDir, "manifest.json"), planPath: join(planDir, "plan.json"), plan, source };
 }
@@ -110,7 +118,7 @@ function merge(work, fixture, shardPaths, overrides = {}) {
     root: work,
     manifestPath: fixture.manifest,
     planPath: fixture.planPath,
-    manifestSourcePath: fixture.source,
+    weightsPath: fixture.source,
     shardPaths,
     expectedShards: fixture.plan.shardCount,
     headSha: fixture.plan.headSha,
@@ -123,7 +131,7 @@ function merge(work, fixture, shardPaths, overrides = {}) {
 test("the shard merge accepts a complete disjoint manifest", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-merge-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"], { shardCount: 2 });
     const first = writeWrapped(work, fixture, 1, { tests: 2 });
     const second = writeWrapped(work, fixture, 2, { tests: 3 });
 
@@ -163,7 +171,7 @@ test("a plan that lies about its assignment hash is refused before any report is
   // produced.
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-merge-lie-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"], { shardCount: 2 });
     const first = writeWrapped(work, fixture, 1);
     const second = writeWrapped(work, fixture, 2);
     const lying = JSON.parse(readFileSync(fixture.planPath, "utf8"));
@@ -181,32 +189,26 @@ test("a plan that lies about its assignment hash is refused before any report is
 test("the receipt names the manifest exclusions and their evidence anchors", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-exclusions-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"], {
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"], {
       excluded: [
-        { path: "tests/private.test.ts", reason: "not published", evidence: "docs/floor/roadmap.md#snapshot" },
+        { path: "tests/unit/private.test.ts", reason: "not published", evidence: "docs/floor/roadmap.md#snapshot" },
       ],
     });
     const report = writeWrapped(work, fixture, 1, { tests: 4 });
 
-    const receipt = merge(work, fixture, [report], { manifestSourcePath: fixture.source });
+    const receipt = merge(work, fixture, [report], { weightsPath: fixture.source });
 
     assert.equal(receipt.excludedFileCount, 1);
     assert.deepEqual(receipt.exclusions, [
-      { path: "tests/private.test.ts", reason: "not published", evidence: "docs/floor/roadmap.md#snapshot" },
+      { path: "tests/unit/private.test.ts", reason: "not published", evidence: "docs/floor/roadmap.md#snapshot" },
     ]);
     assert.equal(receipt.passedTests, 4);
 
-    const mismatched = join(work, "mismatched.json");
-    writeJson(mismatched, {
-      schemaVersion: MANIFEST_SCHEMA,
-      measuredHeadSha: HEAD,
-      measuredAt: "2026-01-01T00:00:00.000Z",
-      files: [{ path: "tests/other.test.ts", weightMs: 1 }],
-      excluded: [],
-    });
+    // The tree moved after the plan (a test file appeared): the population re-derived here is not the plan's.
+    writeFileSync(join(work, "tests/unit/other.test.ts"), "");
     assert.throws(
-      () => merge(work, fixture, [report], { manifestSourcePath: mismatched }),
-      /manifest source: hash does not match/,
+      () => merge(work, fixture, [report]),
+      /population: hash does not match the supplied manifest/,
     );
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -216,7 +218,7 @@ test("the receipt names the manifest exclusions and their evidence anchors", () 
 test("a wrapped report whose timing contradicts itself or its own run is refused", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-timing-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
     const raw = join(work, "raw.json");
     const wrapped = join(work, "wrapped.json");
     writeJson(raw, shardReport(plannedFiles(work, fixture, 1)));
@@ -246,7 +248,7 @@ test("a wrapped report whose timing contradicts itself or its own run is refused
 test("the shard merge refuses a missing file", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-missing-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"], { shardCount: 2 });
     const first = writeWrapped(work, fixture, 1);
     const second = writeWrapped(work, fixture, 2, { files: [] });
     assert.throws(() => merge(work, fixture, [first, second]), /missing 1 manifest file/);
@@ -258,9 +260,9 @@ test("the shard merge refuses a missing file", () => {
 test("the shard merge refuses a duplicate file", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-duplicate-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
     const first = writeWrapped(work, fixture, 1, {
-      files: [...plannedFiles(work, fixture, 1), join(work, "tests/b.test.ts"), join(work, "tests/b.test.ts")],
+      files: [...plannedFiles(work, fixture, 1), join(work, "tests/unit/b.test.ts"), join(work, "tests/unit/b.test.ts")],
     });
     assert.throws(() => merge(work, fixture, [first]), /duplicate test file/);
   } finally {
@@ -271,7 +273,7 @@ test("the shard merge refuses a duplicate file", () => {
 test("the shard merge refuses a failed shard or a report outside the root", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-refuse-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
     const failed = writeWrapped(work, fixture, 1, { success: false });
     assert.throws(() => merge(work, fixture, [failed]), /success=false/);
 
@@ -287,7 +289,7 @@ test("the shard merge refuses a failed shard or a report outside the root", () =
 test("the shard merge refuses a row that records a failed suite while the summary counts are green", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-failed-suite-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
     const report = writeWrapped(work, fixture, 1, { tests: 2 });
     const wrapped = JSON.parse(readFileSync(report, "utf8"));
     // The defect: every summary integer says green, and only the test-level
@@ -326,7 +328,7 @@ test("the shard merge derives its counts from the rows and refuses an omitted ro
   // rows are the only record of what ran; the integers are a claim about it.
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-row-counts-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
 
     // Two claimed tests, one suite row, no assertion rows.
     const omitted = writeWrapped(work, fixture, 1, { tests: 2 });
@@ -362,7 +364,7 @@ test("the shard merge refuses a passed row that carries a failure message", () =
   // report could keep its failure text while claiming every row passed.
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-failure-text-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
 
     const testLied = writeWrapped(work, fixture, 1);
     const testDoc = JSON.parse(readFileSync(testLied, "utf8"));
@@ -400,13 +402,13 @@ test("a hand-falsified plan with a recomputed assignment hash is refused", () =>
   // Re-derive it from the measured manifest and refuse the disagreement.
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-falsified-plan-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts", "tests/c.test.ts"], {
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts", "tests/unit/c.test.ts"], {
       shardCount: 2,
     });
     // Canonical LPT (all weights 1) is shard 1 = [a, c], shard 2 = [b].
     fixture.plan.shards = [
-      { index: 1, weightMs: 2, files: ["tests/a.test.ts", "tests/b.test.ts"] },
-      { index: 2, weightMs: 1, files: ["tests/c.test.ts"] },
+      { index: 1, weightMs: 2, files: ["tests/unit/a.test.ts", "tests/unit/b.test.ts"] },
+      { index: 2, weightMs: 1, files: ["tests/unit/c.test.ts"] },
     ];
     fixture.plan.assignmentHash = assignmentHash(fixture.plan.shards);
     writeJson(fixture.planPath, fixture.plan);
@@ -420,9 +422,9 @@ test("a hand-falsified plan with a recomputed assignment hash is refused", () =>
     // The exact round-5 shape: every file in shard 1, shard 2 empty, hash
     // recomputed. The old merge wrote a receipt with `shardCount: 2` while
     // one shard had run nothing.
-    const emptyShardFixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const emptyShardFixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"], { shardCount: 2 });
     emptyShardFixture.plan.shards = [
-      { index: 1, weightMs: 2, files: ["tests/a.test.ts", "tests/b.test.ts"] },
+      { index: 1, weightMs: 2, files: ["tests/unit/a.test.ts", "tests/unit/b.test.ts"] },
       { index: 2, weightMs: 0, files: [] },
     ];
     emptyShardFixture.plan.assignmentHash = assignmentHash(emptyShardFixture.plan.shards);
@@ -441,7 +443,7 @@ test("a hand-falsified plan with a recomputed assignment hash is refused", () =>
 test("a plan with a zero-file shard is refused while the manifest is non-empty", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-zero-file-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"], { shardCount: 2 });
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"], { shardCount: 2 });
     // Keep the canonical first shard and empty the second.
     fixture.plan.shards[1] = { index: 2, weightMs: 0, files: [] };
     fixture.plan.assignmentHash = assignmentHash(fixture.plan.shards);
@@ -460,7 +462,7 @@ test("a plan with a zero-file shard is refused while the manifest is non-empty",
 test("the shard merge refuses a wrapped report that does not declare its failed-suite count", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-absent-count-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
     const report = writeWrapped(work, fixture, 1, { counts: { numFailedTestSuites: undefined } });
     // `writeWrapped` spreads `undefined` away in JSON, which is the wire
     // shape this arm needs: the field is absent.
@@ -478,7 +480,7 @@ test("the shard merge refuses a wrapped report that does not declare its failed-
 test("the shard merge refuses skipped or todo tests", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-skipped-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
     const report = writeWrapped(work, fixture, 1, { counts: { numPendingTests: 1 } });
     assert.throws(() => merge(work, fixture, [report]), /skipped and 0 todo test/);
   } finally {
@@ -497,7 +499,7 @@ test("the shard merge refuses skipped or todo tests", () => {
 test("a raw (unwrapped) shard report is refused even against a non-empty manifest", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-raw-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts", "tests/b.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
     const rawEmpty = join(work, "raw-empty.json");
     writeJson(rawEmpty, shardReport([]));
     assert.throws(
@@ -513,7 +515,7 @@ test("a raw (unwrapped) shard report is refused even against a non-empty manifes
 test("a merge without --plan is refused before it can name the caller's head", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-noplan-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
     const wrapped = writeWrapped(work, fixture, 1);
     assert.throws(
       () => merge(work, fixture, [wrapped], { planPath: undefined }),
@@ -527,7 +529,7 @@ test("a merge without --plan is refused before it can name the caller's head", (
 test("a shard without a measured timing window is refused by default", () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-notiming-"));
   try {
-    const fixture = planFixture(work, ["tests/a.test.ts"]);
+    const fixture = planFixture(work, ["tests/unit/a.test.ts"]);
     const wrapped = writeWrapped(work, fixture, 1, { timing: false });
     assert.throws(() => merge(work, fixture, [wrapped]), /no measured shard timing/u);
   } finally {

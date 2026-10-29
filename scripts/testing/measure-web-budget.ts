@@ -3,8 +3,6 @@
  *
  *   npm run budget:measure -- --check    # what the ledger measures now (exit 1 when it differs from the declared floor, or cannot measure)
  *   npm run budget:measure -- --write    # record the measured floor and its population in the settings document
- *   node scripts/testing/measure-web-budget.ts --population --write|--check
- *                                        # the harness arm: harness sync writes the accumulation population, harness check judges it
  *
  * The web suite's CPU budget floor (`testExecution.webUiSuiteCpuBudget.
  * baselineFloorUnitsPerTestFile`, in the declared `calibrated-work/v1` unit,
@@ -23,9 +21,10 @@
  * raw-CPU floor has no calibration reading, so no arithmetic turns it into
  * calibrated work, and the new floor is derived later from the new-metric
  * rows alone. That is the honest state of a unit migration, not a failure to
- * measure. Its POPULATION (`derivedAtTestFileCount`, the supported files the
- * window is filled at) is still this tool's to write: `--write` records the
- * live count, `--check` reports a drifted one. Nobody types it.
+ * measure. Its POPULATION is not a committed number either: in accumulation
+ * the window is filled at the live supported population, derived on every
+ * read (`readCpuBudget`), so no branch that adds a test edits a shared count.
+ * A measured floor records the population it was measured at, with it.
  *
  * The write goes through the engine's one config-path writer (the config
  * write lock and the whole-document schema gate), so the document stays the
@@ -56,15 +55,6 @@ export type WebBudgetReport = Readonly<{
 }>;
 
 /**
- * What an accumulation-phase declaration's population needs: `current` when
- * it equals the live supported population, else `drifted` (check) or `write`.
- */
-export function accumulationPopulation(declared: number, live: number, write: boolean): "current" | "drifted" | "write" {
-  if (declared === live) return "current";
-  return write ? "write" : "drifted";
-}
-
-/**
  * The engine's settings document, the one this tool writes. The document
  * measured is the one written (WF-1b3b design LOW 12): the budget was read
  * from the web server's settings document, which HARNESS_CONFIG_PATH may move
@@ -90,6 +80,12 @@ function engineDocumentStore(): ReturnType<typeof createEngineCustomizationConfi
  * settings document, marked incomparable; the new floor is derived from the
  * new-metric rows alone once the window is full.
  */
+/** The accumulation population `readCpuBudget` derived for the web suite; its absence is a reader defect, refused. */
+function derivedPopulation(population: number | undefined): number {
+  if (population === undefined) throw new InputError("the web budget's accumulation population was not derived (readCpuBudget derives it from the live supported files)", "web_budget_population_underived");
+  return population;
+}
+
 export function measureWebBudget(write: boolean, ledgerPath?: string): WebBudgetReport {
   const budget = readCpuBudget();
   if ("missing" in budget) throw new InputError(budget.missing, "web_budget_undeclared");
@@ -99,7 +95,8 @@ export function measureWebBudget(write: boolean, ledgerPath?: string): WebBudget
     // calibrated work.
     const declared = {
       floorUnitsPerTestFile: null,
-      derivedAtTestFileCount: budget.derivedAtTestFileCount ?? budget.legacy?.derivedAtTestFileCount ?? 0,
+      // In accumulation the population is the live supported one (readCpuBudget derives it, always).
+      derivedAtTestFileCount: derivedPopulation(budget.derivedAtTestFileCount),
     };
     const legacy = budget.legacy;
     const measurement: BudgetFloorMeasurement = {
@@ -119,17 +116,7 @@ export function measureWebBudget(write: boolean, ledgerPath?: string): WebBudget
       windowRuns: budget.minimumJudgedRuns,
       derivedAtTestFileCount: declared.derivedAtTestFileCount,
     };
-    // THE POPULATION IS STILL GENERATED IN ACCUMULATION. There is no floor to
-    // derive, but the declaration names the population the new-metric window
-    // is filled at, and that is a measurement (the manifest's supported files),
-    // never a number typed in: --write records it, --check reports its drift.
-    const live = fullRunModuleCount();
-    const action = accumulationPopulation(declared.derivedAtTestFileCount, live, write);
-    if (action === "current") return Object.freeze({ measurement, declared, status: "migrating" });
-    if (action === "drifted") return Object.freeze({ measurement: { ...measurement, derivedAtTestFileCount: live }, declared, status: "drifted" });
-    installCustomizationConfigStore(engineDocumentStore());
-    writeConfigCustomization(WEB_BUDGET_FLOOR_PATHS.population, live);
-    return Object.freeze({ measurement: { ...measurement, derivedAtTestFileCount: live }, declared, status: "written" });
+    return Object.freeze({ measurement, declared, status: "migrating" });
   }
   const declared = {
     floorUnitsPerTestFile: budget.baselineFloorUnitsPerTestFile,
@@ -145,58 +132,11 @@ export function measureWebBudget(write: boolean, ledgerPath?: string): WebBudget
   return Object.freeze({ measurement, declared, status: "written" });
 }
 
-/** The generator protocol `harness sync` and `harness check` read: one JSON line, the last one. */
-export type PopulationSync = Readonly<{ allCurrent: boolean; status: "current" | "regenerated" | "stale"; changed: readonly string[]; population: number; phase: "accumulation" | "measured" }>;
-
-/** Where the population arm reads the declaration and the live count, and how it records a new count (the settings document; a test hands its own). */
-export type PopulationSources = Readonly<{ budget: () => ReturnType<typeof readCpuBudget>; live: () => number; record: (population: number) => void }>;
-
-const LIVE_SOURCES: PopulationSources = Object.freeze({
-  budget: readCpuBudget,
-  live: fullRunModuleCount,
-  record: (population: number): void => {
-    installCustomizationConfigStore(engineDocumentStore());
-    writeConfigCustomization(WEB_BUDGET_FLOOR_PATHS.population, population);
-  },
-});
-
-/** The settings document the population lives in, repository-relative (the engine's own). */
-const POPULATION_DOCUMENT = "engine/bridlewise.config.json";
-
-/**
- * THE POPULATION, GENERATED BY `harness sync` — so no pull request ever
- * types it. In the accumulation phase the declaration's population is the
- * live supported population, written here on every sync (and judged by
- * `harness check`): a new test file moves it in the same commit, through the
- * generator. In the measured phase the population is the one the floor was
- * measured at — a fact of that measurement, written with it by `--write`,
- * never moved without it — so the arm leaves it and the suite's population
- * drift gate decides when the floor must be measured again.
- */
-export function syncWebBudgetPopulation(write: boolean, sources: PopulationSources = LIVE_SOURCES): PopulationSync {
-  const budget = sources.budget();
-  if ("missing" in budget) throw new InputError(budget.missing, "web_budget_undeclared");
-  if (!("phase" in budget)) return Object.freeze({ allCurrent: true, status: "current", changed: [], population: budget.derivedAtTestFileCount, phase: "measured" });
-  const declared = budget.derivedAtTestFileCount ?? budget.legacy?.derivedAtTestFileCount ?? 0;
-  const live = sources.live();
-  const action = accumulationPopulation(declared, live, write);
-  if (action === "current") return Object.freeze({ allCurrent: true, status: "current", changed: [], population: live, phase: "accumulation" });
-  if (action === "drifted") return Object.freeze({ allCurrent: false, status: "stale", changed: [POPULATION_DOCUMENT], population: live, phase: "accumulation" });
-  sources.record(live);
-  return Object.freeze({ allCurrent: true, status: "regenerated", changed: [POPULATION_DOCUMENT], population: live, phase: "accumulation" });
-}
-
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  const { values } = parseArgs({ args: process.argv.slice(2), options: { check: { type: "boolean" }, write: { type: "boolean" }, population: { type: "boolean" } }, strict: true, allowPositionals: false });
-  if (values.check === values.write) throw new InputError("usage: measure-web-budget [--population] --check | --write", "web_budget_usage");
-  if (values.population === true) {
-    const report = syncWebBudgetPopulation(values.write === true);
-    process.stdout.write(`${JSON.stringify(report)}\n`);
-    process.exitCode = report.allCurrent ? 0 : 1;
-  } else {
-    const report = measureWebBudget(values.write === true);
-    process.stdout.write(`${JSON.stringify(report)}\n`);
-    process.exitCode = report.status === "current" || report.status === "written" ? 0 : 1;
-  }
+  const { values } = parseArgs({ args: process.argv.slice(2), options: { check: { type: "boolean" }, write: { type: "boolean" } }, strict: true, allowPositionals: false });
+  if (values.check === values.write) throw new InputError("usage: measure-web-budget --check | --write", "web_budget_usage");
+  const report = measureWebBudget(values.write === true);
+  process.stdout.write(`${JSON.stringify(report)}\n`);
+  process.exitCode = report.status === "current" || report.status === "written" ? 0 : 1;
 }
