@@ -2502,8 +2502,9 @@ const ROOT_POLICY_VALUE = {
       // writes (#655: forgeable, to move to the runner outside); the config's
       // write locks (a settings test takes
       // the live config's; a lock carries no content a later run trusts); and
-      // the engine suite's schedule the worker writes (an order, not a trust).
-      writablePlaces: [statePath("test-fixtures"), statePath("web-test-results"), statePath("config-locks"), statePath("test-schedule")],
+      // the engine suite's schedule the worker writes (an order, not a trust);
+      // and the browser runs' reports (output, never read back as a verdict).
+      writablePlaces: [statePath("test-fixtures"), statePath("web-test-results"), statePath("config-locks"), statePath("test-schedule"), statePath("browser-results")],
       // The in-process door's state roots (a process under test writes no
       // tracked file; the runners outside a confined run write their ledgers
       // there): every place above lies in one of them.

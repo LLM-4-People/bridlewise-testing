@@ -12,6 +12,8 @@
  * (`VITEST` set, mode `test`), naming the runner's own config.
  */
 import { globSync } from "node:fs";
+import { join } from "node:path";
+import { enclosingTestRunScratch } from "./engine/src/filesystem/checkout-write-door.ts";
 import { serviceWorkerDigestPlugin } from "./scripts/service-worker-cache.ts";
 import { defineConfig, type ConfigEnv, type UserConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
@@ -218,5 +220,8 @@ export default defineConfig((env: ConfigEnv): UserConfig => {
   if (process.env.VITEST !== undefined && env.mode === "test") {
     throw new Error("vite.config.ts is the build's configuration, not the web test runner's: vitest given it would run every default-included file with no run lock, no checkout write door and no key home. Run the suite through vitest.config.ts (`npm test`, or `npx vitest` with no --config).");
   }
-  return BUILD_CONFIG;
+  // Inside a confined test run (the browser routes start this dev server through the one test-execution door), the
+  // optimizer's cache goes to the run's own scratch: the checkout's node_modules/.vite is read-only to the run.
+  const scratch = enclosingTestRunScratch();
+  return scratch === undefined ? BUILD_CONFIG : { ...BUILD_CONFIG, cacheDir: join(scratch, "vite") };
 });
