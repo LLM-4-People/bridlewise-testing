@@ -58,7 +58,7 @@
  * slips it catches; the process rule (never use them on this checkout's
  * index) lives in the process documentation (docs/process/WORKFLOW.md).
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { lstatSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
@@ -297,6 +297,25 @@ export function indexBaselineSummary(root: string): string {
   return `drifted: lost ${state.lost.join(", ")}`;
 }
 
+/**
+ * The named paths an ignore rule keeps out, each with the rule (`<source>:<line>:<pattern>`): git's own
+ * `check-ignore -v`, which never reports a tracked file. Exit 1 is git's "none is ignored".
+ */
+function ignoringRules(top: string, paths: readonly string[]): readonly Readonly<{ path: string; rule: string }>[] {
+  if (paths.length === 0) return [];
+  // The paths travel on stdin, NUL-separated (`-z` needs `--stdin`): any legal name, never an option.
+  const answer = spawnSync("git", ["-c", "gc.auto=0", "check-ignore", "-v", "-z", "--stdin"], {
+    cwd: top, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes, env: directoryGitEnvironment(), input: `${paths.join("\0")}\0`,
+  });
+  if (answer.status === 1) return [];
+  if (answer.status !== 0) throw new HarnessError(`stage: git check-ignore failed: ${(answer.stderr ?? "").trim()}`, "stage_ignore_unreadable");
+  // -v -z records: <source> NUL <line> NUL <pattern> NUL <path> NUL.
+  const fields = answer.stdout.split("\0");
+  const found: { path: string; rule: string }[] = [];
+  for (let at = 0; at + 3 < fields.length; at += 4) found.push({ path: fields[at + 3]!, rule: `${fields[at]!}:${fields[at + 1]!}:${fields[at + 2]!}` });
+  return found;
+}
+
 /** Why a named path cannot be staged as it is spelled, or null: a repository-relative path, literal, inside the checkout. */
 function unstageablePathSpelling(path: string): string | null {
   if (path.length === 0 || path.startsWith("-")) return "is not a path";
@@ -327,6 +346,15 @@ export function stagePaths(root: string, named: readonly string[]): Readonly<{ s
       throw new HarnessError(`stage: ${path} does not exist in ${top}; name each new file by its path from the repository top`, "stage_path_missing", false, { path });
     }
     if (isDirectory) throw new HarnessError(`stage: ${path} is a folder; staging it would stage files nobody named, so name each new file in it`, "stage_path_directory", false, { path });
+  }
+  const ignored = ignoringRules(top, named);
+  if (ignored.length > 0) {
+    throw new HarnessError(
+      `stage: ${ignored.map(({ path, rule }) => `${path} is ignored by ${rule}`).join("; ")}; an ignored file is kept out of the repository on purpose, so it is never staged (change the rule if it belongs in the repository)`,
+      "stage_path_ignored",
+      false,
+      { paths: ignored.map(({ path }) => path).join(",") },
+    );
   }
   assertIndexAtBaseline(top);
   const modified = gitNulRecords(top, ["diff", "--name-only", "-z"], "directory");

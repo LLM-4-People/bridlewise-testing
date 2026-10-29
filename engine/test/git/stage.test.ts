@@ -3,7 +3,7 @@
  * `stagePaths`). In a planted repository: the tracked files the working tree
  * changed (edits and deletions) and the new paths named are staged, each by
  * its literal path, and nothing unnamed ever is; a named path that is badly
- * spelled, missing or a folder refuses; a drifted index refuses; a change over
+ * spelled, missing, a folder or ignored refuses; a drifted index refuses; a change over
  * a protected staged blob refuses; each refusal leaves the index untouched.
  * `ws create` prints the stage command in the workspace's instructions.
  */
@@ -78,6 +78,25 @@ test("a named path badly spelled, missing or a folder refuses, before the index 
     assert.throws(() => stagePaths(root, ["lib/named.ts", path]), refusedWith(code), JSON.stringify(path));
     assert.equal(stagedStatus(root), "", `${JSON.stringify(path)}: nothing was staged`);
   }
+});
+
+test("a named ignored path refuses with its own code, naming the rule; a tracked file an ignore rule would match still stages", () => {
+  const root = plantedRepository();
+  writeFileSync(join(root, ".gitignore"), "*.log\n");
+  git(root, "add", "--", ".gitignore");
+  git(root, "commit", "-q", "-m", "ignore logs");
+  writeFileSync(join(root, "lib", "run.log"), "raw output\n");
+  assert.throws(
+    () => stagePaths(root, ["lib/named.ts", "lib/run.log"]),
+    (error: unknown) => (error as { code?: string }).code === "stage_path_ignored" && (error as Error).message.includes("lib/run.log is ignored by .gitignore:1:*.log"),
+  );
+  assert.equal(stagedStatus(root), "", "nothing was staged");
+  // A tracked file is never ignored: force-tracked once, it stages as a modification like any other.
+  git(root, "add", "-f", "--", "lib/run.log");
+  git(root, "commit", "-q", "-m", "keep one log");
+  writeFileSync(join(root, "lib", "run.log"), "edited\n");
+  stagePaths(root, ["lib/run.log"]);
+  assert.match(stagedStatus(root), /^M\tlib\/run\.log$/mu);
 });
 
 test("a change over a protected staged blob refuses, and so does a drifted index; the index stays as it was", () => {
