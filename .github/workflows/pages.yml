@@ -98,10 +98,10 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # The builder reads the site configuration with the repository's one
-      # YAML reader (the yaml package).
-      - name: Install web dependencies
-        run: npm ci --no-audit --no-fund --ignore-scripts
+      # The site builder's one setup (web and engine dependencies, the
+      # config's mode), shared with every checkout the visual job builds.
+      - name: Set up the site build
+        uses: ./.github/actions/site-build-setup
 
       - name: Configure Pages
         id: pages
@@ -112,12 +112,6 @@ jobs:
       # then the folder is empty and the site lists no versions.
       - name: Collect the released docs snapshots
         run: mkdir -p "$RUNNER_TEMP/versions"
-
-      - name: Install the engine (the builder and the floor read through the forge port)
-        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
 
       - name: Build the site source
         env:
@@ -204,15 +198,18 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - name: Install web dependencies
-        run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Set up the site build
+        uses: ./.github/actions/site-build-setup
 
       - name: Check out the base commit
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-        run: |
-          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
-          npm ci --prefix "$RUNNER_TEMP/base" --no-audit --no-fund --ignore-scripts
+        run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+
+      - name: Set up the base commit's site build
+        uses: ./.github/actions/site-build-setup
+        with:
+          root: ${{ runner.temp }}/base
 
       # Each source step writes its own OFFLINE floor snapshot (no live run
       # enters a picture), so base and head differ only by their trees.

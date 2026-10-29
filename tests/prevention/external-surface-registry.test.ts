@@ -22,7 +22,7 @@
  *   action-pin / action-version-comment
  *       every external `uses:` is `owner/repo[/path]@<40-hex> # vN[.N[.N]]`;
  *       the commit and comment equal the registry entry.
- *   action-undeclared / local-workflow-undeclared
+ *   action-undeclared / local-workflow-undeclared / local-action-undeclared
  *       an action or reusable workflow the registry does not declare.
  *   image-digest / image-undeclared
  *       every `FROM`, `image:` and devcontainer feature carries
@@ -83,7 +83,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { isMap, isScalar, isSeq, parseDocument, type Document } from "yaml";
 
@@ -112,7 +112,7 @@ type KnownException = Readonly<{ surface: string; reason: string; owner: string 
 
 type Registry = Readonly<{
   schemaVersion: string;
-  universe: Readonly<{ workflows: readonly string[]; build: readonly string[] }>;
+  universe: Readonly<{ workflows: readonly string[]; actions?: readonly string[]; build: readonly string[] }>;
   surfaces: readonly Surface[];
   knownExceptions: readonly KnownException[];
 }>;
@@ -177,10 +177,16 @@ function overlayTree(base: Tree, edits: ReadonlyMap<string, string | null>): Tre
     },
     list(dir) {
       const names = new Set(base.list(dir));
+      const prefix = dir === "." ? "" : `${dir}/`;
       for (const [path, text] of normalised) {
-        if (dirname(path) !== dir) continue;
-        const name = path.slice(dir === "." ? 0 : dir.length + 1);
-        if (name.includes("/")) continue;
+        if (!path.startsWith(prefix)) continue;
+        const rest = path.slice(prefix.length);
+        const [name = ""] = rest.split("/");
+        // A planted file in a subfolder plants the subfolder, as the disk lists it.
+        if (rest.includes("/")) {
+          if (text !== null) names.add(name);
+          continue;
+        }
         if (text === null) names.delete(name);
         else names.add(name);
       }
@@ -320,6 +326,11 @@ function audit(tree: Tree): Finding[] {
   const universeRaw = raw["universe"];
   const workflows = isRecord(universeRaw) ? stringArray(universeRaw["workflows"]) : null;
   const build = isRecord(universeRaw) ? stringArray(universeRaw["build"]) : null;
+  // Local composite actions (`.github/actions/<name>/action.yml`): steps a
+  // workflow calls, scanned and declared exactly like a workflow's own.
+  const actionsRaw = isRecord(universeRaw) && "actions" in universeRaw ? stringArray(universeRaw["actions"]) : [];
+  if (actionsRaw === null) findings.push({ rule: "registry-schema", detail: "the action universe must be a list of paths" });
+  const localActions = actionsRaw ?? [];
   if (workflows === null || workflows.length === 0) {
     findings.push({ rule: "workflow-universe", detail: "the registry must declare a non-empty workflow universe" });
     return findings;
@@ -334,6 +345,8 @@ function audit(tree: Tree): Finding[] {
   if (new Set(build).size !== build.length) {
     findings.push({ rule: "registry-schema", detail: "the build universe repeats a path" });
   }
+  // Every file whose steps the guard reads: the workflows and the local actions they call.
+  const scanned = [...workflows, ...localActions];
 
   const surfaceRaw = raw["surfaces"];
   const surfaces: Surface[] = [];
@@ -344,6 +357,7 @@ function audit(tree: Tree): Finding[] {
   const knownKinds = new Set([
     "github-action",
     "local-workflow",
+    "local-action",
     "runner",
     "node-runtime",
     "package-manager",
@@ -466,6 +480,18 @@ function audit(tree: Tree): Finding[] {
       });
     }
   }
+  const actualActions = tree
+    .list(".github/actions")
+    .map((name) => `.github/actions/${name}/action.yml`)
+    .filter((path) => tree.has(path));
+  for (const path of actualActions) {
+    if (!localActions.includes(path)) {
+      findings.push({ rule: "workflow-universe", detail: `${path} is a local action outside the enumerated universe; a new action escaped the guard` });
+    }
+  }
+  for (const path of localActions) {
+    if (!tree.has(path)) findings.push({ rule: "workflow-universe", detail: `declared local action ${path} is missing` });
+  }
   for (const path of workflows) {
     if (!tree.has(path)) findings.push({ rule: "workflow-universe", detail: `declared workflow ${path} is missing` });
   }
@@ -524,10 +550,29 @@ function audit(tree: Tree): Finding[] {
   const actionsById = new Map(actions.map((surface) => [surface.id, surface]));
   const actualActionFiles = new Map<string, Set<string>>();
   const actualLocalFiles = new Map<string, Set<string>>();
-  for (const path of workflows) {
+  const actualLocalActionFiles = new Map<string, Set<string>>();
+  for (const path of scanned) {
     if (!tree.has(path)) continue;
     const text = tree.read(path);
     for (const use of scanUses(text)) {
+      if (use.ref.startsWith("./.github/actions/")) {
+        const target = `${use.ref.slice(2)}/action.yml`;
+        if (!localActions.includes(target) || !tree.has(target)) {
+          findings.push({ rule: "local-action-undeclared", detail: `${path}:${use.line} calls ${use.ref}, which is not a local action in the enumerated universe` });
+        }
+        const declared = registry.surfaces.find((surface) => surface.kind === "local-action" && surface.id === use.ref);
+        if (declared === undefined) {
+          findings.push({ rule: "local-action-undeclared", detail: `${path}:${use.line} calls undeclared local action ${use.ref}` });
+        } else {
+          if (declared.pinned["path"] !== target) {
+            findings.push({ rule: "local-action-undeclared", detail: `${use.ref} declares a different target than ${target}` });
+          }
+          const set = actualLocalActionFiles.get(use.ref) ?? new Set<string>();
+          set.add(path);
+          actualLocalActionFiles.set(use.ref, set);
+        }
+        continue;
+      }
       if (use.ref.startsWith("./")) {
         const target = use.ref.slice(2);
         if (!workflowUniverseIncludes(workflows, target) || !tree.has(target)) {
@@ -594,6 +639,9 @@ function audit(tree: Tree): Finding[] {
   }
   for (const local of ofKind("local-workflow")) {
     compareUsedIn(local, actualLocalFiles.get(local.id) ?? new Set<string>(), "local-workflow-usedin-mismatch");
+  }
+  for (const local of ofKind("local-action")) {
+    compareUsedIn(local, actualLocalActionFiles.get(local.id) ?? new Set<string>(), "local-action-usedin-mismatch");
   }
 
   // ── one CodeQL release across every entry ─────────────────────────────
@@ -685,7 +733,7 @@ function audit(tree: Tree): Finding[] {
   // Workflow-level containers are images too. The scan used to walk `build`
   // only, so a job's `container: image:` was outside the checked population
   // entirely: no digest requirement, no declaration, no usedIn accounting.
-  for (const path of workflows) {
+  for (const path of scanned) {
     if (!tree.has(path)) continue;
     const lines = tree.read(path).split(/\r?\n/);
     let containerIndent: number | null = null;
@@ -792,7 +840,7 @@ function audit(tree: Tree): Finding[] {
       if (!pinFiles.includes(pinFile)) {
         findings.push({ rule: "node-range", detail: `the node-runtime surface must list ${pinFile} in pinFiles` });
       }
-      for (const path of workflows) {
+      for (const path of scanned) {
         if (!tree.has(path)) continue;
         const text = tree.read(path);
         const lines = text.split(/\r?\n/);
@@ -821,7 +869,7 @@ function audit(tree: Tree): Finding[] {
       }
 
       const actualNodeFiles = new Set<string>([...pinFiles, ...floorManifests]);
-      for (const path of workflows) {
+      for (const path of scanned) {
         if (!tree.has(path)) continue;
         if (/^\s*node-version-file:\s*\.nvmrc\s*$/m.test(tree.read(path))) actualNodeFiles.add(path);
       }
@@ -1271,6 +1319,16 @@ describe("external surfaces — plants fail for the defect they name", () => {
     const rogue = "name: Rogue\non:\n  workflow_dispatch:\npermissions:\n  contents: read\njobs: {}\n";
     const findings = planted({ ".github/workflows/rogue.yml": rogue });
     expectRule(findings, "workflow-universe", ".github/workflows/rogue.yml");
+  });
+
+  test("a local composite action is in the universe: an undeclared one is refused, its steps are read, and every call site is declared", () => {
+    const rogue = "name: Rogue\ndescription: x\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: true\n";
+    expectRule(planted({ ".github/actions/rogue/action.yml": rogue }), "workflow-universe", ".github/actions/rogue/action.yml");
+    const setup = LIVE.read(".github/actions/site-build-setup/action.yml");
+    expectRule(planted({ ".github/actions/site-build-setup/action.yml": `${setup}\n    - uses: example/hidden-action@v1\n` }), "action-pin", "example/hidden-action@v1");
+    const ci = LIVE.read(".github/workflows/ci.yml");
+    expectRule(planted({ ".github/workflows/ci.yml": `${ci}\n      - name: A second caller\n        uses: ./.github/actions/site-build-setup\n` }), "local-action-usedin-mismatch", ".github/workflows/ci.yml");
+    expectRule(planted({ ".github/workflows/ci.yml": `${ci}\n      - name: A call to nothing\n        uses: ./.github/actions/absent\n` }), "local-action-undeclared", "./.github/actions/absent");
   });
 
   test("an undeclared action is refused even when it is SHA-pinned", () => {
