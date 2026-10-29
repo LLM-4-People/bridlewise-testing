@@ -63,6 +63,7 @@
  */
 import { spawnSync } from "node:child_process";
 
+import { HarnessError } from "../kernel/errors.ts";
 import { parseStatLine, procfsDocument, STAT_FIELD } from "../process/process-facts.ts";
 import { DEFAULT_CPU_CALIBRATION_TIMEOUT_MS } from "../workflow/workflow-config.ts";
 
@@ -174,6 +175,122 @@ export function readRunCpu(
  * cost is not part of the unit.
  */
 export const SUITE_WORK_METRIC = "calibrated-work/v1" as const;
+
+/**
+ * THIS THREAD's CPU work so far, in ms, or null when the runtime gives no
+ * per-thread reading (`process.threadCpuUsage`).
+ *
+ * For timing ONE PIECE OF CODE (a microbenchmark's budget): a busy host
+ * makes the code WAIT for a core, which is wall time, never this number. It
+ * is also immune to work other threads in the process do (the GC's helpers,
+ * a worker), which `process.cpuUsage()` would add.
+ *
+ * ITS RESOLUTION IS THE SCHEDULER TICK, NOT A MICROSECOND. The kernel
+ * accounts a thread's time (`getrusage(RUSAGE_THREAD)`) in ticks: measured
+ * steps of about 4 ms at HZ=250 (median 3.8 ms, up to 4.8 ms), though the
+ * value is printed in microseconds. One reading of a short piece of code is
+ * therefore 0 or a whole tick. {@link cpuWorkOf} repeats the code until
+ * several ticks have passed and divides, which is the only honest way to
+ * time anything near a tick; never compare two raw readings against a
+ * budget of a few ticks.
+ *
+ * Null is a real answer: a budget with no measurement behind it must refuse
+ * to judge, never judge a zero.
+ */
+export function readThreadCpuMs(): number | null {
+  if (typeof process.threadCpuUsage !== "function") return null;
+  const { user, system } = process.threadCpuUsage();
+  return (user + system) / 1000;
+}
+
+/** The refusal of a CPU budget with no reading behind it, from the ONE door below. */
+function cpuReadingUnavailable(what: string): HarnessError {
+  return new HarnessError(
+    `${what} is unreadable on this runtime, so no CPU budget can be judged here: a judgement with no measurement behind it would pass everything`,
+    "cpu_reading_unavailable",
+  );
+}
+
+/**
+ * THE ONE REFUSING DOOR for a judged CPU reading of this process and its
+ * reaped children ({@link readRunCpu}): the reading in ms, or a typed
+ * refusal (`cpu_reading_unavailable`), never a zero. The per-test CPU
+ * classes (scripts/tooling/test-cpu-class.ts) read through it.
+ */
+export function requireRunCpuMs(): number {
+  const reading = readRunCpu();
+  if (reading === null) throw cpuReadingUnavailable("this process's CPU work (/proc/self/stat)");
+  return reading.totalCpuMs;
+}
+
+/** {@link readThreadCpuMs} through the same refusing door. */
+export function threadCpuWorkMs(): number {
+  const reading = readThreadCpuMs();
+  if (reading === null) throw cpuReadingUnavailable("this thread's CPU work (process.threadCpuUsage)");
+  return reading;
+}
+
+let probedTickMs: number | undefined;
+
+/**
+ * The step this thread's CPU reading moves in (the scheduler tick), PROBED
+ * on this host once per process: the LARGEST of sixteen steps seen while
+ * spinning. Never a constant: HZ is a kernel build choice. The largest, not
+ * a typical one: the reading also moves at a context switch, by less than a
+ * tick (measured: a 0.3 ms step on a 1 ms-tick host under load), and an
+ * underestimated tick would leave a sample short of the ticks it needs.
+ */
+export function threadCpuTickMs(): number {
+  if (probedTickMs !== undefined) return probedTickMs;
+  let largest = 0;
+  for (let step = 0; step < 16; step += 1) {
+    const from = threadCpuWorkMs();
+    let to = from;
+    while (to === from) to = threadCpuWorkMs();
+    largest = Math.max(largest, to - from);
+  }
+  probedTickMs = largest;
+  return largest;
+}
+
+/** How many ticks one sample of {@link cpuWorkOf} spans at least: the reading's error is then at most one tick in this many. */
+const CPU_WORK_MIN_TICKS = 8;
+/** The most calls one sample makes when the code does almost nothing: its per-call error is then at most a tick over this many. */
+const CPU_WORK_MAX_CALLS = 64;
+
+/**
+ * THE CPU WORK OF ONE CALL OF `fn`, in ms (NO-LOAD-BLOCK), for a
+ * performance budget. A busy host makes the code WAIT for a core, which this
+ * never counts; a wall clock around the same call judges the host
+ * (measured: sweep-perf failed a required shard at 144 ms against 100 under
+ * load).
+ *
+ * The reading moves in scheduler ticks ({@link readThreadCpuMs}), so one
+ * SAMPLE calls `fn` again and again (each call gets its own index, for a
+ * fixture that must differ per call) until at least
+ * {@link CPU_WORK_MIN_TICKS} ticks of work have passed, or
+ * {@link CPU_WORK_MAX_CALLS} calls were made, and divides by the calls. The
+ * least of `samples` samples is the answer: a collection pause or a cold
+ * cache is real work, but not the code's own.
+ */
+export function cpuWorkOf(fn: (call: number) => void, samples = 1): number {
+  const enough = CPU_WORK_MIN_TICKS * threadCpuTickMs();
+  let least = Number.POSITIVE_INFINITY;
+  let call = 0;
+  for (let sample = 0; sample < samples; sample += 1) {
+    const start = threadCpuWorkMs();
+    let calls = 0;
+    let spent = 0;
+    while (calls === 0 || (spent < enough && calls < CPU_WORK_MAX_CALLS)) {
+      fn(call);
+      call += 1;
+      calls += 1;
+      spent = threadCpuWorkMs() - start;
+    }
+    least = Math.min(least, spent / calls);
+  }
+  return least;
+}
 
 /** The calibration workload's identity — recorded with every reading. */
 const CALIBRATION_WORKLOAD = "int-mem-l2/v1" as const;

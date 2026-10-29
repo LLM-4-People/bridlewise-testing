@@ -4,6 +4,7 @@ The `tests/helpers/` folder of the development surface.
 
 ## What each file does
 
+- `flake-shim-loaded-runner.ts` — a reproduction shim (`harness flake reproduce --preload`, FLAKE-REPRO): every `performance.now()` read made from a test file first waits 20 ms without working, as a thread preempted on a loaded runner does; a wall-clock budget counts the wait, a CPU-work budget does not (NO-LOAD-BLOCK); never imported by a test.
 - `flake-shim-orchestration-run-id.ts` — a reproduction shim (`harness flake reproduce --preload`, FLAKE-REPRO): every `Math.random()` draw from `tests/unit/agent-orchestration.test.ts` answers one whose base-36 digits make `run-orch-tokens-…` read as a credential; never imported by a test.
 - `isolated-config.ts` — select a private harness config copy and assert original bytes/mode/nanosecond mtime/inode remain unchanged; `plantSettingsDocument` lands exact bytes the way an operator edit does and runs the request-start refresh (the config owner never reads the file per call).
 - `native-script.ts` — runs a module source in a fresh native Node process and returns its status and output (for tests of process-wide owners).

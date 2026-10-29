@@ -76,6 +76,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/build-floor-data.mjs --root . --out .site/floor/data
 
+      - name: Judge and render the claims
+        run: |
+          node engine/scripts/brand/cli.ts build \
+            --site .site \
+            --checks .site/floor/data/status.json
+
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
         with:
