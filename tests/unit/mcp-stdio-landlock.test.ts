@@ -52,7 +52,7 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -64,6 +64,9 @@ import { requireHost } from "../../engine/test/support/host-requirement.ts";
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const HARNESS_ROOT = join(REPO_ROOT, "engine");
 const FIXTURE = join(HARNESS_ROOT, "test", "mcp", "fixtures", "fs-probe-mcp-server.mjs");
+const HARNESS_CHECKOUT = join(import.meta.dirname, "..", "..");
+/** The server's own state folder (its database's, which the test setup puts in this worker's store): MCP homes live there. */
+const SERVER_STATE = dirname(resolve(process.env.HARNESS_WEB_DB_PATH ?? ".bridlewise/web.db"));
 const SERVER_ID = `landlock-probe-${process.pid}`;
 const SECRET_READER_ID = `landlock-secret-${process.pid}`;
 const WX_READER_ID = `landlock-wx-${process.pid}`;
@@ -114,12 +117,12 @@ function runProbe(targets: Targets): ProbeResult {
   config["tools"]!["mcpServers"] = [
     server(SERVER_ID, [targets.installDir]),
     server(SECRET_READER_ID, [targets.installDir, join(homedir(), ".ssh")]),
-    server(WX_READER_ID, [targets.installDir, join(targets.view, ".bridlewise", "mcp-home", WX_READER_ID)]),
+    server(WX_READER_ID, [targets.installDir, join(SERVER_STATE, "mcp-home", WX_READER_ID)]),
     server(OTHER_CHECKOUT_ID, [targets.installDir, join(targets.otherCheckout, ".bridlewise")]),
     ...(ALIAS_AVAILABLE ? [
       server(ALIAS_IDS.ssh, [targets.installDir, join(WSL_ALIAS, homedir(), ".ssh")]),
       server(ALIAS_IDS.state, [targets.installDir, join(WSL_ALIAS, targets.aliasCheckout, ".bridlewise")]),
-      server(ALIAS_IDS.wx, [targets.installDir, join(WSL_ALIAS, targets.view, ".bridlewise", "mcp-home", ALIAS_IDS.wx)]),
+      server(ALIAS_IDS.wx, [targets.installDir, join(WSL_ALIAS, SERVER_STATE, "mcp-home", ALIAS_IDS.wx)]),
     ] : []),
   ];
   // An operator rule that widens what COMMANDS may write: it must not widen any MCP server.
@@ -300,10 +303,11 @@ describe("a stdio MCP server under the real guardian", () => {
     }
     requireHost(result.skipped === undefined, `a host that confines a stdio MCP server (it reported: ${String(result.skipped)})`);
     expect(result.status, `the confined server connected (last error: ${result.lastError})`).toBe("connected");
-    // THE LIVE HARNESS IS UNTOUCHED: the view's state folder is a folder of its own, never a link to the live
-    // one, so the server's homes land in the view and the live `engine/.bridlewise` gains none of this run's.
+    // THE LIVE HARNESS IS UNTOUCHED: an MCP server's home lives in the SERVER's own state folder (its database's,
+    // this test's own), never in a harness checkout's state root, so the live `engine/.bridlewise` gains none of it.
     expect(lstatSync(join(view, ".bridlewise")).isSymbolicLink(), "the view's state folder is its own").toBe(false);
-    expect(existsSync(join(view, ".bridlewise", "mcp-home", SERVER_ID)), "the server's home is in the view").toBe(true);
+    expect(existsSync(String(result.home)), "the server's home exists, in the server's own state folder").toBe(true);
+    expect(String(result.home).startsWith(`${view}/`) || String(result.home).startsWith(`${HARNESS_CHECKOUT}/`), "the server's home is in no harness checkout").toBe(false);
     const liveHomes = [SERVER_ID, SECRET_READER_ID, WX_READER_ID, OTHER_CHECKOUT_ID, ...Object.values(ALIAS_IDS)]
       .filter((id) => existsSync(join(HARNESS_ROOT, ".bridlewise", "mcp-home", id)));
     expect(liveHomes, "no home of this run lands in the live harness's state folder").toEqual([]);

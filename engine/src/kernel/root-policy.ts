@@ -2499,13 +2499,11 @@ const ROOT_POLICY_VALUE = {
       // state, the evidence store and the locks are trusted by later runs,
       // so a test must not be able to forge them. The fixture root (owned
       // temporaries, swept by owner), the web run ledger the in-run reporter
-      // writes (#655: forgeable, to move to the runner outside), and the
-      // landlock runner's per-project scratch and MCP server homes under the
-      // harness root (#664: forgeable across runs, to move to a state root
-      // the run owns); and the config's write locks (a settings test takes
+      // writes (#655: forgeable, to move to the runner outside); the config's
+      // write locks (a settings test takes
       // the live config's; a lock carries no content a later run trusts); and
       // the engine suite's schedule the worker writes (an order, not a trust).
-      writablePlaces: [statePath("test-fixtures"), statePath("web-test-results"), statePath("confined-scratch"), statePath("mcp-home"), statePath("config-locks"), statePath("test-schedule")],
+      writablePlaces: [statePath("test-fixtures"), statePath("web-test-results"), statePath("config-locks"), statePath("test-schedule")],
       // The in-process door's state roots (a process under test writes no
       // tracked file; the runners outside a confined run write their ledgers
       // there): every place above lies in one of them.
