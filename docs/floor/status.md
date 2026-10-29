@@ -134,6 +134,7 @@ The snapshot is a versioned JSON document. The page accepts `bridlewise-floor-st
 | `promotion.reason` | string | Why this public snapshot is not a release gate. | Missing means unknown. |
 | `checks` | array | Gate results: `{ "id", "label", "status", "durationMs" }`. | An empty array means no gate results, not a pass. |
 | `checks[].status` | enum | `pass`, `fail`, `unknown`, or `not-run`. | `unknown` and `not-run` are not passes. |
+| `checks[].jobs` | array or null | For a workflow run at the source commit, each job of its latest attempt: `{ "name", "status", "conclusion", "url" }`, sorted by name. A claim is bound to the job that proves it. | `null` means no run at this commit, offline, or a failed read (`checks[].jobsNote` says which), never "no jobs". |
 | `github.available` | boolean | True only when the generator received GitHub API data for every requested run. | Missing means unknown. Do not infer true from an empty `runs` array. |
 | `github.checkedAt` | ISO 8601 string or null | The last API attempt. | `null` means the attempt time is unknown. |
 | `github.reason` | string or null | A short public reason when `available` is false, for example `rate-limit`, `no-token`, `network`, or `api-error`. | `null` with `available: false` means the reason is unknown. |

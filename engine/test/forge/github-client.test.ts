@@ -87,7 +87,7 @@ test("paginate follows the Link header and refuses a list longer than its bound"
   assert.deepEqual(all.map((label) => label.name), ["l0", "l1", "l2", "l3", "l4", "l5", "l6"]);
   assert.equal(fake.requests.filter((request) => request.path === "/repos/o/r/labels").length, 3);
   assert.equal(fake.requests.at(-1)!.query.get("page"), "3");
-  const facts = await refusedWith("forge_request_invalid", () => forge.paginate({ path: "/repos/o/r/labels" }, { maxPages: 2, perPage: 3 }));
+  const facts = await refusedWith("forge_list_oversized", () => forge.paginate({ path: "/repos/o/r/labels" }, { maxPages: 2, perPage: 3 }));
   assert.equal(facts.maxPages, 2);
   // A wrapped list names where its items are.
   fake.objects.set("/repos/o/r/actions/runs", { total_count: 1, workflow_runs: [{ id: 1 }] });
