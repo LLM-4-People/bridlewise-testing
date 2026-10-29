@@ -62,7 +62,7 @@ The pages expect two static files, both generated at build or publication time. 
 
 Write them into the Jekyll source before the build, not into `_site` after it. Do not hand-edit either file; regenerate it from its source. The generators must produce deterministic, public, redacted JSON. No token, local path, host name, database key, private fixture name, or unreviewed hold text may enter either file.
 
-`floor/roadmap.md` also carries generated blocks, but they are authored into the page before the build. `npm run docs:roadmap` renders them from the tracker items (`docs/trackers/items/`: the milestones, workstreams, exit criteria, not-planned statements and open tasks, every state computed by `engine/src/workflow/tracker-status.ts`), the decision records, and the non-proofs in `docs/floor/evidence.md`. Edit an owner, never a rendered table; `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
+`floor/roadmap.md` also carries generated blocks, but they are authored into the page before the build. `harness sync` renders them from the tracker items (`docs/trackers/items/`: the milestones, workstreams, exit criteria, not-planned statements and open tasks, every state computed by `engine/src/workflow/tracker-status.ts`), the decision records, and the non-proofs in `docs/floor/evidence.md`. Edit an owner, never a rendered table; `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
 
 ### Atlas schema
 

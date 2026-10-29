@@ -107,8 +107,8 @@ ships into the client bundle or the server runtime.
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
   blocks: it renders them from the tracker items (`docs/trackers/items/`,
   states computed by `engine/src/workflow/tracker-status.ts`), the decision
-  records, and the non-proofs in `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
-  `npm run docs:roadmap -- --check` is the read-only form, and
+  records, and the non-proofs in `docs/floor/evidence.md`. `harness sync` runs it on every sync
+  (`ROADMAP_PAGE`, right after the task board) and `harness check` runs it read-only, and
   `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
 
 ## Where it lives and what consumes it
