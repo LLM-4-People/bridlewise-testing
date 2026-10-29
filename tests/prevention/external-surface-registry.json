@@ -96,6 +96,7 @@
         "version": "v7"
       },
       "usedIn": [
+        ".github/workflows/ci.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/test-shards.yml"
       ],

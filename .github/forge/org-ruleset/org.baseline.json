@@ -17,7 +17,8 @@
             "name": "kind",
             "property_values": [
               "trunk"
-            ]
+            ],
+            "source": "custom"
           }
         ],
         "exclude": []

@@ -59,6 +59,6 @@ GNU Affero General Public License v3.0: see [LICENSE][repo:blob/product/LICENSE]
 [repo:blob/product/SECURITY.md]: https://github.com/LLM-4-People/bridlewise-testing/blob/product/SECURITY.md
 [repo:blob/product/THIRD_PARTY_NOTICES.md]: https://github.com/LLM-4-People/bridlewise-testing/blob/product/THIRD_PARTY_NOTICES.md
 [repo:releases]: https://github.com/LLM-4-People/bridlewise-testing/releases
-[site:]: https://llm-4-people.github.io/bridlewise-testing/
-[site:quickstart/]: https://llm-4-people.github.io/bridlewise-testing/quickstart/
+[site:]: https://bridlewise.llm4people.dev/
+[site:quickstart/]: https://bridlewise.llm4people.dev/quickstart/
 <!-- END GENERATED: repository links -->

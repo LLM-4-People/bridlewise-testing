@@ -28,8 +28,12 @@ export type OrganisationRepository = Readonly<{
   fullName: string;
   /** Its web URL. */
   webUrl: string;
-  /** Its project Pages site. */
+  /** Its Pages site: its own `site.host`'s root, or its project site on `pagesDomain`. */
   pagesUrl: string;
+  /** The site's base path: `""` at its own host's root, `/name` on `pagesDomain`. */
+  pagesBasePath: string;
+  /** Its documentation: `site.docsPath` under its own host, else the site itself. */
+  docsUrl: string;
 }>;
 
 export type RepositoryIdentity = Readonly<{
@@ -45,10 +49,12 @@ export type RepositoryIdentity = Readonly<{
   gitUrl: string;
   /** The issue tracker (`…/name/issues`). */
   issuesUrl: string;
-  /** The project Pages site's base path (`/name`). */
+  /** The site's base path: `""` on its own host (`site`), `/name` on `pagesDomain`. */
   pagesBasePath: string;
-  /** The project Pages site (`<scheme>://<owner>.<pagesDomain>/name/`, the owner lower-cased as the forge serves it). */
+  /** The site: `<scheme>://<site.host>/` when the trunk declares its own host, else `<scheme>://<owner>.<pagesDomain>/name/`. */
   pagesUrl: string;
+  /** The documentation: `site.docsPath` under the site's own host, else the site itself. */
+  docsUrl: string;
   /** Every repository of the organisation the forge declares (this one included), by name. */
   organisationRepositories: readonly string[];
   /** Where the product is published (the repository declared `product: true`; the trunk itself after the P1.10 rename). */
@@ -71,8 +77,9 @@ export function repositoryIdentity(settings: ForgeSettings): RepositoryIdentity 
     webUrl,
     gitUrl: `${webUrl}.git`,
     issuesUrl: `${webUrl}/issues`,
-    pagesBasePath: `/${name}`,
+    pagesBasePath: trunk.pagesBasePath,
     pagesUrl: trunk.pagesUrl,
+    docsUrl: trunk.docsUrl,
     organisationRepositories: settings.repositories.map((repository) => repository.name),
     product: organisationRepository(settings, declared("product")!.name),
     preview: declared("preview") === undefined ? undefined : organisationRepository(settings, declared("preview")!.name),
@@ -83,11 +90,17 @@ export function repositoryIdentity(settings: ForgeSettings): RepositoryIdentity 
 function organisationRepository(settings: ForgeSettings, name: string): OrganisationRepository {
   const web = new URL(settings.webUrl);
   const owner = settings.organization;
-  // The project Pages site: the web origin's scheme, on `<owner>.<pagesDomain>` (the owner lower-cased, as the forge serves it).
+  const site = settings.repositories.find((repository) => repository.name === name)?.site;
+  // The site: the repository's own host at its root, or the project site on `<owner>.<pagesDomain>` (the owner lower-cased,
+  // as the forge serves it); either way on the web origin's scheme.
   const pages = new URL(web.origin);
-  pages.hostname = `${owner.toLowerCase()}.${settings.pagesDomain}`;
-  pages.pathname = `/${name}/`;
-  return Object.freeze({ name, fullName: `${owner}/${name}`, webUrl: `${web.origin}/${owner}/${name}`, pagesUrl: pages.href });
+  pages.hostname = site === undefined ? `${owner.toLowerCase()}.${settings.pagesDomain}` : site.host;
+  pages.pathname = site === undefined ? `/${name}/` : "/";
+  const docs = new URL(site === undefined ? pages.pathname : site.docsPath, pages);
+  return Object.freeze({
+    name, fullName: `${owner}/${name}`, webUrl: `${web.origin}/${owner}/${name}`,
+    pagesUrl: pages.href, pagesBasePath: site === undefined ? `/${name}` : "", docsUrl: docs.href,
+  });
 }
 
 /**
@@ -130,11 +143,12 @@ export function configuredRepositoryIdentity(): RepositoryIdentity {
 /**
  * A Markdown reference to an identity link: `[text][repo:<path>]` (this
  * repository on GitHub), `[text][site:<path>]` (its Pages site),
- * `[text][product:<path>]` and `[text][product-site:<path>]` (the product's
- * repository and its site), `[text][preview:<path>]` (the preview
- * repository, with its releases).
+ * `[text][docs:<path>]` (its documentation), `[text][product:<path>]` (the
+ * product's repository), `[text][preview:<path>]` (the preview repository,
+ * with its releases). There is no product-site label: after P1.10 the
+ * product repository is the trunk, and its site is `site:`/`docs:`.
  */
-const IDENTITY_LABEL = /\]\[((?:repo|site|product|product-site|preview):[^\]\s<>`]*)\]/gu;
+const IDENTITY_LABEL = /\]\[((?:repo|site|docs|product|preview):[^\]\s<>`]*)\]/gu;
 
 /** `text` with its code (fenced blocks and inline spans) blanked: a label quoted in code is an example, never a use. */
 function proseOf(text: string): string {
@@ -189,7 +203,7 @@ function identityLinkTarget(label: string, identity: RepositoryIdentity): string
   switch (kind) {
     case "site": return `${identity.pagesUrl}${path}`;
     case "product": return under(identity.product.webUrl);
-    case "product-site": return `${identity.product.pagesUrl}${path}`;
+    case "docs": return `${identity.docsUrl}${path}`;
     case "preview":
       if (identity.preview === undefined) throw new ForgeError("forge_identity_copy_invalid", `The label [${label}] names the preview repository, and the forge section declares none (preview: true).`, { field: "preview" });
       return under(identity.preview.webUrl);

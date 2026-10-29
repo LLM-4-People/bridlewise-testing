@@ -1,0 +1,12 @@
+{
+  "kind": "app-installation",
+  "scope": {
+    "kind": "repo",
+    "repository": "LLM-4-People.github.io"
+  },
+  "key": "publisher",
+  "unavailableOnPlan": [],
+  "desired": {
+    "installed": true
+  }
+}
