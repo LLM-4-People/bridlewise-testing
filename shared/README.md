@@ -60,6 +60,11 @@ two cannot drift.
   themes, follows `var()`, makes a colour concrete (hex, `rgb[a]`, `oklch`,
   `color-mix` in sRGB) and writes a surface's token sheet; an undeclared name
   is a typed refusal.
+- `figures.ts` — THE GENERATED FIGURES: SVG drawn in the design system for
+  the site, inline, whose `fig-*` classes the stylesheet inks from the live
+  theme. A figure that counts records is drawn when the site is built and
+  never committed. Every figure carries a title and a description stating its
+  whole content.
 
 ## Where it lives
 
