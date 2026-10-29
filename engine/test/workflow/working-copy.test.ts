@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -853,38 +853,6 @@ test("snapshotWorkingTree: HEAD moves by COMPARE-AND-SWAP; a refused advance rec
   const head = git(source, "rev-parse", "HEAD").trim();
   assert.throws(() => snapshotWorkingTree(source, { message: "x", name: "cur", identity }), (error: unknown) => (error as { code?: unknown }).code === "snapshot_ref_checked_out");
   assert.equal(git(source, "rev-parse", "HEAD").trim(), head);
-});
-
-test("a heavy setup command is ADMITTED AT ONCE beside a live run — it never waits for another run — and runs once per tree", async () => {
-  const target = gateRoot("working-copy-heavy-setup-");
-  execFileSync("git", ["init", "-q"], { cwd: target, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
-  writeFileSync(join(target, "a.txt"), "a\n");
-  const lockPath = join(createTempDir("working-copy-heavy-lock-"), "instrument.lock");
-  const runner: CheckoutCommandRunner = { ...supervisedRunner(), instrumentLock: { lockPath, perRun: { memoryMaxPercent: 50, cpuWeight: 100 } } };
-  const counter = join(target, "..", `${String(process.pid)}-runs.txt`);
-  // The command counts its runs (outside the checkout, so the tree it ran for does not change).
-  const command = { cwd: ".", argv: [process.execPath, "-e", `require("fs").appendFileSync(${JSON.stringify(counter)}, Date.now() + "\\n")`], timeoutMs: 60_000, holdsInstrumentLock: true as const };
-  // Another admitted run is live for the whole test: the setup command runs beside it.
-  const lockModule = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "process", "instrument-lock.ts")).href;
-  const configModule = pathToFileURL(join(import.meta.dirname, "..", "..", "src", "workflow", "workflow-config.ts")).href;
-  const holder = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `const m = await import(${JSON.stringify(lockModule)}); const c = await import(${JSON.stringify(configModule)}); m.admitInstrumentRun(${JSON.stringify(lockPath)}, "a validate", { memoryMaxPercent: 50, cpuWeight: 100 }, c.SUBPROCESS_BOUNDS); console.log("admitted"); setTimeout(() => process.exit(0), 60_000);`], { stdio: ["ignore", "pipe", "inherit"] });
-  try {
-    await new Promise<void>((resolveHeld) => holder.stdout.once("data", () => resolveHeld()));
-    const first = await runCheckoutCommand(target, "warm", command, runner);
-    assert.equal(first.status, "pass", first.message);
-    assert.equal(holder.exitCode, null, "it ran while the other run was still live: nothing waited");
-    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "it ran once");
-    const again = await runCheckoutCommand(target, "warm", command, runner);
-    assert.equal(again.status, "pass");
-    assert.match(again.message, /already run for this tree/u);
-    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "the same tree is not run again");
-    writeFileSync(join(target, "a.txt"), "b\n");
-    assert.equal((await runCheckoutCommand(target, "warm", command, runner)).status, "pass");
-    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 2, "another tree runs it");
-  } finally {
-    holder.kill("SIGKILL");
-    rmSync(counter, { force: true });
-  }
 });
 
 test("a gate-log line that grows past the bound with no end is WITHHELD whole, never split and never held without limit: the place says so, the rest of that line is discarded, and the next line is logged", async () => {

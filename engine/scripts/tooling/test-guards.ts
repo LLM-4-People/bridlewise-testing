@@ -113,12 +113,13 @@ export function doorRun(args: readonly string[], cwd: string): Readonly<{ flags:
 }
 
 /**
- * THE ARGV the door hands node, EXACTLY and nothing else: the bounds'
- * preload, `--test` with the backstop as its per-test timeout, the door's
+ * THE ARGV the door hands node, EXACTLY and nothing else: the key-home
+ * preload, the bounds' preload, `--test` with the backstop as its per-test timeout, the door's
  * flags, then the very files it bounds — never the arguments it was given.
  */
 export function doorNodeArgs(bounds: EngineTestBounds, door: ReturnType<typeof doorRun>): readonly string[] {
-  return ["--experimental-strip-types", engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...door.flags, ...door.files];
+  // The run's key home is armed INSIDE the run, by a preload of the `node --test` process (each file inherits it).
+  return ["--experimental-strip-types", `--import=${KEY_HOME_PRELOAD}`, engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...door.flags, ...door.files];
 }
 
 export async function main(): Promise<void> {
@@ -164,14 +165,12 @@ export async function main(): Promise<void> {
   const bounds = { ...engineTestBoundsFrom(testExecution, engineRoot), files: door.files };
   // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
   const supervisor = ensureTestProcessSupervisor();
-  const [stripTypes, ...rest] = doorNodeArgs(bounds, door);
   const command = {
     supervisor,
     command: process.execPath,
     // `--test-timeout` IS the backstop, as the suite's `run({ timeout })` is:
     // node:test arms it per test, and the bounds both require it and refuse any other.
-    // The run's key home is armed INSIDE the run (a preload of the `node --test` process; each file inherits it).
-    args: [stripTypes!, `--import=${KEY_HOME_PRELOAD}`, ...rest],
+    args: doorNodeArgs(bounds, door),
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
     killGraceMs: engineSuiteWatchdog.killGraceMs,
     onStdout: (chunk: Buffer) => process.stdout.write(chunk),

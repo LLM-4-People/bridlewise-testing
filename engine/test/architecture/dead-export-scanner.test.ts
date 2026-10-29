@@ -206,6 +206,8 @@ test("dead-export-scanner: every value export is referenced in at least one othe
   const allFiles = [
     ...srcFiles,
     ...listTsFiles(TEST),
+    // The live suite (engine/live/, unconfined by design) consumes exports too.
+    ...listTsFiles(join(process.cwd(), "live")),
     ...listSourceFiles(SCRIPTS),
     ...WEB_UI_ROOTS.flatMap((root) => listSourceFiles(root)),
     ...WORKSPACE_SCRIPT_ROOTS.flatMap((root) => listSourceFiles(root)),

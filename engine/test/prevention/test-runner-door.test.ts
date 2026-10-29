@@ -256,13 +256,15 @@ test("THE SPACE-FORM HOLE (review of #626): `--import ./noop.mjs` from a folder 
   assert.ok(!run.stdout.includes("RAN-UNBOUNDED"), "a discovered test ran outside the bounds");
 });
 
-test("the door hands node EXACTLY its own argv — the bounds' preload, --test with the backstop, the door's flags, then the files it bounds — and main runs THAT, never the arguments it was given", () => {
+test("the door hands node EXACTLY its own argv — the key-home and bounds' preloads, --test with the backstop, the door's flags, then the files it bounds — and main runs THAT, never the arguments it was given", () => {
   const dir = createTempDir("subset-door-argv-");
   writeFileSync(join(dir, "a.test.ts"), "");
   const door = doorRun(["a.test.ts", "--test-name-pattern=x"], dir);
   const bounds = { hangBackstopMs: 600_000, cpuClasses: null, repositoryRoot: dir, files: door.files };
   assert.deepEqual(doorNodeArgs(bounds, door), [
     "--experimental-strip-types",
+    // The run's key home, armed inside the run (the one test-execution door confines it).
+    `--import=${join(ROOT, "test", "support", "arm-test-key-home.ts")}`,
     engineTestBoundsImport(bounds),
     "--test",
     "--test-timeout=600000",

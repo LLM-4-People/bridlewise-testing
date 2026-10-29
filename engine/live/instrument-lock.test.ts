@@ -441,3 +441,36 @@ test("a heavy setup command's OWN nested admission BORROWS the run its checkout 
     rmSync(answer, { force: true });
   }
 });
+
+// From test/workflow/working-copy.test.ts, for the same reason as the case above.
+test("a heavy setup command is ADMITTED AT ONCE beside a live run — it never waits for another run — and runs once per tree", async () => {
+  const target = createTempDir("working-copy-heavy-setup-");
+  execFileSync("git", ["init", "-q"], { cwd: target, env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+  writeFileSync(join(target, "a.txt"), "a\n");
+  const lockPath = join(createTempDir("working-copy-heavy-lock-"), "instrument.lock");
+  const runner: CheckoutCommandRunner = { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries: { retries: 0, backoffMs: 0 }, instrumentLock: { lockPath, perRun: { memoryMaxPercent: 50, cpuWeight: 100 } } };
+  const counter = join(target, "..", `${String(process.pid)}-runs.txt`);
+  // The command counts its runs (outside the checkout, so the tree it ran for does not change).
+  const command = { cwd: ".", argv: [process.execPath, "-e", `require("fs").appendFileSync(${JSON.stringify(counter)}, Date.now() + "\\n")`], timeoutMs: 60_000, holdsInstrumentLock: true as const };
+  // Another admitted run is live for the whole test: the setup command runs beside it.
+  const lockModule = pathToFileURL(join(import.meta.dirname, "..", "src", "process", "instrument-lock.ts")).href;
+  const configModule = pathToFileURL(join(import.meta.dirname, "..", "src", "workflow", "workflow-config.ts")).href;
+  const holder = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", `const m = await import(${JSON.stringify(lockModule)}); const c = await import(${JSON.stringify(configModule)}); m.admitInstrumentRun(${JSON.stringify(lockPath)}, "a validate", { memoryMaxPercent: 50, cpuWeight: 100 }, c.SUBPROCESS_BOUNDS); console.log("admitted"); setTimeout(() => process.exit(0), 60_000);`], { stdio: ["ignore", "pipe", "inherit"] });
+  try {
+    await new Promise<void>((resolveHeld) => holder.stdout.once("data", () => resolveHeld()));
+    const first = await runCheckoutCommand(target, "warm", command, runner);
+    assert.equal(first.status, "pass", first.message);
+    assert.equal(holder.exitCode, null, "it ran while the other run was still live: nothing waited");
+    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "it ran once");
+    const again = await runCheckoutCommand(target, "warm", command, runner);
+    assert.equal(again.status, "pass");
+    assert.match(again.message, /already run for this tree/u);
+    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 1, "the same tree is not run again");
+    writeFileSync(join(target, "a.txt"), "b\n");
+    assert.equal((await runCheckoutCommand(target, "warm", command, runner)).status, "pass");
+    assert.equal(readFileSync(counter, "utf8").trim().split("\n").length, 2, "another tree runs it");
+  } finally {
+    holder.kill("SIGKILL");
+    rmSync(counter, { force: true });
+  }
+});
