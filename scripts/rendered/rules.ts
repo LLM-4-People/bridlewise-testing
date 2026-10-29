@@ -809,7 +809,7 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "layout-shift",
-    holds: `The page's own layout shifts (its load, judged with every font, image and stylesheet late by a chosen delay, and its future; never the judge's viewport and media changes) sum to no more than ${String(LAYOUT_SHIFT_BUDGET)}; a demo on the palette burn-down list is exempt until #161.`,
+    holds: `The page's own layout shifts (its load, judged with every font, image and stylesheet the first paint does not wait for held until that paint and then released, and its future; never the judge's viewport and media changes) sum to no more than ${String(LAYOUT_SHIFT_BUDGET)}; a demo on the palette burn-down list is exempt until #161.`,
     surfaces: ["site"],
     pending: { cockpit: "the cockpit's views stream content by design; its owner sets a budget and adds \"cockpit\" here" },
     input: () => ({ budget: LAYOUT_SHIFT_BUDGET, ownPalette: [...PALETTE_BURN_DOWN.keys()] }),
