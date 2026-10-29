@@ -114,16 +114,24 @@
     </nav>
     {% endif %}
 
+{%- comment -%} Every page has one top heading: a page whose text opens without one (a tracker item, a record told by its front matter) is headed by its title. {%- endcomment -%}
+    {%- capture page_heading -%}
+    {%- unless content contains "<h1" %}
+    <h1>{{ page.title | default: site.title | escape }}</h1>
+    {%- endunless %}
+    {%- endcapture %}
     {% if page_kind == "article" %}
     <div class="reading">
       {% include docs-nav.html %}
       <article class="doc">
+        {{ page_heading }}
         {% include record-head.html %}
         {{ content }}
       </article>
       {% include page-toc.html content=content %}
     </div>
     {% else %}
+    {{ page_heading }}
     {{ content }}
     {% endif %}
   </main>

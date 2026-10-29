@@ -41,10 +41,16 @@ export type AlertCount = Readonly<{
 
 export type Release = Readonly<{ tag: string; name: string | null; draft: boolean; prerelease: boolean; publishedAt: string | null; url: string }>;
 
-/** `/repos/<owner>/<name>` of `owner/name` (the projection store addresses its repository the same way). */
-export function repositoryPath(repository: string): string {
+/** The owner and name of `owner/name`, validated (anything else is the typed `forge_request_invalid`). */
+function repositoryParts(repository: string): Readonly<{ owner: string; name: string }> {
   const [owner, name, ...rest] = repository.split("/");
   if (owner === undefined || name === undefined || owner === "" || name === "" || rest.length > 0) throw new ForgeError("forge_request_invalid", `Not an owner/name repository: ${repository}.`, { repository });
+  return { owner, name };
+}
+
+/** `/repos/<owner>/<name>` of `owner/name` (the projection store addresses its repository the same way). */
+export function repositoryPath(repository: string): string {
+  const { owner, name } = repositoryParts(repository);
   return `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 }
 
@@ -97,7 +103,8 @@ export async function workflowJobs(client: ForgeClient, repository: string, runI
  * `false`; an unknown commit is a typed refusal, never `false`.
  */
 export async function commitSignedByGitHub(client: ForgeClient, repository: string, sha: string): Promise<boolean> {
-  const [owner, name] = repositoryPath(repository).split("/").slice(2).map((part) => decodeURIComponent(part));
+  // The parts as written, never an encoded path decoded back: GraphQL takes them as variables.
+  const { owner, name } = repositoryParts(repository);
   const data = await client.graphql<{ repository?: { object?: { signature?: { isValid?: unknown; wasSignedByGitHub?: unknown } | null } | null } | null }>(
     "query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) { object(oid: $oid) { ... on Commit { signature { isValid wasSignedByGitHub } } } } }",
     { owner, name, oid: sha },

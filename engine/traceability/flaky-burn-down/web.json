@@ -6,6 +6,10 @@
       "owner": "FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES"
     },
     {
+      "identity": "tests/prevention/roadmap-status-owner.test.ts::docs/floor/roadmap.md status is generated from its owners > a close is a claim until linked evidence proves it: shipped only by a built decision, existing tests, a recorded evidence record or this repository's own PR, run or release (planted)",
+      "owner": "FLAKY-CONFIG-PARENT-CHURN"
+    },
+    {
       "identity": "tests/prevention/source-root-organization.test.ts::source-root organization — README freshness (deny-by-default) > engine/test/ each README names exactly the folder's real files",
       "owner": "FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES"
     },
