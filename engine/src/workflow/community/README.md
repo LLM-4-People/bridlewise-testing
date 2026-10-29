@@ -47,7 +47,9 @@ folder owns what they are told and who may do what.
 - `labels.ts` — THE LABELS, DECLARED ONCE: `docs/community/labels.json` is the
   one declaration of every label but the forge's `area:` ones (community,
   Dependabot, lanes, the forge's markers), each with its colour and
-  description; `readLabels` validates it for `harness check` and for the
+  description; `readLabels` validates it for `harness check`, for the
+  projector (from its source commit's tree, through the one reader
+  `readCommunitySource`, which takes a repository root or a tree) and for the
   forge, whose `harness forge apply` is the one writer and `plan`/`audit` the
   one drift report. No workflow and no projector writes a label: they apply
   declared ones, and a missing one is a loud failure.

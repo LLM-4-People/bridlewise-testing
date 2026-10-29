@@ -8,10 +8,6 @@
  *
  * How each class lives on GitHub:
  *
- *   - `label` — a repository label named by its key (`lane:<lane>`), owned
- *     when it is in the projector's `lane:` namespace. GitHub's label names
- *     are case-insensitive, and so is the key: a label is keyed by its name
- *     in lower case;
  *   - `milestone` — a milestone THE PROJECTOR CREATED (its creator is the
  *     publisher App's bot, read from the App registry) titled
  *     `<id> · <title>`, keyed by the id; two such milestones for one id are
@@ -28,6 +24,12 @@
  *     link, its `blockedBy` the issue dependencies, its `pinned` the
  *     repository's pinned issues; another person's issue in a relation is
  *     spelled `#<number>`, which no key ever is, so it always differs from D.
+ *     Its `labels` are names the projector never creates or claims: every
+ *     label is declared in `docs/community/labels.json` and applied by
+ *     `harness forge apply`. GitHub would create a missing label it is asked
+ *     to put on an issue, so the store refuses that write typed
+ *     (`projection_label_missing`) and sends each name as GitHub spells it
+ *     (its names are case-insensitive).
  *
  * The relations and the pin are read in one paginated GraphQL query; every
  * other read is a conditional REST list (an unchanged page costs no rate
@@ -38,7 +40,7 @@ import { compareUtf8Bytes } from "../../../kernel/ordered.ts";
 import type { ForgeClient } from "../port.ts";
 import { FORGE_APPS } from "../app-registry.ts";
 import { repositoryPath } from "../repository-reads.ts";
-import { FIELD_PHASES, findItemMarker, laneLabel, type Fields, type Json, type ProjectionClass } from "./model.ts";
+import { FIELD_PHASES, findItemMarker, type Fields, type Json, type ProjectionClass } from "./model.ts";
 import type { LiveObject, ProjectionStore, ProjectionWrite } from "./store.ts";
 
 export type GithubStoreOptions = Readonly<{
@@ -52,7 +54,6 @@ export type GithubStoreOptions = Readonly<{
 const PAGE_SIZE = 100;
 /** An owned milestone's title: `<id> · <title>`. */
 const MILESTONE_TITLE = /^([A-Z][A-Z0-9-]*) · /u;
-const LANE_NAMESPACE = laneLabel("").toLowerCase();
 /** The login GitHub gives the publisher App's installation: the one author whose issues and milestones are the projector's. */
 const PROJECTOR_LOGIN = `${FORGE_APPS.publisher.name}[bot]`;
 
@@ -66,7 +67,7 @@ const RELATIONS_QUERY = `query($owner: String!, $name: String!, $cursor: String)
   }
 }`;
 
-type RestLabel = Readonly<{ name: string; color: string; description: string | null }>;
+type RestLabel = Readonly<{ name: string }>;
 type RestUser = Readonly<{ login: string }> | null | undefined;
 type RestMilestone = Readonly<{ number: number; title: string; description: string | null; state: string; creator?: RestUser }>;
 type RestIssue = Readonly<{
@@ -178,13 +179,12 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     return milestones.get(String(value)) ?? refuse("projection_store_unknown", `no milestone ${String(value)} (it is written before the issues that carry it)`);
   }
 
-  async function writeLabel(write: ProjectionWrite): Promise<void> {
-    if (write.kind === "create") {
-      await client.rest({ method: "POST", path: `${base}/labels`, body: { name: write.key, ...write.fields } });
-      labelNames.set(write.key.toLowerCase(), write.key);
-      return;
-    }
-    await client.rest({ method: "PATCH", path: `${base}/labels/${encodeURIComponent(labelNames.get(write.key) ?? write.key)}`, body: { ...write.fields } });
+  /** Each label as GitHub spells it; one that does not exist is refused, never created by the issue write (labels.json and `forge apply` own them). */
+  function existingLabels(value: Json, key: string): readonly string[] {
+    const wanted = (value as readonly Json[]).map(String);
+    const missing = wanted.filter((name) => !labelNames.has(name.toLowerCase()));
+    if (missing.length > 0) refuse("projection_label_missing", `issue/${key} carries ${missing.join(", ")}, which ${options.repository} does not have: declare it in docs/community/labels.json and run harness forge apply (the projector creates no label)`);
+    return wanted.map((name) => labelNames.get(name.toLowerCase())!);
   }
 
   async function writeMilestone(write: ProjectionWrite): Promise<void> {
@@ -199,7 +199,7 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   }
 
   /** The REST body of an issue's own fields (`title`, `block`, `type`, `labels`, `milestone`, `state`, `stateReason`). */
-  function issueBody(fields: Fields, previousBody: string): Record<string, unknown> {
+  function issueBody(key: string, fields: Fields, previousBody: string): Record<string, unknown> {
     const body: Record<string, unknown> = {};
     if ("title" in fields) body.title = fields.title;
     if ("block" in fields) {
@@ -208,7 +208,7 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
       body.body = `${marker === null ? "" : previousBody.slice(0, marker.index)}${String(fields.block)}`;
     }
     if ("type" in fields) body.type = fields.type;
-    if ("labels" in fields) body.labels = fields.labels;
+    if ("labels" in fields) body.labels = existingLabels(fields.labels!, key);
     if ("milestone" in fields) body.milestone = milestoneNumber(fields.milestone);
     if ("state" in fields) body.state = fields.state;
     if ("stateReason" in fields) body.state_reason = fields.stateReason;
@@ -221,13 +221,13 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
       return;
     }
     if (write.kind === "create") {
-      const created = await client.rest<RestIssue>({ method: "POST", path: `${base}/issues`, body: issueBody(write.fields, "") });
+      const created = await client.rest<RestIssue>({ method: "POST", path: `${base}/issues`, body: issueBody(write.key, write.fields, "") });
       issues.set(write.key, { number: created.data.number, id: created.data.id, nodeId: created.data.node_id, body: created.data.body ?? "", parent: null, blockedBy: [] });
       keyOfNumber.set(created.data.number, write.key);
       return;
     }
     const facts = issueFacts(write.key);
-    const own = issueBody(write.fields, facts.body);
+    const own = issueBody(write.key, write.fields, facts.body);
     if (Object.keys(own).length > 0) {
       const updated = await client.rest<RestIssue>({ method: "PATCH", path: `${base}/issues/${String(facts.number)}`, body: own });
       facts.body = updated.data.body ?? facts.body;
@@ -268,15 +268,11 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   return Object.freeze({
     read: async (classes: readonly ProjectionClass[]) => {
       const objects: LiveObject[] = [];
-      if (classes.includes("label")) {
+      // Labels and milestones are read whenever issues are: an issue's labels and milestone are spelled through them.
+      if (classes.includes("issue")) {
         labelNames.clear();
-        for (const label of await list<RestLabel>("labels")) {
-          const key = label.name.toLowerCase();
-          labelNames.set(key, label.name);
-          objects.push({ class: "label", key, owned: key.startsWith(LANE_NAMESPACE), fields: { color: label.color.toLowerCase(), description: label.description ?? "" } });
-        }
+        for (const label of await list<RestLabel>("labels")) labelNames.set(label.name.toLowerCase(), label.name);
       }
-      // Milestones are read whenever issues are: an issue's milestone is spelled by its key.
       if (classes.includes("milestone") || classes.includes("issue")) {
         const live = await readMilestones();
         if (classes.includes("milestone")) objects.push(...live);
@@ -288,7 +284,6 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
       const unknown = Object.keys(write.fields).filter((field) => write.kind !== "notice" && FIELD_PHASES[write.class][field] === undefined);
       if (unknown.length > 0) refuse("projection_store_field_unknown", `${write.class}/${write.key}: ${unknown.join(", ")} is not a git-owned field`);
       if (write.kind === "notice" && write.class !== "issue") refuse("projection_store_notice_unsupported", `a notice is an issue comment; ${write.class}/${write.key} has none`);
-      if (write.class === "label") return writeLabel(write);
       if (write.class === "milestone") return writeMilestone(write);
       return writeIssue(write);
     },
