@@ -45,7 +45,7 @@
  * reporter), so the identity and the digest are spelled by the same owners
  * the ledgers use, whatever the reproduced tree's own runner looked like.
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -65,7 +65,7 @@ import { VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { deepFreeze, randomBytes, sha256 } from "../kernel/integrity.ts";
 import { admitEvidenceStore, evidenceStoreLocation, keepEvidenceBytes } from "./evidence-store.ts";
 import { holdInstrumentLock, wholeInstrumentTestFileCount } from "../process/instrument-lock.ts";
-import { superviseCommand } from "../process/supervised-run.ts";
+import { runTestCommand, superviseCommand, vitestCommand } from "../process/supervised-run.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { isSensitiveKeyName } from "../privacy/secret-signals.ts";
 import { directoryGitEnvironment } from "../git/repository-ownership.ts";
@@ -647,9 +647,9 @@ async function runTests(
   supervisor: string,
   watchdog: Readonly<{ hardCeilingMs: number; killGraceMs: number }>,
 ): Promise<ReproductionRun> {
-  const output = join(checkout, ".flake-reproduction-report.json");
-  // Each run writes its own report: a run that reaches no reporter must not read the last run's.
-  rmSync(output, { force: true });
+  // The report reaches this process on the run's own result channel (its fd 3), never through a file a confined
+  // test could write: each run has its own, so a run that reaches no reporter reads nothing.
+  const output = "/dev/fd/3";
   const world = createShimWorld(tmpdir(), ENGINE_ROOT);
   try {
     return await runInWorld(checkout, engineRelative, request, preloadFile, files, supervisor, watchdog, output, shimEnvironment(process.env, request, world, output));
@@ -688,9 +688,10 @@ async function runInWorld(
   const names = request.tests.map(({ identity }) => identity.slice(identity.indexOf("::") + 2).replace(/ \(skipped\)$/u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
   const only = !request.onlyNamed ? []
     : [`--test-name-pattern=^(?:${names.join("|")})$`];
+  // THROUGH THE ONE TEST-EXECUTION DOOR, CONFINED, each suite's test runner directly (its report on the result channel).
   const [command, args] = request.suite === "engine"
-    ? [process.execPath, ["--experimental-strip-types", "scripts/tooling/test-guards.ts", ...preload, ...order, ...only, "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${reporter}`, `--test-reporter-destination=${output}`, ...files]] as const
-    : ["npx", ["vitest", "run", ...files, ...order, "--reporter=default", `--reporter=${reporter}`]] as const;
+    ? [process.execPath, ["--experimental-strip-types", "--test", ...preload, ...order, ...only, "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${reporter}`, `--test-reporter-destination=${output}`, ...files]] as const
+    : vitestCommand(checkout, ["run", ...files, ...order, "--reporter=default", `--reporter=${reporter}`]);
   const stopDuring = new AbortController();
   const alongside = request.during === null ? undefined
     : superviseCommand({ supervisor, command: "sh", args: ["-c", request.during], cwd, env: environment, hardCeilingMs: watchdog.hardCeilingMs, killGraceMs: watchdog.killGraceMs, stop: stopDuring.signal, ...echo });
@@ -698,14 +699,18 @@ async function runInWorld(
   // same way, reaches vitest and every worker it starts through NODE_OPTIONS — which the DOOR sets: a request's own
   // NODE_OPTIONS is a door-owned variable, refused, so no preload ever runs unpinned.
   const runEnvironment = request.suite === "web" && preloadFile !== null ? { ...environment, NODE_OPTIONS: `--import=${pathToFileURL(preloadFile).href}` } : environment;
+  const reported: Buffer[] = [];
   try {
-    await superviseCommand({ supervisor, command, args, cwd, env: runEnvironment, hardCeilingMs: watchdog.hardCeilingMs, killGraceMs: watchdog.killGraceMs, ...echo });
+    await runTestCommand({
+      supervisor, checkout, command, args, cwd, env: runEnvironment, hardCeilingMs: watchdog.hardCeilingMs, killGraceMs: watchdog.killGraceMs, ...echo,
+      onResult: (chunk) => { reported.push(chunk); },
+    });
   } finally {
     stopDuring.abort();
     await alongside;
   }
   try {
-    return { report: JSON.parse(readFileSync(output, "utf8")) as ReproductionReport, output: printed.join("") };
+    return { report: JSON.parse(Buffer.concat(reported).toString("utf8")) as ReproductionReport, output: printed.join("") };
   } catch (error) {
     throw new InputError(`the reproduction run wrote no readable report (${(error as Error).message}): its runner did not reach the reporter`, "flake_reproduction_report_missing");
   }

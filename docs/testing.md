@@ -107,7 +107,6 @@ here.
 npm run typecheck
 npm run typecheck:includes
 npm test                 # vite/vitest suite through the watchdog
-npm run test:watch
 npm run test:raw         # vitest under the harness slot (every live file)
 npm run test:supported   # the supported population a full run judges (the manifest's files)
 npm run test:e2e         # Playwright

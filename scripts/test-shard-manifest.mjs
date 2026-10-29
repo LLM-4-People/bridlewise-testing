@@ -225,14 +225,13 @@ export function treeFingerprint(root = process.cwd()) {
  * `vitest list --filesOnly --json`, wrapped with the tree identity it selected
  * from. `run` is injectable so a test can drive a tree that moves mid-listing.
  */
-export function listTestFiles({ root = process.cwd(), run = spawnSync } = {}) {
+export async function listTestFiles({ root = process.cwd(), run } = {}) {
+  // The listing runs vitest, so only through the one test-execution door, which this dependency-free module does not
+  // hold: its caller hands the runner in (scripts/testing/test-listing.mjs, `npm run test:list`).
+  if (typeof run !== "function") fail("test listing: vitest runs only through the test-execution door: use `npm run test:list` / `npm run test:verify-shards`");
   const repositoryRoot = resolve(root);
   const tree = treeFingerprint(repositoryRoot);
-  const listing = run("npx", ["vitest", "list", "--filesOnly", "--json"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const listing = await run(repositoryRoot);
   if (listing.error !== undefined) fail(`test listing: could not start vitest: ${listing.error.message}`);
   if (listing.status !== 0) fail(`test listing: vitest list exited ${String(listing.status)}\n${listing.stderr ?? ""}`);
   let files;
@@ -275,13 +274,14 @@ export function listTestFiles({ root = process.cwd(), run = spawnSync } = {}) {
  * enumeration is the evidence; the subject is the thing judged. `list` is
  * injectable for fixtures that are not a real checkout.
  */
-export function verifyManifest({
+export async function verifyManifest({
   root = process.cwd(),
   manifestPath,
   livePath,
   tree = undefined,
   fingerprint = treeFingerprint,
-  list = listTestFiles,
+  run,
+  list = (options) => listTestFiles({ ...options, run }),
 }) {
   if (tree !== undefined && (typeof tree !== "string" || tree.length === 0)) {
     fail("live manifest: --tree must be a non-empty working-tree identity when supplied");
@@ -324,7 +324,7 @@ export function verifyManifest({
   // document above is only the claim. `listTestFiles` binds its own result to
   // the same tree before and after the run, and its tree is checked against
   // the tree this verification computed, so the two reads describe one state.
-  const fresh = list({ root: repositoryRoot });
+  const fresh = await list({ root: repositoryRoot });
   if (fresh === null || typeof fresh !== "object" || fresh.schemaVersion !== "bridlewise-test-listing/v1") {
     fail("fresh enumeration: expected a `bridlewise-test-listing/v1` document from listTestFiles");
   }
@@ -613,7 +613,31 @@ export function wrapShardReport({ root = process.cwd(), planPath, shard, vitestP
   return envelope;
 }
 
-function parseArgs(argv) {
+/**
+ * The `list` and `verify` commands, with the listing's runner handed in (the
+ * one test-execution door: scripts/testing/test-listing.mjs). Without one they
+ * refuse, naming the npm scripts that hold it.
+ */
+export async function runListingCommand(options, run) {
+  if (options.command === "list") {
+    const listing = await listTestFiles({ root: options.root, run });
+    const text = `${JSON.stringify(listing, null, 2)}\n`;
+    if (options.outPath) {
+      const outPath = resolve(options.outPath);
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, text);
+    } else process.stdout.write(text);
+    return;
+  }
+  if (!options.manifestPath || !options.livePath) fail("verify requires --manifest and --live");
+  // `--tree` is a cross-check, never an override: `verifyManifest`
+  // recomputes the working tree itself, so a stale fingerprint the caller
+  // supplies cannot make an old listing verify.
+  const verdict = await verifyManifest({ ...options, run });
+  process.stdout.write(`shard manifest: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ${verdict.manifestHash.slice(0, 12)} at tree ${verdict.tree.slice(0, 12)}\n`);
+}
+
+export function parseArgs(argv) {
   const options = { root: process.cwd(), command: argv[0] ?? null, reportPaths: [] };
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -641,14 +665,8 @@ function parseArgs(argv) {
 if (isEntryPoint(import.meta.url)) {
   try {
     const options = parseArgs(process.argv.slice(2));
-    if (options.command === "list") {
-      const listing = listTestFiles({ root: options.root });
-      const text = `${JSON.stringify(listing, null, 2)}\n`;
-      if (options.outPath) {
-        const outPath = resolve(options.outPath);
-        mkdirSync(dirname(outPath), { recursive: true });
-        writeFileSync(outPath, text);
-      } else process.stdout.write(text);
+    if (options.command === "list" || options.command === "verify") {
+      await runListingCommand(options, undefined);
     } else if (options.command === "supported") {
       // The SUPPORTED file set, one path per line: the population a full run
       // judges. The four excluded files have declared reasons and are not a
@@ -656,13 +674,6 @@ if (isEntryPoint(import.meta.url)) {
       // the public snapshot).
       const manifest = readJson(options.manifestPath ?? resolve(process.cwd(), "tests/test-shards.json"), "manifest");
       for (const file of manifest.files) process.stdout.write(`${file.path}\n`);
-    } else if (options.command === "verify") {
-      if (!options.manifestPath || !options.livePath) fail("verify requires --manifest and --live");
-      // `--tree` is a cross-check, never an override: `verifyManifest`
-      // recomputes the working tree itself, so a stale fingerprint the caller
-      // supplies cannot make an old listing verify.
-      const verdict = verifyManifest(options);
-      process.stdout.write(`shard manifest: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ${verdict.manifestHash.slice(0, 12)} at tree ${verdict.tree.slice(0, 12)}\n`);
     } else if (options.command === "plan") {
       if (!options.manifestPath || !options.outDir || !options.headSha || !options.shardCount) {
         fail("plan requires --manifest, --shards, --head, and --out-dir");

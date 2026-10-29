@@ -983,10 +983,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:src/shared/workflow/e2e-runner.mjs:git-invocation:git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:src/timeline/ledger-dig.ts:node:sqlite:filesystem-write",
       "reason": "#563"
     },
@@ -1288,10 +1284,6 @@
     },
     {
       "key": "architecture-effect-unmodeled:src/shared/memory/retrieval/embeddings.ts:dynamic-import",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:src/shared/workflow/e2e-runner.mjs:node:child_process:dynamic-executable-execSync",
       "reason": "#563"
     },
     {
@@ -2887,10 +2879,6 @@
       "reason": "#563"
     },
     {
-      "key": "governed-sink-unmodeled:src/shared/workflow/e2e-runner.mjs",
-      "reason": "#563"
-    },
-    {
       "key": "governed-sink-unmodeled:src/timeline/effect-documents.ts",
       "reason": "#563"
     },
@@ -3279,10 +3267,6 @@
       "reason": "#563"
     },
     {
-      "key": "production-effect-api:workflow/flake-cli.ts:rmSync",
-      "reason": "#563"
-    },
-    {
       "key": "production-effect-api:workflow/forge/generated-files.ts:rmSync",
       "reason": "#563"
     },
@@ -3452,10 +3436,6 @@
     },
     {
       "key": "standalone-runtime-sink-unmodeled:src/shared/git-churn.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "standalone-runtime-sink-unmodeled:src/shared/workflow/e2e-runner.mjs",
       "reason": "#563"
     },
     {
