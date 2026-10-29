@@ -125,6 +125,8 @@ function fakePorts(overrides: Partial<DepsAdoptPorts> = {}, pull: Partial<Awaite
     readWorkspaceFile: (_worktree, path) => texts.get(path) ?? "",
     writeWorkspaceFile: (_worktree, path, text) => { calls.push(`write ${path}`); written.push(path); texts.set(path, text); },
     declaredArgv: () => ["npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit"],
+    sandboxUnavailable: () => null,
+    sandboxedInstallAndBundle: async (_worktree, directory) => { calls.push(`sandbox ${directory}`); },
     runDeclaredCommand: async (_worktree, name) => { calls.push(`run ${name}`); },
     sync: async () => { calls.push("sync"); },
     commit: async (_worktree, message) => { calls.push(`commit ${message.split("\n")[0]!}`); },
@@ -184,4 +186,19 @@ test("the forge read carries the author's numeric account id and type, and refus
   assert.deepEqual([facts.authorLogin, facts.authorId, facts.authorType], ["dependabot[bot]", 49699333, "Bot"]);
   await assert.rejects(pullRequestFacts(client({ login: "dependabot[bot]", type: "Bot" }), "o/r", 620, 3), refusedWith("github_response_invalid"));
   await assert.rejects(pullRequestFacts(client({ login: "dependabot[bot]", id: "49699333", type: "Bot" }), "o/r", 620, 3), refusedWith("github_response_invalid"));
+});
+
+test("a bump built into the bundle (/engine) runs the real install and the bundle regeneration only inside the sandbox, and refuses before anything exists where the sandbox cannot", async () => {
+  const engineFiles = { files: [{ path: "engine/package.json" }, { path: "engine/package-lock.json" }] };
+  const engineRead = { readFileAt: async (path: string, ref: string) => (path === "engine/package.json" ? (ref === "base" ? BEFORE : AFTER) : "{}"), readWorkspaceFile: () => BEFORE };
+  const { ports, calls } = fakePorts(engineRead, engineFiles);
+  await adoptDependabotPullRequest(620, ports);
+  assert.deepEqual(calls.slice(0, 5), ["create engine/package.json,engine/package-lock.json", "write engine/package.json", "run engine-lockfile", "sandbox engine", "sync"]);
+  const refused = fakePorts({ ...engineRead, sandboxUnavailable: () => "no confined-install mode" }, engineFiles);
+  await assert.rejects(adoptDependabotPullRequest(620, refused.ports), (error: unknown) => (error as { code?: string }).code === "deps_sandbox_unavailable" && (error as Error).message.includes("never on the host"));
+  assert.deepEqual(refused.calls, [], "nothing was created, nothing installed");
+  // A root bump is built into nothing: the sandbox is never asked.
+  const root = fakePorts({ sandboxUnavailable: () => { throw new Error("asked"); } });
+  await adoptDependabotPullRequest(551, root.ports);
+  assert.ok(!root.calls.some((call) => call.startsWith("sandbox")));
 });

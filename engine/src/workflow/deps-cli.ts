@@ -58,6 +58,11 @@ export async function runDepsCli(root: string, argv: readonly string[]): Promise
     readWorkspaceFile: (worktree, path) => readFileSync(join(worktree, path), "utf8"),
     writeWorkspaceFile: (worktree, path, text) => writeFileSync(join(worktree, path), text),
     declaredArgv: (name) => declaredCommand(name).argv,
+    // THE SANDBOXED INSTALL IS NOT BUILT: the guardian cannot yet confine an install whose binaries must execute
+    // (W^X: a confined project is writable, never executable) nor scope the network to the registry. Until it can,
+    // every bundled-directory bump refuses here, typed, and nothing is installed on the host.
+    sandboxUnavailable: () => "the guardian has no confined-install mode yet (a confined checkout is writable and never executable, and its network can only be refused, not scoped to the registry)",
+    sandboxedInstallAndBundle: async () => { throw new HarnessError("deps adopt: no sandboxed install exists to run", "deps_sandbox_unavailable"); },
     runDeclaredCommand: (worktree, name) => declared(worktree, name),
     // The workspace's own declared regenerate command (`harness-sync`), through the one runner.
     sync: (worktree) => declared(worktree, DEPS_ADOPT_SYNC_COMMAND),

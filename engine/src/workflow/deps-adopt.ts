@@ -26,8 +26,11 @@
  *    through the one command runner, RESOLUTION ONLY (`--package-lock-only
  *    --ignore-scripts`, judged before the workspace exists, else
  *    `deps_resolution_executes`): nothing is installed on the host, so no
- *    package code runs there; installs happen only in the sandboxed runs
- *    that judge the agent's pull request; for
+ *    package code runs there. A bump in a directory built into the bundle
+ *    (`BUNDLED_NPM_DIRECTORIES`) also needs the real install and the bundle
+ *    regenerated: that runs only inside the sandbox, and the step refuses
+ *    (`deps_sandbox_unavailable`, before anything exists) where the sandbox
+ *    cannot run it; for
  *    Actions, the pin moves in the external-surface registry (the one owner
  *    of action pins) and the workflows that use the action are rewritten
  *    from it. `harness sync` then regenerates every pin and inventory;
@@ -261,6 +264,13 @@ export type DepsAdoptPorts = Readonly<{
   declaredArgv(name: string): readonly string[];
   /** One declared command through the one runner; a failure refuses. */
   runDeclaredCommand(worktree: string, name: string): Promise<void>;
+  /**
+   * Whether the sandbox can run a bundled directory's real install and bundle regeneration on this host:
+   * null when it can, else why not (a refusal, never a host install).
+   */
+  sandboxUnavailable(directory: string): string | null;
+  /** The real install (scripts included) and the bundle regeneration of `directory`, inside the sandbox. */
+  sandboxedInstallAndBundle(worktree: string, directory: string): Promise<void>;
   /** `harness sync` in the worktree. */
   sync(worktree: string): Promise<void>;
   /** Commit every change as the agent identity with sign-off, through the hooks. */
@@ -289,6 +299,16 @@ export const DEPS_ADOPT_SYNC_COMMAND = "harness-sync";
 
 /** Every declared command the adoption runs (the dead-command check counts them as consumed). */
 export const DEPS_ADOPT_COMMANDS: readonly string[] = deepFreeze([...new Set([...Object.values(NPM_DIRECTORY_COMMANDS).flat(), DEPS_ADOPT_SYNC_COMMAND])]);
+
+/**
+ * The npm directories whose dependencies are BUILT INTO A GENERATED OUTPUT:
+ * the engine's, inlined into `dist/bundle.js`. A bump there changes the
+ * bundle, and regenerating it needs the real install (esbuild's install
+ * script included). That runs only inside the sandbox (the coordinator's
+ * option (a)), never on the host: the step refuses typed when the sandbox
+ * cannot run it.
+ */
+export const BUNDLED_NPM_DIRECTORIES: readonly string[] = deepFreeze(["engine"]);
 
 /** The declared commands an npm bump in `directory` runs, in order (each resolution only: {@link RESOLUTION_ONLY_FLAGS}). */
 export function npmCommandsFor(directory: string): readonly string[] {
@@ -324,10 +344,18 @@ export async function adoptDependabotPullRequest(number: number, ports: DepsAdop
     const missing = RESOLUTION_ONLY_FLAGS.filter((flag) => !ports.declaredArgv(command).includes(flag));
     if (missing.length > 0) refuse("deps_resolution_executes", `the declared command ${command} lacks ${missing.join(" and ")}: resolving the bump on the host would run the new package's code`, { command });
   }
+  const sandboxed = bump.ecosystem === "npm" && BUNDLED_NPM_DIRECTORIES.includes(bump.directory);
+  if (sandboxed) {
+    const why = ports.sandboxUnavailable(bump.directory);
+    if (why !== null) {
+      refuse("deps_sandbox_unavailable", `a bump in /${bump.directory} changes the generated bundle, whose regeneration needs the real install (scripts included); that runs only inside the sandbox, never on the host, and the sandbox cannot run it here: ${why}`, { directory: bump.directory });
+    }
+  }
   const workspace = await ports.createWorkspace(writeSet);
   if (bump.ecosystem === "npm") {
     ports.writeWorkspaceFile(workspace.worktree, manifest!, applyNpmBump(ports.readWorkspaceFile(workspace.worktree, manifest!), bump.changes, manifest!));
     for (const command of resolution) await ports.runDeclaredCommand(workspace.worktree, command);
+    if (sandboxed) await ports.sandboxedInstallAndBundle(workspace.worktree, bump.directory);
   } else {
     const moved = moveActionPins(ports.readWorkspaceFile(workspace.worktree, ACTION_PIN_REGISTRY), bump.changes);
     ports.writeWorkspaceFile(workspace.worktree, ACTION_PIN_REGISTRY, moved.text);

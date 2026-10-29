@@ -41,6 +41,17 @@ would break the identity and sign-off rule in force (GH-IDENTITY).
   (`deps_resolution_executes`), so resolution never executes package code. An
   install, which runs the new package's lifecycle scripts, happens only in
   the sandboxed runs that judge the agent's pull request.
+- **A bump built into the bundle regenerates it only inside the sandbox.**
+  An `/engine` bump changes `dist/bundle.js`, and regenerating it needs the
+  real install (esbuild's install script included). The coordinator chose
+  option (a): that install and the bundle regeneration run inside the
+  guardian sandbox (no credentials, the checkout's write door only), never on
+  the host, and never in a CI job holding the App token (GH-5's #747). The
+  step is refusal-checked: where the sandbox cannot run it, the adoption
+  refuses (`deps_sandbox_unavailable`) before anything exists. **Today it
+  always refuses:** the guardian has no confined-install mode yet (a
+  confined checkout is writable and never executable, and its network can
+  only be refused, not scoped to the registry).
 - **Action pins have one owner.** An Actions bump moves the pin in the
   external-surface registry, and the workflows that use the action are
   rewritten from it.
