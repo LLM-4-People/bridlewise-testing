@@ -101,6 +101,12 @@ bar](docs/process/AGENTS.md#evidence).
 
 ## Commit and pull request style
 
+- **Stage with `npm run stage -- <new path>…`** (`harness stage`): it stages
+  every tracked file you changed plus each new file you name, by its literal
+  path, and nothing unnamed. It refuses a path that does not exist, a folder,
+  an ignored file (naming the rule), a conflicted file git still finds
+  leftover markers in, and a change that would drop a staged blob existing nowhere else.
+  Never `git add -A`, `git add .` or `git commit -a`, even with a path.
 - **Sign off every commit** with the [Developer Certificate of
   Origin](https://developercertificate.org/): `git commit -s` adds
   `Signed-off-by: Your Name <you@example.com>`, matching the commit's author. To

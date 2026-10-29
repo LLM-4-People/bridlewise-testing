@@ -44,14 +44,23 @@
  *   never lost. It refuses when a blob to restore is missing from the store
  *   (`index_baseline_objects_missing`), before touching the index.
  *
+ * - {@link stagePaths} (`harness stage [path…]`) is THE way to stage: exactly
+ *   the tracked files the working tree changed plus the new paths NAMED,
+ *   each by its literal path, never anything unnamed (no `git add -A`, no
+ *   directory, no pathspec magic). It refuses a named path that does not
+ *   exist, is a folder or is ignored (naming the rule), an unmerged path
+ *   git still finds leftover conflict markers in (`git diff --check`), a drifted index, and a change over a protected
+ *   staged blob (staging it would drop the only copy), before touching the
+ *   index.
+ *
  * The record's digest is a self-consistency check against a torn or garbled
  * file, not a MAC: an edit that recomputes it is accepted. `git restore
  * --staged`, `git reset` and `git rm --cached` of a protected path are the
  * slips it catches; the process rule (never use them on this checkout's
  * index) lives in the process documentation (docs/process/WORKFLOW.md).
  */
-import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { lstatSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -121,6 +130,18 @@ function topLevel(root: string): string {
 /** The recorded baseline's location in the checkout whose top level is `top`. */
 export function indexBaselinePath(top: string): string {
   return join(top, ROOT_POLICY.verification.liveIndexBaseline.path);
+}
+
+/**
+ * THE ONE GIT DOOR of this module for an answer whose exit status carries meaning (`check-ignore`'s 1 is "none",
+ * `diff --check`'s 2 is "findings"): the status and both streams, never a throw on a non-zero exit.
+ */
+function gitAnswer(top: string, argv: readonly string[], input?: string): Readonly<{ status: number | null; stdout: string; stderr: string }> {
+  const answer = spawnSync("git", ["-c", "gc.auto=0", ...argv], {
+    cwd: top, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes, env: directoryGitEnvironment(),
+    ...(input === undefined ? {} : { input }),
+  });
+  return { status: answer.status, stdout: answer.stdout ?? "", stderr: answer.stderr ?? "" };
 }
 
 function git(top: string, argv: readonly string[], options: Readonly<{ input?: string; environment?: Readonly<Record<string, string>> }> = {}): string {
@@ -287,4 +308,127 @@ export function indexBaselineSummary(root: string): string {
   if (state.state === "unrecorded") return "unrecorded";
   if (state.state === "clean") return `clean: ${String(state.protected)} protected staged blob(s)`;
   return `drifted: lost ${state.lost.join(", ")}`;
+}
+
+/**
+ * The named paths an ignore rule keeps out, each with the rule (`<source>:<line>:<pattern>`): git's own
+ * `check-ignore -v`, which never reports a tracked file. Exit 1 is git's "none is ignored".
+ */
+function ignoringRules(top: string, paths: readonly string[]): readonly Readonly<{ path: string; rule: string }>[] {
+  if (paths.length === 0) return [];
+  // The paths travel on stdin, NUL-separated (`-z` needs `--stdin`): any legal name, never an option.
+  const answer = gitAnswer(top, ["check-ignore", "-v", "-z", "--stdin"], `${paths.join("\0")}\0`);
+  if (answer.status === 1) return [];
+  if (answer.status !== 0) throw new HarnessError(`stage: git check-ignore failed: ${answer.stderr.trim()}`, "stage_ignore_unreadable");
+  // -v -z records: <source> NUL <line> NUL <pattern> NUL <path> NUL.
+  const fields = answer.stdout.split("\0");
+  const found: { path: string; rule: string }[] = [];
+  for (let at = 0; at + 3 < fields.length; at += 4) found.push({ path: fields[at + 3]!, rule: `${fields[at]!}:${fields[at + 1]!}:${fields[at + 2]!}` });
+  return found;
+}
+
+/**
+ * The lines of an unmerged `path` that GIT judges leftover conflict markers: `git diff --check`, which owns the
+ * marker rules (the configured `conflict-marker-size`, diff3's `|||||||` base, a setext heading that is not a
+ * marker). Its whitespace findings are not this question and are skipped. Its answer is parsed exactly: exit 0 is
+ * no finding, exit 2 is findings, each `<path>:<line>: <message>` (a whitespace finding followed by its `+` line);
+ * anything else is a typed refusal, never a guess.
+ */
+function leftoverConflictMarkers(top: string, path: string): readonly number[] {
+  const answer = gitAnswer(top, ["-c", "core.quotePath=false", "diff", "--check", "--no-color", "--", path]);
+  const unreadable = (why: string): never => {
+    throw new HarnessError(`stage: git diff --check's answer for ${path} cannot be read (${why}); nothing was staged`, "stage_conflict_unreadable", false, { path });
+  };
+  if (answer.status === 0) return answer.stdout === "" ? [] : unreadable("findings with a clean exit");
+  if (answer.status !== 2) return unreadable(`exit ${String(answer.status)}: ${answer.stderr.trim()}`);
+  const lines = answer.stdout.split("\n");
+  if (lines.pop() !== "") unreadable("an unterminated last line");
+  const markers: number[] = [];
+  for (let at = 0; at < lines.length; at += 1) {
+    const line = lines[at]!;
+    if (!line.startsWith(`${path}:`)) unreadable(`an unexpected line: ${JSON.stringify(line.slice(0, 200))}`);
+    const finding = /^(\d+): (.+)$/u.exec(line.slice(path.length + 1));
+    if (finding === null) return unreadable(`an unexpected finding: ${JSON.stringify(line.slice(0, 200))}`);
+    if (finding[2] === "leftover conflict marker") {
+      markers.push(Number(finding[1]));
+      continue;
+    }
+    // A whitespace finding: its offending line follows, as the diff prints it.
+    const shown = lines[at + 1];
+    if (shown === undefined || !(shown.startsWith("+") || shown.startsWith(" "))) unreadable(`a finding without its line: ${JSON.stringify(line.slice(0, 200))}`);
+    at += 1;
+  }
+  return markers;
+}
+
+/** Why a named path cannot be staged as it is spelled, or null: a repository-relative path, literal, inside the checkout. */
+function unstageablePathSpelling(path: string): string | null {
+  if (path.length === 0 || path.startsWith("-")) return "is not a path";
+  if (path.startsWith("/") || path.startsWith(":")) return "is not repository-relative (an absolute path or pathspec magic)";
+  if (path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) return "is not a normalized repository-relative path";
+  return null;
+}
+
+/**
+ * THE WAY TO STAGE (see the header): the tracked files the working tree
+ * changed (`git diff --name-only`: edits and deletions) plus `named` (new
+ * paths, repository-relative as git prints them from the top, whatever the
+ * current folder), each by its literal path. Refuses, before touching the
+ * index: a named path badly spelled, missing or a folder (a folder would
+ * stage files nobody named); a drifted index (repair it first); a change over
+ * a protected staged blob (staging it would drop the blob that exists nowhere
+ * else). Answers what it staged.
+ */
+export function stagePaths(root: string, named: readonly string[]): Readonly<{ staged: readonly string[] }> {
+  const top = topLevel(root);
+  for (const path of named) {
+    const spelling = unstageablePathSpelling(path);
+    if (spelling !== null) throw new HarnessError(`stage: "${path}" ${spelling}; name each new file by its path from the repository top`, "stage_path_invalid", false, { path });
+    let isDirectory: boolean;
+    try {
+      isDirectory = lstatSync(join(top, path)).isDirectory();
+    } catch {
+      throw new HarnessError(`stage: ${path} does not exist in ${top}; name each new file by its path from the repository top`, "stage_path_missing", false, { path });
+    }
+    if (isDirectory) throw new HarnessError(`stage: ${path} is a folder; staging it would stage files nobody named, so name each new file in it`, "stage_path_directory", false, { path });
+  }
+  const ignored = ignoringRules(top, named);
+  if (ignored.length > 0) {
+    throw new HarnessError(
+      `stage: ${ignored.map(({ path, rule }) => `${path} is ignored by ${rule}`).join("; ")}; an ignored file is kept out of the repository on purpose, so it is never staged (change the rule if it belongs in the repository)`,
+      "stage_path_ignored",
+      false,
+      { paths: ignored.map(({ path }) => path).join(",") },
+    );
+  }
+  assertIndexAtBaseline(top);
+  const modified = gitNulRecords(top, ["diff", "--name-only", "-z"], "directory");
+  const recorded = readBaseline(indexBaselinePath(top));
+  if (recorded !== null) {
+    const changing = new Set(modified);
+    const atRisk = classify(top, recorded).held.filter((entry) => changing.has(entry.path)).map((entry) => entry.path);
+    if (atRisk.length > 0) {
+      throw new HarnessError(
+        `stage: ${JSON.stringify(atRisk)} hold a protected staged blob that exists nowhere else, and the working tree changed them since; staging would drop it. ` +
+          "Work in a workspace (npm run ws -- create), or commit the staged blob first",
+        "stage_protected_entry",
+        false,
+        { paths: atRisk.join(",") },
+      );
+    }
+  }
+  const staged = [...new Set([...modified, ...named])];
+  // Staging an unmerged path marks its conflict resolved: one git still finds leftover markers in is refused.
+  const unmerged = new Set(indexEntries(top, "directory").filter((entry) => entry.stage > 0).map((entry) => entry.path));
+  const unresolved = staged.filter((path) => unmerged.has(path) && leftoverConflictMarkers(top, path).length > 0);
+  if (unresolved.length > 0) {
+    throw new HarnessError(
+      `stage: ${JSON.stringify(unresolved)} are unmerged and git still finds leftover conflict markers in them; staging would mark the conflict resolved with the markers in it. Resolve each, then stage`,
+      "stage_conflict_unresolved",
+      false,
+      { paths: unresolved.join(",") },
+    );
+  }
+  if (staged.length > 0) git(top, ["--literal-pathspecs", "add", "--pathspec-from-file=-", "--pathspec-file-nul"], { input: `${staged.join("\0")}\0` });
+  return { staged };
 }
