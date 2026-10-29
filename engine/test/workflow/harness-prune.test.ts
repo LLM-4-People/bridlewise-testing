@@ -21,10 +21,12 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { FRONT_DOOR_GENERATOR, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 
 import { GENERATOR_INPUTS_BEYOND_ENGINE, harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
 import { stageInCopy } from "../../src/git/working-copy.ts";
+import { trackedFiles } from "../../src/git/repository-ownership.ts";
+import { reachabilityClosure } from "../../src/workflow/reachability.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -44,6 +46,19 @@ test("a generator test's repository copy carries every path an arm declares it n
     if (input === null) continue;
     assert.ok(["docs/community/intake.json", ".github/workflows/ci.yml", "package-lock.json", "CONTRIBUTING.md", VERIFICATION_PATHS.architectureJudgeBaseline, "docs/brand/messaging.json"].some((path) => input(path) && engineGeneratorPopulation(path)), arm);
   }
+});
+
+test("the front-door arm's copy carries every module its generator reaches, derived from the generator's own imports (a hand list went stale)", () => {
+  // scripts/brand/claims.ts came to import scripts/floor/status.mjs (and it scripts/floor/files.mjs): the hand-listed
+  // generator modules missed them, and every generator test's copy failed with ERR_MODULE_NOT_FOUND in CI.
+  const reached = reachabilityClosure({
+    entryPoints: [`engine/${FRONT_DOOR_GENERATOR.generator}`],
+    files: trackedFiles(join(import.meta.dirname, "..", "..", "..")) ?? [],
+    readTexts: (paths) => new Map(paths.map((path) => [path, readFileSync(join(import.meta.dirname, "..", "..", "..", path), "utf8")])),
+  });
+  const beyond = [...reached.closure].filter((path) => !path.startsWith("engine/") && !path.startsWith("shared/"));
+  assert.ok(beyond.includes("scripts/floor/status.mjs") && beyond.includes("scripts/floor/files.mjs"), `the generator reaches the floor modules (liveness): ${beyond.join(", ")}`);
+  for (const path of beyond) assert.equal(engineGeneratorPopulation(path), true, `${path} is a module the front-door generator loads`);
 });
 
 test("harness regenerate: a deleted test is refused with the typed code and the exact command; a named prune goes through", () => {

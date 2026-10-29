@@ -21,6 +21,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { InputError } from "../kernel/errors.ts";
+import { FRONT_DOOR_GENERATOR } from "../kernel/verification-paths.ts";
+import { trackedFiles } from "../git/repository-ownership.ts";
+import { reachabilityClosure } from "./reachability.ts";
 
 export const MESSAGING_PATH = "docs/brand/messaging.json";
 export const MESSAGING_SCHEMA = "bridlewise-messaging/v1";
@@ -96,7 +99,7 @@ export const CLAIMS_PATH = "docs/brand/claims.json";
 /** The decision records a designed claim names. */
 const DECISIONS_DIRECTORY = "docs/decisions";
 /** The files the front doors are written into, and the readers outside the engine they are made with. */
-const FRONT_DOOR_FILES = Object.freeze(["README.md", "docs/index.md", "docs/floor/claims.md", "package.json", "scripts/floor/repository.mjs"]);
+const FRONT_DOOR_FILES = Object.freeze(["README.md", "docs/index.md", "docs/floor/claims.md", "package.json"]);
 
 /** The repository file a claim's evidence names (its `#anchor` dropped), or null for an https address. */
 export function evidencePath(evidence: string): string | null {
@@ -113,7 +116,28 @@ export function evidencePath(evidence: string): string | null {
  */
 export function frontDoorInput(path: string): boolean {
   if (path.startsWith("docs/brand/") || path.startsWith(`${DECISIONS_DIRECTORY}/`) || FRONT_DOOR_FILES.includes(path)) return true;
-  return citedEvidence().has(path);
+  return citedEvidence().has(path) || generatorModules().has(path);
+}
+
+/**
+ * Every module the front-door generator reaches (`FRONT_DOOR_GENERATOR`, engine-relative), repository-relative:
+ * DERIVED from its imports by the one reachability walk, never listed. A hand list of the generator's modules
+ * beyond the engine (`scripts/floor/repository.mjs` once) went stale the day the claims reader came to import
+ * `scripts/floor/status.mjs`, and every generator test's copy then lacked a module the generator loads.
+ */
+let modules: ReadonlySet<string> | undefined;
+function generatorModules(): ReadonlySet<string> {
+  if (modules === undefined) {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    const files = trackedFiles(root) ?? [];
+    const reached = reachabilityClosure({
+      entryPoints: [`engine/${FRONT_DOOR_GENERATOR.generator}`],
+      files,
+      readTexts: (paths) => new Map(paths.map((path) => [path, existsSync(join(root, path)) ? readFileSync(join(root, path), "utf8") : null])),
+    });
+    modules = reached.closure;
+  }
+  return modules;
 }
 
 let cited: ReadonlySet<string> | undefined;
