@@ -37,6 +37,8 @@ import { readSourceView } from "../scripts/verification/source-view.ts";
 import { bodyCalls, functionBody } from "../src/shared/source-structure.ts";
 import { astNode, astNodeArray, parseSourceModule, walkAst } from "../src/quality-packs/prevention/ast-helpers.ts";
 import { createTempDir } from "../test/support/temp-dir.ts";
+import { ensureTestProcessSupervisor } from "../guardian/build.ts";
+import { runTestCommand, vitestCommand } from "../src/process/supervised-run.ts";
 
 const ENGINE_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -327,10 +329,13 @@ test("PC-5: the build config is never a runner — vitest given it refuses at lo
     if (before === undefined) delete process.env["VITEST"];
     else process.env["VITEST"] = before;
   }
-  // The live drive: vitest itself, handed the build config, refuses before collecting a file.
-  const drive = spawnSync(join(REPO_ROOT, "node_modules", ".bin", "vitest"), ["list", "--config", "vite.config.ts"], { cwd: REPO_ROOT, encoding: "utf8", timeout: 120_000 });
-  assert.notEqual(drive.status, 0, `vitest ran with the build config:\n${drive.stdout}`);
-  assert.match(`${drive.stdout}${drive.stderr}`, /not the web test runner's/u);
+  // The live drive: vitest itself, handed the build config, refuses before collecting a file. Started through the one
+  // test-execution door like every runner start (confined), so this live test starts no runner outside it.
+  let printed = "";
+  const [command, args] = vitestCommand(REPO_ROOT, ["list", "--config", "vite.config.ts"]);
+  const drive = await runTestCommand({ supervisor: ensureTestProcessSupervisor(), checkout: REPO_ROOT, command, args, cwd: REPO_ROOT, hardCeilingMs: 120_000, killGraceMs: 5_000, onStdout: (chunk) => { printed += chunk.toString(); }, onStderr: (chunk) => { printed += chunk.toString(); } });
+  assert.notEqual(drive.exitCode, 0, `vitest ran with the build config:\n${printed}`);
+  assert.match(printed, /not the web test runner's/u);
 });
 
 test("wiring: every playwright config names a global setup door that takes the lock", () => {
