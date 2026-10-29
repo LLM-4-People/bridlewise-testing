@@ -37,6 +37,7 @@ export function projectionInput(repository: GitRepository, source: string, ledge
   const tree = commitTreeReader(repository, commit);
   const items = trackerItemsOf(tree);
   requireDeclaredLaneLabels(tree, items);
+  requireAdoptableFaces(items);
   return deepFreeze({
     schema: PROJECTION_INPUT_SCHEMA,
     source: commit,
@@ -44,7 +45,7 @@ export function projectionInput(repository: GitRepository, source: string, ledge
     repositoryUrl,
     items: items.map((item) => ({
       id: item.id, type: item.type, title: item.title, state: item.state, resolution: item.resolution, lane: item.lane, milestone: item.milestone,
-      parent: item.parent, blockedBy: item.blockedBy, decisions: item.decisions, tests: item.tests, evidence: item.evidence, body: item.body, path: `${prefix}${item.id}.md`,
+      parent: item.parent, blockedBy: item.blockedBy, decisions: item.decisions, tests: item.tests, evidence: item.evidence, body: item.body, path: `${prefix}${item.id}.md`, gh: item.gh,
     })),
     decisions: decisionRecords(treeEntries(tree, DECISION_INDEX.path.slice(0, DECISION_INDEX.path.lastIndexOf("/")))).map(({ id, status, implementation }) => ({ id, status, implementation })),
     recordedEvidence: recordedEvidenceAt(tree),
@@ -65,6 +66,17 @@ function requireDeclaredLaneLabels(tree: TreeReader, items: readonly TrackerItem
   const declared = new Set(readLabels(tree).map((label) => label.name.toLowerCase()));
   const undeclared = items.filter((item) => item.lane !== null && !declared.has(laneLabel(item.lane).toLowerCase())).map((item) => `${item.id} (${laneLabel(item.lane!)})`);
   if (undeclared.length > 0) throw new HarnessError(`projection_label_undeclared: ${undeclared.join(", ")}: declare the label in ${LABELS_PATH} (the projector creates none)`, "projection_label_undeclared");
+}
+
+/**
+ * Every record that names its GitHub face (`gh`) names an ISSUE: the
+ * projector adopts that issue as the item's face. A discussion is no face it
+ * projects yet, so a record naming one is refused here, naming each item
+ * (`projection_adopt_unsupported`), never projected as a second face.
+ */
+function requireAdoptableFaces(items: readonly TrackerItem[]): void {
+  const unsupported = items.filter((item) => item.gh !== null && !item.gh.startsWith("issue-")).map((item) => `${item.id} (${item.gh!})`);
+  if (unsupported.length > 0) throw new HarnessError(`projection_adopt_unsupported: ${unsupported.join(", ")}: the projector adopts an issue as a record's face, not a discussion`, "projection_adopt_unsupported");
 }
 
 /**
