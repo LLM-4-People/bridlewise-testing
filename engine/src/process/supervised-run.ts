@@ -72,6 +72,8 @@ export type TestProcessSupervision = Readonly<{
    * when it rooted where it started (a cgroup the user does not own: no worker leaves), null for an unconfined command.
    */
   runCgroup: "own-leaf" | "started-cgroup" | null;
+  /** Whether the command's confinement was refused at its own setup (it never ran): told apart from a command exiting 125 itself. */
+  confinementRefused: boolean;
 }>;
 
 const isInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value);
@@ -83,7 +85,8 @@ function receiptOf(line: Record<string, unknown>): Omit<TestProcessSupervision, 
   if (!isInteger(line["commandPid"]) || !isInteger(line["status"]) || !isBoolean(line["timedOut"]) || !isBoolean(line["interrupted"])
     || !isBoolean(line["commandKilled"]) || !isBoolean(line["noOwnedChildren"]) || !isInteger(line["waitedCpuUs"])
     || !isInteger(line["supervisorCpuUsBeforeReceipt"]) || !Array.isArray(reaped)
-    || !(line["runCgroup"] === null || line["runCgroup"] === "own-leaf" || line["runCgroup"] === "started-cgroup")) return undefined;
+    || !(line["runCgroup"] === null || line["runCgroup"] === "own-leaf" || line["runCgroup"] === "started-cgroup")
+    || !isBoolean(line["confinementRefused"])) return undefined;
   const children = reaped.map((entry: unknown) => {
     const child = entry as Record<string, unknown> | null;
     return child !== null && typeof child === "object" && isInteger(child["pid"]) && isInteger(child["status"]) && isBoolean(child["killed"])
@@ -94,7 +97,7 @@ function receiptOf(line: Record<string, unknown>): Omit<TestProcessSupervision, 
     commandPid: line["commandPid"], status: line["status"], timedOut: line["timedOut"], interrupted: line["interrupted"],
     reaped: Object.freeze(children as NonNullable<(typeof children)[number]>[]), commandKilled: line["commandKilled"],
     waitedCpuUs: line["waitedCpuUs"], supervisorCpuUsBeforeReceipt: line["supervisorCpuUsBeforeReceipt"], noOwnedChildren: line["noOwnedChildren"],
-    runCgroup: line["runCgroup"],
+    runCgroup: line["runCgroup"], confinementRefused: line["confinementRefused"],
   };
 }
 
@@ -282,7 +285,17 @@ export async function runTestCommand(options: TestCommandOptions): Promise<Super
   const scratch = openTestRunScratch();
   try {
     const confinement = testConfinement(options.supervisor, options.checkout, scratch.bound);
-    return await supervise({ ...options, env: testRunEnvironment(scratch, options.env) }, confinement);
+    const run = await supervise({ ...options, env: testRunEnvironment(scratch, options.env) }, confinement);
+    // Refused at the run's own setup after the probe passed (a place that changed between them): the command never
+    // ran, and that is the same typed refusal as the probe's, never an exit code a command could also give.
+    if (run.supervision?.confinementRefused === true) {
+      throw new HarnessError(
+        "The test confinement refused this run at its own setup (after its probe passed), so no test ran; the supervisor printed the step it refused. " +
+        "A writable place most likely changed between the probe and the run (a file of more than one name beneath it): remove the link and run again.",
+        "test_confinement_unavailable",
+      );
+    }
+    return run;
   } finally {
     // Reported BESIDE the run's result (always on), never instead of it: a test cannot trade its verdict for a crash.
     const unremoved = closeTestRunScratch(scratch);

@@ -19,7 +19,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
-import { runTestCommand, testConfinement, type SupervisedCommand } from "../../src/process/supervised-run.ts";
+import { readSupervisorReceipt, runTestCommand, testConfinement, type SupervisedCommand } from "../../src/process/supervised-run.ts";
 import { createRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
@@ -324,6 +324,32 @@ test("NEVER AN UNCONFINED RUN: when the native supervisor cannot confine, it ref
     "60000", "1000", "sh", "-c", `echo ran > ${JSON.stringify(marker)}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe", "pipe"] });
   assert.match(run.stderr, /confinement refused/u);
   assert.equal(existsSync(marker), false, "the command ran although its confinement was refused");
+  // Typed in the receipt (round 2, #18), and told apart from a confined command that exits 125 itself.
+  const refusedReceipt = readSupervisorReceipt(String(run.output[3])).receipt;
+  assert.equal(refusedReceipt?.status, 125, String(run.output[3]));
+  assert.equal(refusedReceipt?.confinementRefused, true, String(run.output[3]));
+  const own = spawnSync(SUPERVISOR, ["--checkout", checkout, "--scratch", createTempDir("confinement-never-scratch-"), "60000", "1000", "sh", "-c", "exit 125"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe", "pipe"] });
+  const ownReceipt = readSupervisorReceipt(String(own.output[3])).receipt;
+  assert.equal(ownReceipt?.status, 125, `${own.stderr}${String(own.output[3])}`);
+  assert.equal(ownReceipt?.confinementRefused, false, String(own.output[3]));
+});
+
+test("a run refused at its own setup is the typed refusal on the run path too, never an exit code (planted receipt; round 2, #18)", async () => {
+  // A supervisor whose probe passes and whose run is refused at setup: the receipt says so.
+  const folder = createTempDir("confinement-run-refused-");
+  const fake = join(folder, "run-refusing-supervisor");
+  writeFileSync(fake, [
+    "#!/bin/sh",
+    "[ \"$1\" = --probe-confinement ] && exit 0",
+    "echo 'test supervisor: confinement refused: a writable place holds a file with more than one name' >&2",
+    "printf '{\"announcedCommandPid\":1,\"announcedCommandStartTime\":null}\\n{\"commandPid\":1,\"status\":125,\"timedOut\":false,\"interrupted\":false,\"commandKilled\":false,\"reaped\":[],\"noOwnedChildren\":true,\"runCgroup\":\"started-cgroup\",\"confinementRefused\":true,\"waitedCpuUs\":0,\"supervisorCpuUsBeforeReceipt\":0}\\n' >&3",
+    "exit 0",
+  ].join("\n"));
+  chmodSync(fake, 0o755);
+  const { repository } = fixtureCheckouts();
+  await assert.rejects(runTestCommand({ supervisor: fake, checkout: repository, command: "true", args: [], cwd: repository, hardCeilingMs: 30_000, killGraceMs: 1_000, onStdout: () => {}, onStderr: () => {} }),
+    (error: unknown) => (error as { code?: string }).code === "test_confinement_unavailable" && /at its own setup/u.test((error as Error).message));
 });
 
 test("a recursive read-only remount: a mount already beneath the checkout is read-only too", () => {

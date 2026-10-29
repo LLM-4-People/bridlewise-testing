@@ -78,7 +78,7 @@ test("the recorded command (the engine worker's launch) runs supervised: the obs
 
 test("a receipt is CHECKED: a malformed or truncated last line is an absent receipt, never a cast", () => {
   const announce = `{"announcedCommandPid":42}\n`;
-  const good = `{"commandPid":42,"status":0,"timedOut":false,"interrupted":false,"commandKilled":false,"reaped":[{"pid":43,"status":9,"killed":true}],"noOwnedChildren":true,"runCgroup":"own-leaf","waitedCpuUs":1,"supervisorCpuUsBeforeReceipt":2}\n`;
+  const good = `{"commandPid":42,"status":0,"timedOut":false,"interrupted":false,"commandKilled":false,"reaped":[{"pid":43,"status":9,"killed":true}],"noOwnedChildren":true,"runCgroup":"own-leaf","confinementRefused":false,"waitedCpuUs":1,"supervisorCpuUsBeforeReceipt":2}\n`;
   const read = readSupervisorReceipt(announce + good);
   assert.equal(read.receipt?.runCgroup, "own-leaf");
   assert.equal(read.announcedCommandPid, 42);
@@ -89,6 +89,7 @@ test("a receipt is CHECKED: a malformed or truncated last line is an absent rece
     good.replace(',"waitedCpuUs":1', ""),
     good.replace('"runCgroup":"own-leaf"', '"runCgroup":"elsewhere"'),
     good.replace('"runCgroup":"own-leaf",', ""),
+    good.replace('"confinementRefused":false', '"confinementRefused":"no"'),
     good.slice(0, 40),
   ]) {
     const refused = readSupervisorReceipt(announce + broken);

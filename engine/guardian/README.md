@@ -41,7 +41,10 @@ the cgroup it started in, and its own cgroup2 view covers `/sys/fs/cgroup`.
 With the host's `nsdelegate`, which is required (a typed refusal otherwise),
 its root's limits refuse a write from inside, while worker leaves below the
 root can still be made. A step that fails is refused with exit 125 and its name; the
-command never starts unconfined. `--probe-confinement` (same places) proves
+command never starts unconfined. The receipt says so (`confinementRefused: true`,
+carried by a close-on-exec pipe the refused side writes), so a refusal is never
+taken for a command that exits 125 itself; the test door raises it as
+`test_confinement_unavailable`. `--probe-confinement` (same places) proves
 the arrangement before a run. On a host whose AppArmor restricts unprivileged
 user namespaces (Ubuntu 24.04's default), `node guardian/build.ts
 --apparmor-install` prints the commands that admit them for this checkout's

@@ -870,6 +870,11 @@ int main(int argc, char **argv) {
     /* The cgroup the command starts in, as the command reads it before it makes its leaf there (THE RUN'S CGROUP). */
     char cgroup[PATH_MAX] = "";
     if (confined && !own_cgroup(cgroup, sizeof(cgroup))) cgroup[0] = '\0';
+    /* THE REFUSAL CHANNEL (review of #634, round 2, #18): a close-on-exec pipe the command's side writes one byte to
+     * when its confinement is refused, before it exits 125. A command that ran closed it unwritten at its exec, so
+     * the receipt tells a refused confinement from a command that exits 125 itself. */
+    int refusal[2] = {-1, -1};
+    if (confined && pipe2(refusal, O_CLOEXEC)) fail("test supervisor refusal channel");
     pid_t child = fork();
     if (child < 0) fail("test supervisor fork");
     if (child == 0) {
@@ -885,8 +890,13 @@ int main(int argc, char **argv) {
         if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) || getppid() != supervisor) _exit(126);
         if (sigprocmask(SIG_SETMASK, &original, NULL)) _exit(126);
         if (confined) {
+            close(refusal[0]);
             const char *failed = confine();
-            if (failed) { refuse_confinement(failed); _exit(CONFINEMENT_REFUSED); }
+            if (failed) {
+                refuse_confinement(failed);
+                if (write(refusal[1], "R", 1) != 1) _exit(126);
+                _exit(CONFINEMENT_REFUSED);
+            }
         }
         execvp(argv[3], &argv[3]);
         perror("test supervisor exec");
@@ -894,6 +904,7 @@ int main(int argc, char **argv) {
     }
     spawned = true;
     command_pid = child;
+    if (confined) close(refusal[1]);
     /* The passed channel is the command's alone: its end-of-file is the
      * command's (and its descendants') closing, never this process's. */
     if (pass_fd) {
@@ -936,6 +947,15 @@ int main(int argc, char **argv) {
             (long)child, result, timed_out ? "true" : "false", interrupted ? "true" : "false", killed ? "true" : "false");
     cleanup_descendants();
     bool own_leaf = confined && remove_run_leaf(cgroup, child);
+    /* Every writer of the refusal channel is gone (the command exec'd or exited): one byte is a refused confinement. */
+    bool refused = false;
+    if (confined) {
+        char byte;
+        ssize_t got;
+        do { got = read(refusal[0], &byte, 1); } while (got < 0 && errno == EINTR);
+        refused = got == 1;
+        close(refusal[0]);
+    }
     /* Every writer of the result pipe is reaped: the relay has read its end-of-file, or reads it now. */
     if (relaying && pthread_join(relay_thread, NULL)) fail("test supervisor result relay join");
     struct rusage waited, own;
@@ -943,7 +963,7 @@ int main(int argc, char **argv) {
     /* The run's cgroup layout (null for an unconfined command): whether its worker leaves were its own to make. */
     char layout[32] = "null";
     if (confined) snprintf(layout, sizeof(layout), "\"%s\"", cgroup_layout(own_leaf));
-    fprintf(receipt, "],\"noOwnedChildren\":true,\"runCgroup\":%s,\"waitedCpuUs\":%" PRId64 ",\"supervisorCpuUsBeforeReceipt\":%" PRId64 "}\n", layout, cpu_us(&waited), cpu_us(&own));
+    fprintf(receipt, "],\"noOwnedChildren\":true,\"runCgroup\":%s,\"confinementRefused\":%s,\"waitedCpuUs\":%" PRId64 ",\"supervisorCpuUsBeforeReceipt\":%" PRId64 "}\n", layout, refused ? "true" : "false", cpu_us(&waited), cpu_us(&own));
     int close_result = fclose(receipt);
     receipt = NULL;
     if (close_result) fail("test supervisor close receipt");
