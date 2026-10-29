@@ -13,7 +13,7 @@ import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { harnessCheck } from "../../src/workflow/harness-commands.ts";
+import { candidateFormatStep, harnessCheck } from "../../src/workflow/harness-commands.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
 test("harness check refuses a tree the engine runner would refuse at setup, naming the file; the clean tree passes", async () => {
@@ -21,8 +21,10 @@ test("harness check refuses a tree the engine runner would refuse at setup, nami
   // rule, as in the checkout and the commit guard's staged tree.
   const copy = createRepositoryWorkingCopy("candidate-format-check-", { include: (path) => engineGeneratorPopulation(path) || path === ".gitignore" });
   try {
+    // The clean tree's liveness asks the step alone; the whole check runs once, on the refused tree, where the
+    // claim is that the step is wired into it and fails it (a second whole check cost ~18 s of CPU for nothing).
     const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
-    const clean = (await harnessCheck(copy.engineRoot, options)).result.candidateFormat;
+    const clean = candidateFormatStep(copy.engineRoot);
     assert.equal(clean.status, "pass", `a fresh copy is accepted (liveness): ${clean.message}`);
     assert.match(clean.message, /the engine runner accepts the tree \([1-9][0-9]* files\)/u);
     // The #417 shape: one tracked text file ends in an extra newline.

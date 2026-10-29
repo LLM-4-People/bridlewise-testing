@@ -236,8 +236,8 @@ export function changeProblems(files: readonly ChangedFile[], local: LocalIdenti
   return problems;
 }
 
-function git(root: string, args: readonly string[]): Buffer {
-  const answer = spawnSync("git", args, { cwd: root, maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
+function git(root: string, args: readonly string[], input?: string): Buffer {
+  const answer = spawnSync("git", args, { cwd: root, maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes, ...(input === undefined ? {} : { input }) });
   if (answer.status !== 0) throw new HarnessError(`git ${args[0] ?? ""} failed: ${(answer.stderr ?? Buffer.alloc(0)).toString("utf8").trim()}`, "added_content_git_failed");
   return answer.stdout;
 }
@@ -282,14 +282,46 @@ export function changedFiles(root: string, parents: readonly string[], tree: Tre
   return changed.map((path) => ({ path, bytes: git(root, ["cat-file", "blob", spec(path)]), addedLines: addedLinesOf(root, first, tree, path) }));
 }
 
-/** Every file of a commit's tree (or the index), every line counted as added: the retroactive judgement. */
+/** One `git cat-file --batch` over `ids` (object names, one per line: a path never travels on a line), answering each blob's bytes in order. */
+function blobsOf(root: string, ids: readonly string[]): readonly Buffer[] {
+  const out = git(root, ["cat-file", "--batch"], `${ids.join("\n")}\n`);
+  const blobs: Buffer[] = [];
+  let at = 0;
+  for (const id of ids) {
+    const end = out.indexOf(0x0a, at);
+    const header = out.subarray(at, end).toString("utf8").split(" ");
+    if (header[0] !== id || header[1] !== "blob") throw new HarnessError(`git cat-file answered ${header.join(" ")} for ${id}, not its blob`, "added_content_git_failed");
+    const size = Number(header[2]);
+    blobs.push(out.subarray(end + 1, end + 1 + size));
+    at = end + 1 + size + 1;
+  }
+  return blobs;
+}
+
+/**
+ * Every file of a commit's tree (or the index), every line counted as added:
+ * the retroactive judgement. Each blob is read once, through `cat-file
+ * --batch` in as few processes as the git output bound allows (one spawn per
+ * file cost most of the judgement's CPU).
+ */
 export function treeFiles(root: string, commit: string | null): readonly ChangedFile[] {
-  const listing = (commit === null ? git(root, ["ls-files", "-z"]) : git(root, ["ls-tree", "-r", "-z", "--name-only", commit])).toString("utf8");
-  return listing.split("\0").filter((path) => path.length > 0).map((path) => {
-    const bytes = git(root, ["cat-file", "blob", commit === null ? `:${path}` : `${commit}:${path}`]);
-    const text = bytes.toString("utf8");
-    return { path, bytes, addedLines: text.split("\n").map((line, index) => ({ line: index + 1, text: line })) };
+  // `<mode> <type|oid> …\t<path>` records: ls-tree's `<mode> <type> <oid>\t<path>`, ls-files -s's `<mode> <oid> <stage>\t<path>`.
+  const records = (commit === null ? git(root, ["ls-files", "-s", "-z"]) : git(root, ["ls-tree", "-r", "-z", commit])).toString("utf8").split("\0").filter((record) => record.length > 0);
+  const entries = records.map((record) => {
+    const tab = record.indexOf("\t");
+    const fields = record.slice(0, tab).split(" ");
+    return { path: record.slice(tab + 1), id: (commit === null ? fields[1] : fields[2])! };
   });
+  const sizes = git(root, ["cat-file", "--batch-check=%(objectsize)"], `${entries.map((entry) => entry.id).join("\n")}\n`).toString("utf8").split("\n");
+  const bound = ROOT_POLICY.runtime.limits.maximumGitOutputBytes / 2;
+  const bytes: Buffer[] = [];
+  for (let start = 0; start < entries.length;) {
+    let end = start;
+    for (let total = 0; end < entries.length && (end === start || total + Number(sizes[end]) <= bound); end += 1) total += Number(sizes[end]);
+    bytes.push(...blobsOf(root, entries.slice(start, end).map((entry) => entry.id)));
+    start = end;
+  }
+  return entries.map(({ path }, index) => ({ path, bytes: bytes[index]!, addedLines: bytes[index]!.toString("utf8").split("\n").map((line, at) => ({ line: at + 1, text: line })) }));
 }
 
 /** The `commit-msg` question: the staged change (parents `HEAD` and any `MERGE_HEAD`), judged with the running user's identity. */

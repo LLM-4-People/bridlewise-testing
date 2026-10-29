@@ -1679,7 +1679,7 @@ function bundleFreshnessStep(root: string): CheckStepResult {
  * landed through every required check and left the suite running nothing
  * (#417). Asked here, it is refused before it lands.
  */
-function candidateFormatStep(root: string): CheckStepResult {
+export function candidateFormatStep(root: string): CheckStepResult {
   let answer: ScriptAnswer;
   try {
     answer = runScriptSubprocess(root, "scripts/verification/candidate-manifest.ts", ["--root", ".", "--verdict"]);
