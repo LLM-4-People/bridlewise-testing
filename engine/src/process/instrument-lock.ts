@@ -234,7 +234,7 @@ const RUN_LEAF = "run";
 const WORKER_LEAF = /^worker-\d+$/u;
 
 /** The cgroup v2 path of the run scope THIS process is inside (its own cgroup, or the parent of its `run` / `worker-<pid>` leaf); `undefined` outside a run's scope. */
-export function runScopeCgroup(): string | undefined {
+function runScopeCgroup(): string | undefined {
   const own = ownCgroupPath();
   if (own === undefined) return undefined;
   const last = own.slice(own.lastIndexOf("/") + 1);

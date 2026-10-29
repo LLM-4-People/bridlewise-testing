@@ -413,6 +413,8 @@ const ROOT_POLICY_VALUE = {
       "docs/architecture/",
       "docs/research/",
       "traceability/artifacts/manifest.json",
+      // The engine suite's measured per-worker memory names every test file by path, as the manifest does (worker-memory.ts).
+      "traceability/worker-memory.json",
       "verification/benchmarks/",
     ],
     historicalResearchAccessControl: {

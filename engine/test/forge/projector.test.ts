@@ -96,15 +96,16 @@ test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a p
   const script = join(directory, "memory.mjs");
   writeFileSync(script, [
     `const { confinedCall } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/workflow/forge/projector/confined.ts"))});`,
-    `const { ownCgroupFile, ownCgroupPath } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/process/process-facts.ts"))});`,
+    `const { ownCgroupPath } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/process/process-facts.ts"))});`,
+    `const { runScopeMemory } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/process/instrument-lock.ts"))});`,
     `const { emptyKeepOutFacts } = await import(${JSON.stringify(join(ENGINE_ROOT, "test/support/keep-out-facts.ts"))});`,
     `const module = { entry: ${JSON.stringify(entry)}, roots: [${JSON.stringify(directory)}], exportName: "projectText" };`,
     `const confinement = { harnessRoot: ${JSON.stringify(ENGINE_ROOT)}, keepOut: emptyKeepOutFacts(), cpuSeconds: 120, run: { lockPath: ${JSON.stringify(join(directory, "instrument.lock"))}, perRun: { memoryMaxPercent: 1, cpuWeight: 100 } } };`,
-    // The probe: an admitted run of these caps; this process stays in its scope after it, so the scope's own memory.max is the cap.
+    // The probe: an admitted run of these caps; this process stays in its scope (in the scope's run/ leaf) after it, so the scope's own memory.max is the cap.
     `confinedCall(module, "0", confinement);`,
     `const scope = ownCgroupPath();`,
-    `const max = Number(ownCgroupFile("memory.max"));`,
-    `if (!Number.isSafeInteger(max) || max <= 0) { process.stdout.write(\`NO-CAP \${ownCgroupFile("memory.max")}\\n\`); process.exit(0); }`,
+    `const max = runScopeMemory()?.maxBytes;`,
+    `if (max === undefined) { process.stdout.write("NO-CAP outside a run's scope\\n"); process.exit(0); }`,
     `let ending;`,
     `try { confinedCall(module, String(3 * max), confinement); ending = "ANSWERED"; } catch (error) { ending = \`REFUSED \${error.code}\`; }`,
     `process.stdout.write(\`\${ending} scope=\${scope} max=\${max}\\n\`);`,
@@ -112,7 +113,7 @@ test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a p
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script], { cwd: ENGINE_ROOT, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr);
   // No swap under the cap: three times memory.max cannot be held, so the kernel ends the program and the admission owner refuses the run, typed.
-  assert.match(ran.stdout, /^REFUSED projection_memory_exhausted scope=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope max=[1-9]\d*$/mu, `${ran.stdout} ${ran.stderr}`);
+  assert.match(ran.stdout, /^REFUSED projection_memory_exhausted scope=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope\/run max=[1-9]\d*$/mu, `${ran.stdout} ${ran.stderr}`);
 });
 
 test("a confinement is built only under a declared run registry: a root without testExecution.instrumentLock is refused instrument_lock_undeclared", () => {

@@ -262,6 +262,7 @@
   {"integrity":{"byteLength":119,"sha256":"a7942e8aadd23087c351ebd1bfe3dec020285ade4719c095369fe99777d9b9e2"},"origin":{"configuration":"traceability-source-manifest","kind":"pinned-public-primary-source","license":"bound-by-adjacent-source-license-and-manifest","producingModel":"not-applicable","producingTool":"upstream-source-capture","toolVersion":"source-manifest-bound"},"path":"traceability/sources/s3.1/jcs-values-output.json"},
   {"path":"traceability/sources/s3.1/manifest.json"},
   {"path":"traceability/test-surface-dispositions.json"},
+  {"path":"traceability/worker-memory.json"},
   {"path":"verification/README.md"},
   {"path":"verification/benchmarks/README.md"},
   {"path":"verification/benchmarks/cli/README.md"},

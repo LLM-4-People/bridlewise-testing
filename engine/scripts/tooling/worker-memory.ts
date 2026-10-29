@@ -30,7 +30,7 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { InputError } from "../../src/kernel/errors.ts";
 import { canonicalJson } from "../../src/kernel/integrity.ts";
 import { parseJsonExact } from "../../src/kernel/json-integrity.ts";
-import { isEntryPoint } from "../../src/runtime/cli-debug.ts";
+import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import type { WorkerMemory } from "../../src/workflow/workflow-config.ts";
 
 /** The run-tests and test-worker flag of a measuring run. */
@@ -181,6 +181,7 @@ export function workerMemoryOf(
 }
 
 if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   const [verb, receipt] = process.argv.slice(2);
   if (verb !== "measure" || receipt === undefined) {
     process.stderr.write("Usage: node scripts/tooling/worker-memory.ts measure <worker-memory-receipt.json>\n");
