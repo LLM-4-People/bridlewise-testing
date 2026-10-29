@@ -174,7 +174,10 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
       const run = await superviseCommand({
         supervisor: ensureTestProcessSupervisor(), command: process.execPath,
         args: [join(process.cwd(), "scripts", "run-tests.ts"), "focused-fixture.test.ts"],
-        cwd: project, ...WATCHDOG, env: environment,
+        // The OUTER stall clock is not this test's subject (the wrapper's own completion verdict is): a 1.5 s silence
+        // bound on a wrapper that cold-starts a confined run killed it under load (FLAKY-WATCHDOG-C3), so it gets the
+        // suite's ordinary bound; the ceiling still ends a hung wrapper.
+        cwd: project, ...WATCHDOG, stallTimeoutMs: 60_000, env: environment,
         onStdout: (chunk) => { output.push(chunk.toString()); },
         onStderr: (chunk) => { output.push(chunk.toString()); },
       });
