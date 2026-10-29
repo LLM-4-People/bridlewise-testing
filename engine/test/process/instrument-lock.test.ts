@@ -158,13 +158,13 @@ test("EVERY SUPERVISOR AN ADMITTED RUN STARTS RUNS UNDER ITS CAPS: a cgroup scop
     `const { superviseCommand } = await import(${JSON.stringify(SUPERVISOR_OWNER)});`,
     `const lock = admitInstrumentRun(process.argv[2], "a capped run", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuLimitSeconds: 77, cpuKillGraceSeconds: 3, hangBackstopMs: 600_000 });`,
     "let out = '';",
-    `await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
+    `await superviseCommand({ supervisor: ${JSON.stringify(ensureTestProcessSupervisor())}, command: "sh", args: ["-c", 'g=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo "cgroup=$(cut -d: -f3 /proc/self/cgroup) weight=$(cat $g/cpu.weight) memmax=$(cat $g/memory.max) swapmax=$(cat $g/memory.swap.max) oompolicy=$(systemctl --user show -p OOMPolicy --value $(basename $g)) soft=$(ulimit -S -t) hard=$(ulimit -H -t)"'], hardCeilingMs: 60_000, killGraceMs: 3_000, onStdout: (chunk) => { out += chunk; }, onStderr: (chunk) => process.stderr.write(chunk) });`,
     "lock.release();",
     "process.stdout.write(out);",
   ].join("\n"));
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
   assert.equal(ran.status, 0, ran.stderr);
-  assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ soft=77 hard=80/u, ran.stdout);
+  assert.match(ran.stdout, /cgroup=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope weight=42 memmax=\d+ swapmax=0 oompolicy=continue soft=77 hard=80/u, ran.stdout);
   const total = Number(procfsDocument("meminfo")!.match(/^MemTotal:\s+(\d+) kB/mu)![1]) * 1024;
   const memmax = Number(/memmax=(\d+)/u.exec(ran.stdout)![1]);
   assert.ok(Math.abs(memmax - total * 0.37) < total * 0.01, `MemoryMax is 37% of the host's memory (${String(memmax)} of ${String(total)})`);
@@ -366,6 +366,131 @@ test("THE SUPERVISING DOOR (`harness slot run`, the coverage run, the perf profi
   const cli = readFileSync(join(ENGINE, "src", "workflow", "slot-cli.ts"), "utf8");
   assert.ok(cli.includes('wholeInstrumentTestFileCount(declaredInstrumentLock(readTestExecutionConfig(engineRoot).instrumentLock), "slot")'), "a slot run is heavy by config's word (wholeInstruments)");
   assert.match(cli, /await runInsideInstrumentLock\(slotRunLabel\(command\), count, command\)/u);
+});
+
+test("THE MEMORY CAP MEANS THE CAP (GH-7, #553): an allocation past it is not swapped out and run on — the kernel ends it and the ADMISSION OWNER refuses the run typed (run_memory_cap_exceeded), never a success", () => {
+  const lockPath = join(createTempDir("instrument-lock-swap-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-swap-script-"), "door.mjs");
+  const facts = pathToFileURL(join(ENGINE, "src", "process", "process-facts.ts")).href;
+  writeFileSync(script, [
+    `const { runInsideInstrumentLock } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "slot-cli.ts")).href)});`,
+    `const { procfsDocument } = await import(${JSON.stringify(facts)});`,
+    "const [lockPath] = process.argv.slice(2);",
+    // The cap is sized against the DOOR's own memory (its pages before the scope stay
+    // charged elsewhere, but the kernel picks its victim by size): at least four times
+    // the door, so the allocation — three times the cap — is always the largest process.
+    "const total = Number(/^MemTotal:\\s+(\\d+) kB/mu.exec(procfsDocument(\"meminfo\"))[1]) * 1024;",
+    "const memoryMaxPercent = Math.min(100, Math.max(1, Math.ceil((400 * process.memoryUsage().rss) / total)));",
+    "const capBytes = Math.floor((memoryMaxPercent / 100) * total);",
+    "const allocate = `const held = []; for (let size = 0; size < ${3 * capBytes}; size += 16 << 20) held.push(Buffer.alloc(16 << 20, 1)); console.log('SURVIVED ' + String(held.length));`;",
+    "try {",
+    "  const { exitCode, ending } = await runInsideInstrumentLock(\"an allocation past its cap\", Number.POSITIVE_INFINITY, [process.execPath, \"-e\", allocate], { lockPath, caps: { memoryMaxPercent, cpuWeight: 100 } });",
+    "  console.log(\"ENDED \" + JSON.stringify({ exitCode, ending }));",
+    "} catch (error) {",
+    "  console.log(\"REFUSED \" + String(error.code));",
+    "}",
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr.slice(0, 2_000));
+  assert.doesNotMatch(ran.stdout, /SURVIVED/u, "the allocation ran on past its cap (swapped out instead of stopped)");
+  assert.match(ran.stdout, /^REFUSED run_memory_cap_exceeded$/mu, ran.stdout);
+  assert.deepEqual(admittedRuns(lockPath), [], "the refused run released its record");
+});
+
+test("A NESTED DOOR BLAMES NOTHING (review M2 of #564): a sibling OOM-killed in the shared run leaves the nested door's command its own exit code; the run's OWNER reports the kill, typed, when it releases", () => {
+  const lockPath = join(createTempDir("instrument-lock-nested-oom-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-nested-oom-script-"), "owner.mjs");
+  const facts = pathToFileURL(join(ENGINE, "src", "process", "process-facts.ts")).href;
+  writeFileSync(script, [
+    `const { admitInstrumentRun } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { runInsideInstrumentLock } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "slot-cli.ts")).href)});`,
+    `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href)});`,
+    `const { procfsDocument } = await import(${JSON.stringify(facts)});`,
+    `const { spawnSync } = await import("node:child_process");`,
+    "const [lockPath] = process.argv.slice(2);",
+    "const total = Number(/^MemTotal:\\s+(\\d+) kB/mu.exec(procfsDocument(\"meminfo\"))[1]) * 1024;",
+    "const memoryMaxPercent = Math.min(100, Math.max(1, Math.ceil((400 * process.memoryUsage().rss) / total)));",
+    "const capBytes = Math.floor((memoryMaxPercent / 100) * total);",
+    "const run = admitInstrumentRun(lockPath, \"the outer run\", { memoryMaxPercent, cpuWeight: 100 }, SUBPROCESS_BOUNDS);",
+    // A SIBLING of the nested door, inside the run, passes the cap and is killed.
+    "const sibling = spawnSync(process.execPath, [\"-e\", `const held = []; for (let size = 0; size < ${3 * capBytes}; size += 16 << 20) held.push(Buffer.alloc(16 << 20, 1));`]);",
+    "console.log(\"SIBLING \" + String(sibling.signal));",
+    "const nested = await runInsideInstrumentLock(\"the nested door\", Number.POSITIVE_INFINITY, [process.execPath, \"-e\", \"process.exit(7)\"], { lockPath });",
+    "console.log(\"NESTED \" + String(nested.exitCode));",
+    "try { run.release(); console.log(\"OWNER RELEASED\"); } catch (error) { console.log(\"OWNER REFUSED \" + String(error.code)); }",
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr.slice(0, 2_000));
+  assert.match(ran.stdout, /^SIBLING SIGKILL$/mu, `the sibling was killed at the cap: ${ran.stdout}`);
+  assert.match(ran.stdout, /^NESTED 7$/mu, `the nested door kept its command's own exit code: ${ran.stdout}`);
+  assert.match(ran.stdout, /^OWNER REFUSED run_memory_cap_exceeded$/mu, `the run's owner reported the kill, typed: ${ran.stdout}`);
+  assert.deepEqual(admittedRuns(lockPath), [], "the owner released its record before refusing");
+});
+
+test("A CUT RUN THAT WAS ALSO FAILING KEEPS ITS FAILURE (review of #564): the memory refusal CARRIES the run's own failure — a failing command's ending, or a thrown error as its cause — never replaces it", () => {
+  const lockPath = join(createTempDir("instrument-lock-carry-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-carry-script-"), "carry.mjs");
+  const facts = pathToFileURL(join(ENGINE, "src", "process", "process-facts.ts")).href;
+  writeFileSync(script, [
+    `const { admitInstrumentRun, withinInstrumentHold } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { runInsideInstrumentLock } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "slot-cli.ts")).href)});`,
+    `const { SUBPROCESS_BOUNDS } = await import(${JSON.stringify(pathToFileURL(join(ENGINE, "src", "workflow", "workflow-config.ts")).href)});`,
+    `const { procfsDocument } = await import(${JSON.stringify(facts)});`,
+    `const { spawnSync } = await import("node:child_process");`,
+    "const [lockPath, otherLockPath] = process.argv.slice(2);",
+    "const total = Number(/^MemTotal:\\s+(\\d+) kB/mu.exec(procfsDocument(\"meminfo\"))[1]) * 1024;",
+    "const memoryMaxPercent = Math.min(100, Math.max(1, Math.ceil((400 * process.memoryUsage().rss) / total)));",
+    "const capBytes = Math.floor((memoryMaxPercent / 100) * total);",
+    "const allocate = `const held = []; for (let size = 0; size < ${3 * capBytes}; size += 16 << 20) held.push(Buffer.alloc(16 << 20, 1));`;",
+    // 1. THE DOOR: its command is cut at the cap AND then fails on its own (exit 3).
+    "try {",
+    "  await runInsideInstrumentLock(\"a failing command\", Number.POSITIVE_INFINITY, [\"sh\", \"-c\", `${JSON.stringify(process.execPath)} -e ${JSON.stringify(allocate)}; exit 3`], { lockPath, caps: { memoryMaxPercent, cpuWeight: 100 } });",
+    "  console.log(\"DOOR ENDED\");",
+    "} catch (error) { console.log(\"DOOR \" + JSON.stringify({ code: error.code, cause: error.cause, namesTheCap: error.message.includes(\"memory cap\") })); }",
+    // 2. A BODY THAT THROWS after a process of its run was cut.
+    "const run = admitInstrumentRun(otherLockPath, \"a throwing body\", { memoryMaxPercent, cpuWeight: 100 }, SUBPROCESS_BOUNDS);",
+    "try {",
+    "  await withinInstrumentHold(run, async () => { spawnSync(process.execPath, [\"-e\", allocate]); throw new Error(\"the suite crashed\"); });",
+    "} catch (error) { console.log(\"BODY \" + JSON.stringify({ code: error.code, cause: error.cause?.message })); }",
+    // RELEASED ONCE: a later release (a runner's catch after a refused release) does nothing.
+    "try { run.release(\"a second failure\"); console.log(\"SECOND RELEASE quiet\"); } catch (error) { console.log(\"SECOND RELEASE threw \" + String(error.code)); }",
+  ].join("\n"));
+  const otherLockPath = join(createTempDir("instrument-lock-carry-other-"), "instrument.lock");
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath, otherLockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr.slice(0, 2_000));
+  const line = (prefix: string): string | undefined => ran.stdout.split("\n").find((one) => one.startsWith(`${prefix} `))?.slice(prefix.length + 1);
+  // Structured fields, never a pattern over the message: the refusal's code, its cause, and that it names the cap.
+  assert.deepEqual(JSON.parse(line("DOOR") ?? "null"), { code: "run_memory_cap_exceeded", cause: "the command a failing command ended exited with exit code 3", namesTheCap: true }, `both appear: ${ran.stdout}`);
+  assert.deepEqual(JSON.parse(line("BODY") ?? "null"), { code: "run_memory_cap_exceeded", cause: "the suite crashed" }, `the thrown failure rides as the cause: ${ran.stdout}`);
+  assert.equal(line("SECOND RELEASE"), "quiet", `the refusal is said once: ${ran.stdout}`);
+  assert.deepEqual([...admittedRuns(lockPath), ...admittedRuns(otherLockPath)], [], "both runs released their records");
+});
+
+/**
+ * Runs `body` (a module) inside a scope of its own made with `properties`
+ * (systemd-run), with the scope's unit name as argv[1]; its stdout, trimmed.
+ */
+function inPlantedScope(properties: readonly string[], body: string): string {
+  const unit = `bridlewise-plant-${randomUUID()}`;
+  const ran = spawnSync("systemd-run", ["--user", "--scope", "--quiet", "--collect", `--unit=${unit}`, ...properties.flatMap((property) => ["-p", property]),
+    process.execPath, "--experimental-strip-types", "--input-type=module", "-e", body, `${unit}.scope`], { encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr);
+  return ran.stdout.trim();
+}
+
+test("EACH READ-BACK REFUSES A SCOPE THAT LACKS IT (per_run_caps_unavailable): no memory.swap.max of 0, no memory.max, no OOMPolicy=continue — each planted alone, each named", () => {
+  const verify = [
+    `const { verifyRunScopeCaps } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    "try { verifyRunScopeCaps(process.argv[1], { memoryMaxPercent: 50, cpuWeight: 100 }); console.log(\"ACCEPTED\"); }",
+    "catch (error) { console.log(\"REFUSED \" + String(error.code) + \" \" + String(error.message)); }",
+  ].join("\n");
+  const all = ["MemoryMax=1G", "MemorySwapMax=0", "OOMPolicy=continue"];
+  assert.equal(inPlantedScope(all, verify), "ACCEPTED", "a scope with every cap is accepted (the plants below each lack ONE)");
+  for (const [lacking, names] of [["MemorySwapMax=0", /memory\.swap\.max max, not 0/u], ["MemoryMax=1G", /memory\.max max, not a byte count/u], ["OOMPolicy=continue", /OOMPolicy stop, not continue/u]] as const) {
+    const answer = inPlantedScope(all.filter((property) => property !== lacking), verify);
+    assert.match(answer, /^REFUSED per_run_caps_unavailable /u, `a scope without ${lacking} was not refused: ${answer}`);
+    assert.match(answer, names, `the refusal of a scope without ${lacking} names it: ${answer}`);
+  }
 });
 
 test("NESTING READS ADOPTED PROCESSES TOO (correctness M2): a run whose ancestor is a process the admitted run ADOPTED (a supervisor it runs a command under) borrows it; one outside it does not", (t) => {

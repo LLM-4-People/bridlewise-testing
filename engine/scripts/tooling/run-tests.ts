@@ -111,9 +111,10 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
   const argv = process.argv.slice(2);
   const operation = argv[0] === "--auto-add-dispositions" && argv.length % 2 === 1 &&
     argv.slice(1).every((value, index) => index % 2 === 1 || value === "--prune") ? "maintenance" : "suite";
-  let releaseInstrumentLock: (() => void) | undefined;
-  const finish = (exitCode: number): TestCommandResult => {
-    releaseInstrumentLock?.();
+  let releaseInstrumentLock: ((failure?: unknown) => void) | undefined;
+  // A failing run hands its failure to the release, so a run cut at its memory cap is refused WITH it.
+  const finish = (exitCode: number, failure?: unknown): TestCommandResult => {
+    releaseInstrumentLock?.(failure ?? (exitCode === 0 ? undefined : `the engine suite ended with exit code ${String(exitCode)}`));
     return { operation, exitCode };
   };
   // OUTSIDE the try: a refused config document is a refusal of the run, never
@@ -372,7 +373,7 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
   } catch (error) {
     const code = error instanceof HarnessError ? error.code : "test_runner_failed";
     process.stderr.write(`${canonicalJson({ error: code, message: extractErrorMessage(error) })}\n`);
-    return finish(1);
+    return finish(1, error);
   }
 }
 
