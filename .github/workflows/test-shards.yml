@@ -70,7 +70,7 @@ jobs:
       - name: Set up the engine
         uses: ./.github/actions/engine-setup
         with:
-          ignore-scripts: "false"
+          ignore-scripts: "true"
 
       - name: Require the exact commit and a clean tracked tree
         run: |

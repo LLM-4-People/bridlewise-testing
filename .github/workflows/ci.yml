@@ -210,7 +210,7 @@ jobs:
       - name: Set up the engine
         uses: ./.github/actions/engine-setup
         with:
-          ignore-scripts: "false"
+          ignore-scripts: "true"
 
       - name: Require the pinned compiler from the runner image
         run: |
