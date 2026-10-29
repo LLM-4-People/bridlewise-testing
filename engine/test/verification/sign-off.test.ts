@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { committerIdentity, isAgentAccount, isAgentCheckout, messageSignOffProblem, unsignedCommits } from "../../scripts/verification/sign-off.ts";
+import { commitRecordProblems, committerIdentity, isAgentAccount, isAgentCheckout, messageSignOffProblem, signedByGitHubCommits, unsignedCommits } from "../../scripts/verification/sign-off.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { TEST_GIT_IDENTITY, testGitIdentityEnvironment } from "../support/test-git-identity.ts";
@@ -123,6 +123,51 @@ test("CI: a merge group is VERIFIED (its ref in GitHub's queue namespace, held a
   git(["push", "-q", "--force", remote, `HEAD:${queueRef}`]);
   const refused = unsignedCommits(root, `${base}..HEAD`, { mergeGroup: { ref: queueRef, remote } });
   assert.ok(refused.some((line) => line.startsWith(`${plain.slice(0, 12)} is on the merge group's first-parent chain but is not a merge`)), refused.join("\n"));
+});
+
+test("a GitHub-signed web-flow commit carries its AUTHOR's sign-off — only when GitHub's own verification says GitHub signed it", () => {
+  const agent = ROOT_POLICY.workflow.commitIdentity.agent;
+  const github = ROOT_POLICY.workflow.commitIdentity.webFlowCommitter;
+  const signedOffByAuthor = `${"Signed-off-by"}: ${agent.name} <${agent.email}>`;
+  const record = { author: agent, committer: github, trailers: [{ key: "Signed-off-by", value: `${agent.name} <${agent.email}>` }], message: `publish\n\n${signedOffByAuthor}\n` };
+  assert.deepEqual(commitRecordProblems({ ...record, signedByGitHub: true }), [], "an App-published, GitHub-verified commit with its author's sign-off passes");
+  for (const [why, recorded] of [
+    ["GitHub's verification is false", { ...record, signedByGitHub: false }],
+    ["an unsigned commit that only claims GitHub as its committer", record],
+  ] as const) {
+    const problems = commitRecordProblems(recorded);
+    assert.ok(problems.some((problem) => problem.includes("has no \"Signed-off-by\" trailer naming its committer")), `${why}: ${problems.join("; ")}`);
+  }
+  // GitHub's verdict without GitHub as the committer changes nothing: the committer's sign-off is still the DCO.
+  const otherCommitter = { name: "Robin Example", email: "robin@example.invalid" };
+  assert.ok(commitRecordProblems({ ...record, committer: otherCommitter, signedByGitHub: true }).some((problem) => problem.includes("has no \"Signed-off-by\" trailer naming its committer")), "a signed commit committed by someone else needs that committer's sign-off");
+  // The author must still be the project's agent identity: GitHub's door does not launder a person's commit.
+  const person = { name: "Pat Example", email: "pat@example.invalid" };
+  const byPerson = { ...record, author: person, trailers: [{ key: "Signed-off-by", value: `${person.name} <${person.email}>` }], message: "edit\n", signedByGitHub: true };
+  assert.ok(commitRecordProblems(byPerson).some((problem) => problem.includes("GitHub-signed web-flow commit and its author is")), "a person's web-flow commit is refused");
+});
+
+test("the range reader asks GitHub only about web-flow commits, and takes as signed only those GitHub says it signed", async () => {
+  const { root, git } = repository();
+  const base = commit(git, root, "base.txt", `base\n\n${SIGNED}`);
+  const github = ROOT_POLICY.workflow.commitIdentity.webFlowCommitter;
+  const asGitHub = { GIT_COMMITTER_NAME: github.name, GIT_COMMITTER_EMAIL: github.email };
+  writeFileSync(join(root, "a.txt"), "a\n");
+  git(["add", "--", "a.txt"]);
+  git(["commit", "-q", "-m", "signed by GitHub"], asGitHub);
+  const verified = git(["rev-parse", "HEAD"]).trim();
+  writeFileSync(join(root, "b.txt"), "b\n");
+  git(["add", "--", "b.txt"]);
+  git(["commit", "-q", "-m", "claims GitHub"], asGitHub);
+  const forged = git(["rev-parse", "HEAD"]).trim();
+  commit(git, root, "c.txt", `ordinary\n\n${SIGNED}`);
+  const asked: string[] = [];
+  const signed = await signedByGitHubCommits(root, `${base}..HEAD`, async (sha) => {
+    asked.push(sha);
+    return sha === verified;
+  });
+  assert.deepEqual(asked.toSorted(), [verified, forged].toSorted(), "only commits whose committer is GitHub's web-flow identity are asked about");
+  assert.deepEqual([...signed], [verified]);
 });
 
 test("identity trailers are judged by KEY (any -by key, any case): one carrying an address is exactly Name <address>; other keys keep their own grammar", () => {

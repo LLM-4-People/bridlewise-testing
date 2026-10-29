@@ -35,7 +35,7 @@ import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { HarnessError, InputError } from "../../kernel/errors.ts";
 import { emitYaml, type YamlValue } from "../../text/yaml-emit.ts";
-import { commandRegistryViolations } from "./commands.ts";
+import { commandRegistryViolations, commandTable } from "./commands.ts";
 import { readLabels } from "./labels.ts";
 import { readModeration } from "./moderation.ts";
 import { readReplyTemplates, replyTemplateViolations } from "./replies.ts";
@@ -189,6 +189,8 @@ function communitySlots(facts: CommunityFacts): ReadonlyMap<string, string> {
         ...liveCategories.map((category) => `| [${cell(category.name)}](${repositoryUrl(facts)}/discussions/categories/${category.slug}) | ${cell(category.postedBy)} | ${cell(category.use)} |`),
       ].join("\n"),
     ],
+    // The bot commands, from the one command registry (the same table `/help` answers), only while they are live.
+    ["commandTable", features.some((feature) => feature.id === "issueops" && isLive(feature.status)) ? commandTable(roles) : "The bot commands are [planned](SUPPORT.md#planned)."],
     ["issueForms", intake.issueForms.map((form) => `- [${form.name}](${repositoryUrl(facts)}/issues/new?template=${form.file}): ${form.description}`).join("\n")],
     ["planned", planned.length === 0 ? "Nothing is planned here at the moment." : planned.join("\n")],
     ...features.map((feature): [string, string] => [`feature:${feature.id}`, isLive(feature.status) ? feature.text : ""]),

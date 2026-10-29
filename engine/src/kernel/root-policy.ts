@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "78bb635c2726290b2e6fd233e047299e910816228aecc49bb8c4e7755ed15572",
+      sourceSha256: "fe58cd1a5a4f7ac1f8c57addf32cb0be6c868fe359cda9b918bbb1266d1eba9f",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -2179,6 +2179,30 @@ const ROOT_POLICY_VALUE = {
      * (`scripts/verification/ratchet-baselines.ts` attaches the scan to each
      * id and refuses an id without one) — never hand-edited, never grown.
      */
+    /**
+     * WHAT A COMMIT ADDS (scripts/verification/added-content.ts): no added line names
+     * what the publication-privacy catalogue refuses (an absolute home path whose name
+     * is not a documented placeholder, an internal host; src/privacy/secret-signals.ts)
+     * or, at the local hook, the running user's own home and account name; no text blob
+     * exceeds the bound (raw output belongs in the evidence store), and no `.ts` file
+     * stops being TypeScript. The exemptions are declared and reviewed here: the
+     * vendored text that is larger than the bound by nature, and the `.ts` files that
+     * are not whole TypeScript by nature.
+     */
+    addedContent: {
+      maximumTextBlobBytes: 1048576,
+      // The git config key a test's throwaway repository sets in its own .git/config (never committed) to name
+      // its own root and this harness's guard (scripts/verification/added-content.ts, throwawayReading).
+      throwawayRepositoryKey: "bridlewise.throwawayRepository",
+      oversizedTextExemptions: ["engine/traceability/sources/path-policy/unicode-17.0.0/NormalizationTest.txt"],
+      // `.ts` files that are not whole TypeScript BY NATURE: excerpts of an upstream source (the official
+      // fragment manifest pins them) and the fixture that exists to be a syntax error.
+      notTypeScriptExemptions: [
+        "engine/test/fixtures/eval-projects/ts-broken-syntax/index.ts",
+        "engine/traceability/sources/s2/mcp-jsonrpc.ts",
+        "engine/traceability/sources/s2/mcp-tools.ts",
+      ],
+    },
     ratchetBaselines: {
       "inline-literal-defaults": "engine/test/prevention/inline-literal-defaults-baseline.json",
       "web-unhandled-catch": "tests/prevention/unhandled-catch-baseline.json",
@@ -2647,6 +2671,10 @@ const ROOT_POLICY_VALUE = {
       // worktree config, a candidate's local config), beside the agent identity: the commit-msg hook
       // refuses a commit there whose identities are not all the agent's (scripts/verification/sign-off.ts).
       agentCheckoutKey: "bridlewise.agentCheckout",
+      // The committer GitHub records on a commit it creates and signs through its API (an App's published branch,
+      // the web editor). Such a commit carries its AUTHOR's sign-off, accepted only when GitHub's own verification
+      // reports the signature valid and made by GitHub (scripts/verification/sign-off.ts); the field alone proves nothing.
+      webFlowCommitter: { name: "GitHub", email: "noreply@github.com" },
     },
     /**
      * THE RECORDED REPRODUCTIONS a `Flake-cause:` declaration needs

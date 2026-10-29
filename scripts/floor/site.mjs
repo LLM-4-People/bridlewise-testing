@@ -18,10 +18,10 @@
  *    internal link crawl over every page (snapshots included) and the design
  *    coverage over the pages this build rendered.
  *
- * `buildRedirectSite` writes the static site that answers the old base path
- * (`LEGACY_BASEURL`, scripts/floor/repository.mjs; Pages URLs do not follow
- * a repository rename): every old URL lands on the same path under the
- * current site.
+ * `buildRedirectSite` writes the organisation site's tree that answers the
+ * old site (`LEGACY_SITE_URL`, from the repository identity) once the repository is renamed (Pages
+ * URLs do not follow a rename): every old URL lands, in one hop, where the
+ * plan's landing map (`landingPath`) sends it under the current site.
  *
  * Nothing here reads another repository or a network: the inputs are this
  * tree and the snapshot folder the workflow downloaded and verified.
@@ -36,11 +36,11 @@ import { escapeHtml } from "../../shared/markup.ts";
 import { buildAtlas } from "./atlas.mjs";
 import { coverage } from "./design-coverage.mjs";
 import { stableJson } from "./files.mjs";
-import { COORDINATES, LEGACY_BASEURL, SITE_URL } from "./repository.mjs";
+import { COORDINATES, LEGACY_SITE_URL, SITE_URL } from "./repository.mjs";
 import { crawlSiteLinks } from "./site-links.mjs";
 import { writeSiteDesign } from "./site-design.mjs";
 import { builtPolicyViolations, judgeSiteStyles } from "./site-style.mjs";
-import { BUILDER_OWNED_CONFIG_KEYS, DOCS_ROOT, legacyAliases, rewritePageLinks, siteLinkTargets, siteSourceViolations, sitePlan, siteUrlForPermalink } from "./site-pages.mjs";
+import { BUILDER_OWNED_CONFIG_KEYS, DOCS_ROOT, landingMap, landingPath, legacyAliases, rewritePageLinks, siteLinkTargets, siteSourceViolations, sitePlan, siteUrlForPermalink } from "./site-pages.mjs";
 import { buildStatus } from "./status.mjs";
 
 /**
@@ -212,7 +212,8 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   // on something that looks like the site; a reader without scripts gets the
   // visible link.
   let redirectedPaths = 0;
-  for (const [alias, permalink] of legacyAliases(plan)) {
+  for (const [alias] of legacyAliases(plan)) {
+    const permalink = landingPath(alias, plan);
     const directory = join(outRoot, ...alias.split("/").filter(Boolean));
     // The page's own source file may sit at this spelling (`docs/a/b.md` for
     // `/a/b.md`): Jekyll renders it at `/a/b/` and serves nothing there, and
@@ -343,39 +344,107 @@ export function finishSite({ site, baseurl, versionsDir = null }) {
 }
 
 /**
- * The redirect for a path under the old base: the same path under the
- * current site (the query and fragment kept). A path outside the old base
- * answers `null`: the redirect site claims nothing else.
+ * Whether the whole URL `url` is `base` or lies under it: the same origin,
+ * and the same path or a path below it (a trailing slash aside). A URL
+ * that only shares a path with `base` on another host is not under it.
  */
-export function redirectTarget(pathname, { from = LEGACY_BASEURL, to = SITE_URL } = {}) {
-  const base = from.replace(/\/+$/u, "");
-  if (pathname !== base && !pathname.startsWith(`${base}/`)) return null;
-  return `${to.replace(/\/+$/u, "")}${pathname.slice(base.length) || "/"}`;
+export function urlUnder(url, base) {
+  const target = new URL(url);
+  const root = new URL(base);
+  const path = target.pathname.replace(/\/+$/u, "");
+  const rootPath = root.pathname.replace(/\/+$/u, "");
+  return target.origin === root.origin && (path === rootPath || path.startsWith(`${rootPath}/`));
 }
 
 /**
- * The static redirect site for the old base path, at `out`: an
- * `<old base>/index.html` and a root `404.html` (Pages serves it for every
- * path the site lacks, which is every old deep link). Both run the same
- * mapping as {@link redirectTarget} — its source is embedded, not restated —
- * and show the destination as a link for a reader without scripts.
+ * The redirect for a whole URL under the old site `from`: where the landing
+ * map (`landing`, plain `{ old path: new path }`, both URL-encoded by
+ * `encodeURI`) sends its path under `to`,
+ * or the same path, with the query and fragment kept. A URL outside `from`
+ * (another host, a sibling path) answers `null`: the redirect site claims
+ * nothing else. Self-contained: the organisation's `404.html` runs its very
+ * source.
  */
-export function buildRedirectSite({ out, from = LEGACY_BASEURL, to = SITE_URL }) {
-  // Before the rename the old base IS the site: a redirect there would loop.
-  if (new URL(to).pathname.replace(/\/+$/u, "") === from.replace(/\/+$/u, "")) {
-    fail(`the site still answers at ${from} (the repository identity names it): there is nothing to redirect until the repository is renamed`);
+export function redirectTarget(href, { from, to, landing }) {
+  const url = new URL(href);
+  const base = new URL(from);
+  const basePath = base.pathname.replace(/\/+$/u, "");
+  if (url.origin !== base.origin || (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`))) return null;
+  const rest = url.pathname.slice(basePath.length) || "/";
+  // The map's spelling: the path decoded, then encoded as `encodeURI` does
+  // (a browser escapes a few characters it does not).
+  let key = rest;
+  try {
+    key = encodeURI(decodeURI(rest));
+  } catch {
+    // A malformed escape is a path no page has: it lands as written.
   }
+  const own = (name) => Object.prototype.hasOwnProperty.call(landing, name);
+  const landed = own(key) ? landing[key] : own(`${key}/`) ? landing[`${key}/`] : rest;
+  return `${to.replace(/\/+$/u, "")}${landed}${url.search}${url.hash}`;
+}
+
+/**
+ * `value` as JSON for a `<script>` element. Nothing is escaped here (the one
+ * markup owner is `shared/markup.ts`): every string the redirect site embeds
+ * is a URL the URL parser or `encodeURI` spelled, which holds no `<` or `>`,
+ * so no `</script>` or `<!--` can occur. One that did would refuse the build.
+ */
+function scriptJson(value) {
+  const json = JSON.stringify(value);
+  if (/[<>]/u.test(json)) fail(`the redirect site would embed markup in a script: ${json}`);
+  return json;
+}
+
+/**
+ * THE ORGANISATION SITE'S TREE, at `out`: what `<owner>.github.io` serves for
+ * the old base once the repository is renamed. Every path is computed from
+ * the plan of the tree at `root` and the identity (`from`, `to`); nothing is
+ * kept by hand.
+ * - `<old base>/<path>/index.html` for every pretty path an old link may
+ *   name (each page's URL and each landing-map entry, the old base's root
+ *   among them): it redirects to `to` + {@link landingPath}, in one hop and
+ *   without scripts too (`meta refresh`), keeps the query and fragment when
+ *   scripts run, and names that exact target as its `rel=canonical`.
+ * - `404.html`: Pages serves it for every other path (an asset, a `.md`
+ *   spelling, a path without its slash); it runs {@link redirectTarget}
+ *   over the embedded landing map. A 404 response has no canonical.
+ * - `.nojekyll`: the tree is served as written.
+ * The loop guard compares whole URLs: a `to` that is `from` or lies under it
+ * (before the rename the old base IS the site) refuses.
+ */
+export function buildRedirectSite({ root, out, from = LEGACY_SITE_URL, to = SITE_URL }) {
+  if (urlUnder(to, from)) {
+    fail(`the site still answers at ${to}, which is ${from} or under it: there is nothing to redirect until the repository is renamed (a redirect would loop)`);
+  }
+  const plan = sitePlan({ root: resolve(root) });
+  const landing = Object.fromEntries([...landingMap(plan)].map(([oldPath, newPath]) => [encodeURI(oldPath), encodeURI(newPath)]));
+  const oldSite = new URL(from).href;
+  const newSite = new URL(to).href;
+  const oldBase = new URL(oldSite).pathname.split("/").filter(Boolean);
+  const site = newSite.replace(/\/+$/u, "");
   const outRoot = resolve(out);
   rmSync(outRoot, { recursive: true, force: true });
-  const script = `${redirectTarget.toString()}\n`
-    + `var target = redirectTarget(location.pathname, ${JSON.stringify({ from, to })});\n`
-    + "if (target !== null) location.replace(target + location.search + location.hash);\n";
-  const page = (title) => `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n`
-    + `<meta name="robots" content="noindex">\n<title>${escapeHtml(title)}</title>\n<link rel="canonical" href="${escapeHtml(to)}">\n`
-    + `<script>\n${script}</script>\n</head>\n<body>\n<p>Bridlewise moved to <a href="${escapeHtml(to)}">${escapeHtml(to)}</a>.</p>\n</body>\n</html>\n`;
-  const index = join(outRoot, ...from.split("/").filter(Boolean), "index.html");
-  mkdirSync(join(index, ".."), { recursive: true });
-  writeFileSync(index, page("Bridlewise moved"));
-  writeFileSync(join(outRoot, "404.html"), page("Bridlewise moved"));
-  return { out: outRoot, from, to, files: [index, join(outRoot, "404.html")] };
+  const head = (title) => `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${escapeHtml(title)}</title>\n`;
+  const files = [];
+  const oldPaths = [...new Set([...plan.byPermalink.keys(), ...Object.keys(landing)])].filter((path) => path.endsWith("/")).sort();
+  for (const oldPath of oldPaths) {
+    const segments = oldPath.split("/").filter(Boolean);
+    if (segments.some((segment) => segment === "." || segment === "..")) fail(`the old path ${oldPath} is not a path under ${from}`);
+    const target = `${site}${encodeURI(landingPath(oldPath, plan))}`;
+    const file = join(outRoot, ...oldBase, ...segments, "index.html");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, `${head("Bridlewise moved")}<meta http-equiv="refresh" content="0; url=${escapeHtml(target)}">\n<link rel="canonical" href="${escapeHtml(target)}">\n`
+      + `<script>location.replace(${scriptJson(target)} + location.search + location.hash);</script>\n</head>\n<body>\n<p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</body>\n</html>\n`);
+    files.push(file);
+  }
+  const fallback = join(outRoot, "404.html");
+  writeFileSync(fallback, `${head("Bridlewise moved")}<meta name="robots" content="noindex">\n`
+    + `<script>\n${redirectTarget.toString()}\nvar target = redirectTarget(location.href, ${scriptJson({ from: oldSite, to: newSite, landing })});\nif (target !== null) location.replace(target);\n</script>\n`
+    + `</head>\n<body>\n<p>Bridlewise moved to <a href="${escapeHtml(to)}">${escapeHtml(to)}</a>.</p>\n</body>\n</html>\n`);
+  files.push(fallback);
+  const nojekyll = join(outRoot, ".nojekyll");
+  writeFileSync(nojekyll, "");
+  files.push(nojekyll);
+  return { out: outRoot, from, to, files };
 }
