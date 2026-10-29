@@ -292,7 +292,8 @@ export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.fr
  * exemption hides the next new producer). Each key is `module::symbol`.
  */
 export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Object.freeze({
-  "engine/scripts/tooling/compile-cache.ts::pruneCacheDirectory": "prunes the V8 compile cache and reports how many entries it removed; a maintenance count, not a judged signal",
+  "engine/scripts/tooling/compile-cache.ts::pruneCompileCache": "prunes the V8 compile cache to its byte bound and reports what it removed; a maintenance count, not a judged signal",
+  "engine/scripts/tooling/compile-cache.ts::pruneCompileCacheAtEnablement": "runs that prune at most once per interval when the cache is enabled and says what it did; a maintenance line, not a judged signal",
   "engine/scripts/tooling/compile-cache.ts::scanCacheDirectory": "counts cache entries so the prune can bound itself; a maintenance count, not a measurement",
   "engine/scripts/tooling/test-run-lock.ts::testFileCountOfArgs": "parses the runner's argument vector into a test-file count; an input parse, not a measurement",
   "engine/src/filesystem/file-mode.ts::settleDescriptorMode": "reads a file's permission bits to decide whether to change them; a mode comparison, not a measured quantity",

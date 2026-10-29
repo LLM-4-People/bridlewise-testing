@@ -1432,18 +1432,25 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     // cache passes through). The cache is otherwise unbounded and measured
     // growing ~950k entries/day (1.97M entries / 20 GB two days after a full
     // clear), ~11.5k of them per run being never-reusable temp-path compiles.
-    // An entry survives a prune iff its mtime is within `maxEntryAgeDays`
-    // AND among the newest `maxEntries` of its cache subdirectory; the prune
-    // runs opportunistically at suite start BEFORE the run's start-stamp
-    // (so the warmth instrument cannot be fabricated by it) and stops at
-    // `timeBudgetMs`, trimming a large backlog over several runs rather
-    // than stalling one. OPTIONAL WITH NO DEFAULT on purpose: a missing
-    // policy object means no pruning plus a printed note naming this key —
-    // a bound nobody chose is not a bound.
+    // THE SHARED V8 COMPILE CACHE'S BOUND (engine/scripts/tooling/
+    // compile-cache.ts): the process that enables the cache prunes it, at most
+    // once per `intervalMinutes`, before anything is compiled — every entry
+    // unused for `maxEntryAgeHours`, then least-recently-used until the cache
+    // holds at most `maxBytes`, never an entry used within `inUseMinutes`
+    // (last use is the later of mtime and atime). Pruning an entry a process
+    // still reads costs that process a recompile, never a wrong result (a
+    // missing cache entry is a cache miss), so the in-use window protects the
+    // live runs' work, not correctness. INCREMENTAL, never timed
+    // (NO-LOAD-BLOCK): one prune deletes at most `maxDeletionsPerPrune`, and
+    // when that left work the next enabler continues at once. OPTIONAL WITH NO DEFAULT on
+    // purpose: a missing policy means no pruning plus a printed note naming
+    // this key — a bound nobody chose is not a bound.
     compileCachePruning: z.strictObject({
-      maxEntryAgeDays: z.number().positive().max(365),
-      maxEntries: z.number().int().positive().max(50_000_000),
-      timeBudgetMs: z.number().int().positive().max(600_000),
+      maxBytes: z.number().int().positive(),
+      maxEntryAgeHours: z.number().positive().max(8_760),
+      inUseMinutes: z.number().int().positive().max(525_600),
+      intervalMinutes: z.number().int().positive().max(10_080),
+      maxDeletionsPerPrune: z.number().int().positive().max(10_000_000),
     }).optional(),
     integrationSuiteCpuBudget: z.union([
       accumulatingCpuBudgetSchema,

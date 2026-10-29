@@ -266,7 +266,9 @@ describe("isolation contract — the vitest config wires isolation, the pool, an
     writeFileSync(blocked, "a file cannot contain the cache");
     const owner = pathToFileURL(resolve(modulePath("compile-cache.ts"))).href;
     const program = `import { enableSharedCompileCache, compileCacheDirInUse } from ${JSON.stringify(owner)};\n` +
-      `enableSharedCompileCache(); enableSharedCompileCache();\n` +
+      // A declared policy, as the runner passes; the enabler prunes (and says so on stdout) before the JSON line.
+      `const policy = { maxBytes: 1e12, maxEntryAgeHours: 8760, inUseMinutes: 1440, intervalMinutes: 60, timeBudgetMs: 10000 };\n` +
+      `enableSharedCompileCache(policy); enableSharedCompileCache(policy);\n` +
       `console.log(JSON.stringify({ cache: compileCacheDirInUse(), inherited: process.env.NODE_COMPILE_CACHE ?? null, evaluated: true }));`;
     const inherited = join(root, "already-enabled");
     // A HOST REQUIREMENT (LIVE-SUITE): the procfs cases below are Linux's, and every case runs on every run — never
@@ -302,7 +304,7 @@ describe("isolation contract — the vitest config wires isolation, the pool, an
       });
       expect(child.error, `initialization must return for ${scenario.cacheHome}`).toBeUndefined();
       expect(child.status, child.stderr).toBe(0);
-      const value = JSON.parse(child.stdout) as { cache: string | null; inherited: string | null; evaluated: boolean };
+      const value = JSON.parse(child.stdout.trim().split("\n").at(-1) ?? "") as { cache: string | null; inherited: string | null; evaluated: boolean };
       expect(value.evaluated).toBe(true);
       if (scenario.available) {
         expect(value.cache).toEqual(expect.any(String));

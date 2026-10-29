@@ -34,16 +34,18 @@
  *
  * Output: `.bridlewise/capture/<commit>/` (ignored; raw images never enter git).
  */
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 
 import { settleFileMode } from "../../engine/src/filesystem/file-mode.ts";
 import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
 import { allProcessIds, ancestorsOf, commandLineOf } from "../../engine/src/process/process-facts.ts";
+import { boundedEnding, type SubprocessBounds } from "../../engine/src/process/subprocess-bounds.ts";
+import { runCpuBounded, type CpuBoundedRun } from "../../engine/src/process/supervised-run.ts";
+import { configuredSubprocessBounds } from "../../engine/src/workflow/workflow-config.ts";
 import { portAnswers, portListeners } from "../dev-processes.ts";
 import {
   ACCOUNT_USERNAME,
@@ -82,6 +84,8 @@ import {
   type ViewportId,
 } from "./cockpit-plan.ts";
 import { decodePngRgb, encodeGif } from "./gif.ts";
+import { instrumentContext, judgeFuture, judgeStates, launchBrowser, openPage, type RenderRestore } from "../rendered/judge.ts";
+import { JUDGE_LIMITS } from "../rendered/rules.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -107,13 +111,39 @@ function log(message: string): void {
   console.log(`[capture] ${message}`);
 }
 
-function run(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; input?: Buffer }): string {
-  const result = spawnSync(command, args, { cwd: options.cwd, env: options.env ?? process.env, timeout: options.timeoutMs, input: options.input, maxBuffer: 256 * 1024 * 1024 });
-  if (result.error !== undefined || result.status !== 0) {
-    const stderr = result.stderr?.toString().trim().split("\n").slice(-REFUSAL_STDERR_LINES).join("\n") ?? "";
-    throw new CaptureRefusal("command_failed", `${command} ${args.join(" ")} (exit ${String(result.status)}${result.error ? `, ${result.error.message}` : ""})\n${stderr}`);
+/**
+ * How a subprocess the capture runs ended, when it did not end well: its
+ * status, the signal, and which bound fired (the one bounds owner's words).
+ */
+function endingOf(result: CpuBoundedRun, bounds: SubprocessBounds): string {
+  return boundedEnding(result, bounds);
+}
+
+/** Whether a bounded run ended on its own with status 0. */
+function succeeded(result: CpuBoundedRun): boolean {
+  return result.ending === "exited" && result.signal === null && result.status === 0;
+}
+
+/**
+ * Every subprocess the capture runs, through the one bounded run
+ * (engine/src/process/subprocess-bounds.ts): its CPU work is limited, and the
+ * harness's hang backstop is its only wall bound. A loaded host makes a step
+ * wait, never fail.
+ */
+async function run(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: Buffer; outputBytes?: number } = {}): Promise<string> {
+  return (await runBuffer(command, args, options)).toString();
+}
+
+/** {@link run}, answering the command's stdout as bytes (an archive). */
+async function runBuffer(command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: Buffer; outputBytes?: number } = {}): Promise<Buffer> {
+  const configured = configuredSubprocessBounds();
+  const bounds = options.outputBytes === undefined ? configured : { ...configured, outputBytes: options.outputBytes };
+  const result = await runCpuBounded(command, args, { cwd: options.cwd ?? process.cwd(), env: options.env ?? process.env, bounds, ...(options.input === undefined ? {} : { input: options.input }) });
+  if (!succeeded(result)) {
+    const stderr = result.stderr.toString().trim().split("\n").slice(-REFUSAL_STDERR_LINES).join("\n");
+    throw new CaptureRefusal("command_failed", `${command} ${args.join(" ")}: ${endingOf(result, bounds)}\n${stderr}`);
   }
-  return result.stdout.toString();
+  return result.stdout;
 }
 
 // ── Arguments ──
@@ -122,20 +152,28 @@ interface Options {
   readonly out: string | null;
   readonly demoRoot: string;
   readonly keepScratch: boolean;
+  /** Judge every view as rendered (scripts/rendered/) without writing images, video or a manifest: the CI check. */
+  readonly judgeOnly: boolean;
+  /** The browser executable to drive (CI: the runner image's), else Playwright's own Chromium. */
+  readonly browser: string | null;
 }
 
 function parseArgs(argv: readonly string[]): Options {
   let out: string | null = null;
   let demoRoot = DEFAULT_DEMO_ROOT;
   let keepScratch = false;
+  let judgeOnly = false;
+  let browser: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--out") out = resolve(argv[++i] ?? "");
     else if (arg === "--demo-root") demoRoot = resolve(argv[++i] ?? "");
     else if (arg === "--keep-scratch") keepScratch = true;
-    else throw new CaptureRefusal("argument_unknown", `${String(arg)} (known: --out <dir>, --demo-root <dir>, --keep-scratch)`);
+    else if (arg === "--judge-only") judgeOnly = true;
+    else if (arg === "--browser") browser = resolve(argv[++i] ?? "");
+    else throw new CaptureRefusal("argument_unknown", `${String(arg)} (known: --out <dir>, --demo-root <dir>, --keep-scratch, --judge-only, --browser <executable>)`);
   }
-  return { out, demoRoot, keepScratch };
+  return { out, demoRoot, keepScratch, judgeOnly, browser };
 }
 
 // ── Preflight ──
@@ -162,25 +200,24 @@ function playwrightFfmpeg(): string {
 // ── The isolated copy, its state and the demo repository ──
 
 /** Hard-links a dependency tree, leaving out Vite's dep cache (Vite rewrites it in place, which would write through a hard link into the source checkout). */
-function linkDependencies(from: string, to: string): void {
+async function linkDependencies(from: string, to: string): Promise<void> {
   if (!existsSync(from)) throw new CaptureRefusal("dependencies_missing", `${from} is absent; run npm ci first`);
   mkdirSync(to, { recursive: true });
   const entries = readdirSync(from).filter((name) => ![".vite", ".vite-temp", ".cache"].includes(name)).map((name) => join(from, name));
-  for (let i = 0; i < entries.length; i += 500) run("cp", ["-al", ...entries.slice(i, i + 500), to], { timeoutMs: 600_000 });
+  for (let i = 0; i < entries.length; i += 500) await run("cp", ["-al", ...entries.slice(i, i + 500), to]);
 }
 
-function prepareApp(scratch: string, commit: string): string {
+async function prepareApp(scratch: string, commit: string): Promise<string> {
   const app = join(scratch, "app");
   mkdirSync(app);
-  const archive = spawnSync("git", ["-C", REPO_ROOT, "archive", commit], { maxBuffer: 2 * 1024 * 1024 * 1024, timeout: 300_000 });
-  if (archive.status !== 0) throw new CaptureRefusal("archive_failed", archive.stderr.toString());
-  run("tar", ["-x", "-C", app], { input: archive.stdout, timeoutMs: 300_000 });
-  linkDependencies(join(REPO_ROOT, "node_modules"), join(app, "node_modules"));
-  linkDependencies(join(REPO_ROOT, "engine", "node_modules"), join(app, "engine", "node_modules"));
+  const archive = await runBuffer("git", ["-C", REPO_ROOT, "archive", commit], { outputBytes: 2 * 1024 * 1024 * 1024 });
+  await run("tar", ["-x", "-C", app], { input: archive });
+  await linkDependencies(join(REPO_ROOT, "node_modules"), join(app, "node_modules"));
+  await linkDependencies(join(REPO_ROOT, "engine", "node_modules"), join(app, "engine", "node_modules"));
   // The confinement binary is an ignored build output; without it Custody's git and the checks are refused.
   const guardian = join(REPO_ROOT, "engine", "guardian", "build");
   if (!existsSync(join(guardian, "harness-landlock-guardian"))) throw new CaptureRefusal("guardian_missing", `${guardian}/harness-landlock-guardian is absent; build it with: make -C engine/guardian all`);
-  run("cp", ["-a", guardian, join(app, "engine", "guardian", "build")], { timeoutMs: 60_000 });
+  await run("cp", ["-a", guardian, join(app, "engine", "guardian", "build")]);
   // The configuration document's required mode, through the one mode owner (changed only when it differs, #293).
   settleFileMode(join(app, "engine", ROOT_POLICY.configuration.basename), Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
   return app;
@@ -205,7 +242,7 @@ function stateEnvironment(scratch: string): NodeJS.ProcessEnv {
   };
 }
 
-function writeDemoRepository(demoRoot: string): string {
+async function writeDemoRepository(demoRoot: string): Promise<string> {
   if (existsSync(demoRoot)) throw new CaptureRefusal("demo_root_exists", `${demoRoot} already exists (another capture running, or a stopped one's leftovers); remove it yourself and run again`);
   mkdirSync(demoRoot, { recursive: true, mode: 0o700 });
   writeFileSync(join(demoRoot, DEMO_MARKER), "");
@@ -213,28 +250,28 @@ function writeDemoRepository(demoRoot: string): string {
   mkdirSync(repo);
   // No global or system git configuration: the commits depend on this plan alone.
   const env = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-  const git = (...args: string[]): string => run("git", ["-C", repo, ...args], { env, timeoutMs: 30_000 });
-  git("init", "-q", "-b", DEMO_REPOSITORY.branch);
+  const git = (...args: string[]): Promise<string> => run("git", ["-C", repo, ...args], { env });
+  await git("init", "-q", "-b", DEMO_REPOSITORY.branch);
   if (!existsSync(join(repo, ".git"))) throw new CaptureRefusal("demo_init_failed", `${repo}/.git was not created`);
   for (const commit of DEMO_REPOSITORY.commits) {
     for (const [path, content] of Object.entries(commit.files)) {
       mkdirSync(dirname(join(repo, path)), { recursive: true });
       writeFileSync(join(repo, path), content);
-      git("add", "--", path);
+      await git("add", "--", path);
     }
-    run("git", ["-C", repo, "-c", `user.name=${DEMO_REPOSITORY.identity.name}`, "-c", `user.email=${DEMO_REPOSITORY.identity.email}`, "commit", "-q", "-m", commit.message], {
+    await run("git", ["-C", repo, "-c", `user.name=${DEMO_REPOSITORY.identity.name}`, "-c", `user.email=${DEMO_REPOSITORY.identity.email}`, "commit", "-q", "-m", commit.message], {
       env: { ...env, GIT_AUTHOR_DATE: commit.date, GIT_COMMITTER_DATE: commit.date },
-      timeoutMs: 30_000,
     });
   }
   return repo;
 }
 
-function sd(app: string, env: NodeJS.ProcessEnv, verb: "start" | "stop"): void {
+async function sd(app: string, env: NodeJS.ProcessEnv, verb: "start" | "stop"): Promise<void> {
   log(`sd.mjs ${verb}`);
-  const result = spawnSync(process.execPath, ["scripts/sd.mjs", verb], { cwd: app, env, timeout: 240_000, stdio: ["ignore", "pipe", "pipe"] });
-  const output = `${result.stdout?.toString() ?? ""}${result.stderr?.toString() ?? ""}`.trim();
-  if (result.status !== 0) throw new CaptureRefusal(`server_${verb}_failed`, `sd.mjs ${verb} exited ${String(result.status)}\n${output.split("\n").slice(-25).join("\n")}`);
+  const bounds = configuredSubprocessBounds();
+  const result = await runCpuBounded(process.execPath, ["scripts/sd.mjs", verb], { cwd: app, env, bounds });
+  const output = `${result.stdout.toString()}${result.stderr.toString()}`.trim();
+  if (!succeeded(result)) throw new CaptureRefusal(`server_${verb}_failed`, `sd.mjs ${verb}: ${endingOf(result, bounds)}\n${output.split("\n").slice(-25).join("\n")}`);
 }
 
 // ── BL-GPU: the browser must not have spawned a GPU process ──
@@ -304,8 +341,8 @@ function captureLayer(config: LayerConfig): void {
   // A region mask is an opaque overlay ABOVE the reading (the reading stays in place and hit-testable, so the layout and the Lens are unchanged).
   style.textContent = `${config.css}
 [data-capture-mask]{position:relative!important}
-[data-capture-mask]::after{content:"[" attr(data-capture-mask) "]";position:absolute;inset:0;z-index:1;pointer-events:none;display:flex;align-items:center;font:11px/1 ui-monospace,monospace;color:var(--capture-mask-color);background:var(--capture-mask-bg)}
-[data-capture-badge]{position:fixed;right:0;bottom:0;z-index:2147483647;pointer-events:none;font:11px/1.3 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.72);padding:3px 7px;border-top-left-radius:4px}`;
+[data-capture-mask]::after{content:"[" attr(data-capture-mask) "]";position:absolute;inset:0;z-index:1;pointer-events:none;display:flex;align-items:center;font:11px/1 var(--face-mono);color:var(--capture-mask-color);background:var(--capture-mask-bg)}
+[data-capture-badge]{position:fixed;right:0;bottom:0;z-index:2147483647;pointer-events:none;font:11px/1.3 var(--face-mono);color:#fff;background:rgba(0,0,0,.72);padding:3px 7px;border-top-left-radius:4px}`;
   let badge: HTMLElement | null = null;
   const setBadge = (text: string | null): void => {
     if (text === null) { badge?.remove(); badge = null; return; }
@@ -389,6 +426,9 @@ interface Surface {
   readonly page: Page;
 }
 
+/** Every request finding of the rendered rules (scripts/rendered/), in every context the run opens. */
+const offOrigin = new Set<string>();
+
 async function newSurface(browser: Browser, theme: Theme, viewport: ViewportId, badge: string | null, video?: string): Promise<Surface> {
   const spec = VIEWPORTS[viewport];
   const context = await browser.newContext({
@@ -403,11 +443,12 @@ async function newSurface(browser: Browser, theme: Theme, viewport: ViewportId, 
     serviceWorkers: "block",
     ...(video !== undefined ? { recordVideo: { dir: video, size: { width: spec.width, height: spec.height } } } : {}),
   });
+  // The judgement installs the page clock (it runs a view's future before leaving); the date shown stays fixed.
+  await instrumentContext(context, "cockpit", APP_ORIGIN, (finding) => offOrigin.add(`[${theme}/${viewport}] ${finding}`));
   await context.clock.setFixedTime(new Date(FIXED_INSTANT_ISO));
   const config: LayerConfig = { css: STILLNESS_CSS, theme, themeKey: THEME_STORAGE_KEY, textMasks: TEXT_MASKS, regionMasks: REGION_MASKS, badge };
   await context.addInitScript(captureLayer, config);
-  const page = await context.newPage();
-  page.setDefaultTimeout(15_000);
+  const page = await openPage(context);
   page.on("pageerror", (error) => log(`[${theme}/${viewport}] page error: ${error.message.slice(0, 300)}`));
   return { theme, viewport, context, page };
 }
@@ -456,7 +497,7 @@ async function signIn(page: Page, password: string): Promise<void> {
   await page.fill("input[name=username]", ACCOUNT_USERNAME);
   await page.fill("input[name=passphrase]", password);
   await page.click("button[type=submit]");
-  await page.locator("header.horizon").waitFor({ timeout: 30_000 });
+  await page.locator("header.horizon").waitFor();
   await settle(page);
 }
 
@@ -500,7 +541,7 @@ const VIEW: Record<ViewAction, ViewHandler> = {
   },
   openContextAndTools: async ({ page }) => {
     await page.click('[data-verb-id="desk.toggle"]');
-    await page.getByText("measuring the next turn's composition").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.getByText("measuring the next turn's composition").waitFor({ state: "hidden" });
     await settle(page);
     return async () => { await page.click('[data-verb-id="desk.toggle"]'); await settle(page); };
   },
@@ -511,13 +552,13 @@ const VIEW: Record<ViewAction, ViewHandler> = {
     // The Lens answers what the pointer is over: a still instrument's name, whose callout names the signal's source.
     await page.locator('.cell[data-signal="awareness.signalCount"] .head .name').hover();
     // The "LENS armed" hint retires itself after a moment; shooting while it shows would race that timer.
-    await page.getByText("LENS armed").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.getByText("LENS armed").waitFor({ state: "hidden" });
     await settle(page);
     return async () => closeRaised(page);
   },
   openCustody: async ({ page }) => {
     await openRoom(page, "custody");
-    await page.getByText("reading the saved history").waitFor({ state: "hidden", timeout: 30_000 });
+    await page.getByText("reading the saved history").waitFor({ state: "hidden" });
     // The saved history is loaded once its oldest commit is in the DOM (the narrow layout truncates it out of sight).
     await page.getByText(DEMO_REPOSITORY.commits[0]!.message).first().waitFor({ state: "attached" });
     await settle(page);
@@ -560,12 +601,30 @@ interface Run {
 /** Views whose subject is what the pointer is over: the capture leaves the pointer where the view put it. */
 const POINTER_HELD: ReadonlySet<ViewAction> = new Set(["openLensCallout"]);
 
+/** How the walk's own contexts are set (newSurface): a judgement puts each view back this way. */
+const restoreOf = (surface: Surface): RenderRestore => ({ media: "screen", reducedMotion: "reduce", colorScheme: "dark", viewport: { width: VIEWPORTS[surface.viewport].width, height: VIEWPORTS[surface.viewport].height } });
+
+/** THE RENDERED JUDGEMENT of one view: every cockpit row in every cockpit render state, once ready. */
+async function judgeView(state: Run, surface: Surface, label: string): Promise<void> {
+  for (const finding of await judgeStates(surface.page, "cockpit", restoreOf(surface))) state.violations.push(`${label}: ${finding}`);
+}
+
+/** Before the walk leaves a view: its future, judged (rendered/judge.ts judgeFuture). */
+async function judgeLeaving(state: Run, surface: Surface, label: string): Promise<void> {
+  for (const finding of await judgeFuture(surface.page, "cockpit")) state.violations.push(`${label}: ${finding}`);
+}
+
 async function capture(state: Run, surface: Surface, stage: ShotStage, parkPointer: boolean): Promise<void> {
   const { page } = surface;
   const file = captureFileName(stage, surface.theme, surface.viewport);
   const spec = VIEWPORTS[surface.viewport];
   if (parkPointer) await page.mouse.move(1, spec.height - 1);
   await settle(page, 400, 4000);
+  await judgeView(state, surface, file);
+  if (state.options.judgeOnly) {
+    log(`judged ${file}`);
+    return;
+  }
   const readText = (): Promise<string> => page.evaluate(() => (window as unknown as { __capture: { pageText: () => string } }).__capture.pageText());
   const regionsMasked = await page.locator("[data-capture-mask]:visible").count();
   const masked = maskedLabels(await readText());
@@ -611,7 +670,7 @@ async function capture(state: Run, surface: Surface, stage: ShotStage, parkPoint
 /** The fixture run, recorded: a fresh signed-in desktop page with video on. */
 async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const videoDir = join(state.scratch, "video");
-  const surface = await newSurface(browser, "carbon", "desktop", badgeText(true, true), videoDir);
+  const surface = await newSurface(browser, "carbon", "desktop", badgeText(true, true), state.options.judgeOnly ? undefined : videoDir);
   const { page } = surface;
   const recordStart = Date.now();
   await openRoot(page);
@@ -626,10 +685,18 @@ async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const clipStart = Date.now() - recordStart;
   await page.locator("[name=composer]").pressSequentially(RUN_PROMPT, { delay: 25 });
   await page.getByRole("button", { name: /Send/u }).click();
-  await page.getByText(/stream closed/u).first().waitFor({ timeout: 60_000 });
+  await page.getByText(/stream closed/u).first().waitFor();
   await settle(page, 800, 8000);
   await page.waitForTimeout(1500);
   const clipEnd = Date.now() - recordStart;
+  if (state.options.judgeOnly) {
+    // The run's own page, judged as rendered, with no recording.
+    await judgeView(state, surface, "fixture run");
+    await judgeLeaving(state, surface, "fixture run");
+    await surface.context.close();
+    log("judged the fixture run");
+    return;
+  }
   const video = page.video();
   await surface.context.close();
   if (video === null) throw new CaptureRefusal("video_missing", "the run page recorded no video");
@@ -639,7 +706,7 @@ async function fixtureRun(state: Run, browser: Browser): Promise<void> {
   const frames = join(state.scratch, "frames");
   mkdirSync(frames);
   const fps = 8;
-  run(state.ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", webm, "-ss", (clipStart / 1000).toFixed(2), "-t", ((clipEnd - clipStart) / 1000).toFixed(2), "-vf", "scale=720:450:flags=lanczos", "-r", String(fps), "-pix_fmt", "rgb24", join(frames, "%04d.png")], { timeoutMs: 300_000 });
+  await run(state.ffmpeg, ["-hide_banner", "-loglevel", "error", "-i", webm, "-ss", (clipStart / 1000).toFixed(2), "-t", ((clipEnd - clipStart) / 1000).toFixed(2), "-vf", "scale=720:450:flags=lanczos", "-r", String(fps), "-pix_fmt", "rgb24", join(frames, "%04d.png")]);
   const pngs = readdirSync(frames).filter((f) => f.endsWith(".png")).toSorted();
   const rgb = pngs.map((f) => decodePngRgb(readFileSync(join(frames, f))));
   const gif = encodeGif(rgb, Math.round(100 / fps), 300);
@@ -697,7 +764,7 @@ async function stateAction(state: Run, browser: Browser, action: StateAction, su
 async function drive(state: Run, browser: Browser): Promise<void> {
   state.setup = await newSurface(browser, "carbon", "desktop", null);
   for (const viewport of VIEWPORT_IDS) for (const theme of THEMES) state.surfaces.push(await newSurface(browser, theme, viewport, null));
-  const gpu = descendantCommandLines(process.pid).filter((line) => line.includes("--type=gpu-process"));
+  const gpu = state.options.judgeOnly ? [] : descendantCommandLines(process.pid).filter((line) => line.includes("--type=gpu-process"));
   if (gpu.length > 0) throw new CaptureRefusal("gpu_process_spawned", `Chromium spawned a GPU process despite ${CHROMIUM_ARGS.join(" ")} (BL-GPU)`);
   for (const stage of SEQUENCE) {
     if (stage.kind === "once") await stateAction(state, browser, stage.action, []);
@@ -709,6 +776,8 @@ async function drive(state: Run, browser: Browser): Promise<void> {
         try {
           const leave = await VIEW[stage.action](surface);
           await capture(state, surface, stage, !POINTER_HELD.has(stage.action));
+          // The view's future (its timers, intervals and animation frames), judged before the walk leaves it.
+          await judgeLeaving(state, surface, file);
           if (leave) await leave();
         } catch (error) {
           throw new CaptureRefusal("view_failed", `${file}: ${error instanceof Error ? error.message : String(error)}`);
@@ -723,12 +792,13 @@ async function drive(state: Run, browser: Browser): Promise<void> {
 async function main(): Promise<void> {
   const started = Date.now();
   const options = parseArgs(process.argv.slice(2));
-  const commit = run("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"], { timeoutMs: 10_000 }).trim();
+  const commit = (await run("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"])).trim();
   const out = options.out ?? join(REPO_ROOT, ".bridlewise", "capture", commit);
-  if (existsSync(out) && readdirSync(out).length > 0) throw new CaptureRefusal("output_exists", `${out} is not empty; choose another --out or remove it`);
+  // A judgement writes nothing to keep: no output folder, no encoder.
+  if (!options.judgeOnly && existsSync(out) && readdirSync(out).length > 0) throw new CaptureRefusal("output_exists", `${out} is not empty; choose another --out or remove it`);
   await refuseBusyPorts();
-  const ffmpeg = playwrightFfmpeg();
-  mkdirSync(out, { recursive: true });
+  const ffmpeg = options.judgeOnly ? "" : playwrightFfmpeg();
+  if (!options.judgeOnly) mkdirSync(out, { recursive: true });
 
   const scratch = mkdtempSync(join(tmpdir(), "bridlewise-capture-"));
   writeFileSync(join(scratch, SCRATCH_MARKER), "");
@@ -738,12 +808,14 @@ async function main(): Promise<void> {
   let browser: Browser | null = null;
   try {
     log(`commit ${commit}; scratch ${scratch}`);
-    app = prepareApp(scratch, commit);
+    app = await prepareApp(scratch, commit);
     env = stateEnvironment(scratch);
-    const repo = writeDemoRepository(options.demoRoot);
+    const repo = await writeDemoRepository(options.demoRoot);
     demoCreated = true;
-    sd(app, env, "start");
-    browser = await chromium.launch({ channel: "chromium", headless: true, args: [...CHROMIUM_ARGS] });
+    await sd(app, env, "start");
+    // The GPU-less flags make the images byte-stable (BL-GPU); a judgement reads computed styles, not
+    // pixels, and the runner image's Chrome aborts under --in-process-gpu, so it runs with its defaults.
+    browser = await launchBrowser(options.browser, options.judgeOnly ? [] : CHROMIUM_ARGS);
     const state: Run = {
       options, commit, out, repo, ffmpeg, scratch,
       password: (await import("node:crypto")).randomBytes(18).toString("base64url"),
@@ -752,7 +824,14 @@ async function main(): Promise<void> {
     };
     await drive(state, browser);
     const chromiumVersion = browser.version();
-    if (state.violations.length > 0) throw new CaptureRefusal("capture_unpublishable", `\n  ${state.violations.join("\n  ")}`);
+    state.violations.push(...[...offOrigin].sort());
+    // What a green judgement does not claim, every time it is given (rules.ts JUDGE_LIMITS).
+    for (const { id, limit, why } of JUDGE_LIMITS) log(`judgement limit ${id}: ${limit} (${why})`);
+    if (state.violations.length > 0) throw new CaptureRefusal(options.judgeOnly ? "rendered_judgement_failed" : "capture_unpublishable", `\n  ${state.violations.join("\n  ")}`);
+    if (options.judgeOnly) {
+      log(`judged every view as rendered: the mark, the fonts and the network hold (${((Date.now() - started) / 1000).toFixed(0)} s)`);
+      return;
+    }
     const scripts: Record<string, Uint8Array> = {};
     for (const name of readdirSync(HERE).filter((f) => f.endsWith(".ts")).toSorted()) scripts[`scripts/capture/${name}`] = readFileSync(join(HERE, name));
     const playwrightVersion = (JSON.parse(readFileSync(join(REPO_ROOT, "node_modules", "playwright-core", "package.json"), "utf8")) as { version: string }).version;
@@ -771,7 +850,7 @@ async function main(): Promise<void> {
   } finally {
     if (browser !== null) await browser.close().catch((error: unknown) => log(`browser close: ${String(error)}`));
     if (app !== null && env !== null) {
-      try { sd(app, env, "stop"); } catch (error) { console.error(`[capture] ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }
+      try { await sd(app, env, "stop"); } catch (error) { console.error(`[capture] ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; }
     }
     if (demoCreated && existsSync(join(options.demoRoot, DEMO_MARKER))) rmSync(options.demoRoot, { recursive: true });
     if (options.keepScratch) log(`scratch kept: ${scratch}`);

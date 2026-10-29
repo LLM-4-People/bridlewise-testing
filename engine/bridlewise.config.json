@@ -823,9 +823,11 @@
     "fullSuiteInProcessSerialPhaseConcurrency": 4,
     "fullSuiteParallelConcurrency": 12,
     "compileCachePruning": {
-      "maxEntryAgeDays": 7,
-      "maxEntries": 400000,
-      "timeBudgetMs": 10000
+      "maxBytes": 4294967296,
+      "maxEntryAgeHours": 72,
+      "inUseMinutes": 60,
+      "intervalMinutes": 60,
+      "maxDeletionsPerPrune": 50000
     },
     "integrationSuiteCpuBudget": {
       "metric": "calibrated-work/v1",
@@ -840,7 +842,7 @@
       "phase": "accumulation",
       "minimumJudgedRuns": 12,
       "maxPopulationDriftFraction": 0.03,
-      "derivedAtTestFileCount": 536,
+      "derivedAtTestFileCount": 539,
       "calibrationDriftMaxFraction": 0.15,
       "validThroughLoad5PerCpu": 1.7,
       "legacy": {
@@ -876,7 +878,8 @@
         "tests/helpers/flake-shim-orchestration-run-id.ts",
         "engine/test/support/flake-shim-cpu-frequency-scaling.ts",
         "engine/test/support/flake-shim-preempt-after-ready.ts",
-        "engine/test/support/flake-shim-concurrent-owner-sweep.ts"
+        "engine/test/support/flake-shim-concurrent-owner-sweep.ts",
+        "tests/helpers/flake-shim-loaded-runner.ts"
       ]
     },
     "webSuiteWatchdog": {
@@ -1171,13 +1174,24 @@
     "organization": "LLM-4-People",
     "apiUrl": "https://api.github.com",
     "webUrl": "https://github.com",
+    "uploadsUrl": "https://uploads.github.com",
+    "assetOrigins": [
+      "https://release-assets.githubusercontent.com",
+      "https://objects.githubusercontent.com"
+    ],
     "userAgent": "bridlewise-forge",
     "request": {
       "timeoutMs": 30000,
       "maxResponseBytes": 16777216,
       "cleanupTimeoutMs": 2000,
       "etagCacheEntries": 1024,
-      "maxPages": 50
+      "maxPages": 50,
+      "assets": {
+        "maxBytes": 1073741824,
+        "progressWindowMs": 30000,
+        "minBytesPerWindow": 1024,
+        "answerSilenceMs": 600000
+      }
     },
     "tokenRenewBeforeMs": 300000,
     "repositories": [

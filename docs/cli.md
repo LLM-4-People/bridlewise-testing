@@ -132,6 +132,7 @@ These verbs are for maintainers of the development floor. They assume the privat
 | `harness slot` | Run a bounded long task under the slot supervisor |
 | `harness forge apps manifests [--check]` | Write (or check) the generated App manifests under `.github/forge/` from the App registry (`engine/src/workflow/forge/`) |
 | `harness forge apps create` | Serve the local Apps page (127.0.0.1) that creates the four GitHub Apps from their manifests and stores each key where the registry says |
+| `harness forge apps audit [--role <role>]…` | Compare each App's installation, as the App itself reads it, with the registry: on the organisation, selected repositories only, exact permissions and events, and exactly the declared repositories. With no `--role`, it audits the host Apps; the door and publisher run in their own environment's job (`forge-apps-audit.yml`) |
 
 ## Development scripts
 

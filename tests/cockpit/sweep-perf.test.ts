@@ -1,15 +1,24 @@
 // @vitest-environment node
 /**
- * SWEEP latency budgets (§1.5 F2, task spec): with 30k synthetic events —
+ * SWEEP cost budgets (§1.5 F2, task spec): with 30k synthetic events —
  *   - full client binning < 100ms (the zoom rebin budget);
  *   - a zoomed sub-window rebin < 100ms;
  *   - causal band build over a zoomed window < 100ms;
  *   - a full paint pass over pre-built bins < 16ms (head interaction is a
  *     repaint of existing bins — the <16ms budget).
- * Budgets are generous CI ceilings (local runs are ~10× faster); a
+ * Budgets are generous ceilings (local runs are ~10× under them); a
  * regression that blows 100ms is an algorithmic bug, not jitter.
+ *
+ * EVERY BUDGET IS CPU WORK, NEVER WALL TIME (NO-LOAD-BLOCK). These budgets
+ * were wall time, and required Shard 3 went red under host load at 144 ms
+ * against 100 and 27 ms against 16: the code waited for a core, it did not do
+ * more. `cpuWorkOf` (engine/src/shared/run-cpu.ts) counts the work the test's
+ * thread did, which waiting does not inflate; the first describe below
+ * proves it can fail and that waiting does not count.
  */
 import { describe, expect, test } from "vitest";
+
+import { cpuWorkOf } from "../../engine/src/shared/run-cpu.ts";
 
 import { binEvents } from "../../src/cockpit/sweep/bins";
 import { clientWindowSource } from "../../src/cockpit/sweep/bin-source";
@@ -70,33 +79,60 @@ function nullCtx(): CanvasLike {
   };
 }
 
+describe("the measurement can fail, and waiting does not count", () => {
+  test("30 ms of computing measures at least 25 ms of CPU work", () => {
+    const burnt = cpuWorkOf(() => {
+      const start = process.threadCpuUsage();
+      let x = 0;
+      for (;;) {
+        const used = process.threadCpuUsage(start);
+        if ((used.user + used.system) / 1000 >= 30) break;
+        x += 1;
+      }
+      expect(x).toBeGreaterThan(0);
+    });
+    expect(burnt).toBeGreaterThanOrEqual(25);
+  });
+
+  test("waiting is not work: 10 ms of waiting per call measures under 2 ms per call", () => {
+    const waited = cpuWorkOf(() => {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    });
+    expect(waited).toBeLessThan(2);
+  });
+});
+
 describe("30k-event budgets", () => {
   test("full-window client binning (600 bins) < 100ms", () => {
-    const t = performance.now();
-    const bins = binEvents(events, coverage, 600);
-    const took = performance.now() - t;
-    expect(bins.eventCount).toBe(30_000);
-    expect(took).toBeLessThan(100);
+    let count = 0;
+    const work = cpuWorkOf(() => {
+      count = binEvents(events, coverage, 600).eventCount;
+    });
+    expect(count).toBe(30_000);
+    expect(work).toBeLessThan(100);
   });
 
   test("zoom rebin of a sub-window < 100ms", () => {
     const source = clientWindowSource(events);
     const zoomed = zoomWindow(coverage, coverage.t0 + 3600_000, 0.1, coverage);
-    const t = performance.now();
-    const bins = source.bins(zoomed, 600);
-    const took = performance.now() - t;
-    expect(bins.window.t1 - bins.window.t0).toBeLessThan(coverage.t1 - coverage.t0);
-    expect(took).toBeLessThan(100);
+    let span = Number.POSITIVE_INFINITY;
+    const work = cpuWorkOf(() => {
+      const bins = source.bins(zoomed, 600);
+      span = bins.window.t1 - bins.window.t0;
+    });
+    expect(span).toBeLessThan(coverage.t1 - coverage.t0);
+    expect(work).toBeLessThan(100);
   });
 
   test("causal band build over a zoomed window < 100ms", () => {
     const source = clientWindowSource(events);
     const zoomed = { t0: coverage.t0, t1: coverage.t0 + 600_000 }; // 10 min
-    const t = performance.now();
-    const runs = buildCausalBands(source.eventsIn(zoomed));
-    const took = performance.now() - t;
-    expect(runs.length).toBeGreaterThan(0);
-    expect(took).toBeLessThan(100);
+    let bands = 0;
+    const work = cpuWorkOf(() => {
+      bands = buildCausalBands(source.eventsIn(zoomed)).length;
+    });
+    expect(bands).toBeGreaterThan(0);
+    expect(work).toBeLessThan(100);
   });
 
   test("a full paint pass over prepared bins < 16ms (head repaint budget)", () => {
@@ -119,10 +155,7 @@ describe("30k-event budgets", () => {
     };
     const ctx = nullCtx();
     paintSweep(ctx, frame); // warm
-    const t = performance.now();
-    paintSweep(ctx, frame);
-    const took = performance.now() - t;
-    expect(took).toBeLessThan(16);
+    expect(cpuWorkOf(() => paintSweep(ctx, frame))).toBeLessThan(16);
   });
 });
 
@@ -134,8 +167,8 @@ describe("30k-event budgets", () => {
  * drag can stay inside a frame budget on a 30k-event window.
  */
 describe("the scrub→navigate loop stays inside a frame", () => {
-  test("1200 pointer ticks (a full-width drag) cost < 16ms in the emitter path", () => {
-    const emitter = frameCoalesced<number>(
+  test("1200 pointer ticks (a full-width drag) cost < 16 ms of CPU work in the emitter path", () => {
+    const fresh = () => frameCoalesced<number>(
       () => {},
       (cb) => {
         void cb;
@@ -143,10 +176,14 @@ describe("the scrub→navigate loop stays inside a frame", () => {
       },
       () => {},
     );
-    const t = performance.now();
-    for (let i = 0; i < 1200; i++) emitter.offer(i);
-    const took = performance.now() - t;
-    expect(took).toBeLessThan(16);
+    // A fresh emitter per call: the measurement repeats the drag until
+    // several scheduler ticks of work have passed (cpuWorkOf).
+    let emitter = fresh();
+    const work = cpuWorkOf(() => {
+      emitter = fresh();
+      for (let i = 0; i < 1200; i++) emitter.offer(i);
+    });
+    expect(work).toBeLessThan(16);
     // …and the 1200 ticks became ONE scheduled frame, not 1200 navigations.
     expect(emitter.stats().offered).toBe(1200);
     expect(emitter.stats().frames).toBe(1);
@@ -154,14 +191,15 @@ describe("the scrub→navigate loop stays inside a frame", () => {
   });
 
   test("resolving the event at-or-before an instant over 30k events is O(log n) — 1200 resolutions < 16ms", () => {
-    const t = performance.now();
     let hits = 0;
-    for (let i = 0; i < 1200; i++) {
-      const at = coverage.t0 + ((coverage.t1 - coverage.t0) * i) / 1200;
-      if (eventAtOrBefore(events, at) !== null) hits += 1;
-    }
-    const took = performance.now() - t;
+    const work = cpuWorkOf(() => {
+      hits = 0;
+      for (let i = 0; i < 1200; i++) {
+        const at = coverage.t0 + ((coverage.t1 - coverage.t0) * i) / 1200;
+        if (eventAtOrBefore(events, at) !== null) hits += 1;
+      }
+    });
     expect(hits).toBeGreaterThan(1000);
-    expect(took).toBeLessThan(16);
+    expect(work).toBeLessThan(16);
   });
 });

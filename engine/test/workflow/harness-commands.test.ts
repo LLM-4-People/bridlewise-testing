@@ -14,6 +14,8 @@ import {
   syncPassVerdict,
   regenerateWebBudgetPopulation,
   webBudgetPopulationStep,
+  regenerateServiceWorkerDigest,
+  serviceWorkerDigestStep,
   harnessNewModule,
   runArchitectureCheck,
   runInventoryCheck,
@@ -39,7 +41,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
+import { SERVICE_WORKER_DIGEST, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -276,6 +278,61 @@ test("HarnessCommands: the web budget population arm — check refuses a stale c
     // No generator in the tree (a product-only tree): converged by absence.
     rmSync(generator);
     assert.deepEqual(await regenerateWebBudgetPopulation(engineRoot, false), { status: "absent", converged: true, changed: [] });
+  } finally {
+    rmSync(repository, { recursive: true, force: true });
+  }
+});
+
+test("HarnessCommands: the service worker digest arm — check refuses a hand-edited digest by name, sync re-derives it, then check passes", async () => {
+  // The WIRING, with a stand-in generator at the arm's own path speaking the
+  // one protocol (the real digest is proved beside its owner,
+  // tests/prevention/pwa.test.ts, hand edit included). The stand-in derives
+  // "abc", finds a hand-typed "hand" in the worker, writes only with --write,
+  // and judges the tree the arm names with --root.
+  const repository = createTempDir("service-worker-digest-arm-");
+  try {
+    const engineRoot = join(repository, "engine");
+    mkdirSync(engineRoot, { recursive: true });
+    const generator = join(repository, SERVICE_WORKER_DIGEST.generator);
+    mkdirSync(join(generator, ".."), { recursive: true });
+    const worker = join(repository, SERVICE_WORKER_DIGEST.path);
+    mkdirSync(join(worker, ".."), { recursive: true });
+    writeFileSync(worker, 'const ASSETS_DIGEST = "hand";\n');
+    writeFileSync(generator, [
+      'import { readFileSync, writeFileSync } from "node:fs";',
+      'import { join } from "node:path";',
+      'const root = process.argv.find((a) => a.startsWith("--root="))?.slice("--root=".length);',
+      'if (root === undefined) { process.stdout.write("{}\\n"); process.exit(2); }',
+      `const file = join(root, ${JSON.stringify(SERVICE_WORKER_DIGEST.path)});`,
+      'const derived = \'const ASSETS_DIGEST = "abc";\\n\';',
+      'let out;',
+      'if (readFileSync(file, "utf8") === derived) out = { allCurrent: true, status: "current", changed: [] };',
+      'else if (process.argv.includes("--write")) { writeFileSync(file, derived); out = { allCurrent: true, status: "regenerated", changed: ["public/sw.js"] }; }',
+      'else out = { allCurrent: false, status: "stale", changed: ["public/sw.js"] };',
+      'process.stdout.write(JSON.stringify(out) + "\\n");',
+      "process.exitCode = out.allCurrent ? 0 : 1;",
+      "",
+    ].join("\n"));
+    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
+
+    // A hand-edited digest: the check step FAILS, naming the worker, and writes nothing.
+    const stale = await regenerateServiceWorkerDigest(engineRoot, false);
+    assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["public/sw.js"]]);
+    const step = serviceWorkerDigestStep(stale);
+    assert.equal(step.step, "service-worker-digest");
+    assert.equal(step.status, "fail");
+    assert.match(step.message, /public\/sw\.js's cache digest differs from the assets it caches \(run harness sync\)/u);
+    assert.equal(readFileSync(worker, "utf8"), 'const ASSETS_DIGEST = "hand";\n', "a check wrote the worker");
+    // Sync: the derived digest is written, and the step passes after it.
+    const written = await regenerateServiceWorkerDigest(engineRoot, true);
+    assert.deepEqual([written.status, written.converged], ["regenerated", true]);
+    assert.equal(readFileSync(worker, "utf8"), 'const ASSETS_DIGEST = "abc";\n', "sync did not write the derived digest");
+    const current = await regenerateServiceWorkerDigest(engineRoot, false);
+    assert.deepEqual(current, { status: "current", converged: true, changed: [] });
+    assert.equal(serviceWorkerDigestStep(current).status, "pass");
+    // No generator in the tree (a product-only tree): converged by absence.
+    rmSync(generator);
+    assert.deepEqual(await regenerateServiceWorkerDigest(engineRoot, false), { status: "absent", converged: true, changed: [] });
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }

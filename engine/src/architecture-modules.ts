@@ -82,6 +82,8 @@ export const ARCHITECTURE_DIRECTORY_DEFAULTS: readonly ArchitectureDirectoryDefa
 
 export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "scripts/bootstrap-hooks.ts", executionBoundary: "composition-root", compositionRoot: true },
+  { path: "scripts/brand/claims.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
+  { path: "scripts/brand/cli.ts", executionBoundary: "composition-root", compositionRoot: true, effects: ["filesystem-read","filesystem-write"] },
   { path: "scripts/build-bundle.ts", id: "build-bundle", owner: "self-protection", executionBoundary: "composition-root", compositionRoot: true, effects: ["filesystem-write"], responsibilities: ["esbuild-bundle-src-cli-into-dist-bundle-js-single-file","write-bundle-sha256-sidecar-and-guardian-spec-schema-artifact"] },
   { path: "scripts/commit-guard.ts", executionBoundary: "composition-root", compositionRoot: true },
   { path: "scripts/concurrent/worker-entry.mjs", executionBoundary: "composition-root", compositionRoot: true, effects: ["filesystem-read"] },
@@ -109,7 +111,7 @@ export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "scripts/tooling/run-tests.ts", id: "run-tests", executionBoundary: "composition-root", compositionRoot: true, ports: {"requires":["parent-observed-command-execution","test-execution-evidence"],"provides":["test-runner"]}, effects: ["child-process","filesystem-read","filesystem-write","process-status"], responsibilities: ["parent-recorded-core-test-and-s1-worker-orchestration","pre-suite-test-inventory-and-disposition-auto-heal"] },
   { path: "scripts/tooling/s1-verification.ts", id: "s1-verification", executionBoundary: "composition-root", compositionRoot: true, ports: {"requires":["architecture-analysis"],"provides":["candidate-verification"]}, effects: ["filesystem-read","process-status"], responsibilities: ["candidate-orchestration","repository-structure-verification","s1-trace-verification"] },
   { path: "scripts/tooling/test-execution.ts", id: "test-execution", owner: "verification-foundation", executionBoundary: "verification", ports: {"requires":["immutable-evidence-files"],"provides":["test-execution-evidence"]}, effects: ["cryptography"], configPaths: ["receipts.testExecution"], responsibilities: ["config-bound-start-result-parent-stream-terminal-and-recovery-evidence-not-canonical-admission"] },
-  { path: "scripts/tooling/test-guards.ts", id: "scripts-test-guards", executionBoundary: "composition-root", compositionRoot: true, effects: ["child-process"] },
+  { path: "scripts/tooling/test-guards.ts", id: "scripts-test-guards", executionBoundary: "composition-root", compositionRoot: true, effects: ["child-process","filesystem-read"] },
   { path: "scripts/tooling/test-receipt.ts", id: "test-receipt", executionBoundary: "verification" },
   { path: "scripts/tooling/test-run-lock.ts", id: "scripts-test-run-lock" },
   { path: "scripts/tooling/test-worker.ts", id: "test-worker", executionBoundary: "composition-root", compositionRoot: true, ports: {"requires":["candidate-inventory-and-identity","canonical-test-inventory-generation-and-validation","candidate-verification","inventory-bound-test-run-and-accounting"],"provides":["test-worker-result-pipe"]}, effects: ["filesystem-read","process-status"], responsibilities: ["deterministic-result-only-worker-without-execution-identity-in-result-bytes"] },
@@ -400,6 +402,7 @@ export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "src/workflow/community/replies.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/harness-commands.ts", id: "workflow-harness-commands", layer: "interface", executionBoundary: "composition-root", compositionRoot: true, ports: {"requires":["test-result-collection","module-registration","auto-generation","resource-locking"],"provides":["harness-commands"]}, effects: ["child-process","filesystem-read","filesystem-write","git","process-status"], responsibilities: ["built-in-harness-workflow-commands-replacing-multi-step-scripts"] },
   { path: "src/workflow/hash-binding-registry.ts", id: "hash-binding-registry", realm: "shared", layer: "domain", executionBoundary: "effect-adapter", ports: {"requires":[],"provides":["hash-binding-registry"]}, effects: ["filesystem-read","filesystem-write"], responsibilities: ["central-hash-binding-verification-and-repair"] },
+  { path: "src/workflow/messaging.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/module-registrar.ts", id: "workflow-module-registrar", realm: "shared", layer: "domain", executionBoundary: "effect-adapter", ports: {"requires":["architecture-analysis"],"provides":["module-registration"]}, effects: ["filesystem-read","filesystem-write"], responsibilities: ["deterministic-module-registration-replacing-manual-manifest-maintenance"] },
   { path: "src/workflow/promotion/tree-kind.ts", executionBoundary: "effect-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/promotion/trigger.ts", executionBoundary: "effect-adapter", effects: ["filesystem-read"] },
