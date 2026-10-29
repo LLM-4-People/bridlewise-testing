@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, visit } from "yaml";
 
-import { networkInstalls } from "../helpers/network-install.ts";
+import { networkInstalls, shellCommands, shellWords } from "../helpers/network-install.ts";
 
 /**
  * THE WORKFLOW POLICY: rules every GitHub Actions workflow in the tree obeys.
@@ -370,18 +370,83 @@ function networkInstallViolations(workflow) {
 /**
  * The forge is the ONE label writer (`harness forge apply`, from
  * docs/community/labels.json): a workflow uses a declared label and never
- * creates, edits or deletes one, in a step's script (`gh label create|edit|
- * delete|clone`, a write to a labels endpoint through `gh api` or `curl`) or
- * an actions/github-script call (`createLabel`, `updateLabel`, `deleteLabel`).
- * Applying a declared label to an issue (`…/issues/{n}/labels`) is no label write.
+ * creates, edits or deletes one. Each step's `run:` is read as commands (the
+ * shared shell reader: continuations joined, cut at `;` `&&` `||` `|`, each
+ * tokenised; the string an `eval` or a shell's `-c` runs is read again), and
+ * a command is a label write when it is:
+ *   - `gh label create|edit|delete|clone`;
+ *   - `gh api <endpoint>` on a label definition (`…/labels` or
+ *     `…/labels/<name>`, never `…/issues/<n>/labels`, which applies a declared
+ *     label) with a writing method, or with fields and no method (POST);
+ *   - `curl` on such a URL with a writing method or a body.
+ * The program is found after any prefix (`sudo`, `timeout`, `env …`: prefixes
+ * are not enumerated, as in the shared reader), so even an echoed write is read
+ * as one. An actions/github-script step writes one when its script calls
+ * `createLabel`, `updateLabel` or `deleteLabel`.
  */
-const LABEL_WRITES = [
-  /\bgh\s+label\s+(?:create|edit|delete|clone)\b/u,
-  /\b(?:gh\s+api|curl)\b[^\n]{0,400}?(?<!issues\/[^\/\s]{1,40})\/labels\b[^\n]{0,400}?(?:-X|--method|--request)\s*['"]?(?:POST|PATCH|PUT|DELETE)\b/iu,
-  /\b(?:gh\s+api|curl)\b[^\n]{0,400}?(?:-X|--method|--request)\s*['"]?(?:POST|PATCH|PUT|DELETE)\b[^\n]{0,400}?(?<!issues\/[^\/\s]{1,40})\/labels\b/iu,
-  /\bgh\s+api\b[^\n]{0,400}?(?<!issues\/[^\/\s]{1,40})\/labels\b[^\n]{0,400}?\s(?:-f|-F|--field|--raw-field|--input)\s/u,
-  /\b(?:createLabel|updateLabel|deleteLabel)\s*\(/u,
-];
+const LABEL_SUBCOMMANDS = new Set(["create", "edit", "delete", "clone"]);
+const WRITING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+const GH_API_VALUE_OPTIONS = new Set(["-X", "--method", "-f", "-F", "--field", "--raw-field", "-H", "--header", "--input", "-q", "--jq", "-t", "--template", "--hostname", "--cache", "-p", "--preview"]);
+const GH_API_FIELD_OPTIONS = new Set(["-f", "-F", "--field", "--raw-field", "--input"]);
+const CURL_VALUE_OPTIONS = new Set(["-X", "--request", "-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--json", "-H", "--header", "-o", "--output", "-u", "--user", "-F", "--form"]);
+const CURL_BODY_OPTIONS = new Set(["-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--json", "-F", "--form"]);
+const SCRIPT_LABEL_WRITES = new Set(["createLabel", "updateLabel", "deleteLabel"]);
+const SHELLS = new Set(["sh", "bash", "dash", "zsh"]);
+
+const programName = (word) => word.slice(word.lastIndexOf("/") + 1);
+
+/** A path or URL naming a label definition: a `labels` segment not under `issues/<n>` (or `pulls/<n>`). */
+function labelDefinitionPath(target) {
+  const path = target.includes("://") ? target.slice(target.indexOf("/", target.indexOf("://") + 3) + 1) : target;
+  const segments = path.split("?")[0].split("/").filter((segment) => segment.length > 0);
+  const at = segments.indexOf("labels");
+  return at >= 0 && at >= segments.length - 2 && !(at >= 2 && (segments[at - 2] === "issues" || segments[at - 2] === "pulls"));
+}
+
+/** The option values and operands of `words` after a program: `-X POST`, `-XPOST` and `--method=POST` read alike. */
+function readOptions(words, valueOptions) {
+  const options = [];
+  const operands = [];
+  for (let at = 0; at < words.length; at += 1) {
+    const word = words[at];
+    const equals = word.startsWith("--") ? word.indexOf("=") : -1;
+    if (equals > 0) options.push([word.slice(0, equals), word.slice(equals + 1)]);
+    else if (valueOptions.has(word)) { options.push([word, words[at + 1] ?? ""]); at += 1; }
+    else if (/^-[A-Za-z]$/u.test(word.slice(0, 2)) && word.length > 2 && valueOptions.has(word.slice(0, 2))) options.push([word.slice(0, 2), word.slice(2)]);
+    else if (word.startsWith("-")) options.push([word, null]);
+    else operands.push(word);
+  }
+  return { options, operands };
+}
+
+/** Whether one command, as words, writes a label. */
+function commandWritesLabel(words) {
+  for (let at = 0; at < words.length; at += 1) {
+    const program = programName(words[at]);
+    const rest = words.slice(at + 1);
+    if (program === "gh" && rest[0] === "label" && LABEL_SUBCOMMANDS.has(rest[1])) return true;
+    if (program === "gh" && rest[0] === "api") {
+      const { options, operands } = readOptions(rest.slice(1), GH_API_VALUE_OPTIONS);
+      const method = options.find(([name]) => name === "-X" || name === "--method")?.[1]?.toUpperCase();
+      const writes = method === undefined ? options.some(([name]) => GH_API_FIELD_OPTIONS.has(name)) : WRITING_METHODS.has(method);
+      if (writes && operands.length > 0 && labelDefinitionPath(operands[0])) return true;
+    }
+    if (program === "curl") {
+      const { options, operands } = readOptions(rest, CURL_VALUE_OPTIONS);
+      const method = options.find(([name]) => name === "-X" || name === "--request")?.[1]?.toUpperCase();
+      const writes = method === undefined ? options.some(([name]) => CURL_BODY_OPTIONS.has(name)) : WRITING_METHODS.has(method);
+      if (writes && operands.some(labelDefinitionPath)) return true;
+    }
+    // The string an `eval` or a shell's `-c` runs is a command line of its own.
+    const argumentAt = program === "eval" ? 0 : SHELLS.has(program) ? rest.findIndex((word) => /^-[A-Za-z]*c[A-Za-z]*$/u.test(word)) + 1 : -1;
+    if (argumentAt >= 0 && argumentAt < rest.length && (program === "eval" || argumentAt > 0) && scriptWritesLabel(rest.slice(argumentAt).join(" "))) return true;
+  }
+  return false;
+}
+
+function scriptWritesLabel(text) {
+  return shellCommands(text).some((command) => commandWritesLabel(shellWords(command)));
+}
 
 function labelWriteViolations(workflow) {
   const { unreadable } = readWorkflow(workflow);
@@ -390,8 +455,10 @@ function labelWriteViolations(workflow) {
   const violations = [];
   for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
     for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
-      const scripts = [step?.run, step?.with?.script].filter((text) => typeof text === "string").map((text) => text.replace(/\\\r?\n\s*/gu, " "));
-      if (scripts.some((text) => LABEL_WRITES.some((pattern) => pattern.test(text)))) {
+      const shell = typeof step?.run === "string" && scriptWritesLabel(step.run);
+      const githubScript = typeof step?.uses === "string" && step.uses.startsWith("actions/github-script@") && typeof step?.with?.script === "string" &&
+        step.with.script.split(/[^A-Za-z0-9_$]+/u).some((word) => SCRIPT_LABEL_WRITES.has(word));
+      if (shell || githubScript) {
         violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}] writes a label; the forge is the one label writer (declare it in docs/community/labels.json)`);
       }
     }
@@ -730,6 +797,13 @@ test("label writes are refused in a script or github-script; reading or applying
     "gh api -X POST repos/o/r/labels -f name=x",
     "gh api --method PATCH repos/o/r/labels/x -f color=000000",
     "curl -X DELETE https://api.github.com/repos/o/r/labels/x",
+    "curl --data '{\"name\":\"x\"}' https://api.github.com/repos/o/r/labels",
+    "gh api --method=DELETE /repos/o/r/labels/x",
+    "gh api -XPOST repos/o/r/labels --input label.json",
+    "sudo gh label create x",
+    "bash -c \"gh label create x\"",
+    "eval gh label delete x --yes",
+    "echo start && gh label create x",
   ]) {
     assert.equal(run(text).length, 1, text);
   }
@@ -740,6 +814,12 @@ test("label writes are refused in a script or github-script; reading or applying
     "gh issue create --label ci-failure --title t --body b",
     "gh issue edit 3 --add-label ci-failure",
     "gh api repos/o/r/issues/3/labels -f 'labels[]=ci-failure'",
+    "gh api repos/o/r/labels",
+    "gh api -X GET repos/o/r/labels/x",
+    "curl https://api.github.com/repos/o/r/labels",
+    "curl -X POST https://api.github.com/repos/o/r/issues/3/labels -d '[\"ci-failure\"]'",
+    "gh label list --search lane:",
+    "gh pr edit 4 --add-label ci-failure",
   ]) {
     assert.deepEqual(run(text), [], text);
   }

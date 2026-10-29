@@ -69,7 +69,8 @@ export function shellCommands(text: string): readonly string[] {
     .filter((command) => command.length > 0 && !command.startsWith("#"));
 }
 
-function tokens(command: string): readonly string[] {
+/** A command's words, quotes removed (the one tokenizer every shell-reading guard uses). */
+export function shellWords(command: string): readonly string[] {
   return command.split(/\s+/u).map((token) => token.replace(/^["']|["']$/gu, "")).filter((token) => token.length > 0);
 }
 
@@ -77,7 +78,7 @@ function tokens(command: string): readonly string[] {
 export function networkInstalls(text: string): readonly NetworkInstall[] {
   const found = new Map<string, NetworkInstall>();
   for (const source of shellCommands(text)) {
-    const words = tokens(source);
+    const words = shellWords(source);
     // A program the reader cannot rule out, anywhere: the first one a subcommand follows.
     for (let at = 0; at < words.length; at += 1) {
       const word = words[at]!;
