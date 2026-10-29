@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { isAlias, isMap, isPair, isScalar, isSeq, LineCounter, parseDocument, visit } from "yaml";
 
-import { networkInstalls, shellCommands, shellWords } from "../helpers/network-install.ts";
+import { commandSubstitutions, networkInstalls, shellCommands, shellWords } from "../helpers/network-install.ts";
 
 /**
  * THE WORKFLOW POLICY: rules every GitHub Actions workflow in the tree obeys.
@@ -378,11 +378,23 @@ function networkInstallViolations(workflow) {
  *   - `gh api <endpoint>` on a label definition (`…/labels` or
  *     `…/labels/<name>`, never `…/issues/<n>/labels`, which applies a declared
  *     label) with a writing method, or with fields and no method (POST);
- *   - `curl` on such a URL with a writing method or a body.
+ *   - `curl` on such a URL with a writing method or a body;
+ *   - `gh api graphql` whose query calls `createLabel`, `updateLabel` or
+ *     `deleteLabel`, or whose query the rule cannot read (`@file`, `--input`).
+ * The commands inside `$(…)` and backticks are read too. gh api's own flag
+ * table says which flags consume a value, so the endpoint is its first
+ * operand however many headers come first.
  * The program is found after any prefix (`sudo`, `timeout`, `env …`: prefixes
  * are not enumerated, as in the shared reader), so even an echoed write is read
- * as one. An actions/github-script step writes one when its script calls
- * `createLabel`, `updateLabel` or `deleteLabel`.
+ * as one. An actions/github-script step writes one when its script names
+ * `createLabel`, `updateLabel` or `deleteLabel` (REST or GraphQL), or holds a
+ * request on a label definition with a writing method
+ * (`github.request('POST /repos/{owner}/{repo}/labels')`, `octokit.request`,
+ * or the object form's `method` and `url`), read from its string literals.
+ *
+ * This rule is defence in depth. The structural limit is the token: no job
+ * outside the declared ones may hold `issues: write` (see
+ * {@link issuesWriteViolations}).
  */
 const LABEL_SUBCOMMANDS = new Set(["create", "edit", "delete", "clone"]);
 const WRITING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
@@ -394,6 +406,32 @@ const SCRIPT_LABEL_WRITES = new Set(["createLabel", "updateLabel", "deleteLabel"
 const SHELLS = new Set(["sh", "bash", "dash", "zsh"]);
 
 const programName = (word) => word.slice(word.lastIndexOf("/") + 1);
+const identifiers = (text) => text.split(/[^A-Za-z0-9_$]+/u);
+const namesLabelWrite = (text) => identifiers(text).some((word) => SCRIPT_LABEL_WRITES.has(word));
+
+/** Every string literal of a script (single, double or backtick quotes; a backslash escapes), as its text. */
+function stringLiterals(script) {
+  const literals = [];
+  for (let at = 0; at < script.length; at += 1) {
+    const quote = script[at];
+    if (quote !== "'" && quote !== "\"" && quote !== "`") continue;
+    let text = "";
+    let end = at + 1;
+    for (; end < script.length && script[end] !== quote; end += 1) text += script[end] === "\\" ? script[++end] ?? "" : script[end];
+    literals.push(text);
+    at = end;
+  }
+  return literals;
+}
+
+/** Whether a github-script writes a label: a label-writing call by name, or a request on a label definition with a writing method. */
+function githubScriptWritesLabel(script) {
+  if (namesLabelWrite(script)) return true;
+  const literals = stringLiterals(script).map((literal) => literal.trim());
+  const routes = literals.map((literal) => literal.split(/\s+/u)).filter((words) => words.length === 2 && labelDefinitionPath(words[1]));
+  if (routes.some(([method]) => WRITING_METHODS.has(method.toUpperCase()))) return true;
+  return literals.some(labelDefinitionPath) && literals.some((literal) => WRITING_METHODS.has(literal.toUpperCase()));
+}
 
 /** A path or URL naming a label definition: a `labels` segment not under `issues/<n>` (or `pulls/<n>`). */
 function labelDefinitionPath(target) {
@@ -427,6 +465,11 @@ function commandWritesLabel(words) {
     if (program === "gh" && rest[0] === "label" && LABEL_SUBCOMMANDS.has(rest[1])) return true;
     if (program === "gh" && rest[0] === "api") {
       const { options, operands } = readOptions(rest.slice(1), GH_API_VALUE_OPTIONS);
+      if (operands[0] === "graphql") {
+        const query = options.filter(([name]) => GH_API_FIELD_OPTIONS.has(name));
+        if (query.some(([name, value]) => name === "--input" || (value ?? "").includes("=@") || namesLabelWrite(value ?? ""))) return true;
+        continue;
+      }
       const method = options.find(([name]) => name === "-X" || name === "--method")?.[1]?.toUpperCase();
       const writes = method === undefined ? options.some(([name]) => GH_API_FIELD_OPTIONS.has(name)) : WRITING_METHODS.has(method);
       if (writes && operands.length > 0 && labelDefinitionPath(operands[0])) return true;
@@ -445,7 +488,7 @@ function commandWritesLabel(words) {
 }
 
 function scriptWritesLabel(text) {
-  return shellCommands(text).some((command) => commandWritesLabel(shellWords(command)));
+  return [text, ...commandSubstitutions(text)].some((part) => shellCommands(part).some((command) => commandWritesLabel(shellWords(command))));
 }
 
 function labelWriteViolations(workflow) {
@@ -457,10 +500,44 @@ function labelWriteViolations(workflow) {
     for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
       const shell = typeof step?.run === "string" && scriptWritesLabel(step.run);
       const githubScript = typeof step?.uses === "string" && step.uses.startsWith("actions/github-script@") && typeof step?.with?.script === "string" &&
-        step.with.script.split(/[^A-Za-z0-9_$]+/u).some((word) => SCRIPT_LABEL_WRITES.has(word));
+        githubScriptWritesLabel(step.with.script);
       if (shell || githubScript) {
         violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}] writes a label; the forge is the one label writer (declare it in docs/community/labels.json)`);
       }
+    }
+  }
+  return violations;
+}
+
+/**
+ * THE STRUCTURAL LIMIT: only the jobs declared here may hold `issues: write`,
+ * through the workflow token (a job's `permissions`, or the workflow's when
+ * the job sets none; `write-all` included) or an App token it mints
+ * (`actions/create-github-app-token`'s `permission-issues: write`). Each entry
+ * says why it needs it. Every other job is refused, whatever its steps run.
+ */
+const ISSUES_WRITE_JOBS = new Map([
+  [".github/workflows/community.yml#comment", "IssueOps: answers a command on the issue it was typed on"],
+  [".github/workflows/community.yml#welcome-issue", "welcomes a newcomer on their own issue"],
+  [".github/workflows/workflow-failure-issue.yml#report", "the legacy failure reporter, retired by runbook P5.5 (MAIN-RED)"],
+  [".github/workflows/reusable-workflow-failure.yml#report", "the legacy failure reporter, retired by runbook P5.5 (MAIN-RED)"],
+]);
+
+function grantsIssuesWrite(permissions) {
+  return permissions === "write-all" || (permissions !== null && typeof permissions === "object" && permissions.issues === "write");
+}
+
+function issuesWriteViolations(workflow) {
+  const { unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const document = parseDocument(workflow.text).toJS() ?? {};
+  const violations = [];
+  for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
+    const token = grantsIssuesWrite(job?.permissions === undefined ? document.permissions : job.permissions);
+    const app = (Array.isArray(job?.steps) ? job.steps : []).some((step) =>
+      typeof step?.uses === "string" && step.uses.startsWith("actions/create-github-app-token@") && step?.with?.["permission-issues"] === "write");
+    if ((token || app) && !ISSUES_WRITE_JOBS.has(`${workflow.path}#${jobName}`)) {
+      violations.push(`${workflow.path}: jobs.${jobName} holds issues: write (${token ? "its token" : "an App token it mints"}) but is not a declared issue-writing job`);
     }
   }
   return violations;
@@ -804,10 +881,37 @@ test("label writes are refused in a script or github-script; reading or applying
     "bash -c \"gh label create x\"",
     "eval gh label delete x --yes",
     "echo start && gh label create x",
+    // Review of #270: headers before the method, a GraphQL mutation, substitutions.
+    "gh api -H \"Accept: application/vnd.github+json\" -X POST repos/o/r/labels -f name=x",
+    "gh api --header 'X-GitHub-Api-Version: 2022-11-28' --method PATCH repos/o/r/labels/x -f color=000000",
+    "gh api -H Accept:application/json repos/o/r/labels -F name=x",
+    "gh api graphql -f query='mutation { createLabel(input: {repositoryId: \"R\", name: \"x\", color: \"ffffff\"}) { label { id } } }'",
+    "gh api graphql -F query=@mutation.graphql",
+    "gh api graphql --input query.json",
+    "echo \"$(gh label create x)\"",
+    "id=$(gh api -X POST repos/o/r/labels -f name=x --jq .id)",
+    "echo `gh label delete x --yes`",
+    "out=$(echo $(gh label edit x --color 000000))",
   ]) {
     assert.equal(run(text).length, 1, text);
   }
-  assert.equal(plant("      - uses: actions/github-script@v7\n        with:\n          script: |\n            await github.rest.issues.createLabel({ owner, repo, name: 'x' });").length, 1);
+  const script = (body) => plant(`      - uses: actions/github-script@v7\n        with:\n          script: |\n${body.split("\n").map((line) => `            ${line}`).join("\n")}`);
+  for (const body of [
+    "await github.rest.issues.createLabel({ owner, repo, name: 'x' });",
+    "await github.request('POST /repos/{owner}/{repo}/labels', { owner, repo, name: 'x' });",
+    "await octokit.request(\"DELETE /repos/{owner}/{repo}/labels/{name}\", { owner, repo, name: 'x' });",
+    "await github.request({ method: 'PATCH', url: '/repos/o/r/labels/x', color: '000000' });",
+    "await github.graphql(`mutation { deleteLabel(input: {id: \"L\"}) { clientMutationId } }`);",
+  ]) {
+    assert.equal(script(body).length, 1, body);
+  }
+  for (const body of [
+    "await github.request('GET /repos/{owner}/{repo}/labels');",
+    "await github.rest.issues.addLabels({ owner, repo, issue_number: 3, labels: ['ci-failure'] });",
+    "await github.request('POST /repos/{owner}/{repo}/issues/3/labels', { labels: ['ci-failure'] });",
+  ]) {
+    assert.deepEqual(script(body), [], body);
+  }
   for (const text of [
     "gh api \"repos/${GH_REPO}/labels/ci-failure\" --silent",
     "gh issue list --label ci-failure --state open",
@@ -820,7 +924,34 @@ test("label writes are refused in a script or github-script; reading or applying
     "curl -X POST https://api.github.com/repos/o/r/issues/3/labels -d '[\"ci-failure\"]'",
     "gh label list --search lane:",
     "gh pr edit 4 --add-label ci-failure",
+    "gh api -H \"Accept: application/vnd.github+json\" repos/o/r/labels/x",
+    "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { labels(first: 10) { nodes { name } } } }'",
+    "n=$(gh issue list --label ci-failure --json number --jq length)",
   ]) {
     assert.deepEqual(run(text), [], text);
   }
+});
+
+test("only the declared jobs hold issues: write, through the workflow token or an App token they mint", () => {
+  assert.deepEqual(liveWorkflows().flatMap(issuesWriteViolations), []);
+  const plant = (text) => issuesWriteViolations({ path: ".github/workflows/plant.yml", text });
+  for (const text of [
+    "on: push\npermissions:\n  issues: write\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: true\n",
+    "on: push\njobs:\n  j:\n    runs-on: x\n    permissions:\n      issues: write\n    steps:\n      - run: true\n",
+    "on: push\npermissions: write-all\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: true\n",
+    "on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n      - uses: actions/create-github-app-token@0\n        with:\n          permission-issues: write\n",
+    "on: push\njobs:\n  j:\n    permissions:\n      issues: write\n    uses: ./.github/workflows/other.yml\n",
+  ]) {
+    assert.equal(plant(text).length, 1, text);
+  }
+  for (const text of [
+    "on: push\npermissions:\n  issues: read\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: true\n",
+    "on: push\npermissions:\n  issues: write\njobs:\n  j:\n    runs-on: x\n    permissions:\n      contents: read\n    steps:\n      - run: true\n",
+    "on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n      - uses: actions/create-github-app-token@0\n        with:\n          permission-pull-requests: write\n",
+  ]) {
+    assert.deepEqual(plant(text), [], text);
+  }
+  // A declared job is declared by its workflow AND its name: the same job name elsewhere is refused.
+  assert.deepEqual(issuesWriteViolations({ path: ".github/workflows/community.yml", text: "on: issue_comment\njobs:\n  comment:\n    runs-on: x\n    permissions:\n      issues: write\n    steps:\n      - run: true\n" }), []);
+  assert.equal(issuesWriteViolations({ path: ".github/workflows/other.yml", text: "on: issue_comment\njobs:\n  comment:\n    runs-on: x\n    permissions:\n      issues: write\n    steps:\n      - run: true\n" }).length, 1);
 });

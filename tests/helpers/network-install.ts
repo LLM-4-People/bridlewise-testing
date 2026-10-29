@@ -69,9 +69,67 @@ export function shellCommands(text: string): readonly string[] {
     .filter((command) => command.length > 0 && !command.startsWith("#"));
 }
 
-/** A command's words, quotes removed (the one tokenizer every shell-reading guard uses). */
+/**
+ * A command's words, as the shell splits them: whitespace separates words
+ * except inside single or double quotes, the quotes are removed, and a
+ * backslash keeps the next character (so `-H "Accept: x"` is two words, the
+ * second `Accept: x`). The one tokenizer every shell-reading guard uses.
+ */
 export function shellWords(command: string): readonly string[] {
-  return command.split(/\s+/u).map((token) => token.replace(/^["']|["']$/gu, "")).filter((token) => token.length > 0);
+  const words: string[] = [];
+  let word = "";
+  let started = false;
+  let quote: "'" | "\"" | null = null;
+  for (let at = 0; at < command.length; at += 1) {
+    const char = command[at]!;
+    if (quote !== null) {
+      if (char === quote) quote = null;
+      else if (char === "\\" && quote === "\"" && at + 1 < command.length) word += command[++at]!;
+      else word += char;
+    } else if (char === "'" || char === "\"") {
+      quote = char;
+      started = true;
+    } else if (char === "\\" && at + 1 < command.length) {
+      word += command[++at]!;
+      started = true;
+    } else if (/\s/u.test(char)) {
+      if (started) words.push(word);
+      word = "";
+      started = false;
+    } else {
+      word += char;
+      started = true;
+    }
+  }
+  if (started) words.push(word);
+  return words;
+}
+
+/**
+ * The commands a text runs inside command substitutions, `$(…)` (nested
+ * ones counted) and backticks, each as text to be read again: a guard that
+ * reads commands reads these too.
+ */
+export function commandSubstitutions(text: string): readonly string[] {
+  const inner: string[] = [];
+  for (let at = 0; at < text.length; at += 1) {
+    if (text[at] === "$" && text[at + 1] === "(" && text[at + 2] !== "(") {
+      let depth = 0;
+      for (let end = at + 1; end < text.length; end += 1) {
+        if (text[end] === "(") depth += 1;
+        else if (text[end] === ")" && --depth === 0) {
+          inner.push(text.slice(at + 2, end));
+          break;
+        }
+      }
+    } else if (text[at] === "`") {
+      const end = text.indexOf("`", at + 1);
+      if (end === -1) break;
+      inner.push(text.slice(at + 1, end));
+      at = end;
+    }
+  }
+  return inner.flatMap((command) => [command, ...commandSubstitutions(command)]);
 }
 
 /** Every system-package install, update or upgrade the text runs. */
