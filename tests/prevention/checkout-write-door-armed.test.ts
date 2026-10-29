@@ -43,7 +43,7 @@ describe("the web suite arms the checkout write door", () => {
     const before = readFileSync(TRACKED);
     expect(() => atomicWriteFile(TRACKED, before)).toThrow(expect.objectContaining({ code: CHECKOUT_WRITE_REFUSAL_CODE }));
     expect(readFileSync(TRACKED).equals(before)).toBe(true);
-    expect(() => assertCheckoutWriteAllowed(join(ROOT, ".bridlewise", "state", "probe.json"))).not.toThrow();
+    expect(() => assertCheckoutWriteAllowed(join(ROOT, ".bridlewise", "test-fixtures", "probe.json"))).not.toThrow();
   });
 
   test("a child with a scrubbed env is refused through the marker this worker holds", () => {

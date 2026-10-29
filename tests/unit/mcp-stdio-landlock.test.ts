@@ -322,7 +322,10 @@ describe("a stdio MCP server under the real guardian", () => {
     expect(result.writes?.operatorRule, "an operator's command allow-rule does not widen an MCP server").toBe("EACCES");
     expect(result.writes?.project, "a project is not the server's to write").toBe("EACCES");
     expect(result.writes?.harness, "the harness's own tree is not writable").toBe("EACCES");
-    expect(result.writes?.userHome, "the user's home is not writable").toBe("EACCES");
+    // The test run's own confinement (decision TEST-CONFINEMENT-SELF-BIND) makes the user's home read-only to the
+    // whole run, and the kernel answers EROFS before Landlock is asked: refused either way. Landlock's own refusal is
+    // proven above on roots the run CAN write (the system temp, the project, the spawn folders).
+    expect(["EACCES", "EROFS"], "the user's home is not writable").toContain(result.writes?.userHome);
     expect(result.readOutside, "a file outside every rule is not readable").toBe("EACCES");
     expect(existsSync(join(project, "escape.txt"))).toBe(false);
     expect(existsSync(join(operatorRule, "escape.txt"))).toBe(false);

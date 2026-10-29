@@ -37,6 +37,7 @@ The `tests/prevention/` folder of the development surface.
 - `config-defaults-owner.test.ts` — @vitest-environment node.
 - `config-handler-dedup.test.ts` — @vitest-environment node.
 - `config-write-gate-owner.test.ts` — @vitest-environment node.
+- `confinement-canary.test.ts` — the one test-execution door's canary: a write into the checkout or HOME is EROFS under every runner of the web suite; a runner that ran it unconfined turns it red.
 - `content-search-deadline.test.ts` — @vitest-environment node.
 - `content-search-owner.test.ts` — @vitest-environment node.
 - `context-charge-matches-payload.test.ts` — @vitest-environment node.
