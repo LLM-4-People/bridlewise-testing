@@ -597,13 +597,17 @@ function pagesApi(fake: FakeGithub, repository: string, world: { domainState: st
   const path = `/repos/${ORG}/${repository}/pages`;
   let site: Record<string, unknown> | undefined;
   const answer = () => site === undefined ? { status: 404, body: { message: "Not Found" } } : { status: 200, body: { ...site, ...(typeof site.cname === "string" ? { protected_domain_state: world.domainState, https_certificate: world.certificate === null ? null : { state: world.certificate } } : { protected_domain_state: null }) } };
-  fake.route("GET", new RegExp(`^${path.replaceAll(".", "\\.")}$`, "u"), answer);
-  fake.route("POST", new RegExp(`^${path.replaceAll(".", "\\.")}$`, "u"), (request) => {
+  // One fixed pattern for every repository's Pages endpoint; each route answers only its own exact path (no pattern built from a name).
+  const pages = /^\/repos\/[^/]+\/[^/]+\/pages$/u;
+  fake.route("GET", pages, (request) => request.path === path ? answer() : undefined);
+  fake.route("POST", pages, (request) => {
+    if (request.path !== path) return undefined;
     const body = request.body as Record<string, unknown>;
     site = { build_type: body.build_type, ...(body.source === undefined ? {} : { source: body.source }), cname: null, https_enforced: true };
     return { status: 201, body: site };
   });
-  fake.route("PUT", new RegExp(`^${path.replaceAll(".", "\\.")}$`, "u"), (request) => {
+  fake.route("PUT", pages, (request) => {
+    if (request.path !== path) return undefined;
     const body = request.body as Record<string, unknown>;
     if (site === undefined) return { status: 404, body: { message: "Not Found" } };
     // A restore (the domain put back to what it was before) that GitHub ignores, or refuses.
