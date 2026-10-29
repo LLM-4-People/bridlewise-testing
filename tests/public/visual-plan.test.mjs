@@ -61,3 +61,16 @@ test("the Pages workflow runs the check on every pull request and merge group, a
   assert.match(runs, /visual_base_unbuildable/u, "an unbuildable base is a typed refusal, never a skipped comparison");
   assert.doesNotMatch(runs, /build-floor-data/u, "no live floor snapshot enters a picture: each source step writes its own offline one");
 });
+
+test("a reviewer's label re-judges the check: label events trigger it, and the labels are read live for every event", () => {
+  const workflow = parse(readFileSync(join(ROOT, ".github/workflows/pages.yml"), "utf8"));
+  assert.deepEqual([...workflow.on.pull_request.types].sort(), ["labeled", "opened", "reopened", "synchronize", "unlabeled"]);
+  const job = workflow.jobs.visual;
+  assert.match(job.if, /github\.event\.label\.name == 'visual-change'/u, "a label event re-runs the check only for the declaring label");
+  assert.match(workflow.jobs.build.if, /github\.event\.action != 'labeled'/u, "a label event does not rebuild the site");
+  const declared = job.steps.find((step) => step.id === "declared");
+  assert.doesNotMatch(JSON.stringify(declared), /pull_request\.labels/u, "never the payload's labels: they are the labels at the event, and a re-run reuses them");
+  assert.match(declared.run, /gh api "repos\/\$GITHUB_REPOSITORY\/issues\/\$PR\/labels"/u);
+  assert.doesNotMatch(declared.run, /^\s*if \[ "\$GITHUB_EVENT_NAME" = "merge_group" \]; then[^\n]*gh api/mu, "one read for every event, not a merge-group branch of its own");
+  assert.match(declared.run, /visual_pull_request_unknown/u, "no pull request to read is a typed refusal, never an undeclared pass");
+});
