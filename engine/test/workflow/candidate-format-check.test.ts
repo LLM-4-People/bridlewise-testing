@@ -24,7 +24,7 @@ test("harness check refuses a tree the engine runner would refuse at setup, nami
     // The clean tree's liveness asks the step alone; the whole check runs once, on the refused tree, where the
     // claim is that the step is wired into it and fails it (a second whole check cost ~18 s of CPU for nothing).
     const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
-    const clean = candidateFormatStep(copy.engineRoot);
+    const clean = await candidateFormatStep(copy.engineRoot);
     assert.equal(clean.status, "pass", `a fresh copy is accepted (liveness): ${clean.message}`);
     assert.match(clean.message, /the engine runner accepts the tree \([1-9][0-9]* files\)/u);
     // The #417 shape: one tracked text file ends in an extra newline.

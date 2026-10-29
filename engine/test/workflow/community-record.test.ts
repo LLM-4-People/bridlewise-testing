@@ -43,7 +43,7 @@ function trackerRepository(prefix: string): Readonly<{ root: string; bare: strin
   return { root, bare };
 }
 
-test("the record writer's output carries a fresh roadmap: the real generator, run through the arm harness sync runs, shows the new record", () => {
+test("the record writer's output carries a fresh roadmap: the real generator, run through the arm harness sync runs, shows the new record", async () => {
   // A small world with the real roadmap generator (linked, so it resolves its imports from this tree) and the
   // real page's generated markers: one milestone, the board, an evidence page without non-proofs.
   const root = createTempDir("community-record-roadmap-");
@@ -58,34 +58,34 @@ test("the record writer's output carries a fresh roadmap: the real generator, ru
   assert.equal(markers.length, 8, "the real page's four generated blocks");
   writeFileSync(join(root, ROADMAP_PAGE.path), `# Roadmap\n\n${markers.join("\n\n")}\n`);
   writeFileSync(join(root, "docs/floor/evidence.md"), "# Evidence\n");
-  assert.equal(regenerateRoadmapPage(root, true).converged, true, "the world's page starts current");
+  assert.equal((await regenerateRoadmapPage(root, true)).converged, true, "the world's page starts current");
   assert.doesNotMatch(readFileSync(join(root, ROADMAP_PAGE.path), "utf8"), /ISSUE-40/u);
 
   // Outside the milestone plan, so the page's open task board names it.
-  const written = writeIntakeRecord(root, { ...ACCEPTED, milestone: null }, DATES);
+  const written = await writeIntakeRecord(root, { ...ACCEPTED, milestone: null }, DATES);
   assert.deepEqual(written, [itemPath("ISSUE-40"), TRACKER_BOARD.path, ROADMAP_PAGE.path]);
   assert.match(readFileSync(join(root, ROADMAP_PAGE.path), "utf8"), /items\/ISSUE-40\.md/u, "the roadmap shows the new record");
-  assert.deepEqual(regenerateRoadmapPage(root, false), { status: "current", converged: true, changed: [] }, "the record left the roadmap fresh: harness check would pass");
+  assert.deepEqual(await regenerateRoadmapPage(root, false), { status: "current", converged: true, changed: [] }, "the record left the roadmap fresh: harness check would pass");
 });
 
-test("the item is the tracker's format: the reader accepts it, the reported text is fenced, the board is regenerated", () => {
+test("the item is the tracker's format: the reader accepts it, the reported text is fenced, the board is regenerated", async () => {
   const { root } = trackerRepository("community-record-write");
   const text = intakeItemText(ACCEPTED, DATES);
   assert.match(text, /^---\nschema: bridlewise-tracker-item\/v1\npublished: false\nid: ISSUE-40\ntype: Flake\n/u);
   assert.doesNotMatch(text, /^resolution:|^closed:/mu, "an open record names neither");
   assert.match(text, /\n---\n\nReported in #40 through the Flake report form; the report is the issue's own text\.\n$/u);
-  const written = writeIntakeRecord(root, ACCEPTED, DATES);
+  const written = await writeIntakeRecord(root, ACCEPTED, DATES);
   assert.deepEqual(written, [itemPath("ISSUE-40"), TRACKER_BOARD.path]);
   const item = readTrackerItems(root).find((candidate) => candidate.id === "ISSUE-40");
   assert.equal(item?.gh, "issue-40");
   assert.equal(item?.lane, "floor");
   // The board renders the item escaped (the tracker's one escaping renderer).
   assert.ok(readFileSync(join(root, TRACKER_BOARD.path), "utf8").includes("**Flaky record\\-links test 3 fails** — Reported in \\#40"));
-  assert.throws(() => writeIntakeRecord(root, ACCEPTED, DATES), (error: unknown) => error instanceof HarnessError && error.code === "community_record_exists");
+  await assert.rejects(writeIntakeRecord(root, ACCEPTED, DATES), (error: unknown) => error instanceof HarnessError && error.code === "community_record_exists");
 
   const declined = intakeItemText({ ...ACCEPTED, id: "ISSUE-41", type: "Intake", state: "closed", resolution: "not-planned", severity: null, milestone: null, gh: "issue-41" }, DATES);
   assert.ok(declined.includes("\nresolution: not-planned\n") && declined.includes("\nclosed: 2026-10-22\n"), "a closed record names how and when");
-  assert.throws(() => writeIntakeRecord(root, { ...ACCEPTED, id: "ISSUE-42", gh: "issue-42", parent: "NO-SUCH-ITEM" }, DATES), (error: unknown) => error instanceof HarnessError && error.code === "tracker_item_invalid");
+  await assert.rejects(writeIntakeRecord(root, { ...ACCEPTED, id: "ISSUE-42", gh: "issue-42", parent: "NO-SUCH-ITEM" }, DATES), (error: unknown) => error instanceof HarnessError && error.code === "tracker_item_invalid");
 });
 
 test("landing publishes a signed twin on intake/<id> and opens one ready pull request; a re-run finds it", async () => {

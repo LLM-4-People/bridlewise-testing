@@ -19,6 +19,7 @@
       ".github/workflows/workflow-failure-issue.yml"
     ],
     "actions": [
+      ".github/actions/engine-setup/action.yml",
       ".github/actions/site-build-setup/action.yml"
     ],
     "build": [
@@ -250,6 +251,22 @@
       "drift": "Local reusable workflow, not an external action. The guard requires the target to exist in the enumerated workflow universe and the call site to be declared here; a call to a workflow outside the universe is refused."
     },
     {
+      "id": "./.github/actions/engine-setup",
+      "kind": "local-action",
+      "pinned": {
+        "path": ".github/actions/engine-setup/action.yml"
+      },
+      "usedIn": [
+        ".github/actions/site-build-setup/action.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/community.yml",
+        ".github/workflows/forge-apps-audit.yml",
+        ".github/workflows/pages.yml",
+        ".github/workflows/test-shards.yml"
+      ],
+      "drift": "Local composite action, not an external action: the one engine setup (the engine's dependencies from its lockfile, and the configuration's 0600 mode), called by every job that runs the engine, directly or through site-build-setup. The guard reads its steps like a workflow's and requires its call sites to be declared here; tests/public/engine-setup.test.mjs refuses an engine install or a configuration chmod anywhere else."
+    },
+    {
       "id": "./.github/actions/site-build-setup",
       "kind": "local-action",
       "pinned": {
@@ -362,8 +379,7 @@
         "install": "npm --prefix engine ci --no-audit --no-fund"
       },
       "usedIn": [
-        ".github/workflows/ci.yml",
-        ".github/workflows/test-shards.yml",
+        ".github/actions/engine-setup/action.yml",
         ".devcontainer/devcontainer.json",
         "Makefile"
       ],
