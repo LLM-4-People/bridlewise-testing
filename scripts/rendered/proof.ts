@@ -234,6 +234,7 @@ const PLANTS: readonly Plant[] = [
   { name: "a third Content-Security-Policy meta tag", policy: POLICIES, head: cspMeta("default-src *"), rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
   { name: "a page wider than its viewport", body: '<div style="width: 4000px; height: 1px"></div>', rule: "no-sideways-scroll", only: ["no-sideways-scroll"] },
   { name: "a block pushed in above the text after the first paint", body: '<section style="height: 90vh"><p>Text a reader is reading, filling the window.</p></section><script>addEventListener("load", () => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => { const d = document.createElement("div"); d.style.height = "300px"; document.body.prepend(d); }, 50))))</script>', rule: "layout-shift", only: ["layout-shift"] },
+  { name: "a block pushed in by a timer the moment the page loads", body: '<section style="height: 90vh"><p>Text a reader is reading, filling the window.</p></section><script>addEventListener("load", () => setTimeout(() => { const d = document.createElement("div"); d.style.height = "300px"; document.body.prepend(d); }, 0))</script>', rule: "layout-shift", only: ["layout-shift"] },
   { name: "no top heading", rule: "landmarks", only: ["landmarks"] },
   { name: "two top headings", body: "<h1>one</h1><h1>two</h1>", rule: "landmarks", only: ["landmarks"] },
   { name: "a second main landmark", body: "<h1>t</h1><main><p>again</p></main>", rule: "landmarks", only: ["landmarks"] },

@@ -303,6 +303,12 @@ export async function navigate(page: Page, url: string): Promise<void> {
     process.stderr.write(`[rendered] loading ${url} for ${String(Math.round((Date.now() - started) / 1000))} s: ${String(inFlight.get(page) ?? 0)} requests in flight (${[...(openUrls.get(page) ?? [])].slice(-3).join(", ")})\n`);
   }, 10_000);
   try {
+    // The page's clock holds from before it loads: its timers and frames run
+    // only when the judge runs them (judgeStates' first step, inside the shift
+    // count), never during the wait for the page to be ready, however long the
+    // host makes that wait (#632). Its time is the context's clock's, read from
+    // the page, which may already be ahead of the host's.
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + STEP_MS);
     await page.goto(url, { waitUntil: "load" });
   } finally {
     clearInterval(liveness);
@@ -470,9 +476,10 @@ export async function judgeStates(page: Page, surface: Surface, restore: RenderR
   // counted (#632). The judge's own viewport and media changes that follow
   // are not the page shifting either. The page's clock holds still while the
   // judge changes it, so what the page does next (a timer, a frame) happens
-  // after, where its shifts count again. The page's clock first runs one
-  // step on (its load's own timers fire and count) and then holds; a frame is
-  // drawn so those shifts are made before the count is switched off.
+  // after, where its shifts count again. The page's clock, held since before
+  // it loaded (navigate), runs one step on (its load's own timers and frames
+  // fire and count) and then holds; a frame is drawn so those shifts are made
+  // before the count is switched off.
   await ready(page);
   await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
   await countShifts(page, true);
