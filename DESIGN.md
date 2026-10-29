@@ -158,6 +158,15 @@ header menu and the footer index. A decision record opens with its own front
 matter as a header (record id, status, how far it is built, when and by whom
 it was decided), and each section heading carries a link to itself.
 
+The landing (`docs/index.md`) is a certificate of inspection: the promise
+beside a certificate that counts every claim's verdict at the published
+commit, then lettered parts (the ledger, a refusal word for word, a run beat
+by beat, where it stands, the checks job by job, how far the decisions are
+built, the name, the cockpit). The page holds only words; every number,
+verdict and quotation is written at publish by `scripts/floor/landing.ts`
+from the sources the rest of the site reads, so the landing and the pages it
+points to cannot disagree.
+
 Figures are generated, never drawn by hand (`shared/figures.ts`), and drawn
 inline on the site with `fig-*` classes, so they follow the theme switch. A
 figure declared as data lives in `docs/_data/figures/`; a figure that counts

@@ -1137,11 +1137,6 @@ main blockquote > :last-child {
   margin-top: var(--page-section-gap);
 }
 
-.cta {
-  padding-top: var(--sp-6);
-  border-top: var(--rule-w) solid var(--ink-1);
-}
-
 .section-head {
   max-width: var(--page-measure);
   margin-bottom: var(--sp-6);
@@ -1212,7 +1207,6 @@ figcaption {
   line-height: var(--lh-readout);
 }
 
-.hero-figure,
 .system-figure {
   max-width: 100%;
 }
@@ -1248,6 +1242,686 @@ figcaption {
 
 .floor-banner .wrap {
   padding-block: var(--sp-2);
+}
+
+/* ── The landing (docs/index.md): a certificate of inspection. The promise
+   beside the certificate; then lettered parts, each a ruled form section.
+   Every number in it is written at publish (scripts/floor/landing.ts). ───── */
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr);
+  gap: var(--sp-7);
+  align-items: start;
+}
+
+.certificate {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+  border: var(--hairline-w) solid var(--line-2);
+  border-top: 4px double var(--ink-1);
+  background: var(--ground-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.certificate header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: var(--hairline-w) solid var(--line-1);
+}
+
+.certificate h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: var(--f-ui-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.serial {
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-micro-size);
+  white-space: nowrap;
+}
+
+.tally {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tally li {
+  display: grid;
+  grid-template-columns: 1.5em minmax(0, 1fr) auto;
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding-block: var(--sp-2);
+  border-bottom: var(--hairline-w) dashed var(--line-2);
+}
+
+.tally .word::first-letter {
+  text-transform: uppercase;
+}
+
+.tally .n,
+.total .n {
+  font-family: var(--face-mono);
+  font-weight: 600;
+}
+
+.tally .n {
+  font-size: var(--f-page-h2);
+}
+
+.total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding-top: var(--sp-2);
+  border-top: 3px double var(--ink-1);
+  font-weight: 600;
+}
+
+.cert-foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-4);
+  align-items: center;
+}
+
+.fineprint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+.stamp {
+  display: grid;
+  place-content: center;
+  width: 7.5rem;
+  height: 7.5rem;
+  margin: 0;
+  border: 3px solid var(--beam);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 4px var(--ground-2), inset 0 0 0 5px var(--beam);
+  color: var(--beam);
+  font-family: var(--face-mono);
+  font-size: var(--f-nano-size);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+  transform: rotate(-9deg);
+}
+
+.stamp b {
+  display: block;
+  margin-block: 2px;
+  font-size: var(--f-data-size);
+}
+
+/* A verdict: its mark, its word, its ink. */
+.mark {
+  font-family: var(--face-mono);
+}
+
+[data-verdict="holds"] > .mark,
+.verdict[data-verdict="holds"] {
+  color: var(--ok);
+}
+
+[data-verdict="retracted"] > .mark,
+.verdict[data-verdict="retracted"] {
+  color: var(--alarm);
+}
+
+[data-verdict="unchecked"] > .mark,
+.verdict[data-verdict="unchecked"] {
+  color: var(--warn);
+}
+
+[data-verdict="designed"] > .mark,
+[data-verdict="not-claimed"] > .mark,
+.verdict[data-verdict="designed"],
+.verdict[data-verdict="not-claimed"] {
+  color: var(--ink-2);
+}
+
+.verdict {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* The parts: a lettered gutter, then the part's own head and body. */
+.part {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  column-gap: var(--sp-5);
+  margin-top: var(--page-section-gap);
+  padding-top: var(--sp-7);
+  border-top: var(--rule-w) solid var(--ink-1);
+}
+
+.part > * {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.part > .part-letter {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: start;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding-block: var(--sp-2);
+  border: var(--rule-w) solid var(--ink-1);
+  font-family: var(--face-mono);
+  font-size: var(--f-page-h1);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.part-letter small {
+  color: var(--ink-2);
+  font-size: var(--f-nano-size);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.part-head {
+  display: grid;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-6);
+  padding-bottom: var(--sp-4);
+  border-bottom: 3px double var(--ink-1);
+}
+
+.part-eyebrow {
+  margin: 0;
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-micro-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.part-head h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.part-lede {
+  max-width: var(--page-measure);
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--f-lede-size);
+}
+
+.part-more {
+  margin: var(--sp-4) 0 0;
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+/* Part A and Part E: ruled ledgers. */
+.ledger-frame {
+  overflow-x: auto;
+}
+
+.ledger,
+.readings {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger th,
+.readings th {
+  padding: 0 var(--sp-4) var(--sp-3) 0;
+  border-bottom: var(--hairline-w) solid var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+  text-align: start;
+}
+
+.ledger td,
+.readings td,
+.readings tbody th {
+  padding: var(--sp-3) var(--sp-4) var(--sp-3) 0;
+  border-bottom: var(--hairline-w) dashed var(--line-2);
+  vertical-align: top;
+}
+
+.readings tbody th {
+  color: var(--ink-1);
+  font-size: var(--f-ui-size);
+}
+
+.ledger .no {
+  width: 3ch;
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+}
+
+.ledger .bound {
+  color: var(--ink-2);
+}
+
+.evidence {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--f-micro-size);
+}
+
+.ledger tr[data-verdict="retracted"] .claim-text {
+  text-decoration: line-through;
+  text-decoration-color: var(--alarm);
+}
+
+.ledger .result,
+.readings .result {
+  white-space: nowrap;
+}
+
+.run {
+  margin-inline-start: var(--sp-2);
+  font-weight: 400;
+}
+
+.readings .result[data-state="pass"] {
+  color: var(--ok);
+}
+
+.readings .result[data-state="fail"] {
+  color: var(--alarm);
+}
+
+.readings .result[data-state="running"],
+.readings .result[data-state="not-run"],
+.readings .result[data-state="unknown"],
+.readings .result[data-state="skipped"] {
+  color: var(--ink-2);
+}
+
+/* Part B: the call and the answer, struck with their claim when it is retracted. */
+.refusal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+.slip {
+  min-width: 0;
+  padding: var(--sp-4) var(--sp-5);
+  border-top: 3px solid var(--line-2);
+  background: var(--ground-1);
+}
+
+.slip.call {
+  border-top-color: var(--cat-turn);
+}
+
+.slip.answer {
+  border-top-color: var(--warn);
+}
+
+.slip h3 {
+  margin: 0 0 var(--sp-3);
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+.slip pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.code-word {
+  margin: 0 0 var(--sp-3);
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.source {
+  margin: var(--sp-3) 0 0;
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+.refusal[data-verdict="retracted"] .slip pre,
+.refusal[data-verdict="retracted"] .code-word {
+  text-decoration: line-through;
+  text-decoration-color: var(--alarm);
+}
+
+/* Part C: the eight beats, one line of stations. */
+.tag {
+  display: inline-block;
+  margin: 0 0 var(--sp-5);
+  padding: 2px var(--sp-2);
+  border: var(--hairline-w) solid var(--ink-2);
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-micro-size);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.beats {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.beat {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: var(--sp-2);
+  padding-inline-end: var(--sp-3);
+}
+
+.beat::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  inset-inline: 0;
+  height: var(--rule-w);
+  background: var(--ink-1);
+}
+
+.beat:last-child::before {
+  inset-inline-end: auto;
+  width: 36px;
+}
+
+.station {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: var(--rule-w) solid var(--ink-1);
+  border-radius: 50%;
+  background: var(--ground-0);
+  font-family: var(--face-mono);
+  font-size: var(--f-data-size);
+  font-weight: 600;
+}
+
+.beat[data-kind="check"] .station {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+
+.beat[data-kind="finding"] .station {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.beat[data-kind="refusal"] .station {
+  border-color: var(--warn);
+  background: var(--warn);
+  color: var(--ground-0);
+}
+
+.beat[data-kind="release"] .station {
+  border-style: dashed;
+}
+
+.beat .kind {
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+  font-size: var(--f-micro-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.beat .title {
+  font-size: var(--f-ui-size);
+  line-height: 1.35;
+}
+
+.synthetic {
+  max-width: var(--page-measure);
+  margin: var(--sp-5) 0 0;
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+/* Part D: the number at display size, the parts drawn to scale beside it. */
+.standing {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: var(--sp-7);
+  align-items: start;
+}
+
+.big {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+}
+
+.big .n {
+  font-family: var(--face-mono);
+  font-size: var(--f-hero-size);
+  font-weight: 600;
+  letter-spacing: var(--f-hero-track);
+  line-height: 0.95;
+}
+
+.big .unit {
+  color: var(--ink-2);
+  font-size: var(--f-lede-size);
+}
+
+/* Part G: the dictionary entry. */
+.headword {
+  margin: 0;
+  font-size: var(--f-page-h1);
+  font-weight: 600;
+  letter-spacing: var(--f-page-heading-track);
+}
+
+.headword .pos {
+  margin-inline-start: var(--sp-3);
+  color: var(--ink-2);
+  font-size: var(--f-lede-size);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.definition {
+  max-width: 48ch;
+  margin: var(--sp-4) 0;
+  font-size: var(--f-lede-size);
+}
+
+.definition .sense {
+  margin-inline-end: var(--sp-2);
+  color: var(--ink-2);
+  font-family: var(--face-mono);
+}
+
+.cite {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+.line {
+  max-width: 40ch;
+  margin: var(--sp-6) 0 0;
+  padding-inline-start: var(--sp-5);
+  border-inline-start: var(--rule-w) solid var(--beam);
+  font-size: var(--f-lede-size);
+}
+
+/* Part H: what is not there yet, said in the ledger's own form. */
+.pending .result {
+  color: var(--ink-2);
+}
+
+/* The doors onward: a ruled grid, never cards. */
+.doors {
+  margin-top: var(--page-section-gap);
+}
+
+.doors ul {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  border-top: var(--rule-w) solid var(--ink-1);
+  list-style: none;
+}
+
+.doors li {
+  border-bottom: var(--hairline-w) solid var(--line-2);
+}
+
+.doors a {
+  display: grid;
+  gap: 2px;
+  min-height: var(--hit-min);
+  padding: var(--sp-4);
+  text-decoration: none;
+}
+
+.doors a span {
+  color: var(--ink-2);
+  font-size: var(--f-micro-size);
+}
+
+@media (max-width: 960px) {
+  .landing-hero,
+  .standing,
+  .refusal {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-6);
+  }
+
+  .part {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .part > *,
+  .part > .part-letter {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .part > .part-letter {
+    display: none;
+  }
+
+  .beats {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-4);
+  }
+
+  .beat {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: var(--sp-4);
+    padding: 0;
+  }
+
+  .beat .station {
+    grid-row: span 2;
+  }
+
+  .beat::before {
+    top: 36px;
+    bottom: calc(-1 * var(--sp-4));
+    inset-inline-start: 17px;
+    inset-inline-end: auto;
+    width: var(--rule-w);
+    height: auto;
+  }
+
+  .beat:last-child::before {
+    display: none;
+  }
+
+  .doors ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* On a phone each ledger row stacks: number, claim, bound check, result. */
+@media (max-width: 640px) {
+  .ledger thead,
+  .readings thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .ledger tr {
+    display: grid;
+    grid-template-columns: 3ch minmax(0, 1fr);
+    column-gap: var(--sp-3);
+    padding-block: var(--sp-3);
+    border-bottom: var(--hairline-w) dashed var(--line-2);
+  }
+
+  .ledger td {
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+
+  .ledger .no {
+    grid-row: span 3;
+  }
+
+  .ledger .bound,
+  .ledger .result {
+    margin-top: var(--sp-2);
+    font-size: var(--f-micro-size);
+  }
+
+  .evidence code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .readings tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--sp-3);
+    padding-block: var(--sp-2);
+    border-bottom: var(--hairline-w) dashed var(--line-2);
+  }
+
+  .readings td,
+  .readings tbody th {
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+
+  .readings tbody th {
+    grid-column: 1 / -1;
+    padding-top: var(--sp-3);
+  }
 }
 
 /* ── Figures drawn inline from data (shared/figures.ts): inked by the live

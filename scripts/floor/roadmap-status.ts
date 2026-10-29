@@ -385,11 +385,23 @@ function count(roadmap: Roadmap, items: readonly TrackerItem[], state: RoadmapSt
   return items.filter((item) => roadmap.status(item).state === state).length;
 }
 
-function renderSummary(roadmap: Roadmap): string {
+/** Where the floor stands, counted: every tracked item by its state, and the not-planned statements outside the count. */
+export type RoadmapTally = Readonly<{ total: number; tally: Readonly<Record<RoadmapState, number>>; notPlanned: number }>;
+
+function tallyOf(roadmap: Roadmap): RoadmapTally {
   const planItems = [...roadmap.workstreams, ...roadmap.exitCriteria].filter((item) => roadmap.status(item).state !== "not planned");
   const tracked = [...planItems, ...roadmap.board];
-  const total = tracked.length;
   const tally = Object.fromEntries(ROADMAP_STATES.map((state) => [state, count(roadmap, tracked, state)])) as Record<RoadmapState, number>;
+  return Object.freeze({ total: tracked.length, tally: Object.freeze(tally), notPlanned: roadmap.notPlanned.length });
+}
+
+/** The roadmap's tally for the repository at `repositoryRoot`: the one count the roadmap page and the landing both show. */
+export function roadmapTally(repositoryRoot: string): RoadmapTally {
+  return tallyOf(readRoadmap(readSources(repositoryRoot)));
+}
+
+function renderSummary(roadmap: Roadmap): string {
+  const { total, tally } = tallyOf(roadmap);
   const percent = total === 0 ? 0 : Math.round((tally.shipped / total) * 100);
   const lines: string[] = [];
   lines.push("### Where the floor stands");
