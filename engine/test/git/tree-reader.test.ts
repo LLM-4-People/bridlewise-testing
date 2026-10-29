@@ -9,8 +9,10 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, sy
 import { join } from "node:path";
 import test from "node:test";
 
-import { commitTreeReader, rawDiffEntries, treeDiff, workingTreeReader, writeBlob, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
+import { commitTreeReader, rawDiffEntries, treeDiff, workingTreeReader, writeBlob, writeTree } from "../../src/git/tree-reader.ts";
+import { type GitRepository } from "../../src/git/git-door.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 
@@ -121,16 +123,17 @@ test("PC-7: a path that is not UTF-8 is refused by name, never renamed", () => {
   assert.throws(() => commitTreeReader(repo, commit), (error: unknown) => (error as { code?: string }).code === "tree_reader_path_not_utf8");
 });
 
-test("PC-8: every tree-reader git call runs the configured executable under its ceiling", () => {
+test("PC-8: every tree-reader git call runs the configured executable as one bounded run: a hung git is a stall, never a wall clock", () => {
   const { root } = repository();
   const hung = createTempDir("tree-reader-hung-git-");
   const fake = join(hung, "git");
   writeFileSync(fake, "#!/bin/sh\nsleep 30\n");
   chmodSync(fake, 0o755);
-  // The refusal names the CEILING: that is the path that ended the hung git
-  // (left alone it would end itself after 30 s, with no such refusal), never
-  // a wall clock (NO-LOAD-BLOCK).
-  assert.throws(() => commitTreeReader({ root, executable: fake, timeoutMs: 300 }, "HEAD"), (error: unknown) => (error as { code?: string; message?: string }).code === "tree_reader_git_failed" && /ceiling/u.test((error as Error).message));
+  // The refusal names the STALL: a git that does no work for the stall window
+  // is stopped (left alone it would end itself after 30 s, with no such
+  // refusal), and the window counts only time it could run (NO-LOAD-BLOCK).
+  const bounds = { ...subprocessBounds({}), stallMs: 300, pollMs: 50, killGraceMs: 200 };
+  assert.throws(() => commitTreeReader({ root, executable: fake, bounds }, "HEAD"), (error: unknown) => (error as { code?: string; message?: string }).code === "tree_reader_git_failed" && /stalled/u.test((error as Error).message));
 });
 
 test("the one raw-diff reader: both sides' modes and ids, the status and the path; a deletion keeps its source mode; a non-UTF-8 path and a malformed record are refused", () => {

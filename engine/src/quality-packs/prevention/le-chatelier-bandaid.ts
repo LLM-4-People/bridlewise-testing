@@ -32,7 +32,8 @@
 // interpretation (high churn + below-median fn-count = "no reorganization").
 
 import { deepFreeze } from "../../kernel/integrity.ts";
-import { computeGitChurn, median, percentileOf, pearson } from "../../shared/git-churn.ts";
+import { computeGitChurn } from "../../shared/git-churn.ts";
+import { median, pearson, percentileOf } from "../../shared/stats.ts";
 import { resolveLeChatelierConfig } from "./novel-principles-config.ts";
 
 export type LeChatelierFileRecord = Readonly<{

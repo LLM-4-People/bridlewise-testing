@@ -56,7 +56,8 @@
  */
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
-import { gitOutput, treeDiff, type GitRepository } from "../git/tree-reader.ts";
+import { treeDiff } from "../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../git/git-door.ts";
 import type { WorktreeGitPort } from "../git/worktree-port.ts";
 import { remoteTrackingRef } from "../git/git-port.ts";
 

@@ -30,7 +30,6 @@ import { pathToFileURL } from "node:url";
 
 import { processDoorFindings, processDoorFindingsIn, sqliteUserFunctions, sqliteUserFunctionsIn, unguardedCallbacksIn, unguardedEventLoopCallbacks } from "../../engine/scripts/verification/event-loop-callbacks.ts";
 import { runNativeScript } from "../helpers/native-script.ts";
-import { createTempDir } from "../helpers/temp-dir.ts";
 import { modulePath } from "../helpers/module-resolver.ts";
 
 const REPO = join(import.meta.dirname, "..", "..");
@@ -93,12 +92,12 @@ describe("event-loop callbacks", () => {
   test("a bootstrapped worker thread runs under its role's policy before its entry loads, and keeps its own workerData", () => {
     const result = runNativeScript(`
       import assert from 'node:assert/strict';
-      import { writeFileSync } from 'node:fs';import { join } from 'node:path';
+      import { join } from 'node:path';
       const { bootstrappedWorker } = await import(${moduleUrl("worker-bootstrap.ts")});
       const { Worker } = await import('node:worker_threads');
-      const dir = ${JSON.stringify(createTempDir("prelude-"))};
-      const entry = join(dir, 'entry.mjs');
-      writeFileSync(entry, "import { parentPort, workerData } from 'node:worker_threads'; const p = await import(" + JSON.stringify(${moduleUrl("fault-policy.ts")}) + "); parentPort.postMessage({ role: p.processFaultRole() ?? 'none', mine: workerData.mine });");
+      // Declared fixture entries (DECLARED_WORKER_ENTRIES, engine/src/process/worker-bootstrap.ts).
+      const fixtures = ${JSON.stringify(join(REPO, "engine", "test", "fixtures", "worker-entries"))};
+      const entry = join(fixtures, 'role-probe.mjs');
       const run = (role) => new Promise((resolve, reject) => { const w = new Worker(...bootstrappedWorker(entry, role, { workerData: { mine: 7 } })); w.once('message', (m) => { resolve(m); void w.terminate(); }); w.once('error', reject); });
       assert.deepEqual(await run('worker'), { role: 'worker', mine: 7 });
       assert.deepEqual(await run('server-thread'), { role: 'server-thread', mine: 7 });
@@ -109,8 +108,7 @@ describe("event-loop callbacks", () => {
       assert.match(bad, /boot record names no valid role/);
       assert.throws(() => bootstrappedWorker(entry, 'worker', { workerData: 5 }), { code: 'worker_data_not_object' });
       // An entry that fails to load ends its thread with exit 70 (its owner sees a thread that stopped before it was ready).
-      const broken = join(dir, 'broken.mjs');
-      writeFileSync(broken, "throw new Error('entry load failure');");
+      const broken = join(fixtures, 'load-failure.mjs');
       const brokenExit = await new Promise((resolve) => { const w = new Worker(...bootstrappedWorker(broken, 'server-thread')); w.once('exit', resolve); });
       assert.equal(brokenExit, 70);
       console.log(JSON.stringify({ ok: true }));

@@ -27,21 +27,15 @@
 // No external code extracted; the `git log --name-only` walk is
 // textbook. The shaped result (Map<file, count>) is the contract.
 
-import { execSync } from "node:child_process";
 import { InputError } from "../kernel/errors.ts";
 import { resolveGitChurnConfig } from "./git-churn-config.ts";
-import { median, pearson, percentileOf } from "./stats.ts";
-
-// Re-export the canonical statistical helpers so existing imports from
-// `git-churn.ts` continue to work. New code should import directly from
-// `src/shared/stats.ts` (the canonical owner of statistical primitives).
-export { median, pearson, percentileOf };
+import { gitOutput, localGitRepository } from "../git/git-door.ts";
 
 // R44: the tunable defaults are resolved through the canonical
 // `resolveGitChurnConfig` owner (validates bounds at the trust boundary
 //). The resolved config is computed once at module load
 // (the defaults never change at runtime) and used as the fallback for
-// `computeGitChurn`'s optional `depth`/`timeoutMs`. This makes the
+// `computeGitChurn`'s optional `depth`. This makes the
 // resolver USED (not a dead export).
 const RESOLVED_GIT_CHURN_CONFIG = resolveGitChurnConfig();
 
@@ -65,8 +59,6 @@ export type GitChurnOptions = Readonly<{
   depth?: number;
   /** Skip git if false (returns an empty report). */
   useGit?: boolean;
-  /** Per-commit timeout (ms) (default from `git-churn-config.ts`). */
-  timeoutMs?: number;
 }>;
 
 /**
@@ -85,7 +77,6 @@ export function computeGitChurn(
 ): GitChurnReport {
   const depth = options.depth ?? RESOLVED_GIT_CHURN_CONFIG.defaultDepth;
   const useGit = options.useGit ?? true;
-  const timeoutMs = options.timeoutMs ?? RESOLVED_GIT_CHURN_CONFIG.defaultTimeoutMs;
 
   if (!useGit) {
     return deepFreezeReport({
@@ -105,10 +96,8 @@ export function computeGitChurn(
     // file list per commit. Using \0 between files avoids filename-with-
     // newline edge cases (rare but real). The commit header uses a unique
     // prefix so we can split commits apart from their file lists.
-    const log = execSync(
-      `git -C ${shellQuote(rootPath)} log -n ${depth} --no-merges --name-only --pretty=format:COMMIT__%H__%ct -z`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"], timeout: timeoutMs },
-    );
+    // One argument vector through the one git door (no shell to quote for; bounded by its work, never a wall timeout).
+    const log = gitOutput(localGitRepository(rootPath), ["log", "-n", String(depth), "--no-merges", "--name-only", "--pretty=format:COMMIT__%H__%ct", "-z"], { environment: "inherited" }).stdout.toString("utf8");
     hasGit = true;
     // The output is NUL-separated entries; commit headers start with COMMIT__.
     // Each commit header is followed by its changed files (until the next
@@ -162,15 +151,6 @@ export function propagateChurnToFunctions(
   return out;
 }
 
-/**
- * Percentile of a value within a sorted-ascending array. Re-exported from
- * `src/shared/stats.ts` (the canonical statistical owner). Kept here as a
- * re-export so existing imports from `git-churn.ts` continue to work.
- *
- * @deprecated Import from `src/shared/stats.ts` directly for new code.
- */
-// Re-exported above via `export { percentileOf }`.
-
 /** Validate rootPath is a non-empty string (defensive guard). */
 export function assertRootPath(rootPath: string): void {
   if (typeof rootPath !== "string" || rootPath.trim() === "") {
@@ -184,10 +164,4 @@ function deepFreezeReport<T extends GitChurnReport>(report: T): T {
   // Map is not deepFreeze-able; the contract is "callers treat as readonly".
   // The Map itself is shared by reference, so callers must not mutate it.
   return report;
-}
-
-/** Shell-quote a path for safe interpolation into a git command. */
-function shellQuote(s: string): string {
-  // Single-quote escape: replace ' with '\'' (the standard POSIX trick).
-  return `'${s.replace(/'/g, "'\\''")}'`;
 }

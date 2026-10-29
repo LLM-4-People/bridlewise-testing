@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
 
 import { handleError } from "../shared/debug/debug-system.ts";
 import type { GitCommandRunner } from "./types.ts";
+import { gitOutput, localGitRepository } from "../git/git-door.ts";
 
 /**
  * THE COMMAND-LINE HARNESS'S OWN GIT RUNNER — the direct one, and the only
@@ -45,13 +45,11 @@ import type { GitCommandRunner } from "./types.ts";
  * fabrication this codebase keeps rediscovering.
  */
 export function runGitDirectly(...args: Parameters<GitCommandRunner>): string | null {
-  const [rootPath, gitArgs, timeoutMs] = args;
+  // The caller's wall timeout is not applied: the one git door bounds the run by its work (NO-LOAD).
+  const [rootPath, gitArgs] = args;
   try {
-    return execFileSync("git", ["-C", rootPath, ...gitArgs], {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "ignore"],
-      timeout: timeoutMs,
-    });
+    const answer = gitOutput(localGitRepository(rootPath), gitArgs, { environment: "inherited" });
+    return answer.stdout.toString("utf8");
   } catch (error) {
     handleError(error, { module: "awareness/git-command-runner", operation: "runGitDirectly" });
     return null;

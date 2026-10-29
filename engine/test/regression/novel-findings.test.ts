@@ -39,7 +39,7 @@ import {
   filterByClass,
   resolveTemperatureBoundaries,
 } from "../../src/awareness/temperature.ts";
-import { percentileOf, pearson, median } from "../../src/shared/git-churn.ts";
+import { percentileOf, pearson, median } from "../../src/shared/stats.ts";
 
 // --- AL1 GoL next-edit prefetch ------------------------------------------
 

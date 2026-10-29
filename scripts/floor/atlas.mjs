@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { ROOT_POLICY } from "../../engine/src/kernel/root-policy.ts";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -15,6 +14,9 @@ import {
   walkFiles,
 } from "./files.mjs";
 import { REPOSITORY, repositoryFileUrl } from "./repository.mjs";
+import { runCpuBoundedSync } from "../../engine/src/process/bounded-run-sync.ts";
+import { boundedEnding } from "../../engine/src/process/subprocess-bounds.ts";
+import { subprocessBounds } from "../../engine/src/workflow/workflow-config.ts";
 
 export const ATLAS_SCHEMA = "bridlewise-floor-atlas/v1";
 
@@ -64,9 +66,13 @@ function readDispositions(root) {
  */
 export function readInventory(root) {
   const file = join(root, "engine/traceability/s1-test-inventory.json");
-  const data = JSON.parse(execFileSync(process.execPath, [join(root, "engine/scripts/test-inventory.ts"), "--print"], {
-    cwd: join(root, "engine"), encoding: "utf8", maxBuffer: ROOT_POLICY.verification.testDiscovery.maximumInventoryBytes, stdio: ["ignore", "pipe", "inherit"],
-  }));
+  const bounds = { ...subprocessBounds({}), outputBytes: ROOT_POLICY.verification.testDiscovery.maximumInventoryBytes };
+  const run = runCpuBoundedSync(process.execPath, [join(root, "engine/scripts/test-inventory.ts"), "--print"], { cwd: join(root, "engine"), bounds });
+  process.stderr.write(run.stderr);
+  if (run.ending !== "exited" || run.status !== 0) {
+    throw new Error(`the test inventory did not print (${run.ending === "exited" ? `exit ${String(run.status)}` : boundedEnding(run, bounds)})`);
+  }
+  const data = JSON.parse(run.stdout.toString("utf8"));
   if (!Array.isArray(data.tests) || !Array.isArray(data.scope?.canonicalNodeSourceIds)) {
     throw new Error("s1-test-inventory.json has an unexpected schema");
   }

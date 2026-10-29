@@ -1,5 +1,4 @@
 import { posix } from "node:path";
-import { spawnSync } from "node:child_process";
 
 import {
   ARCHITECTURE_MANIFEST,
@@ -14,6 +13,8 @@ import type { CommandEffectContract } from
   "../../../verification/benchmarks/shared/command-effect-contract.mjs";
 import { analyzeArchitectureSource, type ArchitectureSourceFacts } from "../../verification/architecture.ts";
 import { dependencyEffects, isSupportedJavaScriptSourcePath } from "../../verification/effect-surface.ts";
+import { runCpuBoundedSync } from "../../../src/process/bounded-run-sync.ts";
+import { subprocessBounds } from "../../../src/workflow/workflow-config.ts";
 
 export type CommandEffectSource = Readonly<{
   executable?: boolean | "unavailable";
@@ -533,21 +534,21 @@ function analyzePythonSource(
     violations.push("command-effect-python-executable-invalid");
     return undefined;
   }
-  const result = spawnSync(ROOT_POLICY.verification.commandEffectInventory.pythonExecutable, [
+  // One bounded run, its environment closed, its output bounded by the analysis limit.
+  const result = runCpuBoundedSync(pythonExecutable, [
     "-I", "-S", "-c", PYTHON_EFFECT_ANALYZER, String(ARCHITECTURE_MANIFEST.analysisLimits.maximumAstNodes),
   ], {
-    encoding: "utf8",
+    cwd: process.cwd(),
     env: { LANG: "C", LC_ALL: "C", PATH: "" },
-    input: source.source,
-    maxBuffer: ARCHITECTURE_MANIFEST.analysisLimits.maximumSourceBytes * 2,
-    shell: false,
+    input: Buffer.from(source.source, "utf8"),
+    bounds: { ...subprocessBounds({}), outputBytes: ARCHITECTURE_MANIFEST.analysisLimits.maximumSourceBytes * 2 },
   });
-  if (result.error || result.status !== 0 || result.signal !== null) {
+  if (result.ending !== "exited" || result.status !== 0 || result.signal !== null) {
     violations.push(`command-effect-python-parse:${source.path}`);
     return undefined;
   }
   try {
-    return validatePythonFacts(JSON.parse(result.stdout));
+    return validatePythonFacts(JSON.parse(result.stdout.toString("utf8")));
   } catch {
     violations.push(`command-effect-python-result-invalid:${source.path}`);
     return undefined;

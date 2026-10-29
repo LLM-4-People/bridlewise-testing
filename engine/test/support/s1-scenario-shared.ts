@@ -335,12 +335,12 @@ export function assertArchitectureBaselineClean(): void {
   assert.equal(ROOT_POLICY.universalPolicyArchitecture.auditMatrix.independentAudit,
     "mandatory-non-self-hosted-and-never-satisfied-by-dogfood");
   // The candidate manifest reads git through the one repository-git
-  // executor it imports: that module owns the git-invocation fact and the
-  // `git` effect, and the candidate manifest depends on it.
+  // executor it imports: that module owns the `git` effect and runs git as
+  // the one bounded run (src/process/bounded-run-sync.ts, #653), and the
+  // candidate manifest depends on it.
   const gitOwner = "scripts/verification/repository-git.ts";
   const gitOwnerFacts = analyzeArchitectureSource(gitOwner, readFileSync(join(REPOSITORY_ROOT, gitOwner), "utf8"));
-  assert.ok(gitOwnerFacts.directEffectFacts.some((fact) =>
-    fact.ownerLabel === "git-invocation" && fact.effects.includes("git")));
+  assert.ok(gitOwnerFacts.dependencies.includes("src/process/bounded-run-sync.ts"));
   assert.ok(REPOSITORY_MANIFEST.modules.find((module) => module.path === gitOwner)!.effects.includes("git"));
   const candidateManifest = "scripts/verification/candidate-manifest.ts";
   assert.ok(analyzeArchitectureSource(candidateManifest, readFileSync(join(REPOSITORY_ROOT, candidateManifest), "utf8")).dependencies.includes(gitOwner));

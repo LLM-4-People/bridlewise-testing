@@ -40,7 +40,8 @@ import { MAXIMUM_PRIVACY_URL_DECODE_LEVELS } from "../../privacy/privacy-config.
 import { splitUrl, urlCredentialSpellings } from "../../privacy/secret-parts.ts";
 import { hasSecretTextSignal } from "../../privacy/secret-signals.ts";
 import { PRODUCT_NAME } from "../../kernel/product-identity.ts";
-import { commitTreeReader, gitOutput, type GitRepository } from "../../git/tree-reader.ts";
+import { commitTreeReader } from "../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../git/git-door.ts";
 import { PromotionError } from "./codes.ts";
 import type { ReleasePlan } from "./release-train.ts";
 

@@ -14,12 +14,9 @@
  * (`tree_reader_path_not_utf8`): a decoded-and-re-encoded path would name
  * another file in a tree written from it.
  *
- * Every git process runs through ONE door, {@link gitOutput}, against a
- * {@link GitRepository}: the configured executable (never PATH's by
- * accident) and a per-call ceiling, so a hung git ends typed instead of
- * hanging its caller.
+ * Every git process runs through the one git door (`gitOutput`,
+ * src/git/git-door.ts), as the one bounded run.
  */
-import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 
@@ -28,17 +25,8 @@ import { deepFreeze } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { createOwnedTemporaryDirectory, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
 import { RAW_DIFF_RECORD_QUOTE_CHARACTERS, TREE_MISMATCH_ENTRIES_NAMED } from "./git-config.ts";
-import { gitProcessEnvironment, ownedFiles } from "./repository-ownership.ts";
-
-/** A repository and the git that answers about it: the executable (the configured one: `configuredGitRepository`, src/git/worktree-port.ts) and each call's ceiling. */
-export type GitRepository = Readonly<{
-  /** Any directory inside a checkout of the repository. */
-  root: string;
-  /** The absolute path of the git executable. */
-  executable: string;
-  /** The ceiling of one git process, in milliseconds. */
-  timeoutMs: number;
-}>;
+import { ownedFiles } from "./repository-ownership.ts";
+import { gitOutput, type GitRepository } from "./git-door.ts";
 
 /** The gitlink (submodule) mode: an entry with no bytes in this repository. */
 export const GITLINK_MODE = "160000";
@@ -65,41 +53,6 @@ export type TreeReader = Readonly<{
   /** Reads `paths` in as few processes as the output bound allows, so the following `text` calls are cache hits. */
   prefetch(paths: Iterable<string>): void;
 }>;
-
-/**
- * `git <argv>` in `repository` (the directory's own git: no inherited
- * `GIT_DIR` or index; `gc.auto=0`, so no read starts a background collection),
- * stdout as bytes, or the typed refusal `tree_reader_git_failed` (its message
- * says when the call reached its ceiling). `allowed` lists the exit statuses
- * that answer a question (`merge-base --is-ancestor` answers 1 for "no");
- * `environment` adds variables (a private `GIT_INDEX_FILE`). The one git door
- * of the tree readers and writers and of the promotion that reads history
- * through them.
- */
-export function gitOutput(
-  repository: GitRepository,
-  argv: readonly string[],
-  options: Readonly<{ input?: Buffer; allowed?: readonly number[]; environment?: Readonly<Record<string, string>> }> = {},
-): Readonly<{ status: number; stdout: Buffer }> {
-  const result = spawnSync(repository.executable, ["-c", "gc.auto=0", ...argv], {
-    cwd: repository.root,
-    env: { ...gitProcessEnvironment("directory"), ...options.environment },
-    maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
-    timeout: repository.timeoutMs,
-    killSignal: "SIGKILL",
-    ...(options.input === undefined ? {} : { input: options.input }),
-  });
-  if (result.status === null || !(options.allowed ?? [0]).includes(result.status)) {
-    const code = (result.error as NodeJS.ErrnoException | undefined)?.code;
-    const reason = code === "ETIMEDOUT"
-      ? `it reached its ${String(repository.timeoutMs)}ms ceiling and was killed`
-      : result.error === undefined ? (result.signal === null ? result.stderr.toString("utf8").trim() : `it ended by ${result.signal}`) : `git did not run (${code ?? result.error.message})`;
-    // How it ended, for a caller that tells the machine's failure (a ceiling, a signal, git not run) from git's answer.
-    const ending = code === "ETIMEDOUT" ? "ceiling" : result.error !== undefined ? "unstarted" : result.signal !== null ? "signal" : "exited";
-    throw new HarnessError(`git ${argv.join(" ")} failed in ${repository.root}: ${reason}`, "tree_reader_git_failed", ending !== "exited", { ending });
-  }
-  return { status: result.status, stdout: result.stdout };
-}
 
 /** The object `rev` names in `repository`, peeled to `kind` (a commit by default), or `null` when it names none. */
 /** Whether `ancestor` is `descendant` or one of its ancestors (`merge-base --is-ancestor`); an unknown commit is git's typed failure. */
@@ -170,6 +123,47 @@ export function treeDiff(repository: GitRepository, from: string, to: string): r
 type CommitEntry = Readonly<{ mode: string; type: string; oid: string; size: number }>;
 
 /**
+ * THE ONE BATCHED BLOB READ: the bytes of each object `names` names (an object
+ * id, `<commit>:<path>`, or `:<path>` for the index), in order, through
+ * `git cat-file --batch`, in batches whose sizes fit half the git output
+ * bound. `sizes` are the objects' sizes when the caller has them (a tree
+ * listing); otherwise one `--batch-check` asks for them. A name that is not a
+ * blob is a typed refusal (`tree_reader_git_failed`).
+ */
+export function readBlobs(repository: GitRepository, names: readonly string[], sizes?: readonly number[]): readonly Buffer[] {
+  if (names.length === 0) return [];
+  // The batch protocol is one name per line: a name holding a newline cannot be asked this way.
+  const unaskable = names.find((name) => name.includes("\n"));
+  if (unaskable !== undefined) throw new HarnessError(`a blob name holds a newline, which git cat-file --batch cannot read: ${JSON.stringify(unaskable)}`, "tree_reader_name_unaskable");
+  const known = sizes ?? gitBytes(repository, ["cat-file", "--batch-check"], Buffer.from(`${names.join("\n")}\n`)).toString("utf8").split("\n").slice(0, names.length).map((line, index) => {
+    const [, type, size] = line.split(" ");
+    if (type !== "blob" || size === undefined) throw new HarnessError(`git cat-file --batch-check answered "${line}" for ${names[index]!}`, "tree_reader_git_failed");
+    return Number(size);
+  });
+  const batchBytes = Math.floor(ROOT_POLICY.runtime.limits.maximumGitOutputBytes / 2);
+  const read: Buffer[] = [];
+  let start = 0;
+  while (start < names.length) {
+    let end = start + 1;
+    let bytes = known[start]!;
+    while (end < names.length && bytes + known[end]! <= batchBytes) bytes += known[end++]!;
+    const batch = names.slice(start, end);
+    const output = gitBytes(repository, ["cat-file", "--batch"], Buffer.from(`${batch.join("\n")}\n`));
+    let offset = 0;
+    for (const name of batch) {
+      const newline = output.indexOf(0x0a, offset);
+      const header = output.subarray(offset, newline).toString("utf8").split(" ");
+      const size = Number(header[2]);
+      if (header[1] !== "blob" || !Number.isInteger(size)) throw new HarnessError(`git cat-file --batch answered "${header.join(" ")}" for ${name}`, "tree_reader_git_failed");
+      read.push(output.subarray(newline + 1, newline + 1 + size));
+      offset = newline + 1 + size + 1;
+    }
+    start = end;
+  }
+  return read;
+}
+
+/**
  * The files of `commit` in `repository`. The listing is one
  * `git ls-tree -r -l -z --full-tree`; bytes are read by object id through
  * `git cat-file --batch`, in batches whose declared sizes fit half the git
@@ -189,16 +183,8 @@ export function commitTreeReader(repository: GitRepository, commit: string): Tre
     const blobs = paths.filter((path) => listing.get(path)!.type === "blob");
     for (const path of paths) if (listing.get(path)!.type !== "blob") texts.set(path, null);
     if (blobs.length === 0) return;
-    const output = gitBytes(repository, ["cat-file", "--batch"], Buffer.from(`${blobs.map((path) => listing.get(path)!.oid).join("\n")}\n`));
-    let offset = 0;
-    for (const path of blobs) {
-      const newline = output.indexOf(0x0a, offset);
-      const header = output.subarray(offset, newline).toString("utf8").split(" ");
-      const size = Number(header[2]);
-      if (header[1] !== "blob" || !Number.isInteger(size)) throw new HarnessError(`git cat-file --batch answered "${header.join(" ")}" for ${path} in ${commit}`, "tree_reader_git_failed");
-      texts.set(path, output.subarray(newline + 1, newline + 1 + size).toString("utf8"));
-      offset = newline + 1 + size + 1;
-    }
+    const bytes = readBlobs(repository, blobs.map((path) => listing.get(path)!.oid), blobs.map((path) => listing.get(path)!.size));
+    blobs.forEach((path, index) => texts.set(path, bytes[index]!.toString("utf8")));
   };
   const prefetch = (wanted: Iterable<string>): void => {
     let batch: string[] = [];

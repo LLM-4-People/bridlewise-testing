@@ -20,7 +20,6 @@
  * Run: node --experimental-strip-types bench/payload.bench.ts [profile]
  */
 
-import { execFileSync } from "node:child_process";
 import { readdirSync, statSync, existsSync, readFileSync } from "node:fs";
 import { join, extname } from "node:path";
 import { gzipSync, brotliCompressSync } from "node:zlib";
@@ -29,16 +28,10 @@ import { buildFixture, assertReadTargetsPristine } from "./fixtures/scale.ts";
 import { measureNoiseFloor, bytes, BUDGET } from "./lib/stats.ts";
 import { Reporter, BENCH_OUT_DIR } from "./lib/report.ts";
 import { BUNDLE_TOP_CHUNKS_SHOWN } from "./bench-config.ts";
+import { benchGitHead } from "./lib/machine.ts";
 
 const SUITE = "payload";
 
-function gitHead(): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 /** Wire weight of a JSON response: raw, gzip and brotli. */
 function wireWeight(value: unknown): { raw: number; gzip: number; brotli: number } {
@@ -55,7 +48,7 @@ function wireWeight(value: unknown): { raw: number; gzip: number; brotli: number
 async function main(): Promise<void> {
   const profileName = process.argv[2] ?? "real";
   const noise = measureNoiseFloor();
-  const reporter = new Reporter(gitHead());
+  const reporter = new Reporter(benchGitHead());
 
   // ── P3: bundle composition ────────────────────────────────────────────
   console.log("── P3: build output composition ──");

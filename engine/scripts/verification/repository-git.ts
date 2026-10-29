@@ -1,27 +1,39 @@
 import { createHash } from "node:crypto";
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { strictUtf8Text } from "./candidate-format.ts";
+import { runCpuBoundedSync } from "../../src/process/bounded-run-sync.ts";
+import { boundedEnding } from "../../src/process/subprocess-bounds.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
 
-/** Raw Git execution policy shared by publication and working-state readers. */
+/** What a probe answered: git's status (`null` when it did not exit), its output, and why it did not run to its end. */
+export type RepositoryGitProbe = Readonly<{ status: number | null; stdout: Buffer; stderr: Buffer; error?: Error }>;
+
+/**
+ * Raw Git execution policy shared by publication and working-state readers:
+ * the policy's executable, configuration and CLOSED environment, as one
+ * bounded run (its output bounded by the policy's limit).
+ */
 export function probeRepositoryGit(
   root: string,
   args: readonly string[],
   options: Readonly<{ input?: Buffer; maximumOutputBytes?: number }> = {},
-): SpawnSyncReturns<Buffer> {
+): RepositoryGitProbe {
   const policy = ROOT_POLICY.verification.candidateFormat.gitIdentity;
-  return spawnSync(ROOT_POLICY.verification.candidateFormat.gitIdentity.executablePath, [
+  const bounds = { ...subprocessBounds({}), outputBytes: options.maximumOutputBytes ?? policy.maximumOutputBytes };
+  const run = runCpuBoundedSync(policy.executablePath, [
     ...policy.configurationOverrides.flatMap((value) => ["-c", value]), ...args,
   ], {
     cwd: root,
     env: { ...policy.processEnvironment },
-    encoding: "buffer",
-    maxBuffer: options.maximumOutputBytes ?? policy.maximumOutputBytes,
+    bounds,
     ...(options.input === undefined ? {} : { input: options.input }),
   });
+  return run.ending === "exited"
+    ? { status: run.status, stdout: run.stdout, stderr: run.stderr }
+    : { status: null, stdout: run.stdout, stderr: run.stderr, error: new Error(boundedEnding(run, bounds)) };
 }
 
 function readRepositoryGit(

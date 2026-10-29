@@ -59,8 +59,8 @@ const ANNOUNCEMENT_CALLERS = [
   // This guard's own arm that proves an announcement owns only the identity bound at spawn.
   "engine/test/prevention/process-liveness-owner.test.ts",
 ] as const;
-/** A process-list scrape: `ps`, `ss`, `pgrep`, `pkill`, `lsof`, `fuser` or `netstat` run as a command (the owner answers from procfs). */
-const PROCESS_SCRAPE = /\b(?:exec|execSync|execFile|execFileSync|spawn|spawnSync)\(\s*["'`](?:ps|ss|pgrep|pkill|lsof|fuser|netstat)\b/u;
+/** A process-list scrape: `ps`, `ss`, `pgrep`, `pkill`, `lsof`, `fuser` or `netstat` run as a command, directly or as the one bounded run (the owner answers from procfs). */
+const PROCESS_SCRAPE = /\b(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|runCpuBounded|runCpuBoundedSync)\(\s*["'`](?:ps|ss|pgrep|pkill|lsof|fuser|netstat)\b/u;
 /** Where a pid-addressed signal is refused: the product and its tooling (a test may crash itself or kill its own fixture). */
 const PID_SIGNAL_ROOTS = ["engine/src/", "engine/scripts/", "server/", "scripts/", "bench/", "shared/", "src/"] as const;
 /** Pid-addressed signals and process-list scrapes outside the owner, each with its reason. */
@@ -138,7 +138,7 @@ test("the guard's shapes: every probe receiver and every procfs spelling is caug
     assert.equal(scan(planted, KILL_COMMAND, "codeWithStringsAndTemplates"), 1, `the kill command ${planted} is not caught`);
   }
   for (const other of ['execSync("systemctl --user list-units")', 'spawnSync("killer-app")', 'execSync("echo stop")']) assert.equal(scan(other, KILL_COMMAND, "codeWithStringsAndTemplates"), 0, `${other} is not a kill command`);
-  for (const planted of ["execSync(\"ps -ef | grep 'scripts/dev-all.ts'\")", "execSync(`ss -ltnp | grep :${port}`)", 'execFileSync(\n  "ps", ["-eo", "pid"])', 'spawnSync("pgrep", ["-f", "vitest"])', "execSync('lsof -i :5173')"]) {
+  for (const planted of ["runCpuBoundedSync(\"ps\", [\"-eo\", \"pid\"], options)", "execSync(\"ps -ef | grep 'scripts/dev-all.ts'\")", "execSync(`ss -ltnp | grep :${port}`)", 'execFileSync(\n  "ps", ["-eo", "pid"])', 'spawnSync("pgrep", ["-f", "vitest"])', "execSync('lsof -i :5173')"]) {
     assert.equal(scan(planted, PROCESS_SCRAPE, "codeWithStringsAndTemplates"), 1, `the scrape ${planted} is not caught`);
   }
   for (const other of ['execSync("psql -c 1")', 'spawnSync("ssh", ["host"])', 'execSync("systemctl --user stop x")']) assert.equal(scan(other, PROCESS_SCRAPE, "codeWithStringsAndTemplates"), 0, `${other} is not a process-list scrape`);

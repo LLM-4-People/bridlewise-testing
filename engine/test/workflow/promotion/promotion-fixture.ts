@@ -44,7 +44,8 @@ import { dirname, join } from "node:path";
 
 import { deepFreeze } from "../../../src/kernel/integrity.ts";
 import type { WorkspaceIsolationConfig } from "../../../src/kernel/config-contracts.ts";
-import { commitTreeReader, type GitRepository } from "../../../src/git/tree-reader.ts";
+import { commitTreeReader } from "../../../src/git/tree-reader.ts";
+import { type GitRepository } from "../../../src/git/git-door.ts";
 import { configuredGitRepository } from "../../../src/git/worktree-port.ts";
 import type { PromotionDocument } from "../../../src/workflow/promotion/context.ts";
 import { ensurePrivateStateDirectory } from "../../../src/filesystem/private-state.ts";

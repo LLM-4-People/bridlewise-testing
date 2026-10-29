@@ -12,9 +12,11 @@
  */
 
 import { cpus, totalmem, freemem, arch, platform, release } from "node:os";
-import { execFileSync } from "node:child_process";
 
 import { readAmbientLoadPerCpu } from "../../engine/src/shared/ambient-load.ts";
+import { gitOutput, localGitRepository } from "../../engine/src/git/git-door.ts";
+import { runCpuBoundedSync } from "../../engine/src/process/bounded-run-sync.ts";
+import { subprocessBounds } from "../../engine/src/workflow/workflow-config.ts";
 
 export type MachineSnapshot = {
   readonly at: string;
@@ -45,14 +47,20 @@ export type MachineSnapshot = {
   readonly quietNote: string;
 };
 
+/** The short commit the benchmark ran at (the one git door), or "unknown" outside a repository. */
+export function benchGitHead(): string {
+  try {
+    return gitOutput(localGitRepository(process.cwd()), ["rev-parse", "--short", "HEAD"], { environment: "inherited" }).stdout.toString("utf8").trim();
+  } catch {
+    return "unknown";
+  }
+}
+
 function topProcesses(limit: number): readonly string[] {
   try {
-    const out = execFileSync(
-      "ps",
-      ["-eo", "pid,pcpu,comm", "--sort=-pcpu"],
-      { encoding: "utf8", timeout: 5000 },
-    );
-    return out
+    const run = runCpuBoundedSync("ps", ["-eo", "pid,pcpu,comm", "--sort=-pcpu"], { cwd: process.cwd(), bounds: subprocessBounds({}) });
+    if (run.ending !== "exited" || run.status !== 0) return [];
+    return run.stdout.toString("utf8")
       .trim()
       .split("\n")
       .slice(1, limit + 1)

@@ -50,7 +50,6 @@
  * slips it catches; the process rule (never use them on this checkout's
  * index) lives in the process documentation (docs/process/WORKFLOW.md).
  */
-import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
@@ -63,7 +62,8 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { readCheckoutStateRecord, writeCheckoutStateRecord } from "./checkout-state-record.ts";
 import { indexEntries, intentToAddPaths } from "./index-entries.ts";
 import { GIT_OBJECT_NAME } from "./git-port.ts";
-import { directoryGitEnvironment, gitNulRecords, headCommit, headVersions, repositoryToplevel, requiredRepositoryToplevel } from "./repository-ownership.ts";
+import { gitNulRecords, headCommit, headVersions, repositoryToplevel, requiredRepositoryToplevel } from "./repository-ownership.ts";
+import { gitOutput, localGitRepository } from "./git-door.ts";
 import { rawDiffEntries } from "./tree-reader.ts";
 
 const BASELINE_SCHEMA_VERSION = schemaId("live-index-baseline", 2);
@@ -124,11 +124,10 @@ export function indexBaselinePath(top: string): string {
 }
 
 function git(top: string, argv: readonly string[], options: Readonly<{ input?: string; environment?: Readonly<Record<string, string>> }> = {}): string {
-  return execFileSync("git", ["-c", "gc.auto=0", ...argv], {
-    cwd: top, encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
-    env: { ...directoryGitEnvironment(), ...(options.environment ?? {}) },
-    ...(options.input === undefined ? {} : { input: options.input }),
-  }).trim();
+  return gitOutput(localGitRepository(top), argv, {
+    environment: options.environment ?? {},
+    ...(options.input === undefined ? {} : { input: Buffer.from(options.input, "utf8") }),
+  }).stdout.toString("utf8").trim();
 }
 
 /** The at-risk entries of the checkout's REAL index (see the header). */

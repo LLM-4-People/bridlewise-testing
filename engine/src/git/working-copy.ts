@@ -79,14 +79,14 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync, spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { abandonedTemporaries, ownedTemporaryName, sweepAbandonedTemporaries } from "../filesystem/private-state.ts";
 import { intentToAddPaths } from "./index-entries.ts";
-import { directoryGitEnvironment, gitAcceptsRefName, indexFilePath, ownedFiles, repositoryToplevel, trackedFiles } from "./repository-ownership.ts";
+import { gitAcceptsRefName, indexFilePath, ownedFiles, repositoryToplevel, trackedFiles } from "./repository-ownership.ts";
+import { gitOutput, localGitRepository } from "./git-door.ts";
 
 export type WorkingCopyGit = "mirror" | "stage-all" | "staged" | "snapshot" | "none";
 
@@ -131,20 +131,12 @@ export type WorkingCopy = Readonly<{
 }>;
 
 function git(cwd: string, argv: readonly string[], input?: string, statusOneIsAnswer = false, environment: Readonly<Record<string, string>> = {}): string {
-  try {
-    return execFileSync("git", ["-c", "gc.auto=0", ...argv], {
-      cwd,
-      env: { ...directoryGitEnvironment(), ...environment },
-      encoding: "utf8",
-      maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
-      ...(input === undefined ? {} : { input }),
-    }).trimEnd();
-  } catch (error) {
-    // `update-index --refresh` exits 1 when an entry still differs (a
-    // modified file): that is its answer, not a failure.
-    if (statusOneIsAnswer && (error as { status?: unknown }).status === 1) return String((error as { stdout?: unknown }).stdout ?? "").trimEnd();
-    throw error;
-  }
+  // `update-index --refresh` exits 1 when an entry still differs (a modified file): that is its answer, not a failure.
+  return gitOutput(localGitRepository(cwd), argv, {
+    environment,
+    allowed: statusOneIsAnswer ? [0, 1] : [0],
+    ...(input === undefined ? {} : { input: Buffer.from(input, "utf8") }),
+  }).stdout.toString("utf8").trimEnd();
 }
 
 function gitOptional(cwd: string, argv: readonly string[]): string | undefined {
@@ -480,7 +472,7 @@ export function snapshotWorkingTree(
     throw new HarnessError(`the snapshot references ${String(missing.length)} missing object(s), the first ${missing[0]!}; it was not recorded`, "snapshot_objects_missing");
   }
   if (options.advanceHead === true) {
-    const indexMatches = spawnSync("git", ["diff-index", "--cached", "--quiet", tree, "--"], { cwd: checkoutRoot, env: directoryGitEnvironment() }).status === 0;
+    const indexMatches = gitOutput(localGitRepository(checkoutRoot), ["diff-index", "--cached", "--quiet", tree, "--"], { allowed: "any" }).status === 0;
     if (!indexMatches) {
       throw new HarnessError(
         "the checkout's index does not record the snapshot's tree; moving its checked-out branch would leave every change as a staged reversal — commit with git commit instead",
@@ -490,7 +482,7 @@ export function snapshotWorkingTree(
     // COMPARE-AND-SWAP: HEAD moves only from the parent this snapshot was
     // built on. A commit made meanwhile (a concurrent `git commit`) was
     // otherwise dropped from the branch (wf1b-correctness §4).
-    const moved = spawnSync("git", ["update-ref", "-m", options.message, "HEAD", commit, parent ?? ""], { cwd: checkoutRoot, env: directoryGitEnvironment(), encoding: "utf8" });
+    const moved = gitOutput(localGitRepository(checkoutRoot), ["update-ref", "-m", options.message, "HEAD", commit, parent ?? ""], { allowed: "any" });
     if (moved.status !== 0) {
       throw new HarnessError(`HEAD moved while the snapshot was taken (it is no longer ${parent ?? "unborn"}); nothing was moved — take the snapshot again`, "snapshot_head_moved");
     }

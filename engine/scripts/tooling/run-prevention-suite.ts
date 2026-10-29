@@ -27,9 +27,10 @@
 // owner for the test surface). This script is a thin runner over the
 // canonical test-discovery config.
 
-import { spawnSync } from "node:child_process";
 import { readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { runCpuBoundedSync } from "../../src/process/bounded-run-sync.ts";
+import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 // The prevention suite lives under `test/prevention/`. This path is
 // the canonical owner of "prevention" (the quality-pack that catches
@@ -64,13 +65,10 @@ function main(): number {
   let totalFail = 0;
   const failedFiles: Array<{ file: string; pass: number; fail: number }> = [];
   for (const file of files) {
-    const result = spawnSync(
-      process.execPath,
-      ["--test", "--experimental-strip-types", file],
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    );
-    // Parse the test summary line from stdout.
-    const match = result.stdout.match(/ℹ tests (\d+)[\s\S]*?ℹ pass (\d+)[\s\S]*?ℹ fail (\d+)/);
+    const run = runCpuBoundedSync(process.execPath, ["--test", "--experimental-strip-types", file], { cwd: process.cwd(), bounds: configuredSubprocessBounds() });
+    const result = { stdout: run.stdout.toString("utf8"), stderr: run.ending === "exited" ? run.stderr.toString("utf8") : `${run.stderr.toString("utf8")}\n(the run ended ${run.ending})\n` };
+    // Parse the test summary line from stdout (a run the bounds stopped has none: a failure).
+    const match = run.ending !== "exited" ? null : result.stdout.match(/ℹ tests (\d+)[\s\S]*?ℹ pass (\d+)[\s\S]*?ℹ fail (\d+)/);
     if (match === null) {
       // Could not parse — count as a failure.
       failedFiles.push({ file, pass: 0, fail: 1 });

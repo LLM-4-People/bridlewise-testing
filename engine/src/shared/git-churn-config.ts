@@ -24,12 +24,11 @@ import { InputError } from "../kernel/errors.ts";
  *
  * `defaultDepth`: number of recent commits to scan (the `--no-merges`
  * walk). Larger = more history, slower; smaller = faster, less signal.
- * `defaultTimeoutMs`: per-`git log` subprocess timeout. Bounds the
- * walk so a wedged git never stalls the harness.
+ * The `git log` itself is bounded by its work through the one git door,
+ * never by a wall timeout.
  */
 export type GitChurnConfig = Readonly<{
   defaultDepth: number;
-  defaultTimeoutMs: number;
 }>;
 
 /** The single canonical default config. Module-private — external
@@ -38,7 +37,6 @@ export type GitChurnConfig = Readonly<{
  * so the dead-export scanner does not flag them. */
 const DEFAULT_GIT_CHURN_CONFIG: GitChurnConfig = Object.freeze({
   defaultDepth: 100,
-  defaultTimeoutMs: 10_000,
 });
 
 function isFinitePositiveInt(v: unknown): v is number {
@@ -55,18 +53,11 @@ export function resolveGitChurnConfig(
   override: Partial<GitChurnConfig> = {},
 ): GitChurnConfig {
   const defaultDepth = override.defaultDepth ?? DEFAULT_GIT_CHURN_CONFIG.defaultDepth;
-  const defaultTimeoutMs = override.defaultTimeoutMs ?? DEFAULT_GIT_CHURN_CONFIG.defaultTimeoutMs;
   if (!isFinitePositiveInt(defaultDepth)) {
     throw new InputError(
       `gitChurn.defaultDepth must be a positive finite integer (got ${String(defaultDepth)})`,
       "git_churn_config_invalid",
     );
   }
-  if (!isFinitePositiveInt(defaultTimeoutMs)) {
-    throw new InputError(
-      `gitChurn.defaultTimeoutMs must be a positive finite integer (got ${String(defaultTimeoutMs)})`,
-      "git_churn_config_invalid",
-    );
-  }
-  return Object.freeze({ defaultDepth, defaultTimeoutMs });
+  return Object.freeze({ defaultDepth });
 }

@@ -152,10 +152,8 @@ describe("the process fault policy", () => {
     const child = tool("", `
       const { Worker } = await import('node:worker_threads');
       const { bootstrappedWorker } = await import(join(REPO, 'engine/src/process/worker-bootstrap.ts'));
-      const { writeFileSync } = await import('node:fs');
-      // The child runs in the test's own temporary folder (its cwd).
-      const body = join(process.cwd(), 'body.mjs');
-      writeFileSync(body, "import { setTimeout as sleep } from 'node:timers/promises'; Promise.reject(new Error('thread lost it')); await sleep(50);");
+      // A declared fixture entry (DECLARED_WORKER_ENTRIES, engine/src/process/worker-bootstrap.ts).
+      const body = join(REPO, 'engine/test/fixtures/worker-entries/lost-rejection.mjs');
       const exitOf = (role) => new Promise((resolve) => { const w = new Worker(...bootstrappedWorker(body, role)); w.once('exit', resolve); });
       const codes = { worker: await exitOf('worker'), serverThread: await exitOf('server-thread') };
       process.stderr.write('CODES ' + JSON.stringify(codes) + '\\n');

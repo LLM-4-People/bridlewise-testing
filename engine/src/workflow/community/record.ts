@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
-import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../git/git-door.ts";
 import type { WorktreeGitPort } from "../../git/worktree-port.ts";
 import { HarnessError } from "../../kernel/errors.ts";
 import { ROADMAP_PAGE, TRACKER_BOARD } from "../../kernel/verification-paths.ts";

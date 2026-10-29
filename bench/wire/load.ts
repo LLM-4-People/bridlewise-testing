@@ -61,16 +61,17 @@
  * `bench/lib/report.ts` expects, so `diffReports` works across runs.
  */
 
-import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 import { Reporter, loadReport, diffReports, BENCH_OUT_DIR, type Measurement } from "../lib/report.ts";
 import { measureNoiseFloor, summarize, ms, bytes as fmtBytes, BUDGET, type Stats } from "../lib/stats.ts";
-import { snapshotMachine } from "../lib/machine.ts";
+import { benchGitHead, snapshotMachine } from "../lib/machine.ts";
 import { makeRng } from "../fixtures/scale.ts";
 import { WireClient, openSse, readProbe, type WireSession, type WireResult } from "./client.ts";
 import { summarizeProbeLag } from "./preload-lag.ts";
 import { OVERFLOW_BODY_QUOTE_CHARS, WIRE_DIFF_ROWS_SHOWN } from "../bench-config.ts";
+import { runCpuBoundedSync } from "../../engine/src/process/bounded-run-sync.ts";
+import { subprocessBounds } from "../../engine/src/workflow/workflow-config.ts";
 import {
   startServer,
   FIXTURE_PASSWORD,
@@ -1963,11 +1964,12 @@ async function gatesBody(inst: ServerInstance, rep: Reporter, noiseFloor: number
  */
 function sseCapMechanism(rep: Reporter): void {
   const probeCap = 2;
-  const r = spawnSync(
+  const run = runCpuBoundedSync(
     process.execPath,
     ["--experimental-strip-types", join(process.cwd(), "bench", "wire", "sse-cap-probe.ts"), String(probeCap)],
-    { encoding: "utf8", cwd: process.cwd(), timeout: 120_000 },
+    { cwd: process.cwd(), bounds: subprocessBounds({}) },
   );
+  const r = { status: run.ending === "exited" ? run.status : null, stdout: run.stdout.toString("utf8"), stderr: run.stderr.toString("utf8") };
   if (r.status !== 0) {
     rep.note(
       "wire.gates",
@@ -2244,8 +2246,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const gitHead =
-    spawnSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).stdout?.trim() ?? "unknown";
+  const gitHead = benchGitHead();
   const noiseFloor = measureNoiseFloor();
   const machine = snapshotMachine();
 

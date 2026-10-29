@@ -14,13 +14,13 @@
  * as submodules.
  */
 
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { GUARDED_HOOKS, HOOKS_DIRECTORY, SHIPPED_HOOKS } from "./verification/staged-move-loss.ts";
 import { PROMOTION_TRIGGER_HOOK } from "../src/workflow/promotion/trigger-hook.ts";
 import { submoduleRoots } from "./verification/gitignore-anchoring.ts";
+import { gitOutput, localGitRepository } from "../src/git/git-door.ts";
 
 const INTEGRATION_ROOT = resolve(import.meta.dirname, "..");
 const HARNESS_ROOT = dirname(INTEGRATION_ROOT);
@@ -47,11 +47,9 @@ function bootstrap(root: string): void {
         `and install nothing.`,
     );
   }
-  execFileSync("git", ["config", "core.hooksPath", HOOKS_DIRECTORY], { cwd: root, stdio: "pipe" });
-  const observed = execFileSync("git", ["config", "--get", "core.hooksPath"], {
-    cwd: root,
-    encoding: "utf8",
-  }).trim();
+  const repository = localGitRepository(root);
+  gitOutput(repository, ["config", "core.hooksPath", HOOKS_DIRECTORY], { environment: "inherited" });
+  const observed = gitOutput(repository, ["config", "--get", "core.hooksPath"], { environment: "inherited" }).stdout.toString("utf8").trim();
   if (observed !== HOOKS_DIRECTORY) {
     throw new Error(
       `${root}: core.hooksPath reads back as ${JSON.stringify(observed)} after being set. ` +

@@ -9,9 +9,10 @@ import {
 } from "../process/pinned-process-internal.ts";
 import { resolveGitExecutable, withGitRuntime, type GitRuntime } from "./git-adapter.ts";
 import type { ConfigDocument } from "../kernel/config-contracts.ts";
-import { DEFAULT_GIT_RUNTIME_MAXIMUM_BYTES, worktreeOperationTimeouts } from "../workflow/workflow-config.ts";
+import { DEFAULT_GIT_RUNTIME_MAXIMUM_BYTES, subprocessBounds } from "../workflow/workflow-config.ts";
 import { GIT_OBJECT_NAME, parsePushPorcelain, remoteTrackingPrefix, type GitIdentity, type PushedRef } from "./git-port.ts";
-import { rawDiffEntries, type GitRepository } from "./tree-reader.ts";
+import { rawDiffEntries } from "./tree-reader.ts";
+import { type GitRepository } from "./git-door.ts";
 import { COMMAND_ENVIRONMENT, GIT_NETWORK_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 
@@ -544,11 +545,11 @@ export function configuredWorktreeGitPort(document: Pick<ConfigDocument, "worksp
  * (`workspaceGit.timeouts.inspectMs`) on every call. A document that
  * declares neither (a test's `{}`) gets git from PATH and the default ceiling.
  */
-export function configuredGitRepository(document: Pick<ConfigDocument, "workspaceGit">, root: string): GitRepository {
+export function configuredGitRepository(document: Pick<ConfigDocument, "workspaceGit" | "harness">, root: string): GitRepository {
   return deepFreeze({
     root,
     executable: resolveGitExecutable(document.workspaceGit?.gitExecutablePath),
-    timeoutMs: worktreeOperationTimeouts(document).inspectMs,
+    bounds: subprocessBounds(document),
   });
 }
 

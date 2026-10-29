@@ -17,7 +17,6 @@
  * are not duplicated into the production contract.
  */
 
-import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, fstatSync, openSync, statSync } from "node:fs";
 import { basename, dirname } from "node:path";
 
@@ -33,6 +32,8 @@ import {
   type TypedAbsence,
 } from "./contracts.ts";
 import { pathIdentityFromStat } from "./internal.ts";
+import { runCpuBoundedSync } from "../../../../src/process/bounded-run-sync.ts";
+import { subprocessBounds } from "../../../../src/workflow/workflow-config.ts";
 
 // ---------------------------------------------------------------------------
 // Closed-environment view (injected from ROOT_POLICY at composition)
@@ -102,13 +103,14 @@ function runGitCommand(
   const argv: string[] = ["-C", repositoryLocator];
   for (const override of overrides) argv.push("-c", override);
   argv.push(...args);
-  const result = spawnSync(executable, argv, { env: env as Record<string, string>, encoding: "utf8" });
+  // One bounded run in the given CLOSED environment; a run the bounds stopped answers no status.
+  const run = runCpuBoundedSync(executable, argv, { cwd: process.cwd(), env, bounds: subprocessBounds({}) });
   return deepFreeze({
     argv: Object.freeze(argv) as readonly string[],
-    status: result.status,
-    signal: result.signal,
-    stdout: typeof result.stdout === "string" ? result.stdout : "",
-    stderr: typeof result.stderr === "string" ? result.stderr : "",
+    status: run.ending === "exited" ? run.status : null,
+    signal: run.signal,
+    stdout: run.stdout.toString("utf8"),
+    stderr: run.ending === "exited" ? run.stderr.toString("utf8") : `${run.stderr.toString("utf8")}(the run ended ${run.ending})`,
   });
 }
 

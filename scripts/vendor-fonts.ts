@@ -20,7 +20,6 @@
  * Each prints ONE JSON line (the receipt). tests/cockpit/cockpit-fonts-owner.test.ts
  * judges the pins offline on every run.
  */
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,6 +30,9 @@ import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
 import { HarnessError } from "../engine/src/kernel/errors.ts";
 import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { syncServiceWorker } from "./service-worker-cache.ts";
+import { runCpuBoundedSync } from "../engine/src/process/bounded-run-sync.ts";
+import { boundedEnding } from "../engine/src/process/subprocess-bounds.ts";
+import { subprocessBounds } from "../engine/src/workflow/workflow-config.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FONT_DIR = join(ROOT, "public", "fonts");
@@ -63,9 +65,20 @@ export function vendoredFaces(): { family: string; files: string[] }[] {
   return lock.packages.map((pkg) => ({ family: pkg.family, files: lock.files.filter((f) => f.package === pkg.name).map((f) => `/fonts/${f.file}`) }));
 }
 
+/** `command args` as one bounded run, its stdout; anything but exit 0 is a typed refusal naming the command. */
+function bounded(command: string, args: readonly string[]): string {
+  const bounds = subprocessBounds({});
+  const run = runCpuBoundedSync(command, args, { cwd: process.cwd(), bounds });
+  process.stderr.write(run.stderr);
+  if (run.ending !== "exited" || run.status !== 0) {
+    throw new HarnessError(`${command} ${args.join(" ")} failed: ${run.ending === "exited" ? `exit ${String(run.status)}` : boundedEnding(run, bounds)}`, "font_command_failed");
+  }
+  return run.stdout.toString("utf8");
+}
+
 /** The registry's integrity for a package version, as npm reports it. */
 function registryIntegrity(name: string, version: string): string {
-  const integrity = execFileSync("npm", ["view", `${name}@${version}`, "dist.integrity"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim();
+  const integrity = bounded("npm", ["view", `${name}@${version}`, "dist.integrity"]).trim();
   if (!/^sha512-[A-Za-z0-9+/]+=*$/u.test(integrity)) throw new HarnessError(`npm gave no sha512 integrity for ${name}@${version} (got ${JSON.stringify(integrity)})`, "font_registry_integrity_missing");
   return integrity;
 }
@@ -74,10 +87,10 @@ function registryIntegrity(name: string, version: string): string {
 function packageFiles(name: string, version: string, integrity: string, paths: readonly string[]): Map<string, Buffer> {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-fonts-"));
   try {
-    const tarball = execFileSync("npm", ["pack", `${name}@${version}`, "--pack-destination", work, "--silent"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim().split("\n").pop()!;
+    const tarball = bounded("npm", ["pack", `${name}@${version}`, "--pack-destination", work, "--silent"]).trim().split("\n").pop()!;
     const bytes = readFileSync(join(work, tarball));
     if (sha512Integrity(bytes) !== integrity) throw new HarnessError(`${name}@${version}'s tarball does not match its integrity ${integrity}`, "font_tarball_integrity_mismatch");
-    execFileSync("tar", ["-xzf", join(work, tarball), "-C", work]);
+    bounded("tar", ["-xzf", join(work, tarball), "-C", work]);
     return new Map(paths.map((path) => [path, readFileSync(join(work, "package", path))]));
   } finally {
     rmSync(work, { recursive: true, force: true });

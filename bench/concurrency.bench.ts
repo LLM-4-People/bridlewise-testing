@@ -33,7 +33,6 @@
  * Run: node --experimental-strip-types bench/concurrency.bench.ts [profile]
  */
 
-import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 
 import { buildFixture, assertReadTargetsPristine, fixtureKeyHome } from "./fixtures/scale.ts";
@@ -49,16 +48,10 @@ import {
   type Stats,
 } from "./lib/stats.ts";
 import { Reporter, BENCH_OUT_DIR } from "./lib/report.ts";
+import { benchGitHead } from "./lib/machine.ts";
 
 const SUITE = "concurrency";
 
-function gitHead(): string {
-  try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "unknown";
-  }
-}
 
 type FanOutResult = {
   readonly perOp: Stats;
@@ -259,7 +252,7 @@ function crossPath(syncP50: number | undefined, asyncP50: number): string {
 async function main(): Promise<void> {
   const profileName = process.argv[2] ?? "real";
   const noise = measureNoiseFloor();
-  const reporter = new Reporter(gitHead());
+  const reporter = new Reporter(benchGitHead());
   console.log(`noise floor: ${(noise * 1000).toFixed(2)}µs\n`);
 
   const fx = buildFixture(profileName);

@@ -36,7 +36,7 @@
 // mapping.
 
 import { deepFreeze } from "../../kernel/integrity.ts";
-import { percentileOf } from "../../shared/git-churn.ts";
+import { percentileOf } from "../../shared/stats.ts";
 import type { RepositoryMap } from "../../intelligence/intelligence-types.ts";
 import { resolveTierraConfig } from "./novel-principles-config.ts";
 

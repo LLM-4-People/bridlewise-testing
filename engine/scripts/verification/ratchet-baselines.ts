@@ -21,7 +21,6 @@
  * Usage: node scripts/verification/ratchet-baselines.ts [--check|--write]
  *        node scripts/verification/ratchet-baselines.ts --introduce <id> --reason <text>
  */
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +38,8 @@ import { findCatchBlocks } from "./catch-blocks.ts";
 import { judgeRatchet, parseRatchetBaseline, RATCHET_SCHEMA, ratchetGrowthSince, type RatchetEntry } from "./ratchet.ts";
 import { readSourceView, type SourceView } from "./source-view.ts";
 import { experimentExclusion, walk } from "./source-walk.ts";
+import { runCpuBoundedSync } from "../../src/process/bounded-run-sync.ts";
+import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 /** One finding of a guard: its baseline key, and where it is (for the guard's message). */
 export type RatchetFinding = Readonly<{ key: string; where: string }>;
@@ -162,9 +163,9 @@ function architectureJudgeFindings(repositoryRoot: string): readonly RatchetFind
   if (!existsSync(instrument)) {
     throw new InputError(`the architecture judge's instrument ${ARCHITECTURE_JUDGE_INSTRUMENT} is not in this tree`, "ratchet_instrument_absent");
   }
-  const answer = spawnSync(process.execPath, [instrument, "--root", ".", "--structure"], { cwd: join(repositoryRoot, "engine"), encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
-  if (answer.status !== 0) throw new InputError(`the architecture judge did not answer (exit ${String(answer.status)}): ${(answer.stderr ?? "").slice(0, 2000)}`, "ratchet_instrument_failed");
-  const { structural, shown, unclassified } = JSON.parse(answer.stdout) as { structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>>; unclassified: readonly string[] };
+  const run = runCpuBoundedSync(process.execPath, [instrument, "--root", ".", "--structure"], { cwd: join(repositoryRoot, "engine"), bounds: configuredSubprocessBounds() });
+  if (run.ending !== "exited" || run.status !== 0) throw new InputError(`the architecture judge did not answer (${run.ending}, exit ${String(run.status)}): ${run.stderr.toString("utf8").slice(0, 2000)}`, "ratchet_instrument_failed");
+  const { structural, shown, unclassified } = JSON.parse(run.stdout.toString("utf8")) as { structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>>; unclassified: readonly string[] };
   if (unclassified.length > 0) {
     throw new InputError(`the architecture judge reported findings of a kind nobody classified (gated, or owned by a named check: s1-verification.ts): ${unclassified.join("; ")}`, "s1_finding_unclassified");
   }

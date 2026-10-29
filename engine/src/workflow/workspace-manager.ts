@@ -14,7 +14,7 @@ import {
   type ExactWriteEffect,
 } from "../modules/effect-boundary/domain/write-lease.ts";
 import type { GitIdentity } from "../git/git-port.ts";
-import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../git/git-door.ts";
 import type { StatusEntry, WorktreeGitPort } from "../git/worktree-port.ts";
 import { snapshotWorkingTree, type WorkingTreeSnapshot } from "../git/working-copy.ts";
 import { indexFilePath } from "../git/repository-ownership.ts";

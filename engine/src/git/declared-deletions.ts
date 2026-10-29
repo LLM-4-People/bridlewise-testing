@@ -83,7 +83,8 @@ import { auditEvent } from "../shared/debug/debug-system.ts";
 import { readCheckoutStateRecord, writeCheckoutStateRecord } from "./checkout-state-record.ts";
 import { GIT_OBJECT_NAME } from "./git-port.ts";
 import { blobSizes, ignoredCopies } from "./ignored-copies.ts";
-import { gitPath, headCommit, headMoves, headVersions, requiredRepositoryToplevel, type GitEnvironment } from "./repository-ownership.ts";
+import { gitPath, headCommit, headMoves, headVersions, requiredRepositoryToplevel } from "./repository-ownership.ts";
+import { type GitEnvironment } from "./git-door.ts";
 
 const RECORD_SCHEMA_VERSION = schemaId("declared-deletions", 2);
 /** Where the record lives, relative to the checkout's own git directory (`git rev-parse --git-path`). */

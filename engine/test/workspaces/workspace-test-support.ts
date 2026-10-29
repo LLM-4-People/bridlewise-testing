@@ -14,7 +14,7 @@ import { appendJudgedRun, finalizeQualifiedRun, qualificationTerminal, suiteLedg
 import type { JudgedRunRecord, GateOutcome } from "../../src/shared/budget-verdict.ts";
 import type { SupervisedCommand } from "../../src/process/supervised-run.ts";
 import type { CheckoutCommand } from "../../src/workflow/checkout-setup.ts";
-import { DEFAULT_GIT_RUNTIME_MAXIMUM_BYTES } from "../../src/workflow/workflow-config.ts";
+import { DEFAULT_GIT_RUNTIME_MAXIMUM_BYTES, subprocessBounds } from "../../src/workflow/workflow-config.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 import {
@@ -26,7 +26,7 @@ import {
   type WorkspaceManagerTimeouts,
 } from "../../src/workflow/workspace-manager.ts";
 import { repositoryRegistry, type RepositoryRegistry } from "../../src/workflow/repository-registry.ts";
-import type { GitRepository } from "../../src/git/tree-reader.ts";
+import type { GitRepository } from "../../src/git/git-door.ts";
 import type { WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
 import { isLegacyForgeState, type WorkspaceForgeState, type WorkspaceRecord } from "../../src/workflow/workspace-contracts.ts";
 import { createFakeForge, type FakeForge } from "./fake-forge.ts";
@@ -101,7 +101,7 @@ export function forgeStateOf(record: WorkspaceRecord): WorkspaceForgeState {
 
 /** The binary-safe git of a test checkout (PATH's git, the inspect ceiling). */
 export function testRepository(root: string): GitRepository {
-  return deepFreeze({ root, executable: resolveGitExecutable(), timeoutMs: TEST_TIMEOUTS.inspectMs });
+  return deepFreeze({ root, executable: resolveGitExecutable(), bounds: subprocessBounds({}) });
 }
 
 const FORGES = new Map<string, FakeForge>();

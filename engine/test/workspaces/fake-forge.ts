@@ -2,8 +2,10 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { ForgeError } from "../../src/workflow/forge/codes.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { resolveGitExecutable } from "../../src/git/git-adapter.ts";
-import { commitTreeReader, gitOutput, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
+import { commitTreeReader, writeTree } from "../../src/git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../src/git/git-door.ts";
 import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeTreeEntry, WorkspaceForge } from "../../src/workflow/workspace-forge.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 /**
  * A FAKE FORGE backed by a real bare repository (the workspace's remote): the
@@ -54,7 +56,7 @@ const FORGE_IDENTITY = deepFreeze({
 
 /** A fake forge over the bare repository `bare`; `scratch` holds its private indexes (the tree writer's). */
 export function createFakeForge(bare: string, scratch: string): FakeForge {
-  const repository: GitRepository = deepFreeze({ root: bare, executable: resolveGitExecutable(), timeoutMs: 30_000 });
+  const repository: GitRepository = deepFreeze({ root: bare, executable: resolveGitExecutable(), bounds: subprocessBounds({}) });
   const calls: FakeForgeCall[] = [];
   const pulls = new Map<number, FakePull>();
   let verified = true;

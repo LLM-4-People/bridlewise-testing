@@ -30,7 +30,7 @@ import { HarnessError } from "../kernel/errors.ts";
 import { semanticForm } from "../quality/languages/semantic-form.ts";
 import { readFlakeReproductions, type IgnoredFlakeReproduction } from "../shared/flake-reproduction.ts";
 import { failureIdentityFile, type CauseChange, type CauseEvidence, type ContentKeyAt, type DeclaredCauseFix, type JudgedCauseFix, type SuiteIdentities } from "../shared/run-history.ts";
-import { gitOutput, type GitRepository } from "./tree-reader.ts";
+import { gitOutput, type GitRepository } from "./git-door.ts";
 
 /** The trailer a fix commit declares its fixed cause with. */
 export const FLAKE_CAUSE_TRAILER = "Flake-cause";

@@ -17,7 +17,6 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { spawnSync } from "node:child_process";
 import { statSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -50,6 +49,8 @@ import {
 import { pathIdentityFromPath } from "../../verification/core/coordination/migration-write-authority/internal.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_DIRECTORY_MODE } from "../../src/filesystem/private-state.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+import { runCpuBoundedSync } from "../../src/process/bounded-run-sync.ts";
+import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -147,14 +148,16 @@ export async function createMigrationWriteAuthorityGenesis(input: GenesisInput):
   // Re-run the single rev-parse --git-common-dir here to get the path string.
   // (The facts adapter validates identity but does not expose the path; this
   // is the minimal read-only re-acquisition the genesis tool needs.)
-  const commonDirResult = spawnSync(gitId.executablePath, ["-C", input.repositoryLocator, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+  // The identity's own executable and CLOSED environment, as one bounded run.
+  const commonDirResult = runCpuBoundedSync(gitId.executablePath, ["-C", input.repositoryLocator, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: process.cwd(),
     env: gitId.processEnvironment as Record<string, string>,
-    encoding: "utf8",
+    bounds: subprocessBounds({}),
   });
-  if (commonDirResult.status !== 0 || commonDirResult.stderr !== "") {
+  if (commonDirResult.ending !== "exited" || commonDirResult.status !== 0 || commonDirResult.stderr.length > 0) {
     return { outcome: "denied", error: { code: "repository-mismatch", message: "could not resolve git common dir" } };
   }
-  const commonDirPath = commonDirResult.stdout.slice(0, -1); // strip trailing newline
+  const commonDirPath = commonDirResult.stdout.toString("utf8").slice(0, -1); // strip trailing newline
   if (!commonDirPath || !existsSync(commonDirPath)) {
     return { outcome: "denied", error: { code: "repository-mismatch", message: "git common dir does not exist" } };
   }

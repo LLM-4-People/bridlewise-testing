@@ -91,7 +91,6 @@
  * until then the candidate is disposable (`rm -rf <dir>`).
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -102,7 +101,8 @@ import { loadPinnedConfigSnapshot } from "../../src/kernel/config.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { extractErrorMessage, HarnessError, InputError } from "../../src/kernel/errors.ts";
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
-import { directoryGitEnvironment, repositoryToplevel } from "../../src/git/repository-ownership.ts";
+import { repositoryToplevel } from "../../src/git/repository-ownership.ts";
+import { directoryGitEnvironment, gitOutput, localGitRepository } from "../../src/git/git-door.ts";
 import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy, workingCopyDifferences } from "../../src/git/working-copy.ts";
 import { assertIndexAtBaseline, recordIndexBaseline } from "../../src/git/index-baseline.ts";
 import { assertSameFilesystem, checkoutCommandRunner, configuredCheckoutCommandRunner, engineRelativePath, owedSetup, prepareCheckout, rerunChangedSetup, type CheckoutCommandRunner, type CheckoutStep, type ConvergenceReport } from "../../src/workflow/checkout-setup.ts";
@@ -111,6 +111,9 @@ import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { generatedOutputPaths, buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { importJudgedRuns, suiteLedgerPaths, withdrawImportedRuns } from "../../src/shared/run-history.ts";
+import { runCpuBoundedSync } from "../../src/process/bounded-run-sync.ts";
+import { boundedEnding } from "../../src/process/subprocess-bounds.ts";
+import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SUBCOMMANDS = ["create", "refresh", "sync", "diff", "copy-back", "withdraw-imports", "snapshot"] as const;
@@ -164,12 +167,12 @@ function sourceRoot(): string {
 
 /** A config value as git resolves it in `source` (every scope), or `null` when unset. */
 function sourceConfig(source: string, key: string): string | null {
-  const answer = spawnSync("git", ["config", "--get", key], { cwd: source, env: directoryGitEnvironment(), encoding: "utf8" });
-  return answer.status === 0 ? answer.stdout.trim() : null;
+  const answer = gitOutput(localGitRepository(source), ["config", "--get", key], { allowed: "any" });
+  return answer.status === 0 ? answer.stdout.toString("utf8").trim() : null;
 }
 
 function git(cwd: string, argv: readonly string[]): string {
-  return execFileSync("git", argv, { cwd, env: directoryGitEnvironment(), encoding: "utf8" }).trim();
+  return gitOutput(localGitRepository(cwd), argv).stdout.toString("utf8").trim();
 }
 
 /**
@@ -273,12 +276,15 @@ function stageGeneratedOutputs(target: string): void {
  */
 function syncCandidate(target: string, engineRelative: string, prune: readonly string[]): ConvergenceReport {
   const engineRoot = join(target, engineRelative);
-  const result = spawnSync(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "sync", "--with-bundle", ...pruneArguments(prune)], {
-    cwd: engineRoot, env: directoryGitEnvironment(), encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
+  const bounds = configuredSubprocessBounds();
+  const result = runCpuBoundedSync(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "sync", "--with-bundle", ...pruneArguments(prune)], {
+    cwd: engineRoot, env: directoryGitEnvironment(), bounds,
   });
-  const report = (JSON.parse(result.stdout.trim().split("\n").at(-1) || "null") as { status?: string; result?: { convergence?: ConvergenceReport } } | null);
+  const stdout = result.stdout.toString("utf8");
+  if (result.ending !== "exited") throw new HarnessError(`harness sync in ${engineRoot} did not finish: ${boundedEnding(result, bounds)}`, "candidate_sync_failed");
+  const report = (JSON.parse(stdout.trim().split("\n").at(-1) || "null") as { status?: string; result?: { convergence?: ConvergenceReport } } | null);
   if (result.status !== 0 || report?.status !== "pass" || report.result?.convergence === undefined) {
-    throw new HarnessError(`harness sync failed in ${engineRoot}: ${`${result.stdout}${result.stderr}`.trim().split("\n").slice(-8).join("\n")}`, "candidate_sync_failed");
+    throw new HarnessError(`harness sync failed in ${engineRoot}: ${`${stdout}${result.stderr.toString("utf8")}`.trim().split("\n").slice(-8).join("\n")}`, "candidate_sync_failed");
   }
   return report.result.convergence;
 }
@@ -439,13 +445,15 @@ function copyBack(source: string, target: string, engineRelative: string): Reado
     commitJournaled(source, COPY_BACK_JOURNAL, files, {
       verify: () => {
         const engineRoot = join(source, engineRelative);
-        const check = spawnSync(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "check", "--skip-typecheck"], {
-          cwd: engineRoot, env: directoryGitEnvironment(), encoding: "utf8",
+        const bounds = configuredSubprocessBounds();
+        const check = runCpuBoundedSync(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "check", "--skip-typecheck"], {
+          cwd: engineRoot, env: directoryGitEnvironment(), bounds,
         });
-        if (check.status !== 0) {
+        // A check the bounds stopped is no verdict: the copy-back is rolled back as for a failure.
+        if (check.ending !== "exited" || check.status !== 0) {
           throw new HarnessError(
             `copy-back of ${files.map(({ path }) => path).join(", ")} was rolled back: harness check fails in the source: ` +
-              failedCheckSteps(check.stdout, check.stderr),
+              (check.ending === "exited" ? failedCheckSteps(check.stdout.toString("utf8"), check.stderr.toString("utf8")) : boundedEnding(check, bounds)),
             "candidate_copy_back_unverified",
           );
         }

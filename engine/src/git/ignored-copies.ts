@@ -16,12 +16,11 @@
  * (`machineIgnoredFiles`: the versioned rules plus `.git/info/exclude` and
  * `core.excludesFile`), filtered by size before anything is hashed.
  */
-import { spawnSync } from "node:child_process";
 import { statSync } from "node:fs";
 
 import { HarnessError } from "../kernel/errors.ts";
-import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { gitProcessEnvironment, machineIgnoredFiles, type GitEnvironment } from "./repository-ownership.ts";
+import { machineIgnoredFiles } from "./repository-ownership.ts";
+import { type GitEnvironment, gitOutput, localGitRepository } from "./git-door.ts";
 
 /** A tracked file's content leaving the index at `path`, with the blob it held and that blob's size. */
 export type DeletedBlob = Readonly<{
@@ -49,14 +48,11 @@ export type MoveLoss = Readonly<{
 
 /** `git <argv>` in `root` with `input`, its stdout, or a typed refusal naming `code`. */
 function git(root: string, argv: readonly string[], input: string, environment: GitEnvironment, code: string): string {
-  const result = spawnSync("git", [...argv], {
-    cwd: root, input, encoding: "utf8", env: gitProcessEnvironment(environment),
-    maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
-  });
+  const result = gitOutput(localGitRepository(root), argv, { environment, input: Buffer.from(input, "utf8"), allowed: "any" });
   if (result.status !== 0) {
-    throw new HarnessError(`git ${argv.join(" ")} failed in ${root} (status ${String(result.status)}): ${String(result.stderr ?? result.error?.message ?? "").trim()}`, code);
+    throw new HarnessError(`git ${argv.join(" ")} failed in ${root} (status ${String(result.status)}): ${result.stderr.toString("utf8").trim()}`, code);
   }
-  return result.stdout;
+  return result.stdout.toString("utf8");
 }
 
 /**

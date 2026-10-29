@@ -52,6 +52,9 @@ import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { reportLauncherStop, watchLauncher } from "./launcher-watch.ts";
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { sweepEndedRunTemporaries, temporaryRootHeadroom, temporaryRootKeepOutRefusal, temporaryRootPreflightLine } from "../../src/filesystem/temporary-root.ts";
+import { runCpuBounded } from "../../src/process/supervised-run.ts";
+import { boundedEnding } from "../../src/process/subprocess-bounds.ts";
+import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
 
 export type WorkerExecutionOptions = Readonly<{
   authority?: ExecutionAuthority;
@@ -702,12 +705,12 @@ async function autoHealTestInventory(): Promise<void> {
     if (fingerprint !== undefined && readAutoHealFingerprintCache(root) === fingerprint) {
       return;
     }
-    const { execFileSync } = await import("node:child_process");
-    execFileSync(execPath, ["src/cli.ts", "harness", "regenerate"], {
-      cwd: root,
-      stdio: "pipe",
-      timeout: 120_000,
-    });
+    // One bounded run (its work, never a wall timeout); a run that did not exit 0 is the failure below.
+    const bounds = configuredSubprocessBounds();
+    const regenerated = await runCpuBounded(execPath, ["src/cli.ts", "harness", "regenerate"], { cwd: root, bounds });
+    if (regenerated.ending !== "exited" || regenerated.status !== 0) {
+      throw new Error(`harness regenerate did not pass (${regenerated.ending === "exited" ? `exit ${String(regenerated.status)}` : boundedEnding(regenerated, bounds)}): ${regenerated.stderr.toString("utf8").trim().split("\n").slice(-8).join("\n")}`);
+    }
     try {
       writeAutoHealFingerprintCache(root, computeTestSurfaceFingerprint(root));
     } catch (cacheError) {

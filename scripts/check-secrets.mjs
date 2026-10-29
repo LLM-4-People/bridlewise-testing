@@ -43,7 +43,6 @@
  * unreadable path is reported the same way. A symbolic link is not followed:
  * its committed blob is the link target string, and that string is scanned.
  */
-import { execFileSync } from "node:child_process";
 import {
   closeSync,
   createReadStream,
@@ -67,6 +66,7 @@ import { collapsedPathText, publicationPrivacyFindings, treeScannedSignals } fro
 import { createGplReader, REVIEWED_GPL_TEXT, staleReviewedEntries } from "../engine/scripts/verification/licence-boundary.ts";
 // The one line definition (\r\n, a lone \r, \n) for every read: whole, streamed and capped.
 import { createLineSplitter, textLines } from "../engine/scripts/verification/text-lines.ts";
+import { gitOutput, localGitRepository } from "../engine/src/git/git-door.ts";
 
 const ROOT = resolve(process.cwd());
 // At or below this size a file is read in one pass. Above it, it is streamed
@@ -94,11 +94,7 @@ const CONTENT_MATCHERS = treeScannedSignals().map((signal) => ({
 
 function trackedFiles() {
   try {
-    const out = execFileSync("git", ["ls-files", "-z"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const out = gitOutput(localGitRepository(ROOT), ["ls-files", "-z"], { environment: "inherited" }).stdout.toString("utf8");
     return out.split("\0").filter(Boolean);
   } catch {
     return walk(".");

@@ -16,7 +16,7 @@ import { join } from "node:path";
 
 import { deepFreeze, sha256 } from "../../kernel/integrity.ts";
 import { PRODUCT_NAME } from "../../kernel/product-identity.ts";
-import { gitOutput, type GitRepository } from "../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../git/git-door.ts";
 import { PromotionError } from "./codes.ts";
 import type { ReleasePlan } from "./release-train.ts";
 

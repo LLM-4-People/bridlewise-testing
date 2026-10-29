@@ -25,7 +25,6 @@
  * No command door is imported here: the engine bootstrap installs the
  * exposure source without loading the harness command table.
  */
-import { spawnSync } from "node:child_process";
 import { existsSync, statfsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -34,11 +33,13 @@ import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
 import type { ConfigDocument, WorkspaceIsolationConfig } from "../../kernel/config-contracts.ts";
 import { ensurePrivateStateDirectory } from "../../filesystem/private-state.ts";
 import { WorktreeGitError, WorktreeGitTimeout, configuredGitRepository, configuredWorktreeGitPort, type RemoteListing, type WorktreeGitPort } from "../../git/worktree-port.ts";
-import { commitTreeReader, gitOutput, resolveRevision, type GitRepository } from "../../git/tree-reader.ts";
+import { commitTreeReader, resolveRevision } from "../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../git/git-door.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
 import type { PromotionSource } from "../../shared/exposure/registrations/promotion.ts";
 import { qualificationEvidence, diffRunFailures, latestRunOfTree, readRunHistory, suiteLedgerPaths, SUITE_LEDGER_NAMES } from "../../shared/run-history.ts";
 import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
+import { runCpuBoundedSync } from "../../process/bounded-run-sync.ts";
 import type { JudgedRunRecord } from "../../shared/budget-verdict.ts";
 import { commandsRun, configuredCheckoutCommandRunner, type CheckoutCommandRunner } from "../checkout-setup.ts";
 import { generatedOutputPaths, buildOutputPaths } from "../hash-binding-registry.ts";
@@ -98,7 +99,8 @@ export function resolveRepositoryContext(root: string, document: PromotionDocume
   }
   const located = configuredGitRepository(document, root);
   const port = configuredWorktreeGitPort(document);
-  const top = port.toplevel(root, located.timeoutMs);
+  const inspectMs = worktreeOperationTimeouts(document).inspectMs;
+  const top = port.toplevel(root, inspectMs);
   const repository = deepFreeze({ ...located, root: top });
   const commandNames = new Set(Object.keys(isolation.commands));
   return deepFreeze({
@@ -107,7 +109,7 @@ export function resolveRepositoryContext(root: string, document: PromotionDocume
     profileDirectory,
     top,
     repository,
-    registry: resolveRepositoryRegistry(port, top, repository.timeoutMs),
+    registry: resolveRepositoryRegistry(port, top, inspectMs),
     commandNames,
     profilesAt: (commit: string) => loadPromotionProfiles(commitTreeReader(repository, commit), profileDirectory, commandNames),
     triggerHeadersAt: (commit: string) => profileTriggerHeaders(commitTreeReader(repository, commit), profileDirectory),
@@ -168,8 +170,8 @@ function pendingLine(context: PromotionContext, commits: number | null): string 
 }
 
 /**
- * The first version line of each of `tools` (`<tool> --version`, each bounded
- * by the repository's call ceiling; `null`: it did not answer). A probe gets
+ * The first version line of each of `tools` (`<tool> --version`, each one
+ * bounded run under the repository's bounds; `null`: it did not answer). A probe gets
  * the command environment's projection (`COMMAND_ENVIRONMENT`: what a tool
  * needs to find itself and its locale, never a credential of this process),
  * like every command the harness runs (PROMO34FIX-TOOL-VERSIONS).
@@ -177,8 +179,8 @@ function pendingLine(context: PromotionContext, commits: number | null): string 
 function toolVersions(context: RepositoryContext, tools: Iterable<string>): Readonly<Record<string, string | null>> {
   const env = projectEnvironment(process.env, COMMAND_ENVIRONMENT);
   return deepFreeze(Object.fromEntries([...new Set(tools)].sort().map((tool) => {
-    const probe = spawnSync(tool, ["--version"], { encoding: "utf8", env, timeout: context.repository.timeoutMs, killSignal: "SIGKILL" });
-    return [tool, probe.status === 0 ? probe.stdout.trim().split("\n")[0]! : null];
+    const probe = runCpuBoundedSync(tool, ["--version"], { cwd: context.top, env, bounds: context.repository.bounds });
+    return [tool, probe.ending === "exited" && probe.status === 0 ? probe.stdout.toString("utf8").trim().split("\n")[0]! : null];
   })));
 }
 
@@ -263,7 +265,7 @@ async function lockfileRun(context: PromotionContext) {
 
 /** This engine's path below the top of the checkout holding it (see {@link engineRelativeIn}). */
 function engineRelativeOf(context: RepositoryContext): string {
-  return engineRelativeIn(configuredWorktreeGitPort(context.document), context.repository.timeoutMs);
+  return engineRelativeIn(configuredWorktreeGitPort(context.document), worktreeOperationTimeouts(context.document).inspectMs);
 }
 
 /** The newest judged row of `ledger` (by its timestamp) that measured `commit`'s TREE (`latestRunOfTree`: the row names that tree), or `null`. */

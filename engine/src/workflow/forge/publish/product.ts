@@ -27,7 +27,7 @@
  */
 import { canonicalJson, deepFreeze } from "../../../kernel/integrity.ts";
 import { schemaId } from "../../../kernel/product-identity.ts";
-import { gitOutput, type GitRepository } from "../../../git/tree-reader.ts";
+import { gitOutput, type GitRepository } from "../../../git/git-door.ts";
 import { ForgeError } from "../codes.ts";
 import type { ForgeClient, ForgeCredential } from "../port.ts";
 import { promotionTrailersOf } from "../../promotion/trailers.ts";

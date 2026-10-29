@@ -36,7 +36,6 @@
  * `git commit -v` scissors line. The key is matched exactly (`Lesson`),
  * because `git log --grep` is case-sensitive.
  */
-import { spawnSync } from "node:child_process";
 import { basename } from "node:path";
 
 import { pendingCommitParents } from "../../src/git/repository-ownership.ts";
@@ -44,14 +43,15 @@ import { pendingCommitParents } from "../../src/git/repository-ownership.ts";
 import { parseFrontMatter } from "../../src/workflow/failure-owners.ts";
 import { gitText as git, messageTrailerValues, trailerValuesOf } from "./commit-trailers.ts";
 import { DECISIONS_DIRECTORY, decisionViolations, lessonId, lessonViolations, LESSONS_DIRECTORY } from "./tracker-entries.ts";
+import { gitOutput, localGitRepository } from "../../src/git/git-door.ts";
 
 /** The trailer key a commit acting on a lesson carries (exact case: `git log --grep` finds it). */
 export const LESSON_TRAILER = "Lesson";
 
 function statusOf(root: string, spec: string): string | undefined {
-  const shown = spawnSync("git", ["show", spec], { cwd: root, encoding: "utf8" });
+  const shown = gitOutput(localGitRepository(root), ["show", spec], { environment: "inherited", allowed: "any" });
   if (shown.status !== 0) return undefined;
-  return parseFrontMatter(shown.stdout)?.fields.get("status");
+  return parseFrontMatter(shown.stdout.toString("utf8"))?.fields.get("status");
 }
 
 function lessonPaths(listing: string): readonly string[] {
