@@ -72,6 +72,7 @@
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <pthread.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -95,6 +96,36 @@ static void fail(const char *operation) {
         cleanup_descendants();
     }
     exit(1);
+}
+
+/* THE RESULT CHANNEL IS A PIPE (--pass-fd). The caller's fd 4 is whatever it
+ * opened (Node's is a socket pair), and `/dev/fd/3` on a socket cannot be
+ * opened (ENXIO): a reporter that names its destination by path — vitest's
+ * `--outputFile=/dev/fd/3`, node --test's `--test-reporter-destination` —
+ * could not write. The command's fd 3 is the write end of a real pipe, and
+ * this thread relays it to fd 4 until every writer has closed it (the command
+ * and every descendant, all reaped before the receipt). */
+static int relay_read = -1;
+static pthread_t relay_thread;
+static bool relaying = false;
+
+static void *relay_result(void *unused) {
+    (void)unused;
+    char buffer[65536];
+    for (;;) {
+        ssize_t got = read(relay_read, buffer, sizeof(buffer));
+        if (got == 0) break;
+        if (got < 0) { if (errno == EINTR) continue; break; }
+        for (ssize_t sent = 0; sent < got;) {
+            ssize_t wrote = write(4, buffer + sent, (size_t)(got - sent));
+            if (wrote < 0) { if (errno == EINTR) continue; goto done; }
+            sent += wrote;
+        }
+    }
+done:
+    close(relay_read);
+    close(4);
+    return NULL;
 }
 
 static double monotonic_ms(void) {
@@ -699,11 +730,13 @@ int main(int argc, char **argv) {
     if (sigaction(SIGCHLD, &action, NULL)) fail("test supervisor child disposition");
     double deadline = monotonic_ms() + timeout;
     pid_t supervisor = getpid();
+    int relay[2] = {-1, -1};
+    if (pass_fd && pipe2(relay, O_CLOEXEC)) fail("test supervisor result pipe");
     pid_t child = fork();
     if (child < 0) fail("test supervisor fork");
     if (child == 0) {
         close(3);
-        if (pass_fd && (dup2(4, 3) < 0 || close(4))) _exit(126);
+        if (pass_fd && (dup2(relay[1], 3) < 0 || close(4))) _exit(126);
         /* If THIS supervisor dies without cleaning up (SIGKILL, the OOM
          * killer), the command dies with it, and the command leads its own
          * process group so whoever started the supervisor can end every
@@ -725,7 +758,12 @@ int main(int argc, char **argv) {
     command_pid = child;
     /* The passed channel is the command's alone: its end-of-file is the
      * command's (and its descendants') closing, never this process's. */
-    if (pass_fd && close(4)) fail("test supervisor release passed descriptor");
+    if (pass_fd) {
+        close(relay[1]);
+        relay_read = relay[0];
+        if (pthread_create(&relay_thread, NULL, relay_result, NULL)) fail("test supervisor result relay");
+        relaying = true;
+    }
     /* The ANNOUNCEMENT, one line before anything can go wrong: the command's
      * pid, which is its process group, BOUND TO ITS START TIME (read now,
      * while the command is this process's unreaped child, so its pid cannot
@@ -759,6 +797,8 @@ int main(int argc, char **argv) {
     fprintf(receipt, "{\"commandPid\":%ld,\"status\":%d,\"timedOut\":%s,\"interrupted\":%s,\"commandKilled\":%s,\"reaped\":[",
             (long)child, result, timed_out ? "true" : "false", interrupted ? "true" : "false", killed ? "true" : "false");
     cleanup_descendants();
+    /* Every writer of the result pipe is reaped: the relay has read its end-of-file, or reads it now. */
+    if (relaying && pthread_join(relay_thread, NULL)) fail("test supervisor result relay join");
     struct rusage waited, own;
     if (getrusage(RUSAGE_CHILDREN, &waited) || getrusage(RUSAGE_SELF, &own)) fail("test supervisor CPU");
     fprintf(receipt, "],\"noOwnedChildren\":true,\"waitedCpuUs\":%" PRId64 ",\"supervisorCpuUsBeforeReceipt\":%" PRId64 "}\n", cpu_us(&waited), cpu_us(&own));

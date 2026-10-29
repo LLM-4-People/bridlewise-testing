@@ -127,6 +127,19 @@ test("a checkout in the test's OWN temporary folder (a nested run's fixture) is 
   taken(stdout, "sibling");
 });
 
+test("the result channel is a pipe the command can open BY ITS PATH (`/dev/fd/3`, what vitest's --outputFile and node --test's reporter destination do) and write by its descriptor", async () => {
+  const { repository } = fixtureCheckouts();
+  const reported: Buffer[] = [];
+  const run = await runTestCommand({
+    supervisor: SUPERVISOR, checkout: repository, command: process.execPath,
+    args: ["-e", "require('node:fs').writeFileSync('/dev/fd/3', 'by-path\\n'); require('node:fs').writeSync(3, 'by-descriptor\\n')"],
+    cwd: repository, hardCeilingMs: 60_000, killGraceMs: 2_000,
+    onStdout: () => undefined, onStderr: () => undefined, onResult: (chunk) => { reported.push(chunk); },
+  });
+  assert.equal(run.exitCode, 0);
+  assert.equal(Buffer.concat(reported).toString("utf8"), "by-path\nby-descriptor\n");
+});
+
 test("THE LOCK: the confined command can neither remount anything read-write nor detach a mount", async () => {
   const { repository } = fixtureCheckouts();
   const { stdout } = await confined(repository, [
