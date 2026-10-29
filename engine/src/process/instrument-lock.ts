@@ -69,7 +69,7 @@
 import { dirname, isAbsolute, join } from "node:path";
 
 import { spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { HarnessError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
@@ -222,9 +222,158 @@ function runScopeUnit(nonce: string): string {
   return `bridlewise-run-${nonce}.scope`;
 }
 
-/** Whether THIS process is inside the scope of the run whose record carries `nonce` (`/proc/self/cgroup`, cgroup v2). */
+/**
+ * THE RUN SCOPE'S SUBTREE (Delegate=yes). The scope itself holds no process:
+ * the admitting process moves into its `run` leaf (everything it starts is
+ * born there), and each test file's process moves into a `worker-<pid>` leaf
+ * of its own ({@link enterOwnWorkerLeaf}), so the kernel accounts each
+ * worker's memory, its children included (`memory.peak`), while the scope's
+ * `MemoryMax` still caps them all.
+ */
+const RUN_LEAF = "run";
+const WORKER_LEAF = /^worker-\d+$/u;
+
+/** The cgroup v2 path of the run scope THIS process is inside (its own cgroup, or the parent of its `run` / `worker-<pid>` leaf); `undefined` outside a run's scope. */
+export function runScopeCgroup(): string | undefined {
+  const own = ownCgroupPath();
+  if (own === undefined) return undefined;
+  const last = own.slice(own.lastIndexOf("/") + 1);
+  const scope = last === RUN_LEAF || WORKER_LEAF.test(last) ? own.slice(0, own.lastIndexOf("/")) : own;
+  return /\/bridlewise-run-[^/]+\.scope$/u.test(scope) ? scope : undefined;
+}
+
+/** One interface file of the run scope THIS process is inside, trimmed; `undefined` outside a scope or when the file is absent. */
+function runScopeFile(name: string): string | undefined {
+  const scope = runScopeCgroup();
+  if (scope === undefined) return undefined;
+  try {
+    return readFileSync(`/sys/fs/cgroup${scope}/${name}`, "utf8").trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Whether THIS process is inside the scope of the run whose record carries `nonce` (`/proc/self/cgroup`, cgroup v2), in the scope or one of its leaves. */
 function insideRunScope(nonce: string): boolean {
-  return ownCgroupPath()?.endsWith(`/${runScopeUnit(nonce)}`) === true;
+  return runScopeCgroup()?.endsWith(`/${runScopeUnit(nonce)}`) === true;
+}
+
+/**
+ * Splits the scope THIS process just entered: this process moves into the
+ * `run` leaf and the scope's subtree gets the memory controller, so each
+ * worker leaf has its own `memory.peak`. Throws `per_run_caps_unavailable`
+ * when the host cannot (a scope that is not delegated).
+ */
+function splitRunScope(unit: string, caps: PerRunCaps): void {
+  const scope = runScopeCgroup();
+  if (scope === undefined) throw capsUnavailable(caps, `this process is not inside ${unit} after entering it`);
+  const root = `/sys/fs/cgroup${scope}`;
+  try {
+    mkdirSync(join(root, RUN_LEAF));
+    writeFileSync(join(root, RUN_LEAF, "cgroup.procs"), String(process.pid));
+    writeFileSync(join(root, "cgroup.subtree_control"), "+memory");
+  } catch (error) {
+    throw capsUnavailable(caps, `${unit} could not be split into leaves (is it delegated?): ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // Each worker's peak is the run's measurement: a host whose kernel keeps none is refused here, before anything runs.
+  try {
+    scopeBytes(scope, RUN_LEAF, "memory.peak");
+  } catch (error) {
+    throw capsUnavailable(caps, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Moves THIS process (a test file's own process) into a leaf of its own in
+ * the run's scope, `worker-<pid>`, so its memory and its children's are
+ * accounted on their own (`memory.peak`). Answers the leaf's cgroup path, or
+ * `undefined` outside a run's scope (a light run has no scope to account in).
+ * Inside a scope, a leaf it cannot make is refused typed
+ * (`worker_leaf_unavailable`), never a run left unmeasured.
+ */
+export function enterOwnWorkerLeaf(): string | undefined {
+  const scope = runScopeCgroup();
+  if (scope === undefined) return undefined;
+  const leaf = `${scope}/worker-${String(process.pid)}`;
+  try {
+    mkdirSync(`/sys/fs/cgroup${leaf}`);
+    writeFileSync(`/sys/fs/cgroup${leaf}/cgroup.procs`, String(process.pid));
+  } catch (error) {
+    throw new HarnessError(`this test file's process could not enter its worker leaf ${leaf}: ${error instanceof Error ? error.message : String(error)}`, "worker_leaf_unavailable");
+  }
+  return leaf;
+}
+
+/** A cgroup interface file's byte count (its decimal digits exactly), or `undefined` for anything else ("max", absent). */
+function byteCountOf(text: string | undefined): number | undefined {
+  if (text === undefined) return undefined;
+  const value = Number(text);
+  return Number.isSafeInteger(value) && value >= 0 && String(value) === text ? value : undefined;
+}
+
+/** One byte-count interface file of the scope's cgroup `relative` (the scope itself when ""), refused typed when absent or not a byte count. */
+function scopeBytes(scope: string, relative: string, name: string): number {
+  const where = `/sys/fs/cgroup${scope}${relative === "" ? "" : `/${relative}`}/${name}`;
+  let text: string | undefined;
+  try {
+    text = readFileSync(where, "utf8").trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  return requiredCgroupBytes(where, name, text);
+}
+
+/**
+ * A cgroup interface file's REQUIRED byte count: `text` as read from `where`
+ * (`undefined` when the file is absent). Refused typed
+ * (`run_memory_unreadable`), naming what is missing, never a substitute.
+ */
+export function requiredCgroupBytes(where: string, name: string, text: string | undefined): number {
+  const value = byteCountOf(text);
+  if (value === undefined) {
+    throw new HarnessError(
+      text === undefined
+        ? `the run's scope has no ${name} at ${where}${name === "memory.peak" ? " (memory.peak needs Linux 5.19 or later)" : ""}: its memory cannot be measured`
+        : `the run's scope holds ${name} ${text} at ${where}, not a byte count`,
+      "run_memory_unreadable",
+    );
+  }
+  return value;
+}
+
+/**
+ * The run scope's own memory readings: its cap (`memory.max`) and the peak it
+ * reached (`memory.peak`), in bytes; `undefined` OUTSIDE a run's scope (a
+ * light run has no cap of its own). Inside a scope, an unreadable file is
+ * refused typed (`run_memory_unreadable`), never a run with no cap.
+ */
+export function runScopeMemory(): Readonly<{ maxBytes: number; peakBytes: number }> | undefined {
+  const scope = runScopeCgroup();
+  if (scope === undefined) return undefined;
+  return { maxBytes: scopeBytes(scope, "", "memory.max"), peakBytes: scopeBytes(scope, "", "memory.peak") };
+}
+
+/**
+ * THE WORKERS' PEAKS, READ FROM THE SCOPE (never reported by the workers):
+ * every `worker-<pid>` leaf's `memory.peak`, the `run` leaf's (the runner's
+ * share, and any memory a test process moved there), and every other
+ * cgroup found under the scope — a STRANGER, which a test process made to
+ * hide its memory from both. `undefined` outside a scope; an unreadable
+ * peak is refused typed (`run_memory_unreadable`).
+ */
+export function runScopeLeafMemory(): Readonly<{ runPeakBytes: number; workerPeakBytes: ReadonlyMap<number, number>; strangers: readonly string[] }> | undefined {
+  const scope = runScopeCgroup();
+  if (scope === undefined) return undefined;
+  const workerPeakBytes = new Map<number, number>();
+  const strangers: string[] = [];
+  for (const entry of readdirSync(`/sys/fs/cgroup${scope}`, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === RUN_LEAF) continue;
+    if (WORKER_LEAF.test(entry.name)) workerPeakBytes.set(Number(entry.name.slice("worker-".length)), scopeBytes(scope, entry.name, "memory.peak"));
+    else strangers.push(entry.name);
+  }
+  return { runPeakBytes: scopeBytes(scope, RUN_LEAF, "memory.peak"), workerPeakBytes, strangers: strangers.sort() };
 }
 
 /** The live run this process runs inside (its own, or an ancestor's) AND inside whose capped scope it is, if any. */
@@ -270,8 +419,8 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
   const unit = runScopeUnit(nonce);
   const memoryScale = Math.min(0xffffffff, Math.round((caps.memoryMaxPercent / 100) * 0xffffffff));
   const started = spawnSync("busctl", ["--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
-    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "6", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
-    "MemorySwapMax", "t", "0", "OOMPolicy", "s", "continue",
+    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "7", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
+    "MemorySwapMax", "t", "0", "OOMPolicy", "s", "continue", "Delegate", "b", "true",
     "CPUWeight", "t", String(caps.cpuWeight), "CollectMode", "s", "inactive-or-failed", "0"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (started.error !== undefined || started.status !== 0) {
     throw capsUnavailable(caps, `busctl StartTransientUnit ${started.error !== undefined ? started.error.message : `exited ${String(started.status)}: ${started.stderr.trim()}`}`);
@@ -286,6 +435,7 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
     Atomics.wait(PAUSE, 0, 0, 5);
   }
   verifyRunScopeCaps(unit, caps);
+  splitRunScope(unit, caps);
   const limited = limitOwnCpu(cpu);
   if (limited !== null) throw capsUnavailable(caps, limited);
 }
@@ -323,8 +473,8 @@ function runScopeOomPolicy(unit: string): string | undefined {
  * its own).
  */
 function runScopeOomKills(): number | undefined {
-  if (!/\/bridlewise-run-[^/]+\.scope$/u.test(ownCgroupPath() ?? "")) return undefined;
-  const events = ownCgroupFile("memory.events");
+  if (runScopeCgroup() === undefined) return undefined;
+  const events = runScopeFile("memory.events");
   const kills = events === undefined ? undefined : /^oom_kill (\d+)$/mu.exec(events)?.[1];
   return kills === undefined ? undefined : Number(kills);
 }

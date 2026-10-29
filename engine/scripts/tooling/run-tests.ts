@@ -1,3 +1,4 @@
+import { MEASURE_WORKER_MEMORY_FLAG } from "./worker-memory.ts";
 import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -265,7 +266,11 @@ async function runCli(invocationId: string, observedTerminal: (execution: Comple
       launcherExited = pid;
       launcher.abort();
     }, ROOT_POLICY.verification.testRunSupervision.watchIntervalMs);
-    const execution = await runTestsWithEvidence({ stop: launcher.signal });
+    // `--measure-worker-memory`: the suite one worker at a time, every file's peak recorded in isolation (worker-memory.ts).
+    const execution = await runTestsWithEvidence({
+      stop: launcher.signal,
+      ...(argv.includes(MEASURE_WORKER_MEMORY_FLAG) ? { workerArguments: [fileURLToPath(new URL("./test-worker.ts", import.meta.url)), "--mode", "test", MEASURE_WORKER_MEMORY_FLAG] } : {}),
+    });
     stopLauncherWatch();
     if (launcherExited !== undefined) {
       reportLauncherStop(launcherExited, Date.now() - runStartMs, (text) => process.stderr.write(text));

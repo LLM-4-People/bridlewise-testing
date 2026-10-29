@@ -29,10 +29,13 @@ import {
   type ConcurrencyMode,
   type TestFileDuration,
 } from "../../src/workflow/test-result-collector.ts";
-import { DEFAULT_ENGINE_SUITE_WATCHDOG, type SuiteWatchdog } from "../../src/workflow/workflow-config.ts";
+import { DEFAULT_ENGINE_SUITE_WATCHDOG, memoryBoundedConcurrency, type SuiteWatchdog, type WorkerMemory } from "../../src/workflow/workflow-config.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { networkGuardImport } from "./network-under-test.ts";
-import { engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
+import { WORKER_LEAF_DIAGNOSTIC, engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
+
+/** A worker's leaf diagnostic (engine-test-bounds.ts): `worker-leaf <pid>`. */
+const WORKER_LEAF = new RegExp(`^${WORKER_LEAF_DIAGNOSTIC} (\\d+)$`, "u");
 import type { TestCpuClasses } from "./test-cpu-class.ts";
 
 type TestEvent = Readonly<{
@@ -118,6 +121,13 @@ export type InventoryTestAccounting = Readonly<{
    * that does not judge CPU (coverage).
    */
   testCpu: readonly Readonly<{ identity: string; cpuMs: number }>[];
+  /**
+   * Which worker leaf of the run's scope measured each test file (the
+   * `worker-leaf <pid>` diagnostic engine-test-bounds.ts reports), sorted by
+   * file. Empty for a run outside an admitted scope (a light run has no
+   * leaves). The peaks are read by the runner from the scope.
+   */
+  workerLeaves: readonly Readonly<{ file: string; pid: number }>[];
   runnerSummaryObserved: boolean;
   runnerSuccessful: boolean;
   passed: boolean;
@@ -136,6 +146,12 @@ export type InventoryTestRunOptions = Readonly<{
    * default suite (non-RUN_SLOW) keeps the full parallelConcurrency.
    */
   fullSuiteParallelConcurrency?: number;
+  /** The measured per-worker peak memory (worker-memory.ts `declaredWorkerMemory`): under a memory cap, the worker counts derive from it. */
+  measuredWorkerMemory?: WorkerMemory;
+  /** A MEASURING run (`--measure-worker-memory`): one worker at a time in every phase, so no cap is ever approached and each file's peak is its own. */
+  measureWorkerMemory?: boolean;
+  /** The run's memory cap in bytes (the composition root passes the admitted run's scope `memory.max`, instrument-lock.ts `runScopeMemory`); absent: no cap of its own. */
+  memoryCapBytes?: number;
   /**
    * Concurrency for the serial phase. The serial phase runs files that share
    * process-level resources (evidence-worker spawns, S1 repository walks)
@@ -376,7 +392,7 @@ export async function executeInventoryTestRun(
     // full-suite numbers produced byte-identical result hashes across runs.
     // Contention flakiness, not regressions, and the fix is to stop asking a
     // subset's schedule to carry the whole suite.
-    const parallelConcurrency =
+    const parallelConcurrencyConfigured =
       options.fullSuiteParallelConcurrency ?? options.parallelConcurrency ?? DEFAULT_FULL_SUITE_PARALLEL_CONCURRENCY;
     // Two-tier serial concurrency: in-process serial files (no subprocess
     // spawning — S1 scenarios with verifyS1Structure/makeRuntimeCandidate,
@@ -392,10 +408,23 @@ export async function executeInventoryTestRun(
     // classification is DYNAMIC (classifySerialConcurrencyTier scans each file
     // for subprocess-spawning markers, not a hardcoded list) so a file that
     // gains subprocess usage is automatically reclassified.
-    const inProcessSerialConcurrency =
-      options.fullSuiteInProcessSerialPhaseConcurrency ?? options.fullSuiteSerialPhaseConcurrency ?? options.serialPhaseConcurrency ?? 1;
-    const subprocessSerialConcurrency =
-      options.fullSuiteSerialPhaseConcurrency ?? options.serialPhaseConcurrency ?? 1;
+    // UNDER THE RUN'S MEMORY CAP the counts derive from the measured
+    // per-worker peak (workflow-config.ts `memoryBoundedConcurrency`): no
+    // more workers at once than the cap holds, never a hard-coded number.
+    const bounded = options.measureWorkerMemory === true
+      ? { parallel: 1, inProcessSerial: 1, subprocessSerial: 1, serialTiersTogether: false }
+      : memoryBoundedConcurrency(
+      {
+        parallel: parallelConcurrencyConfigured,
+        inProcessSerial: options.fullSuiteInProcessSerialPhaseConcurrency ?? options.fullSuiteSerialPhaseConcurrency ?? options.serialPhaseConcurrency ?? 1,
+        subprocessSerial: options.fullSuiteSerialPhaseConcurrency ?? options.serialPhaseConcurrency ?? 1,
+      },
+      options.memoryCapBytes,
+      options.measuredWorkerMemory,
+    );
+    const parallelConcurrency = bounded.parallel;
+    const inProcessSerialConcurrency = bounded.inProcessSerial;
+    const subprocessSerialConcurrency = bounded.subprocessSerial;
     const maxSerialConcurrency = Math.max(inProcessSerialConcurrency, subprocessSerialConcurrency);
     const serialIsolation: "process" | undefined = maxSerialConcurrency <= 1 ? undefined : "process";
     const classification = classifyTestConcurrency(files, root);
@@ -474,8 +503,11 @@ export async function executeInventoryTestRun(
       }
       if (serialTiers.length === 1) {
         await drain(serialTiers[0]!);
-      } else if (serialTiers.length > 1) {
+      } else if (serialTiers.length > 1 && bounded.serialTiersTogether) {
         await Promise.all(serialTiers.map((phase) => drain(phase)));
+      } else {
+        // Not even one worker of each tier fits under the cap at once: the tiers run one after the other.
+        for (const phase of serialTiers) await drain(phase);
       }
     } finally {
       reporter?.end();
@@ -589,6 +621,7 @@ export function createInventoryTestAccountant(
   // only its file and line: the terminal event names the test at that place.
   const identityAtPlace = new Map<string, string>();
   const testCpuMs = new Map<string, number>();
+  const workerLeafPid = new Map<string, number>();
   const aggregateSummaryCounts = { tests: 0, failed: 0, passed: 0, cancelled: 0, skipped: 0, todo: 0 };
 
   const observe = (event: TestEvent): void => {
@@ -649,6 +682,9 @@ export function createInventoryTestAccountant(
       const reading = /^cpu-work (\d+) ms;/u.exec(data.message);
       const identity = identityAtPlace.get(`${data.file}:${String(data.line)}`);
       if (reading !== null && identity !== undefined) testCpuMs.set(identity, Number(reading[1]));
+      const leaf = WORKER_LEAF.exec(data.message);
+      const fileId = leaf === null ? undefined : sourceIdForFile(root, data.file);
+      if (leaf !== null && fileId !== undefined) workerLeafPid.set(fileId, Number(leaf[1]));
     }
     if (event.type === "test:enqueue" && inventoryId) {
       const state = lifecycle.get(inventoryId);
@@ -868,6 +904,9 @@ export function createInventoryTestAccountant(
       testCpu: [...testCpuMs.entries()]
         .map(([identity, cpuMs]) => ({ identity, cpuMs }))
         .toSorted((left, right) => left.identity < right.identity ? -1 : left.identity > right.identity ? 1 : 0),
+      workerLeaves: [...workerLeafPid.entries()]
+        .map(([file, pid]) => ({ file, pid }))
+        .toSorted((left, right) => left.file < right.file ? -1 : left.file > right.file ? 1 : 0),
       runnerSummaryObserved: summaryEvents === 1,
       runnerSuccessful: normalizedRunnerSummary.successful,
       passed,

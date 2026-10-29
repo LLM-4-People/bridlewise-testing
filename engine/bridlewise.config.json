@@ -829,6 +829,10 @@
     "fullSuiteSerialPhaseConcurrency": 8,
     "fullSuiteInProcessSerialPhaseConcurrency": 4,
     "fullSuiteParallelConcurrency": 12,
+    "workerMemory": {
+      "headroomFactor": 1.5,
+      "maxUnmeasuredShare": 0.1
+    },
     "compileCachePruning": {
       "maxBytes": 4294967296,
       "maxEntryAgeHours": 72,

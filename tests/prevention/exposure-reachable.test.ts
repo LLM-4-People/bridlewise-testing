@@ -1327,6 +1327,8 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.testCpuHeadroom", "testExecution.testCpuClasses.headroomFactor"],
       ["testExecution.testCpuClasses", "testExecution.testCpuClasses.classes"],
       ["testExecution.testHangBackstop", "testExecution.testHangBackstopMs"],
+      ["testExecution.workerMemoryHeadroom", "testExecution.workerMemory.headroomFactor"],
+      ["testExecution.workerMemoryStaleShare", "testExecution.workerMemory.maxUnmeasuredShare"],
     ];
     const neverWritablePrefixes = [
       "testExecution.webUiSuiteCpuBudget",

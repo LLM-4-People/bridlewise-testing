@@ -1,3 +1,4 @@
+import { InputError } from "../../src/kernel/errors.ts";
 import { writeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +29,9 @@ import { TEST_RUN_HISTORY_PATH } from "../../src/shared/run-history.ts";
 import { isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { ARCHITECTURE_MODULES_PATH } from "../../src/workflow/architecture-module-entries.ts";
 import { thinHeadroom } from "./test-cpu-class.ts";
+import { totalmem } from "node:os";
+import { runScopeLeafMemory, runScopeMemory } from "../../src/process/instrument-lock.ts";
+import { MEASURE_WORKER_MEMORY_FLAG, declaredWorkerMemory, workerPeaksOf, writeWorkerMemoryReceipt } from "./worker-memory.ts";
 
 type WorkerMode = "test" | "check";
 
@@ -65,7 +69,7 @@ export type CheckResult = Readonly<{
   integrityHash: string;
 }>;
 
-export async function executeTestWorker(mode: WorkerMode): Promise<Readonly<{
+export async function executeTestWorker(mode: WorkerMode, measureWorkerMemory = false): Promise<Readonly<{
   result: TestResultReceipt | CheckResult;
   stdout: Buffer;
   stderr: Buffer;
@@ -79,10 +83,26 @@ export async function executeTestWorker(mode: WorkerMode): Promise<Readonly<{
   const candidateBuild = buildCandidateManifestDetailed(root);
   const candidateBeforeExecution = candidateTestIdentityExcluding(candidateBuild.manifest, RUNNER_WRITTEN_PATHS);
   const testExecutionConfig = readTestExecutionConfig(root);
+  // The measured per-worker peak (traceability/worker-memory.json, generated) the worker counts derive from under a cap.
+  const workerMemory = measureWorkerMemory ? undefined : declaredWorkerMemory(root, inventory.tests.map((entry) => entry.sourceId), testExecutionConfig.workerMemory);
   const accounting = await executeInventoryTestRun(root, inventory, {
     ...testExecutionConfig,
     sourceSnapshot: snapshot,
+    ...(workerMemory === undefined ? {} : { measuredWorkerMemory: workerMemory }),
+    // The admitted run's own cap (its scope's memory.max); a light run has none.
+    ...(runScopeMemory() === undefined ? {} : { memoryCapBytes: runScopeMemory()!.maxBytes }),
+    measureWorkerMemory,
   });
+  // THE WORKERS' PEAKS, read by this runner from the scope (never reported by
+  // a worker), joined with the leaf each file named; a stranger cgroup or a
+  // vanished leaf is a test hiding its memory, refused typed.
+  const scopeMemory = runScopeMemory();
+  const leafMemory = runScopeLeafMemory();
+  const measured = leafMemory === undefined ? undefined : workerPeaksOf(accounting.workerLeaves, leafMemory);
+  if (measureWorkerMemory) {
+    if (scopeMemory === undefined || measured === undefined) throw new InputError("a measuring run must run inside an admitted run's scope: it has no worker leaves to measure", "worker_memory_unmeasurable");
+    writeWorkerMemoryReceipt(root, measured, scopeMemory.maxBytes);
+  }
   // Derive the after-run candidate identity from the before-run build by
   // re-reading only stat-changed files instead of a second full pass.
   const candidateAfterExecution = refreshCandidateTestIdentityExcluding(
@@ -96,6 +116,20 @@ export async function executeTestWorker(mode: WorkerMode): Promise<Readonly<{
   const thin = thinHeadroom(testExecutionConfig.testCpuClasses, accounting.testCpu, (identity) => `engine/${identity.slice(0, identity.indexOf("::"))}`);
   for (const one of thin) {
     process.stderr.write(`[cpu-headroom] ${one.identity}: ${String(one.cpuMs)} ms of CPU work, over 1/${String(testExecutionConfig.testCpuClasses.headroomFactor)} of its ${one.className} class ceiling (${String(one.ceilingMs)} ms): give its file a measured class\n`);
+  }
+  // THE WORKERS' MEMORY, MEASURED: the run scope's peak against its cap, and
+  // each test file's worker peak (its scope leaf's memory.peak, children
+  // included), largest first: the readings `testExecution.workerMemory` is
+  // derived from. A file whose peak with the headroom passes the whole cap is
+  // a finding for that test (workflow-config.ts `memoryBoundedConcurrency`).
+  if (scopeMemory !== undefined && measured !== undefined) {
+    const largest = measured.files.toSorted((left, right) => right.peakBytes - left.peakBytes);
+    process.stderr.write(`[worker-memory] run scope peak ${String(scopeMemory.peakBytes)} of its ${String(scopeMemory.maxBytes)}-byte cap (host total ${String(totalmem())}); runner leaf peak ${String(measured.runPeakBytes)}; ` +
+      `${String(largest.length)} file worker(s) measured, largest: ${largest.slice(0, 8).map((one) => `${one.file} ${String(one.peakBytes)}`).join(", ") || "none"}\n`);
+    const headroom = testExecutionConfig.workerMemory?.headroomFactor;
+    for (const one of largest.filter((reading) => reading.peakBytes * (headroom ?? 1) > scopeMemory.maxBytes - measured.runPeakBytes)) {
+      process.stderr.write(`[worker-memory] FINDING ${one.file}: its worker peaked at ${String(one.peakBytes)} bytes, which ${headroom === undefined ? "(no headroom declared: judged bare)" : `with the ${String(headroom)}x headroom`} passes what the cap leaves beside the runner: that test must use less memory\n`);
+    }
   }
   // Persist per-file durations so the next run schedules the parallel phase
   // longest-first. Best-effort like the run summary: a write failure must
@@ -160,11 +194,12 @@ function createCheckResult(root: string, testResultReceipt: TestResultReceipt): 
   return deepFreeze({ ...unsigned, integrityHash: canonicalHash(unsigned) });
 }
 
-function parseMode(argv: readonly string[]): WorkerMode {
-  if (argv.length !== 2 || argv[0] !== "--mode" || (argv[1] !== "test" && argv[1] !== "check")) {
-    throw new Error("Usage: test-worker --mode test|check");
+function parseMode(argv: readonly string[]): Readonly<{ mode: WorkerMode; measureWorkerMemory: boolean }> {
+  const measureWorkerMemory = argv.length === 3 && argv[2] === MEASURE_WORKER_MEMORY_FLAG && argv[1] === "test";
+  if ((argv.length !== 2 && !measureWorkerMemory) || argv[0] !== "--mode" || (argv[1] !== "test" && argv[1] !== "check")) {
+    throw new Error(`Usage: test-worker --mode test|check, or --mode test ${MEASURE_WORKER_MEMORY_FLAG}`);
   }
-  return argv[1];
+  return { mode: argv[1], measureWorkerMemory };
 }
 
 if (isEntryPoint(import.meta.url)) {
@@ -186,7 +221,8 @@ if (isEntryPoint(import.meta.url)) {
   refuseRemoteNetworkUnderTest();
   armTestKeyHome();
   try {
-    const execution = await executeTestWorker(parseMode(process.argv.slice(2)));
+    const parsed = parseMode(process.argv.slice(2));
+    const execution = await executeTestWorker(parsed.mode, parsed.measureWorkerMemory);
     writeSync(3, Buffer.from(`${canonicalJson(execution.result)}\n`, "utf8"));
     process.stdout.write(execution.stdout);
     process.stderr.write(execution.stderr);
