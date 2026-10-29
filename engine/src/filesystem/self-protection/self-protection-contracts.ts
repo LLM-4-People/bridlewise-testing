@@ -148,8 +148,6 @@ export const GUARDIAN_SPEC_SCHEMA = z.strictObject({
   network: z.literal("refused").optional(),
   /** The payload's CPU-time ceiling in seconds (RLIMIT_CPU): the kernel ends it by CPU work, never by wall time. */
   cpu_seconds: z.number().int().min(1).max(86_400).optional(),
-  /** The payload's address-space ceiling in bytes (RLIMIT_AS): an allocation past it fails in the kernel. */
-  memory_bytes: z.number().int().min(67_108_864).max(1_099_511_627_776).optional(),
   /** `"refused"`: the payload and its descendants can send no signal to any process (a seccomp filter, on every kernel). Absent: signals are not governed. */
   signals: z.literal("refused").optional(),
 }).superRefine((spec, ctx) => {
@@ -201,8 +199,7 @@ export function flagValidForRuleKind(
  * entry's link hop, target or would-be target, or a mount showing it, lies in
  * a grant of THIS spawn), 11=network_refusal_failed (the seccomp filter of
  * `network: "refused"` or `signals: "refused"` could not be set), 12=cpu_limit_failed (`cpu_seconds`'s
- * RLIMIT_CPU could not be set), 13=memory_limit_failed (`memory_bytes`'s
- * RLIMIT_AS could not be set), 64=usage. Any other exit code is
+ * RLIMIT_CPU could not be set), 64=usage. Any other exit code is
  * the payload's exit code (the guardian execvp'd the payload).
  */
 export const GUARDIAN_BINARY_ERROR_CODES = deepFreeze({
@@ -217,7 +214,6 @@ export const GUARDIAN_BINARY_ERROR_CODES = deepFreeze({
   10: "keep_out_exposed",
   11: "network_refusal_failed",
   12: "cpu_limit_failed",
-  13: "memory_limit_failed",
   64: "usage",
 } as const);
 export type GuardianBinaryExitCode = keyof typeof GUARDIAN_BINARY_ERROR_CODES;
