@@ -648,13 +648,15 @@ pre code {
   background: transparent;
 }
 
+/* A comment keeps its own ink and its own marker, upright: an italic mono face
+   is a file the page fetches after its first paint, and its swap moves the
+   code (the load under stress found it on /cli/). */
 .highlight .c,
 .highlight .c1,
 .highlight .cm,
 .highlight .cs,
 .highlight .cd {
   color: var(--ink-2);
-  font-style: italic;
 }
 
 .highlight .k,

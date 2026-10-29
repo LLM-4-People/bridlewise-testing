@@ -76,8 +76,60 @@ const sessions = new WeakMap<Page, CDPSession>();
 const surfaces = new WeakMap<BrowserContext, Surface>();
 /** Each instrumented context's scope: its surface and the base path its pages are served under (a row's input is built for it). */
 const scopes = new WeakMap<BrowserContext, Scope>();
+/** Contexts judged as the load under stress (instrumentContext's `loadStress`). */
+const stressed = new WeakSet<BrowserContext>();
+/** Each stressed page's document: whether it has first painted, and the requests it holds until it does. */
+const holds = new WeakMap<Page, { painted: boolean; held: (() => void)[] }>();
+
+/** The page's document first painted: everything it held back is released, in the order it was asked for. */
+function painted(page: Page): void {
+  const hold = holds.get(page);
+  if (hold === undefined || hold.painted) return;
+  hold.painted = true;
+  for (const release of hold.held.splice(0)) release();
+}
+
+/**
+ * THE LOAD UNDER STRESS, AS THE BROWSER SEES IT: every font, image and
+ * stylesheet the page's first paint does not wait for (Chrome's own
+ * renderBlockingBehavior) is held until that paint, then released; what the
+ * paint waits for passes at once. So each one lands after the first paint on
+ * every host, by an event, never by a delay a slow host could overrun.
+ */
+async function holdUntilFirstPaint(page: Page, cdp: CDPSession): Promise<void> {
+  const hold = { painted: false, held: [] as (() => void)[] };
+  holds.set(page, hold);
+  const behaviour = new Map<string, string>();
+  const waiting = new Map<string, (blocking: string) => void>();
+  cdp.on("Network.requestWillBeSent", (event: { requestId: string; renderBlockingBehavior?: string }) => {
+    const blocking = event.renderBlockingBehavior ?? "None";
+    behaviour.set(event.requestId, blocking);
+    waiting.get(event.requestId)?.(blocking);
+    waiting.delete(event.requestId);
+  });
+  cdp.on("Fetch.requestPaused", (event: { requestId: string; networkId?: string }) => {
+    const id = event.networkId ?? event.requestId;
+    const known = behaviour.get(id);
+    const decided = known !== undefined ? Promise.resolve(known) : new Promise<string>((resolveBlocking) => waiting.set(id, resolveBlocking));
+    void decided.then((blocking) => {
+      const release = (): void => { cdp.send("Fetch.continueRequest", { requestId: event.requestId }).catch(() => undefined); };
+      if (blocking === "Blocking" || hold.painted) release();
+      else hold.held.push(release);
+    });
+  });
+  // A new document has not painted yet.
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) hold.painted = false;
+  });
+  await cdp.send("Network.enable");
+  await cdp.send("Fetch.enable", { patterns: (["Stylesheet", "Font", "Image"] as const).map((resourceType) => ({ resourceType })) });
+}
 
 function record(page: Page, frame: Frame | null, kind: unknown, value: unknown): void {
+  if (kind === "first-paint") {
+    painted(page);
+    return;
+  }
   const journal = journals.get(page);
   if (journal === undefined) return; // a window the walk did not open: reported when it opens (instrumentContext)
   const known = kind === "canvas-font" || kind === "csp" || kind === "unjudgeable";
@@ -107,7 +159,7 @@ async function recordedOf(page: Page, journal: Journal, closed: readonly string[
  * worker, which no frame or CDP attach reaches, is recorded as it is made, and
  * so is a delayed scheduler.postTask, which the page clock does not run.
  */
-function instrumentFrame(binding: string): void {
+function instrumentFrame(binding: string, countFromLoad: boolean): void {
   const scope = globalThis as unknown as Record<string, unknown>;
   const call = scope[binding];
   if (typeof call !== "function") {
@@ -120,8 +172,10 @@ function instrumentFrame(binding: string): void {
   // lets it, so counting it judged the host, not the page (#632). The judge
   // stops counting while it changes the viewport and the media itself, and
   // counts again through the page's future (judgeFuture): a judge resizing a
-  // page is not the page shifting.
-  const shift = { value: 0, counting: false, set: (on: boolean): void => { void on; } };
+  // page is not the page shifting. Under load stress (judgeLoadStress) the
+  // count is open from the navigation's start: the load's own shifts are what
+  // that pass judges, its order set by the page's first paint, not the host.
+  const shift = { value: 0, counting: countFromLoad, set: (on: boolean): void => { void on; } };
   scope.__renderedShift = shift;
   try {
     const add = (entries: readonly PerformanceEntry[]): void => {
@@ -148,6 +202,15 @@ function instrumentFrame(binding: string): void {
     sent.add(key);
     void (call as (k: string, v: string) => unknown)(kind, value);
   };
+  // Under load stress the top document says when it first painted: what it
+  // held back until then (holdUntilFirstPaint) is released at that moment.
+  if (countFromLoad && window === window.top) {
+    try {
+      new PerformanceObserver((list) => {
+        if (list.getEntries().some((entry) => entry.name === "first-paint")) send("first-paint", "");
+      }).observe({ type: "paint", buffered: true });
+    } catch { /* a frame without paint timing holds nothing back */ }
+  }
   for (const name of ["CanvasRenderingContext2D", "OffscreenCanvasRenderingContext2D"]) {
     const proto = (scope[name] as { prototype: Record<string, unknown> } | undefined)?.prototype;
     const descriptor = proto === undefined ? undefined : Object.getOwnPropertyDescriptor(proto, "font");
@@ -213,7 +276,7 @@ const opening = new WeakMap<BrowserContext, number>();
  * every request rule of `surface` sees every request. A window the page opens
  * itself is reported: only pages opened by `openPage` are judged.
  */
-export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void, base = ""): Promise<void> {
+export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void, base = "", loadStress = false): Promise<void> {
   scopes.set(context, Object.freeze({ surface, base }));
   // NO WALL-CLOCK LIMIT on anything a judgement waits for — a navigation, an action, a wait — set here, once, for
   // every judged context: under host load a slow page is still a page, and Playwright's 30 s defaults would fail
@@ -224,7 +287,8 @@ export async function instrumentContext(context: BrowserContext, surface: Surfac
   surfaces.set(context, surface);
   await context.clock.install();
   await context.exposeBinding(BINDING, ({ page, frame }: { page: Page; frame: Frame }, kind: unknown, value: unknown) => record(page, frame, kind, value));
-  await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)});` });
+  await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)}, ${JSON.stringify(loadStress)});` });
+  if (loadStress) stressed.add(context);
   context.on("page", (page) => {
     const expected = opening.get(context) ?? 0;
     if (expected > 0) opening.set(context, expected - 1);
@@ -289,6 +353,7 @@ export async function openPage(context: BrowserContext): Promise<Page> {
     if (event.targetInfo.type === "worker") record(page, null, "unjudgeable", `a worker (${event.targetInfo.url}): the judgement does not reach inside a worker`);
   });
   await cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: false });
+  if (stressed.has(context)) await holdUntilFirstPaint(page, cdp);
   // A new document starts a new record (what the last one recorded was judged before it was left).
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame()) journal.entries = [];
@@ -672,6 +737,24 @@ export async function judgeFuture(page: Page, surface: Surface, rules?: readonly
 
 const statesOf = (surface: Surface): readonly RenderState[] => RENDER_STATES.filter((s) => s.surfaces.includes(surface));
 
+/**
+ * THE LOAD UNDER STRESS: `page`, opened in a context instrumented with
+ * `loadStress`, has had every font, image and stylesheet its first paint did
+ * not wait for held until that paint (holdUntilFirstPaint), and its shift
+ * count open from the navigation's start. Once it is ready and a frame is
+ * drawn, the layout-shift row judges what the load moved: a web font's swap,
+ * a late image without set dimensions, a stylesheet applied after the first
+ * paint. The order is set by events, so the result is the same on every
+ * host. The page's clock is held (navigate), so its timers' shifts are the
+ * main judgement's, not counted here twice.
+ */
+export async function judgeLoadStress(page: Page, surface: Surface): Promise<readonly string[]> {
+  await ready(page);
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  const rows = RENDERED_RULES.filter((rule): rule is PageRule => rule.kind === "page" && rule.id === "layout-shift");
+  return (await judgePage(page, surface, rows)).map((finding) => `(the load under stress) ${finding}`);
+}
+
 async function enter(page: Page, state: RenderState): Promise<void> {
   if (state.viewport !== undefined) await page.setViewportSize({ ...state.viewport });
   await page.emulateMedia({ media: state.media, reducedMotion: state.reducedMotion, ...(state.colorScheme === undefined ? {} : { colorScheme: state.colorScheme }) });
@@ -765,6 +848,19 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
       }
       await context.close();
     }
+    // The load under stress, once per page (the lead theme): every font, image
+    // and stylesheet the first paint does not wait for lands after it, shifts
+    // counted from the start.
+    const stressed = await browser.newContext({ serviceWorkers: "block" });
+    let current = "";
+    await instrumentContext(stressed, "site", origin, (finding) => findings.add(`${current} [logbook, load stress]: ${finding}`), baseurl, true);
+    const page = await openPage(stressed);
+    for (const path of pages) {
+      current = path;
+      await navigate(page, `${origin}${path}`);
+      for (const finding of await judgeLoadStress(page, "site")) findings.add(`${path} [logbook] ${finding}`);
+    }
+    await stressed.close();
   } finally {
     await browser.close();
     await new Promise<void>((done) => server.close(() => done()));
