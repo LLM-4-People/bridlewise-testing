@@ -367,6 +367,38 @@ function networkInstallViolations(workflow) {
   return violations;
 }
 
+/**
+ * The forge is the ONE label writer (`harness forge apply`, from
+ * docs/community/labels.json): a workflow uses a declared label and never
+ * creates, edits or deletes one, in a step's script (`gh label create|edit|
+ * delete|clone`, a write to a labels endpoint through `gh api` or `curl`) or
+ * an actions/github-script call (`createLabel`, `updateLabel`, `deleteLabel`).
+ * Applying a declared label to an issue (`…/issues/{n}/labels`) is no label write.
+ */
+const LABEL_WRITES = [
+  /\bgh\s+label\s+(?:create|edit|delete|clone)\b/u,
+  /\b(?:gh\s+api|curl)\b[^\n]{0,400}?(?<!issues\/[^\/\s]{1,40})\/labels\b[^\n]{0,400}?(?:-X|--method|--request)\s*['"]?(?:POST|PATCH|PUT|DELETE)\b/iu,
+  /\b(?:gh\s+api|curl)\b[^\n]{0,400}?(?:-X|--method|--request)\s*['"]?(?:POST|PATCH|PUT|DELETE)\b[^\n]{0,400}?(?<!issues\/[^\/\s]{1,40})\/labels\b/iu,
+  /\bgh\s+api\b[^\n]{0,400}?(?<!issues\/[^\/\s]{1,40})\/labels\b[^\n]{0,400}?\s(?:-f|-F|--field|--raw-field|--input)\s/u,
+  /\b(?:createLabel|updateLabel|deleteLabel)\s*\(/u,
+];
+
+function labelWriteViolations(workflow) {
+  const { unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  const document = parseDocument(workflow.text).toJS() ?? {};
+  const violations = [];
+  for (const [jobName, job] of Object.entries(document.jobs ?? {})) {
+    for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
+      const scripts = [step?.run, step?.with?.script].filter((text) => typeof text === "string").map((text) => text.replace(/\\\r?\n\s*/gu, " "));
+      if (scripts.some((text) => LABEL_WRITES.some((pattern) => pattern.test(text)))) {
+        violations.push(`${workflow.path}: jobs.${jobName}.steps[${String(index)}] writes a label; the forge is the one label writer (declare it in docs/community/labels.json)`);
+      }
+    }
+  }
+  return violations;
+}
+
 /** Literal group prefixes shared by two workflows cancel each other's pull-request runs. */
 function sharedGroupPrefixes(workflows) {
   const owners = new Map();
@@ -678,5 +710,37 @@ test("network installs are refused in any spelling; probes and near misses pass"
     "TMPDIR=\"$RUNNER_TEMP/bw\" npm --prefix engine test", "npm install $PACKAGE", "cd \"$WORKDIR\" || exit 1", "$CC -o out file.c",
   ]) {
     assert.deepEqual(plant(run), [], run);
+  }
+});
+
+test("no live workflow writes a label: the forge is the one label writer", () => {
+  assert.deepEqual(liveWorkflows().flatMap(labelWriteViolations), []);
+});
+
+test("label writes are refused in a script or github-script; reading or applying a declared label passes", () => {
+  const plant = (step) => labelWriteViolations({ path: ".github/workflows/plant.yml", text: `on: push\njobs:\n  j:\n    runs-on: x\n    steps:\n${step}\n` });
+  const run = (text) => plant(`      - run: |\n${text.split("\n").map((line) => `          ${line}`).join("\n")}`);
+  for (const text of [
+    "gh label create ci-failure --color B60205 || true",
+    "gh label \\\n  create ci-failure",
+    "gh label edit ci-failure --color 000000",
+    "gh label delete stale --yes",
+    "gh label clone other/repo",
+    "gh api repos/o/r/labels -f name=x -f color=ffffff",
+    "gh api -X POST repos/o/r/labels -f name=x",
+    "gh api --method PATCH repos/o/r/labels/x -f color=000000",
+    "curl -X DELETE https://api.github.com/repos/o/r/labels/x",
+  ]) {
+    assert.equal(run(text).length, 1, text);
+  }
+  assert.equal(plant("      - uses: actions/github-script@v7\n        with:\n          script: |\n            await github.rest.issues.createLabel({ owner, repo, name: 'x' });").length, 1);
+  for (const text of [
+    "gh api \"repos/${GH_REPO}/labels/ci-failure\" --silent",
+    "gh issue list --label ci-failure --state open",
+    "gh issue create --label ci-failure --title t --body b",
+    "gh issue edit 3 --add-label ci-failure",
+    "gh api repos/o/r/issues/3/labels -f 'labels[]=ci-failure'",
+  ]) {
+    assert.deepEqual(run(text), [], text);
   }
 });

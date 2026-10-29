@@ -48,9 +48,9 @@ folder owns what they are told and who may do what.
   one declaration of every label but the forge's `area:` ones (community,
   Dependabot, lanes, the forge's markers), each with its colour and
   description; `readLabels` validates it for `harness check` and for the
-  forge, and `parseLabels` reads it from a commit's text (the projector's
-  source commit) through the same parser (`parseCommunitySource`), whose `harness forge apply` is the one writer and `plan`/`audit` the
-  one drift report.
+  forge, whose `harness forge apply` is the one writer and `plan`/`audit` the
+  one drift report. No workflow and no projector writes a label: they apply
+  declared ones, and a missing one is a loud failure.
 - `commands.ts` — THE ISSUEOPS COMMANDS: the one registry (`/help`, `/status`,
   `/accept`, `/decline`, `/duplicate`, `/explain`: each one's
   minimum role, where it works, its usage and summary), `parseCommandLine` (a

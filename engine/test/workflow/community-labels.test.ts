@@ -6,13 +6,13 @@
  * audit here.
  */
 import assert from "node:assert/strict";
-import { cpSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
-import { LABELS_PATH, parseLabels, readLabels } from "../../src/workflow/community/labels.ts";
+import { LABELS_PATH, readLabels } from "../../src/workflow/community/labels.ts";
 import { withTempDir } from "../support/temp-dir.ts";
 
 const REPOSITORY = dirname(fileURLToPath(new URL("../../", import.meta.url)));
@@ -33,9 +33,12 @@ test("the declaration refuses a colour GitHub would not store and a name declare
   });
 });
 
-test("the declaration read from a commit's text is the same reader, refusing the same way", () => {
-  const text = readFileSync(join(REPOSITORY, LABELS_PATH), "utf8");
-  assert.deepEqual(parseLabels(text), readLabels(REPOSITORY), "the text at a commit and the file on disk read alike");
-  assert.throws(() => parseLabels("{not json"), (error: unknown) => error instanceof HarnessError && error.code === "community_source_invalid" && error.message.includes(LABELS_PATH));
-  assert.throws(() => parseLabels(JSON.stringify({ schema: "bridlewise-community-labels/v1", labels: [{ name: "x", color: "XYZ", description: "" }] })), (error: unknown) => error instanceof HarnessError && error.code === "community_source_invalid");
+test("a declaration that is not JSON, or is missing, is refused before anything reads it", () => {
+  withTempDir("community-labels-", (root) => {
+    cpSync(join(REPOSITORY, "docs/community"), join(root, "docs/community"), { recursive: true });
+    writeFileSync(join(root, LABELS_PATH), "{not json");
+    assert.throws(() => readLabels(root), (error: unknown) => error instanceof HarnessError && error.code === "community_source_invalid" && error.message.includes(LABELS_PATH));
+    rmSync(join(root, LABELS_PATH));
+    assert.throws(() => readLabels(root), (error: unknown) => error instanceof HarnessError && error.code === "community_source_invalid" && error.message.includes("missing"));
+  });
 });
