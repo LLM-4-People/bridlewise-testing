@@ -277,3 +277,16 @@ test("the door hands node EXACTLY its own argv — the key-home and bounds' prel
   assert.ok(mainBody.includes("args: doorNodeArgs(bounds, door)"), "main hands node the door's own argv");
   assert.ok(!mainBody.includes("process.argv.slice(2)]") && !mainBody.includes("...process.argv"), "main never spreads the arguments it was given into node's argv");
 });
+
+test("the LIVE door runs only the live suite, unconfined: a run mixing a hermetic file, or a module-loading flag beside a live file, is refused before anything runs", () => {
+  const door = (...args: string[]): ReturnType<typeof spawnSync> =>
+    spawnSync(process.execPath, ["--experimental-strip-types", join(ROOT, "scripts", "tooling", "test-guards.ts"), ...args], { cwd: ROOT, encoding: "utf8" });
+  const mixed = door("live/provider-smoke.test.ts", "test/process/confinement-canary.test.ts");
+  assert.equal(mixed.status, 1);
+  assert.ok(String(mixed.stderr).includes("test_live_suite_mixed"), String(mixed.stderr));
+  for (const flag of ["--import=test/process/confinement-canary.test.ts", "--require=test/process/confinement-canary.test.ts", "--test-reporter=test/process/confinement-canary.test.ts"]) {
+    const loaded = door(flag, "live/provider-smoke.test.ts");
+    assert.equal(loaded.status, 1, flag);
+    assert.ok(String(loaded.stderr).includes("test_live_suite_code_flag"), `${flag}: ${String(loaded.stderr)}`);
+  }
+});

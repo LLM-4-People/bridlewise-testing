@@ -45,6 +45,7 @@ import { fileURLToPath } from "node:url";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { testRunSuiteOf } from "../../src/filesystem/checkout-write-door.ts";
+import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { repositoryToplevel } from "../../src/git/repository-ownership.ts";
 import { runTestCommand, superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
@@ -56,6 +57,9 @@ import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** The run's key-home preload (`node --import`): armed INSIDE the run, in its own scratch; each file inherits it. */
+/** The node flags that load a module (the checkout write door's one list). */
+const NODE_CODE_OPTIONS: ReadonlySet<string> = new Set(ROOT_POLICY.verification.checkoutWriteDoor.nodeCodeOptions);
+
 const KEY_HOME_PRELOAD = fileURLToPath(new URL("../../test/support/arm-test-key-home.ts", import.meta.url));
 
 /**
@@ -146,6 +150,14 @@ export async function main(): Promise<void> {
   const suite = testRunSuiteOf(door.files, join(ENGINE_ROOT, "live"));
   if (typeof suite !== "string") {
     process.stderr.write(`[test-guards] REFUSED (${suite.refused})\n`);
+    process.exitCode = 1;
+    return;
+  }
+  // A live run is unconfined: a flag that loads a module of the caller's choosing (`--import=<a hermetic test>`)
+  // would run code outside the live suite unconfined beside it. Refused by name, whatever module it names.
+  const codeFlags = door.flags.filter((flag) => NODE_CODE_OPTIONS.has(flag.split("=", 1)[0]!));
+  if (suite === "live" && codeFlags.length > 0) {
+    process.stderr.write(`[test-guards] REFUSED (test_live_suite_code_flag: a live run is unconfined and loads no module the caller names: ${codeFlags.join(" ")})\n`);
     process.exitCode = 1;
     return;
   }
