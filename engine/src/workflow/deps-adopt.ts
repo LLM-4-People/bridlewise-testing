@@ -86,15 +86,23 @@ function canonical(value: unknown): string {
  */
 const REGISTRY_SPEC = /^(\^|~|)(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 
+/** Spec schemes that name a git host's ref. */
+const GIT_SCHEMES: readonly string[] = deepFreeze(["git:", "github:", "gitlab:", "bitbucket:", "gist:"]);
+
 /** The name of a spec's form, for a refusal: what it would fetch instead of a registry version. */
 function specForm(spec: string): string {
-  if (spec.startsWith("npm:")) return "an alias to another package (npm:)";
-  if (/^(?:git\+|git:|github:|gitlab:|bitbucket:|gist:)/u.test(spec) || /^[^@\s/:]+\/[^\s/#]+(?:#\S*)?$/u.test(spec)) return "a git or GitHub ref";
-  if (spec.startsWith("file:") || spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("~/")) return "a local file (file:)";
-  if (spec.startsWith("link:")) return "a link (link:)";
-  if (spec.startsWith("workspace:")) return "a workspace (workspace:)";
-  if (/^[a-z][a-z0-9+.-]*:/iu.test(spec)) return "a URL";
-  if (/^[A-Za-z][\w.-]*$/u.test(spec)) return "a dist-tag";
+  // The spec taken apart, never matched against a pattern: its scheme (up to the first colon), then a slash or hash.
+  const colon = spec.indexOf(":");
+  const scheme = colon === -1 ? "" : spec.slice(0, colon + 1).toLowerCase();
+  if (scheme === "npm:") return "an alias to another package (npm:)";
+  if (scheme === "file:" || spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("~/")) return "a local file (file:)";
+  if (scheme === "link:") return "a link (link:)";
+  if (scheme === "workspace:") return "a workspace (workspace:)";
+  if (GIT_SCHEMES.includes(scheme) || spec.startsWith("git+")) return "a git or GitHub ref";
+  if (scheme !== "") return "a URL";
+  if (spec.includes("/") || spec.includes("#")) return "a git or GitHub ref";
+  const first = spec.charAt(0).toLowerCase();
+  if (first >= "a" && first <= "z" && !spec.includes(" ")) return "a dist-tag";
   return "a range that is not exact, ^ or ~";
 }
 
