@@ -752,6 +752,44 @@
   --row-h: calc(var(--sp-unit) * 11); /* deep: 44px */
 }
 
+/* ── THE PUBLIC PAGE — the Pages site, the README images, the social cards ──
+ *
+ * The same design system, read by the surfaces outside the cockpit through
+ * the one reader (`shared/token-reader.ts`): the site loads a sheet generated
+ * from this file (only the tokens its stylesheets read), and every generated
+ * SVG or PNG takes its colours from here. Nothing below is a second palette:
+ * these are the few measures a READING page needs that an operating cockpit
+ * does not — a page width, a prose measure, a reading type ramp and the one
+ * display size the landing's promise is set in. Colour, faces, space, rules,
+ * radii and motion are the cockpit's own tokens, unchanged.
+ *
+ * Reading ramp: a fixed rem scale (a reader views at a steady DPI), one step
+ * of about 1.25 between levels, body at 17px for long reading on paper.
+ * The display size is the only fluid one: the promise is set as large as the
+ * viewport allows and never past 6rem. */
+:root {
+  --page-max: 1180px; /* the page's column, header to footer */
+  --page-gutter: clamp(16px, 4vw, 40px); /* side margin; 16px at phone width */
+  --page-measure: 68ch; /* running prose */
+  --page-header-h: 64px;
+  --page-section-gap: calc(var(--sp-unit) * 24); /* between a page's major sections */
+  --f-page-size: 1.0625rem;
+  --f-page-lh: 1.65;
+  --f-page-h1: 2.5rem;
+  --f-page-h2: 1.625rem;
+  --f-page-h3: 1.25rem;
+  --f-page-heading-track: -0.02em;
+  --f-hero-size: clamp(2.75rem, 1.4rem + 6vw, 5.75rem);
+  --f-hero-track: -0.04em;
+  --f-hero-lh: 1;
+  --f-lede-size: clamp(1.125rem, 1rem + 0.5vw, 1.3125rem);
+  /* The page's few mixed inks, declared here once so a page computes only
+     token values (the rendered judge holds every colour to this file). */
+  --page-link-underline: color-mix(in srgb, var(--accent) 45%, transparent);
+  --page-button-hover: color-mix(in srgb, var(--ink-1) 88%, var(--ground-0));
+  --page-scrim: color-mix(in srgb, var(--ink-1) 28%, transparent);
+}
+
 /* ── Light — "logbook": warm paper, a real theme, every token re-derived. */
 :root[data-cockpit-theme="light"] {
   --ground-0: #f6f4ef;

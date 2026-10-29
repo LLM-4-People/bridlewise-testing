@@ -4,10 +4,11 @@ import {
   latestByWorkflow,
   listReleases,
   readFailureCode,
+  workflowJobs,
   workflowRuns,
 } from "../../engine/src/workflow/forge/repository-reads.ts";
 import { repoInfo } from "./files.mjs";
-import { REPOSITORY } from "./repository.mjs";
+import { DEFAULT_BRANCH, REPOSITORY } from "./repository.mjs";
 
 export const STATUS_SCHEMA = "bridlewise-floor-status/v1";
 
@@ -22,6 +23,21 @@ const REQUIRED = [
   { id: "pages", label: "Pages", workflow: "Docs site", required: false },
 ];
 
+/**
+ * THE RUNS THAT REPORT MAIN'S COMMIT: a status workflow's run on `main`
+ * itself (a push, a schedule, a dispatch). The merge queue's run at the same
+ * commit (its branch is `gh-readonly-queue/…`) proves the queue's candidate,
+ * and its completion fires nothing on `main`. The status, the rebuild
+ * trigger and the rebuild gate (`rebuild-gate.mjs`) all count these runs
+ * and no other.
+ */
+export const MAIN_RUN_BRANCHES = Object.freeze([DEFAULT_BRANCH]);
+
+/** Whether `run` (`{ headBranch }`) reports main's commit ({@link MAIN_RUN_BRANCHES}). */
+export function reportsMain(run) {
+  return MAIN_RUN_BRANCHES.includes(run.headBranch);
+}
+
 function durationMs(run) {
   if (!run?.createdAt || !run?.updatedAt) return null;
   const start = Date.parse(run.createdAt);
@@ -30,18 +46,24 @@ function durationMs(run) {
   return end - start;
 }
 
-function checkFromRun(definition, run, repositoryCommit) {
+/**
+ * One workflow's check at `repositoryCommit` from its latest run there.
+ * `runsRead` is whether GitHub answered the run list: no run in an answer is
+ * a workflow that did not run at this commit (`not-run`); no answer at all
+ * says nothing (`unknown`). A run still going is `unknown` too.
+ */
+function checkFromRun(definition, run, repositoryCommit, runsRead) {
   if (!run) {
     return {
       id: definition.id,
       label: definition.label,
-      status: "unknown",
+      status: runsRead ? "not-run" : "unknown",
       required: definition.required,
       conclusion: null,
       headSha: null,
       runUrl: null,
       durationMs: null,
-      note: "No run was returned for this workflow.",
+      note: runsRead ? "This workflow did not run at this commit." : "The API did not answer for the workflow runs.",
     };
   }
   let status = "unknown";
@@ -116,6 +138,15 @@ function securityCheck(id, label, result, required) {
   };
 }
 
+/** Why a run's jobs could not be reported, by the read's typed failure — each cause in its own words. */
+const JOBS_NOTES = Object.freeze({
+  authentication: () => "The build token could not read this run's jobs.",
+  oversized: (maxPages) => `This run has more jobs than ${String(maxPages)} page(s) of 100 hold (forge.request.maxPages); none is reported rather than a partial list.`,
+  unavailable: () => "The API did not answer for this run's jobs.",
+  timeout: () => "The API did not answer for this run's jobs.",
+  "api-error": () => "The API did not answer for this run's jobs.",
+});
+
 function settled(result, code = "api-error") {
   if (result.status === "fulfilled") return { ok: true, value: result.value };
   return { ok: false, code: readFailureCode(result.reason) === "authentication" ? "authentication" : code };
@@ -143,7 +174,9 @@ export async function buildStatus({
   const [runsResult, codeResult, dependencyResult, releasesResult, productResult] = offline
     ? [offlineResult, offlineResult, offlineResult, offlineResult, offlineResult]
     : await Promise.allSettled([
-        workflowRuns(client, REPOSITORY),
+        // The runs AT the source commit: the newest run of a workflow may be
+        // a pull request's or the merge queue's, which proves nothing here.
+        workflowRuns(client, REPOSITORY, source.commit),
         countOpenAlerts(client, REPOSITORY, "code-scanning"),
         countOpenAlerts(client, REPOSITORY, "dependabot"),
         listReleases(client, REPOSITORY, maxPages),
@@ -155,9 +188,24 @@ export async function buildStatus({
   const dependencies = settled(dependencyResult);
   const releases = settled(releasesResult);
   const product = settled(productResult);
-  const latest = runs.ok ? latestByWorkflow(runs.value) : new Map();
+  const latest = runs.ok ? latestByWorkflow(runs.value.filter(reportsMain)) : new Map();
 
-  const checks = REQUIRED.map((definition) => checkFromRun(definition, latest.get(definition.workflow), source.commit));
+  const checks = REQUIRED.map((definition) => checkFromRun(definition, latest.get(definition.workflow), source.commit, runs.ok));
+  // Each job's own conclusion, for every workflow run at the source commit, so a claim can be bound to the
+  // job that proves it (a workflow passing says nothing about which of its jobs ran what). A run at another
+  // commit, or offline, has no jobs to report; a read that fails says so, never an empty list.
+  await Promise.all(checks.map(async (check) => {
+    const run = latest.get(REQUIRED.find((definition) => definition.id === check.id).workflow);
+    if (offline || run === undefined || run.headSha !== source.commit) {
+      check.jobs = null;
+      return;
+    }
+    const [answer] = await Promise.allSettled([workflowJobs(client, REPOSITORY, run.id, maxPages)]);
+    check.jobs = answer.status === "fulfilled"
+      ? answer.value.map((job) => ({ name: job.name, status: job.status, conclusion: job.conclusion, url: job.url })).sort((left, right) => String(left.name).localeCompare(String(right.name)))
+      : null;
+    if (answer.status === "rejected") check.jobsNote = JOBS_NOTES[readFailureCode(answer.reason)](maxPages);
+  }));
   checks.push(
     securityCheck("code_scanning", "Code scanning", codeScanning, true),
     securityCheck("dependabot", "Dependabot", dependencies, true),
@@ -219,3 +267,14 @@ export async function buildStatus({
     counts: counts ?? null,
   };
 }
+
+/**
+ * The workflow checks this status reports, each by its id and its workflow's
+ * name, derived from its own definition: the one vocabulary a claim in
+ * `docs/brand/claims.json` may bind (the register's validator refuses any
+ * other id, so no claim can wait on a check that is never reported).
+ */
+export const STATUS_CHECKS = Object.freeze(REQUIRED.map(({ id, workflow }) => Object.freeze({ id, workflow })));
+
+/** The site's own workflow (`.github/workflows/pages.yml`), as {@link STATUS_CHECKS} names it. */
+export const SITE_WORKFLOW = STATUS_CHECKS.find((check) => check.id === "pages").workflow;

@@ -15,7 +15,8 @@
       {
         "type": "max_file_size",
         "parameters": {
-          "max_file_size": 10
+          "max_file_size": 10,
+          "ignored_file_paths": []
         }
       },
       {
@@ -43,7 +44,8 @@
             "**/secrets/**",
             "**/.bridlewise/**",
             "**/tokens/**"
-          ]
+          ],
+          "ignored_file_paths": []
         }
       }
     ]

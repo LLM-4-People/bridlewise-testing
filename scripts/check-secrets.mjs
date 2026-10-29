@@ -60,7 +60,7 @@ import { relative, resolve } from "node:path";
 // The canonical owner of the secret-file vocabulary. See the module comment:
 // the import is the point, not a convenience.
 import { isSecretFile } from "../engine/src/privacy/secret-files.ts";
-import { publicationPrivacyFindings, treeScannedSignals } from "../engine/src/privacy/secret-signals.ts";
+import { collapsedPathText, publicationPrivacyFindings, treeScannedSignals } from "../engine/src/privacy/secret-signals.ts";
 // The licence boundary over the tree (no GPL-licensed bytes committed): the
 // same walk asks it about every line, and its reviewed allowlist is the only
 // admission.
@@ -116,22 +116,16 @@ function walk(dir) {
   return out;
 }
 
-/**
- * The spellings one filesystem location can be published under, reduced to
- * one: repeated slashes and `.` segments both name the same place to every
- * consumer of the text. Matching the raw line missed the first.
+/*
+ * The spellings one filesystem location can be published under are reduced to
+ * one by the catalogue (`collapsedPathText`: repeated slashes, `.` segments).
  *
- * JSON-escaped slashes (`\/`, `\u002f`) are NOT decoded here, because that
- * would rewrite ordinary source code (a regex literal spelling a path) into a
- * path and flag the scanner's own rule table. They are decoded the honest
- * way: a file whose whole content parses as JSON has every string value
+ * JSON-escaped slashes (`\/`, `\u002f`) are NOT decoded on a raw line, because
+ * that would rewrite ordinary source code (a regex literal spelling a path)
+ * into a path and flag the scanner's own rule table. They are decoded the
+ * honest way: a file whose whole content parses as JSON has every string value
  * scanned below, where the escape is already resolved.
  */
-function normalizePathText(text) {
-  return text
-    .replace(/\/{2,}/gu, "/")
-    .replace(/\/\.\//gu, "/");
-}
 
 const findings = [];
 
@@ -156,7 +150,7 @@ function jsonStrings(value, out = []) {
 
 /**
  * Scan the DECODED string values of a JSON document as well as its raw lines.
- * `{"home":"\/home\/leakuser\/work"}` and the `\u002f` spelling name the
+ * `{"home":"\/home\/<name>\/work"}` and the `\u002f` spelling name the
  * same path as the plain form, but the raw bytes never look like one.
  */
 function scanJsonDocument(path, text) {
@@ -196,7 +190,7 @@ function scanText(path, lineNumber, line) {
     // No tree is exempt: a test tree may not carry GPL text either.
     if (!REVIEWED_GPL_TEXT.has(path)) report(path, lineNumber, "gpl-licence-text", `GPL-licensed text (${marker.marker}: ${marker.text}); this AGPL tree carries no GPL bytes — fetch it for testing (the corpus) or add a reviewed entry to engine/scripts/verification/licence-boundary.ts`);
   }
-  const normalizedLine = normalizePathText(line);
+  const normalizedLine = collapsedPathText(line);
   for (const signal of publicationPrivacyFindings(normalizedLine, "text")) {
     report(path, lineNumber, signal.id, signal.description);
   }
@@ -214,7 +208,7 @@ function scanText(path, lineNumber, line) {
  * run over the normalized path too (including every directory component).
  */
 function scanPath(path) {
-  const normalized = normalizePathText(path.split("\\").join("/"));
+  const normalized = collapsedPathText(path.split("\\").join("/"));
   for (const signal of publicationPrivacyFindings(normalized, "text")) {
     report(normalized, 0, signal.id, `${signal.description} in a file path`);
   }
@@ -325,7 +319,7 @@ async function scanRegularFile(path) {
 }
 
 for (const path of trackedFiles()) {
-  const normalized = normalizePathText(path.split("\\").join("/"));
+  const normalized = collapsedPathText(path.split("\\").join("/"));
   scanPath(normalized);
 
   let stats;

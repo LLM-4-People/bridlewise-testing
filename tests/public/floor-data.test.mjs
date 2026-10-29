@@ -10,6 +10,7 @@ import { parse } from "yaml";
 
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
 import { buildStatus } from "../../scripts/floor/status.mjs";
+import { repoInfo } from "../../scripts/floor/files.mjs";
 import { memoryCredential } from "../../engine/src/workflow/forge/credentials.ts";
 import { githubClient } from "../../engine/src/workflow/forge/github.ts";
 import { fakeGithub } from "../../engine/test/forge/fake-github.ts";
@@ -88,7 +89,8 @@ test("the one site's source is this tree's docs/, with no second repository", as
     assert.match(readFileSync(join(out, "floor/roadmap.md"), "utf8"), /\]\(\/bridlewise\/trackers\/TASKS\/\)/u);
     // The mirror landing is gone; its URL is a redirect to the front door.
     assert.equal(existsSync(join(out, "product.md")), false);
-    assert.match(readFileSync(join(out, "product/index.html"), "utf8"), /location\.replace\("\/bridlewise\/"\)/u);
+    assert.match(readFileSync(join(out, "product/index.html"), "utf8"), /<script src="moved\.js"><\/script>/u, "a moved page forwards through a file (no inline script under the policy)");
+    assert.equal(readFileSync(join(out, "product/moved.js"), "utf8"), 'location.replace("/bridlewise/");\n');
     assert.ok(result.pages > 100);
     assert.deepEqual(result.versions, []);
   } finally {
@@ -159,6 +161,76 @@ test("the floor status reports the product branch of this repository", async () 
     assert.equal(status.promotion.profile, "main-to-product");
     assert.match(status.promotion.reason, reason);
   }
+});
+
+test("each workflow run at the source commit reports its jobs' own conclusions; a run at another commit, or a failed read, reports none", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const run = (id, name, headSha) => ({ id, name, path: `.github/workflows/${id}.yml`, status: "completed", conclusion: "success", head_sha: headSha, head_branch: "main", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
+  const job = (name, conclusion) => ({ id: name.length, name, status: "completed", conclusion, html_url: `https://example.invalid/jobs/${name}` });
+  const { requested, client } = forgeClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [run(11, "CI", commit), run(12, "CodeQL", "0".repeat(40)), run(13, "Secret scan", commit)] } };
+    if (request.path.endsWith("/actions/runs/11/jobs")) {
+      assert.equal(request.query.get("filter"), "latest", "the latest attempt's jobs");
+      return { body: { total_count: 2, jobs: [job("Web shard 1", "success"), job("Engine suite", "failure")] } };
+    }
+    if (request.path.endsWith("/actions/runs/13/jobs")) return { status: 500, body: { message: "boom" } };
+    if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+    return { body: [] };
+  });
+  const status = await buildStatus({ root: ROOT, client, maxPages: 5, now: new Date("2026-01-01T00:00:00.000Z") });
+  const check = (id) => status.checks.find((entry) => entry.id === id);
+  assert.deepEqual(check("ci").jobs, [
+    { name: "Engine suite", status: "completed", conclusion: "failure", url: "https://example.invalid/jobs/Engine suite" },
+    { name: "Web shard 1", status: "completed", conclusion: "success", url: "https://example.invalid/jobs/Web shard 1" },
+  ]);
+  assert.equal(check("codeql").jobs, null, "a run at another commit proves nothing about this one");
+  assert.ok(!requested.some((path) => path.endsWith("/actions/runs/12/jobs")), "no jobs are read for a run at another commit");
+  assert.equal(check("secret").jobs, null);
+  assert.equal(check("secret").jobsNote, "The API did not answer for this run's jobs.");
+  assert.equal(check("docs").jobs, null, "no run, no jobs");
+});
+
+test("the checks are read from the runs AT the source commit: none there is not-run, a run still going is unknown, no answer is unknown (#675)", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const run = (id, name, status, headBranch = "main", conclusion = status === "completed" ? "success" : null, createdAt = "2026-01-01T00:00:00Z") => ({ id, name, path: `.github/workflows/${id}.yml`, event: headBranch === "main" ? "push" : "merge_group", status, conclusion, head_sha: commit, head_branch: headBranch, created_at: createdAt, updated_at: "2026-01-01T00:05:00Z", html_url: `https://example.invalid/runs/${id}` });
+  const statuses = async (runs) => {
+    const queries = [];
+    const { client } = forgeClient((request) => {
+      if (request.path.endsWith("/actions/runs")) {
+        queries.push(request.query.get("head_sha"));
+        return runs;
+      }
+      if (request.path.endsWith("/jobs")) return { body: { total_count: 0, jobs: [] } };
+      if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+      return { body: [] };
+    });
+    const status = await buildStatus({ root: ROOT, client, maxPages: 5, now: new Date("2026-01-01T00:00:00.000Z") });
+    assert.deepEqual(queries, [commit], "the run list is asked for this commit's runs, never the newest of any branch");
+    return Object.fromEntries(status.checks.filter((check) => ["ci", "codeql", "docs", "secret"].includes(check.id)).map((check) => [check.id, check.status]));
+  };
+  assert.deepEqual(await statuses({ body: { workflow_runs: [run(1, "CI", "completed"), run(2, "CodeQL", "in_progress"), run(3, "Secret scan", "completed")] } }), { ci: "pass", codeql: "unknown", docs: "not-run", secret: "pass" });
+  assert.deepEqual(await statuses({ status: 500, body: { message: "boom" } }), { ci: "unknown", codeql: "unknown", docs: "unknown", secret: "unknown" });
+  // main's commit is the merge queue's commit: the queue's runs there (newer, red, or the only one) report the queue, not main.
+  const queue = "gh-readonly-queue/main/pr-1-0123456789abcdef0123456789abcdef01234567";
+  assert.deepEqual(await statuses({ body: { workflow_runs: [run(1, "CI", "completed"), run(4, "CI", "completed", queue, "failure", "2026-01-02T00:00:00Z"), run(5, "Docs links", "completed", queue)] } }), { ci: "pass", codeql: "not-run", docs: "not-run", secret: "not-run" });
+});
+
+test("a run with more jobs than the page bound holds says so in its own words, never as an API that did not answer", async () => {
+  const commit = repoInfo(ROOT).commit;
+  const path = (page) => `/repos/${REPOSITORY}/actions/runs/21/jobs?filter=latest&per_page=100&page=${page}`;
+  const { client } = forgeClient((request) => {
+    if (request.path.endsWith("/actions/runs")) return { body: { workflow_runs: [{ id: 21, name: "CI", status: "completed", conclusion: "success", head_sha: commit, head_branch: "main", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:05:00Z", html_url: "https://example.invalid/runs/21" }] } };
+    if (request.path.endsWith("/actions/runs/21/jobs")) {
+      const page = Number(request.query.get("page") ?? "1");
+      return { body: { total_count: 300, jobs: [{ id: page, name: `job ${page}`, status: "completed", conclusion: "success", html_url: "https://example.invalid/j" }] }, link: `<${path(page + 1)}>; rel="next"` };
+    }
+    if (request.path.includes("/branches/")) return { body: { commit: { sha: "abc", commit: { committer: { date: null } } } } };
+    return { body: [] };
+  });
+  const status = await buildStatus({ root: ROOT, client, maxPages: 2, now: new Date("2026-01-01T00:00:00.000Z") });
+  const ci = status.checks.find((entry) => entry.id === "ci");
+  assert.equal(ci.jobs, null, "a partial job list is never reported");
+  assert.equal(ci.jobsNote, "This run has more jobs than 2 page(s) of 100 hold (forge.request.maxPages); none is reported rather than a partial list.");
 });
 
 const lowAlert = (number) => ({ number, state: "open", rule: { security_severity_level: "low" } });

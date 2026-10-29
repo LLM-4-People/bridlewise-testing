@@ -36,7 +36,8 @@ import { parseArgs } from "node:util";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Frame, type Page } from "playwright-core";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
-import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type RenderState, type RequestRule, type Surface } from "./rules.ts";
+import { SERVED_HTML, SITE_THEME_STORAGE } from "../../shared/site-page.ts";
+import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type Scope, type RenderState, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
   readonly code: string;
@@ -73,6 +74,8 @@ const journals = new WeakMap<Page, Journal>();
 const sessions = new WeakMap<Page, CDPSession>();
 /** The surface each instrumented context judges (a frame exclusion is declared per surface). */
 const surfaces = new WeakMap<BrowserContext, Surface>();
+/** Each instrumented context's scope: its surface and the base path its pages are served under (a row's input is built for it). */
+const scopes = new WeakMap<BrowserContext, Scope>();
 
 function record(page: Page, frame: Frame | null, kind: unknown, value: unknown): void {
   const journal = journals.get(page);
@@ -183,7 +186,8 @@ const opening = new WeakMap<BrowserContext, number>();
  * every request rule of `surface` sees every request. A window the page opens
  * itself is reported: only pages opened by `openPage` are judged.
  */
-export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void): Promise<void> {
+export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void, base = ""): Promise<void> {
+  scopes.set(context, Object.freeze({ surface, base }));
   // NO WALL-CLOCK LIMIT on anything a judgement waits for — a navigation, an action, a wait — set here, once, for
   // every judged context: under host load a slow page is still a page, and Playwright's 30 s defaults would fail
   // it. A long wait logs its progress (`navigate`, `ready`); a true hang is bounded by the run's own backstop
@@ -231,7 +235,7 @@ export async function instrumentContext(context: BrowserContext, surface: Surfac
   context.on("request", (request) => {
     begin(request);
     for (const rule of rules) {
-      const finding = rule.judge(request.url(), request.resourceType(), origin);
+      const finding = rule.judge(request.url(), request.resourceType(), origin, base);
       if (finding !== null) report(`[${rule.id}] ${finding}`);
     }
   });
@@ -406,7 +410,7 @@ export async function judgePage(page: Page, surface: Surface, rules: readonly Pa
     if (missing !== null) throw new RenderedRefusal("rendered_not_instrumented", `the frame ${frame.url()} was not instrumented: ${missing}`);
     const where = top ? "" : `in the frame ${frame.url().slice(0, 80)}: `;
     for (const rule of rules) {
-      const args = { input: rule.input(), surface, top, record: top ? recorded : null };
+      const args = { input: rule.input(scopes.get(page.context()) ?? { surface, base: "" }), surface, top, record: top ? recorded : null };
       for (const finding of await frame.evaluate(runnerOf(rule), args)) findings.push(`[${rule.id}] ${where}${finding}`);
     }
   }
@@ -615,7 +619,8 @@ export function siteRestore(): RenderRestore {
 }
 
 const TYPES: Readonly<Record<string, string>> = Object.freeze({
-  ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+  ".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8", ".xhtml": "application/xhtml+xml",
+  ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2",
   ".txt": "text/plain; charset=utf-8", ".xml": "application/xml", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json",
 });
@@ -637,7 +642,7 @@ export async function serveSite(siteRoot: string, baseurl: string, served: Reado
     if (file !== root && !file.startsWith(`${root}${sep}`)) { response.writeHead(403).end(); return; }
     if (existsSync(file) && statSync(file).isDirectory()) file = join(file, "index.html");
     if (!existsSync(file)) { response.writeHead(404).end(); return; }
-    response.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
+    response.writeHead(200, { "content-type": TYPES[extname(file).toLowerCase()] ?? "application/octet-stream" });
     createReadStream(file).pipe(response);
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
@@ -654,14 +659,15 @@ function sitePages(siteRoot: string, baseurl: string): readonly string[] {
     for (const name of readdirSync(dir).sort()) {
       const path = join(dir, name);
       if (statSync(path).isDirectory()) walk(path);
-      else if (name.endsWith(".html")) pages.push(`${base}/${relative(siteRoot, path).split(sep).join("/")}`.replace(/(?:^|\/)index\.html$/u, "/"));
+      // Every file Pages serves as HTML, in any case of its extension.
+      else if (SERVED_HTML.test(name)) pages.push(`${base}/${relative(siteRoot, path).split(sep).join("/")}`.replace(/(?:^|\/)index\.html$/u, "/"));
     }
   };
   walk(siteRoot);
   return pages;
 }
 
-/** Judges every page of a built site in every site render state; returns the findings, each with its page. */
+/** Judges every page of a built site in both of its themes and every site render state; returns the findings, each with its page. */
 async function judgeSite(siteRoot: string, baseurl: string, executable: string | null): Promise<readonly string[]> {
   if (!existsSync(siteRoot)) throw new RenderedRefusal("rendered_site_missing", `${siteRoot} is not a built site`);
   const pages = sitePages(siteRoot, baseurl);
@@ -670,17 +676,29 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
   const browser = await launchBrowser(executable);
   const findings = new Set<string>();
   try {
-    const context = await browser.newContext({ serviceWorkers: "block" });
-    let current = "";
-    await instrumentContext(context, "site", origin, (finding) => findings.add(`${current}: ${finding}`));
-    const page = await openPage(context);
-    for (const path of pages) {
-      current = path;
-      await navigate(page, `${origin}${path}`);
-      for (const finding of await judgeStates(page, "site", siteRestore())) findings.add(`${path} ${finding}`);
-      for (const finding of await judgeFuture(page, "site")) findings.add(`${path} ${finding}`);
+    // The site's two themes, each through every site render state: Logbook
+    // leads (nothing stored), Carbon is the reader's stored choice
+    // (shared/site-page.ts SITE_THEME_STORAGE). The site does not follow the
+    // system scheme, so the theme is set the way a reader sets it.
+    for (const theme of ["logbook", "carbon"] as const) {
+      const context = await browser.newContext({ serviceWorkers: "block" });
+      await context.addInitScript(({ key, value, stored }) => {
+        try {
+          if (stored) localStorage.setItem(key, value);
+          else localStorage.removeItem(key);
+        } catch { /* a page without storage shows the lead theme */ }
+      }, { key: SITE_THEME_STORAGE.key, value: SITE_THEME_STORAGE.carbon, stored: theme === "carbon" });
+      let current = "";
+      await instrumentContext(context, "site", origin, (finding) => findings.add(`${current} [${theme}]: ${finding}`), baseurl);
+      const page = await openPage(context);
+      for (const path of pages) {
+        current = path;
+        await navigate(page, `${origin}${path}`);
+        for (const finding of await judgeStates(page, "site", siteRestore())) findings.add(`${path} [${theme}] ${finding}`);
+        for (const finding of await judgeFuture(page, "site")) findings.add(`${path} [${theme}] ${finding}`);
+      }
+      await context.close();
     }
-    await context.close();
   } finally {
     await browser.close();
     await new Promise<void>((done) => server.close(() => done()));
