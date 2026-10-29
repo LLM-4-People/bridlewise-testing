@@ -9,7 +9,7 @@
  *
  * D is a list of OBJECTS, each one GitHub object the projector owns: its
  * CLASS (`PROJECTION_CLASSES`, also the order classes are written in), its
- * KEY (a label's name, an item's id: never a GitHub number; the store maps
+ * KEY (a milestone's or an item's id: never a GitHub number; the store maps
  * keys to numbers by the projector's marker), and its GIT-OWNED FIELDS (the
  * only fields the projector writes, compares and verifies; every other field
  * of the object is GitHub-owned and never touched). Each field belongs to a
@@ -20,10 +20,16 @@
 import { schemaId } from "../../../kernel/product-identity.ts";
 
 export const PROJECTION_SCHEMA = schemaId("projection", 1);
-export const PROJECTION_INPUT_SCHEMA = schemaId("projection-input", 1);
+export const PROJECTION_INPUT_SCHEMA = schemaId("projection-input", 2);
 
-/** The projected classes, in write order (a label and a milestone exist before an issue carries them). */
-export const PROJECTION_CLASSES = Object.freeze(["label", "milestone", "issue"] as const);
+/**
+ * The projected classes, in write order (a milestone exists before an issue
+ * carries it). Labels are not one: every label is declared once in
+ * `docs/community/labels.json` and applied by `harness forge apply`; an issue
+ * only CARRIES its lane's label, which the store refuses to write unless it
+ * already exists (`projection_label_missing`, never created on the way).
+ */
+export const PROJECTION_CLASSES = Object.freeze(["milestone", "issue"] as const);
 export type ProjectionClass = typeof PROJECTION_CLASSES[number];
 
 export type Json = null | boolean | number | string | readonly Json[] | { readonly [field: string]: Json };
@@ -34,6 +40,13 @@ export type ProjectedObject = Readonly<{
   class: ProjectionClass;
   key: string;
   fields: Fields;
+  /**
+   * An issue only: the GitHub issue its record names (the item's `gh:
+   * issue-<n>`, set by the IssueOps record writer). The projector ADOPTS
+   * that issue as the item's face instead of opening one: it is trusted
+   * because the record at S says so, never because of a marker in it.
+   */
+  adopt?: number;
 }>;
 
 /** D: every desired object, sorted by class (write order) then key. */
@@ -52,7 +65,6 @@ export type WritePhase = typeof WRITE_PHASES[number];
 
 /** Every class's git-owned fields and the phase each is written in (a field not named here is GitHub-owned). */
 export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<string, WritePhase>>>> = Object.freeze({
-  label: Object.freeze({ color: "create", description: "create" }),
   milestone: Object.freeze({ title: "create", description: "create", state: "state" }),
   issue: Object.freeze({
     title: "create",
@@ -73,19 +85,17 @@ export const FIELD_PHASES: Readonly<Record<ProjectionClass, Readonly<Record<stri
 /**
  * The git-owned fields NO record holds: the projector computes them (an
  * issue's generated block and its pin, a milestone's computed description and
- * state) or takes them from code (a lane label's colour and description). An
+ * state). An
  * edit of one on GitHub has no record change to propose: it is re-projected,
  * whatever the foreign-edit mode.
  */
 export const PROJECTOR_OWNED_FIELDS: Readonly<Record<ProjectionClass, readonly string[]>> = Object.freeze({
-  label: Object.freeze(["color", "description"]),
   milestone: Object.freeze(["description", "state"]),
   issue: Object.freeze(["block", "pinned"]),
 });
 
 /** What GitHub holds for a just-created object before its `link` and `state` writes: a field D gives this value needs no write. */
 export const BORN_FIELDS: Readonly<Record<ProjectionClass, Fields>> = Object.freeze({
-  label: Object.freeze({}),
   milestone: Object.freeze({ state: "open" }),
   issue: Object.freeze({ parent: null, blockedBy: Object.freeze([]), state: "open", stateReason: null, pinned: false }),
 });
@@ -107,10 +117,10 @@ export type InputItem = Readonly<{
   body: string;
   /** Repository-relative path of the item's file. */
   path: string;
+  /** The GitHub object the record names (`issue-<n>`): the issue the projector adopts as the item's face. */
+  gh: string | null;
 }>;
 
-/** A lane's GitHub label. */
-export type InputLane = Readonly<{ lane: string; color: string; description: string }>;
 
 /**
  * Everything D is computed from — read from the two trees (the source at S,
@@ -124,7 +134,6 @@ export type ProjectionInput = Readonly<{
   /** `https://github.com/<owner>/<repository>`: the base of every permalink. */
   repositoryUrl: string;
   items: readonly InputItem[];
-  lanes: readonly InputLane[];
   /** The decision records' progress facts (an item's state reads them, src/workflow/tracker-status.ts). */
   decisions: readonly Readonly<{ id: string; status: string; implementation: string }>[];
   /** The evidence paths recorded in tracked manifests at S (a close's proof, src/workflow/tracker-status.ts). */
@@ -148,6 +157,42 @@ const DIGEST = /^[0-9a-f]{64}$/u;
 /** The projector's marker opening an item's generated block; `digest` is filled in by the host (the confined program imports no hash). */
 export function itemMarker(id: string, digest: string): string {
   return `${MARKER_OPEN}${id}${MARKER_DIGEST}${digest}${MARKER_CLOSE}`;
+}
+
+/** The projector's END of an item's generated region: `<!-- bridlewise:end=<key> -->`, always the last line of the body it writes. */
+const END_OPEN = "<!-- bridlewise:end=";
+function itemEndMarker(key: string): string {
+  return `${END_OPEN}${key}${MARKER_CLOSE}`;
+}
+
+/** What the projector writes between the text above its region (a reporter's, kept exactly) and the region. */
+const REGION_SEPARATOR = "\n\n";
+
+/** An issue body as the projector writes it: `above` exactly (when any), then the generated region, closed by its end marker. */
+export function regionBody(above: string, block: string, key: string): string {
+  return `${above === "" ? "" : `${above}${REGION_SEPARATOR}`}${block}\n${itemEndMarker(key)}`;
+}
+
+/**
+ * The projector's own region of `body`, found STRUCTURALLY, never by parsing
+ * the text above it: the body must END with an end marker (its key), the
+ * region begins at the LAST marker of that key before it, and the text
+ * above is everything before, with the projector's separator. Anything the
+ * text above holds (a marker of any key, a fake end marker) is the text
+ * above's. `null` when the body has no such region (none written yet, or
+ * text written after the projector's end): the caller keeps the whole body.
+ */
+export function generatedRegion(body: string): Readonly<{ key: string; above: string; block: string }> | null {
+  if (!body.endsWith(MARKER_CLOSE)) return null;
+  const endAt = body.lastIndexOf(END_OPEN);
+  if (endAt <= 0 || body[endAt - 1] !== "\n") return null;
+  const key = body.slice(endAt + END_OPEN.length, body.length - MARKER_CLOSE.length);
+  if (key === "" || /\s/u.test(key)) return null;
+  const begin = body.lastIndexOf(`${MARKER_OPEN}${key}${MARKER_DIGEST}`, endAt);
+  if (begin < 0) return null;
+  const before = body.slice(0, begin);
+  if (before !== "" && !before.endsWith(REGION_SEPARATOR)) return null;
+  return { key, above: before === "" ? "" : before.slice(0, -REGION_SEPARATOR.length), block: body.slice(begin, endAt - 1) };
 }
 
 /** Where the first well-formed {@link itemMarker} in `text` begins and the key it names, or `null` when there is none. */

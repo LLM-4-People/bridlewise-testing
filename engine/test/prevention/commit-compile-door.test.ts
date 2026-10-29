@@ -35,6 +35,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import { GUARDED_HOOKS, HOOKS_DIRECTORY, HOOK_NAME, guardHookText } from "../../scripts/verification/staged-move-loss.ts";
+import { markThrowawayRepository } from "../support/throwaway-repository.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { ownedTemporaryName } from "../../src/filesystem/private-state.ts";
 import { recordIndexBaseline } from "../../src/git/index-baseline.ts";
@@ -80,6 +81,8 @@ function compileFixtureRepository(spell: "pass" | "fail"): string {
   run("init", "-q");
   run("config", "user.email", "guard@example.invalid");
   run("config", "user.name", "guard");
+  // Its hooks name this harness's guard by absolute path and its legs name its own root: it says so.
+  markThrowawayRepository(root);
   for (const hook of GUARDED_HOOKS) {
     writeFile(root, join(HOOKS_DIRECTORY, hook), guardHookText(hook, JSON.stringify(COMMIT_GUARD)));
     chmodSync(join(root, HOOKS_DIRECTORY, hook), 0o755);
@@ -681,7 +684,8 @@ test("DRIVEN: an --amend that drops a lesson's trailer is REPORTED by post-commi
   writeFile(root, join(HOOKS_DIRECTORY, "post-commit"), `#!/bin/sh\nexec node --experimental-strip-types ${JSON.stringify(join(INTEGRATION_ROOT, "scripts", "post-commit.ts"))} "$(git rev-parse --show-toplevel)"\n`);
   chmodSync(join(root, HOOKS_DIRECTORY, "post-commit"), 0o755);
   writeFile(root, path, lessonText("2026-01-01-amended", "acted"));
-  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  // The hook runs from the working tree; it is never committed (it names this harness's program by its path).
+  execFileSync("git", ["add", "--", path], { cwd: root, stdio: "pipe" });
   const named = commit(root, "act on the lesson\n\nLesson: L-2026-01-01-amended");
   assert.equal(named.status, 0, named.stderr);
   assert.doesNotMatch(named.stderr, /LESSON TRAILER MISSING/u, "a commit naming its lesson was reported");
@@ -744,6 +748,19 @@ test("DRIVEN: an --amend that drops a Test-deleted: trailer is REPORTED by post-
   for (const part of ["TEST DELETION UNNAMED", "engine/test/a/one.test.ts: deleted from the test surface", "Repair it now: git commit --amend"]) {
     assert.ok(amended.stderr.includes(part), `an amend dropping the trailer went unreported (no "${part}"): ${amended.stderr}`);
   }
+});
+
+test("DRIVEN: a commit adding a host's home path is refused by the shipped hook, naming file and line, never the path", () => {
+  const root = compileFixtureRepository("pass");
+  execFileSync("git", ["add", "-A"], { cwd: root, stdio: "pipe" });
+  assertCommitted(root, "baseline");
+  // Built from parts: no committed line of this test has the shape it plants.
+  writeFile(root, "docs/notes.md", `ran from ${["", "home", "mkeller7", "checkout"].join("/")}\n`);
+  execFileSync("git", ["add", "--", "docs/notes.md"], { cwd: root, stdio: "pipe" });
+  const refused = commit(root, "a note");
+  assert.notEqual(refused.status, 0, "a home path reached a commit");
+  assert.ok(refused.stderr.includes("docs/notes.md:1: an added line names an absolute home path [home-path] (added_content_private)"), refused.stderr);
+  assert.doesNotMatch(refused.stderr, /mkeller7/u, "the refusal echoed the account");
 });
 
 test("DRIVEN: the required commit-records check refuses, over a branch's commits, what a skipped hook let through — and a merge that brings in a named deletion needs no new trailer", () => {
@@ -852,38 +869,40 @@ test("DRIVEN: a compile leg still running at its hang backstop is KILLED and REF
   const from = source.indexOf(BOUNDED_LEG_START);
   const to = source.indexOf(BOUNDED_LEG_END);
   assert.ok(from !== -1 && to > from, "the guard carries the bounded typecheck leg block this test drives");
-  // The door bounds both legs with the harness's one subprocess bound (CPU
-  // work + one hang backstop, src/process/subprocess-bounds.ts) and refuses
-  // the killed outcome by name — not merely print its output.
-  assert.match(source, /runTypecheckLeg\(stagedTree, "web", SUBPROCESS_BOUNDS\)/u);
-  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", SUBPROCESS_BOUNDS\)/u);
-  assert.match(source, /cpuLimitedInvocation\("npm", \["run", "typecheck"\], bounds\)/u);
+  // The door bounds both legs with the harness's one subprocess bound (the one
+  // bounded run, runCpuBounded, under `harness.subprocessBounds`: its work, the kernel's
+  // CPU limit, one hang backstop) and refuses the stopped outcome by name — not
+  // merely print its output.
+  assert.match(source, /const bounds = subprocessBounds\(loadPinnedConfigSnapshotIfPresent\(\)\?\.document \?\? \{\}\);/u);
+  assert.match(source, /runTypecheckLeg\(stagedTree, "web", bounds\)/u);
+  assert.match(source, /runTypecheckLeg\(join\(stagedTree, engineRelative\), "engine", bounds\)/u);
+  assert.match(source, /runCpuBounded\("npm", \["run", "typecheck"\]/u);
   assert.doesNotMatch(source, /typecheckTimeoutMs/u, "no wall limit bounds a compile leg");
-  assert.match(source, /outcome\.timedOut/u);
+  assert.match(source, /outcome\.run\.ending !== "exited"/u);
   assert.match(source, /typecheckLegRefusal\(outcome\)/u);
 
   // Drive the REAL block, extracted from the guard's source, with a short
   // bound: a fixture `typecheck` that sleeps for a minute must be killed and
-  // answered as a timed-out refusal well before it finishes.
+  // answered as a hung refusal well before it finishes.
   const root = createTempDir("ch-typecheck-bound-");
   const block = source.slice(from + BOUNDED_LEG_START.length, to);
   const leg = join(root, "typecheck-leg.ts");
-  const processFacts = pathToFileURL(join(INTEGRATION_ROOT, "src/process/process-facts.ts")).href;
+  const supervisedRun = pathToFileURL(join(INTEGRATION_ROOT, "src/process/supervised-run.ts")).href;
   const subprocessBounds = pathToFileURL(join(INTEGRATION_ROOT, "src/process/subprocess-bounds.ts")).href;
-  writeFileSync(leg, `import { spawn } from "node:child_process";\nimport { ownedChild, terminate } from ${JSON.stringify(processFacts)};\nimport { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from ${JSON.stringify(subprocessBounds)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
+  writeFileSync(leg, `import { runCpuBounded, type CpuBoundedRun } from ${JSON.stringify(supervisedRun)};\nimport { boundedEnding, type SubprocessBounds } from ${JSON.stringify(subprocessBounds)};\n${block}\nexport { runTypecheckLeg, typecheckLegRefusal };\n`);
   const tree = join(root, "tree");
   writeFile(root, "tree/package.json", `${JSON.stringify({ name: "bounded-leg-fixture", private: true, scripts: { typecheck: 'node -e "setTimeout(() => {}, 60000)"' } })}\n`);
   const driver = join(root, "drive.ts");
   writeFileSync(driver, [
     `import { runTypecheckLeg, typecheckLegRefusal } from ${JSON.stringify(pathToFileURL(leg).href)};`,
-    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuLimitSeconds: 60, cpuKillGraceSeconds: 5, hangBackstopMs: 250 });`,
-    "process.stdout.write(JSON.stringify({ timedOut: outcome.timedOut, status: outcome.status, refusal: typecheckLegRefusal(outcome) }));",
+    `const outcome = await runTypecheckLeg(${JSON.stringify(tree)}, "web", { cpuBudgetMs: 60_000, stallMs: 60_000, hangBackstopMs: 250, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 });`,
+    "process.stdout.write(JSON.stringify({ ending: outcome.run.ending, status: outcome.run.status, refusal: typecheckLegRefusal(outcome) }));",
     "",
   ].join("\n"));
   const run = spawnSync(process.execPath, ["--experimental-strip-types", driver], { encoding: "utf8" });
   assert.equal(run.status, 0, `the bounded-leg driver failed:\n${run.stderr}`);
   const outcome = JSON.parse(run.stdout);
-  assert.equal(outcome.timedOut, true, "the leg was not killed at its hang backstop");
+  assert.equal(outcome.ending, "hung", "the leg was not stopped at its hang backstop");
   assert.equal(outcome.status, null, "a killed leg must not report an exit status");
-  assert.match(outcome.refusal, /did not finish: HUNG: it was still running at the 0\.25 s hang backstop \(wall\)/u);
+  assert.match(outcome.refusal, /did not finish: HUNG: it was still running at the 0\.25 s hang backstop \(wall\) and was stopped/u);
 });

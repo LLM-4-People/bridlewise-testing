@@ -22,7 +22,7 @@
  *   action-pin / action-version-comment
  *       every external `uses:` is `owner/repo[/path]@<40-hex> # vN[.N[.N]]`;
  *       the commit and comment equal the registry entry.
- *   action-undeclared / local-workflow-undeclared
+ *   action-undeclared / local-workflow-undeclared / local-action-undeclared
  *       an action or reusable workflow the registry does not declare.
  *   image-digest / image-undeclared
  *       every `FROM`, `image:` and devcontainer feature carries
@@ -83,7 +83,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { isMap, isScalar, isSeq, parseDocument, type Document } from "yaml";
 
@@ -112,7 +112,7 @@ type KnownException = Readonly<{ surface: string; reason: string; owner: string 
 
 type Registry = Readonly<{
   schemaVersion: string;
-  universe: Readonly<{ workflows: readonly string[]; build: readonly string[] }>;
+  universe: Readonly<{ workflows: readonly string[]; actions?: readonly string[]; build: readonly string[] }>;
   surfaces: readonly Surface[];
   knownExceptions: readonly KnownException[];
 }>;
@@ -177,10 +177,16 @@ function overlayTree(base: Tree, edits: ReadonlyMap<string, string | null>): Tre
     },
     list(dir) {
       const names = new Set(base.list(dir));
+      const prefix = dir === "." ? "" : `${dir}/`;
       for (const [path, text] of normalised) {
-        if (dirname(path) !== dir) continue;
-        const name = path.slice(dir === "." ? 0 : dir.length + 1);
-        if (name.includes("/")) continue;
+        if (!path.startsWith(prefix)) continue;
+        const rest = path.slice(prefix.length);
+        const [name = ""] = rest.split("/");
+        // A planted file in a subfolder plants the subfolder, as the disk lists it.
+        if (rest.includes("/")) {
+          if (text !== null) names.add(name);
+          continue;
+        }
         if (text === null) names.delete(name);
         else names.add(name);
       }
@@ -320,6 +326,11 @@ function audit(tree: Tree): Finding[] {
   const universeRaw = raw["universe"];
   const workflows = isRecord(universeRaw) ? stringArray(universeRaw["workflows"]) : null;
   const build = isRecord(universeRaw) ? stringArray(universeRaw["build"]) : null;
+  // Local composite actions (`.github/actions/<name>/action.yml` or `.yaml`): steps a
+  // workflow calls, scanned and declared exactly like a workflow's own.
+  const actionsRaw = isRecord(universeRaw) && "actions" in universeRaw ? stringArray(universeRaw["actions"]) : [];
+  if (actionsRaw === null) findings.push({ rule: "registry-schema", detail: "the action universe must be a list of paths" });
+  const localActions = actionsRaw ?? [];
   if (workflows === null || workflows.length === 0) {
     findings.push({ rule: "workflow-universe", detail: "the registry must declare a non-empty workflow universe" });
     return findings;
@@ -334,6 +345,8 @@ function audit(tree: Tree): Finding[] {
   if (new Set(build).size !== build.length) {
     findings.push({ rule: "registry-schema", detail: "the build universe repeats a path" });
   }
+  // Every file whose steps the guard reads: the workflows and the local actions they call.
+  const scanned = [...workflows, ...localActions];
 
   const surfaceRaw = raw["surfaces"];
   const surfaces: Surface[] = [];
@@ -344,6 +357,7 @@ function audit(tree: Tree): Finding[] {
   const knownKinds = new Set([
     "github-action",
     "local-workflow",
+    "local-action",
     "runner",
     "node-runtime",
     "package-manager",
@@ -466,6 +480,18 @@ function audit(tree: Tree): Finding[] {
       });
     }
   }
+  const actualActions = tree
+    .list(".github/actions")
+    .flatMap((name) => ACTION_FILES.map((file) => `.github/actions/${name}/${file}`))
+    .filter((path) => tree.has(path));
+  for (const path of actualActions) {
+    if (!localActions.includes(path)) {
+      findings.push({ rule: "workflow-universe", detail: `${path} is a local action outside the enumerated universe; a new action escaped the guard` });
+    }
+  }
+  for (const path of localActions) {
+    if (!tree.has(path)) findings.push({ rule: "workflow-universe", detail: `declared local action ${path} is missing` });
+  }
   for (const path of workflows) {
     if (!tree.has(path)) findings.push({ rule: "workflow-universe", detail: `declared workflow ${path} is missing` });
   }
@@ -524,10 +550,32 @@ function audit(tree: Tree): Finding[] {
   const actionsById = new Map(actions.map((surface) => [surface.id, surface]));
   const actualActionFiles = new Map<string, Set<string>>();
   const actualLocalFiles = new Map<string, Set<string>>();
-  for (const path of workflows) {
+  const actualLocalActionFiles = new Map<string, Set<string>>();
+  for (const path of scanned) {
     if (!tree.has(path)) continue;
     const text = tree.read(path);
     for (const use of scanUses(text)) {
+      if (use.ref.startsWith("./.github/actions/")) {
+        // GitHub reads a local action's action.yml, or its action.yaml; one folder holding both is ambiguous.
+        const present = ACTION_FILES.map((file) => `${use.ref.slice(2)}/${file}`).filter((path) => tree.has(path));
+        if (present.length > 1) findings.push({ rule: "local-action-undeclared", detail: `${use.ref} holds both ${present.join(" and ")}; keep one` });
+        const target = present[0] ?? `${use.ref.slice(2)}/${ACTION_FILES[0]}`;
+        if (!localActions.includes(target) || !tree.has(target)) {
+          findings.push({ rule: "local-action-undeclared", detail: `${path}:${use.line} calls ${use.ref}, which is not a local action in the enumerated universe` });
+        }
+        const declared = registry.surfaces.find((surface) => surface.kind === "local-action" && surface.id === use.ref);
+        if (declared === undefined) {
+          findings.push({ rule: "local-action-undeclared", detail: `${path}:${use.line} calls undeclared local action ${use.ref}` });
+        } else {
+          if (declared.pinned["path"] !== target) {
+            findings.push({ rule: "local-action-undeclared", detail: `${use.ref} declares a different target than ${target}` });
+          }
+          const set = actualLocalActionFiles.get(use.ref) ?? new Set<string>();
+          set.add(path);
+          actualLocalActionFiles.set(use.ref, set);
+        }
+        continue;
+      }
       if (use.ref.startsWith("./")) {
         const target = use.ref.slice(2);
         if (!workflowUniverseIncludes(workflows, target) || !tree.has(target)) {
@@ -594,6 +642,9 @@ function audit(tree: Tree): Finding[] {
   }
   for (const local of ofKind("local-workflow")) {
     compareUsedIn(local, actualLocalFiles.get(local.id) ?? new Set<string>(), "local-workflow-usedin-mismatch");
+  }
+  for (const local of ofKind("local-action")) {
+    compareUsedIn(local, actualLocalActionFiles.get(local.id) ?? new Set<string>(), "local-action-usedin-mismatch");
   }
 
   // ── one CodeQL release across every entry ─────────────────────────────
@@ -685,7 +736,7 @@ function audit(tree: Tree): Finding[] {
   // Workflow-level containers are images too. The scan used to walk `build`
   // only, so a job's `container: image:` was outside the checked population
   // entirely: no digest requirement, no declaration, no usedIn accounting.
-  for (const path of workflows) {
+  for (const path of scanned) {
     if (!tree.has(path)) continue;
     const lines = tree.read(path).split(/\r?\n/);
     let containerIndent: number | null = null;
@@ -792,7 +843,7 @@ function audit(tree: Tree): Finding[] {
       if (!pinFiles.includes(pinFile)) {
         findings.push({ rule: "node-range", detail: `the node-runtime surface must list ${pinFile} in pinFiles` });
       }
-      for (const path of workflows) {
+      for (const path of scanned) {
         if (!tree.has(path)) continue;
         const text = tree.read(path);
         const lines = text.split(/\r?\n/);
@@ -821,7 +872,7 @@ function audit(tree: Tree): Finding[] {
       }
 
       const actualNodeFiles = new Set<string>([...pinFiles, ...floorManifests]);
-      for (const path of workflows) {
+      for (const path of scanned) {
         if (!tree.has(path)) continue;
         if (/^\s*node-version-file:\s*\.nvmrc\s*$/m.test(tree.read(path))) actualNodeFiles.add(path);
       }
@@ -1017,9 +1068,14 @@ function audit(tree: Tree): Finding[] {
       if (tree.has(workflow)) {
         const document = parsed(workflow);
         const steps: Record<string, unknown>[] = [];
-        const jobs = document?.toJS() as { jobs?: Record<string, { steps?: unknown }> } | undefined;
+        // Each step's job's env: the built commit is the job's SITE_SHA (a rebuild's commit is not github.sha).
+        const jobEnv = new Map<Record<string, unknown>, unknown>();
+        const jobs = document?.toJS() as { jobs?: Record<string, { steps?: unknown; env?: unknown }> } | undefined;
         for (const job of Object.values(jobs?.jobs ?? {})) {
-          if (Array.isArray(job?.steps)) for (const step of job.steps) if (isRecord(step)) steps.push(step);
+          if (Array.isArray(job?.steps)) for (const step of job.steps) if (isRecord(step)) {
+            steps.push(step);
+            jobEnv.set(step, job.env);
+          }
         }
         const jekyll = steps.filter((step) => typeof step["uses"] === "string" && step["uses"].startsWith("actions/jekyll-build-pages@"));
         if (document !== null && jekyll.length === 0) {
@@ -1027,7 +1083,9 @@ function audit(tree: Tree): Finding[] {
         }
         for (const step of jekyll) {
           const withBlock = step["with"];
-          if (!isRecord(withBlock) || withBlock["build_revision"] !== "${{ github.sha }}") {
+          const env = jobEnv.get(step);
+          const siteSha = isRecord(env) ? env["SITE_SHA"] : undefined;
+          if (!isRecord(withBlock) || withBlock["build_revision"] !== "${{ env.SITE_SHA }}" || typeof siteSha !== "string" || !siteSha.includes("github.sha")) {
             findings.push({ rule: "pages-build-path", detail: `${workflow} no longer hands the built commit to Jekyll as build_revision` });
           }
         }
@@ -1183,6 +1241,9 @@ function audit(tree: Tree): Finding[] {
   return findings;
 }
 
+/** The file names GitHub reads a local action from, in its order. */
+const ACTION_FILES = ["action.yml", "action.yaml"] as const;
+
 function workflowUniverseIncludes(workflows: readonly string[], path: string): boolean {
   return workflows.includes(path);
 }
@@ -1264,6 +1325,19 @@ describe("external surfaces — plants fail for the defect they name", () => {
     const rogue = "name: Rogue\non:\n  workflow_dispatch:\npermissions:\n  contents: read\njobs: {}\n";
     const findings = planted({ ".github/workflows/rogue.yml": rogue });
     expectRule(findings, "workflow-universe", ".github/workflows/rogue.yml");
+  });
+
+  test("a local composite action is in the universe: an undeclared one is refused, its steps are read, and every call site is declared", () => {
+    const rogue = "name: Rogue\ndescription: x\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      run: true\n";
+    expectRule(planted({ ".github/actions/rogue/action.yml": rogue }), "workflow-universe", ".github/actions/rogue/action.yml");
+    expectRule(planted({ ".github/actions/rogue/action.yaml": rogue }), "workflow-universe", ".github/actions/rogue/action.yaml");
+    const setupFile = ".github/actions/site-build-setup/action.yaml";
+    expectRule(planted({ [setupFile]: LIVE.read(".github/actions/site-build-setup/action.yml") }), "local-action-undeclared", "holds both");
+    const setup = LIVE.read(".github/actions/site-build-setup/action.yml");
+    expectRule(planted({ ".github/actions/site-build-setup/action.yml": `${setup}\n    - uses: example/hidden-action@v1\n` }), "action-pin", "example/hidden-action@v1");
+    const ci = LIVE.read(".github/workflows/ci.yml");
+    expectRule(planted({ ".github/workflows/ci.yml": `${ci}\n      - name: A second caller\n        uses: ./.github/actions/site-build-setup\n` }), "local-action-usedin-mismatch", ".github/workflows/ci.yml");
+    expectRule(planted({ ".github/workflows/ci.yml": `${ci}\n      - name: A call to nothing\n        uses: ./.github/actions/absent\n` }), "local-action-undeclared", "./.github/actions/absent");
   });
 
   test("an undeclared action is refused even when it is SHA-pinned", () => {
@@ -1370,10 +1444,14 @@ describe("external surfaces — plants fail for the defect they name", () => {
     const build = "      - name: Build the site source\n";
     expect(workflow).toContain(build);
     expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(build, "      - name: Fetch\n        run: git clone https://github.com/LLM-4-People/elsewhere product\n\n" + build) }), "pages-build-path", "fetches another tree");
-    const revision = workflow.replace("build_revision: ${{ github.sha }}", "build_revision: main");
+    // Every Jekyll build hands over the built commit (the site's and the visual check's two).
+    const revision = workflow.replace("build_revision: ${{ env.SITE_SHA }}", "build_revision: main");
     expect(revision).not.toBe(workflow);
     expectRule(planted({ ".github/workflows/pages.yml": revision }), "pages-build-path", "build_revision");
-    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace("uses: actions/jekyll-build-pages@", "uses: someone/jekyll-build-pages@") }), "pages-build-path", "no longer builds through actions/jekyll-build-pages");
+    const siteSha = "      SITE_SHA: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || github.sha }}\n";
+    expect(workflow).toContain(siteSha);
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replace(siteSha, "") }), "pages-build-path", "build_revision");
+    expectRule(planted({ ".github/workflows/pages.yml": workflow.replaceAll("uses: actions/jekyll-build-pages@", "uses: someone/jekyll-build-pages@") }), "pages-build-path", "no longer builds through actions/jekyll-build-pages");
 
     // Near misses: the declared list with extra spacing, a comment naming a
     // plugin outside the list, and a flow list of exactly the declaration.

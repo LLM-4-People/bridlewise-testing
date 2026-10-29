@@ -1,0 +1,25 @@
+name: Site build setup
+description: >-
+  The one setup the site builder needs in a checkout: its web dependencies,
+  then the engine (engine-setup: the builder and the floor read through the
+  forge port). Every job that builds the site calls it, once for every
+  checkout it builds, so a change to the setup cannot drift between them.
+inputs:
+  root:
+    description: The checkout to set up (relative to the workspace, or absolute).
+    required: false
+    default: "."
+runs:
+  using: composite
+  steps:
+    - name: Install web dependencies
+      shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+      run: npm ci --prefix "$ROOT" --no-audit --no-fund --ignore-scripts
+
+    - name: Set up the engine
+      uses: ./.github/actions/engine-setup
+      with:
+        root: ${{ inputs.root }}
+        ignore-scripts: "true"

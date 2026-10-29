@@ -209,7 +209,8 @@ export async function main(): Promise<void> {
   const run = suite === "live"
     ? await superviseCommand({ ...command, env: withoutNodeOptions(process.env) })
     : await runTestCommand({ ...command, checkout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT });
-  lock.release();
+  // The run's own failure rides along if its run was cut at the memory cap (InstrumentHold.release).
+  lock.release(run.ending === "exited" && run.exitCode === 0 ? undefined : `node --test ended ${run.ending}${run.signal === null ? "" : ` (${run.signal})`} with exit code ${String(run.exitCode)}`);
   if (run.ending !== "exited") {
     process.stderr.write(`[test-guards] node --test ended by ${run.ending}${run.signal === null ? "" : ` (${run.signal})`}\n`);
     process.exitCode = 1;

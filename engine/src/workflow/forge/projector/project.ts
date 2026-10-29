@@ -10,7 +10,6 @@
  * digests it.
  *
  * What it projects (each class's fields are `FIELD_PHASES`, model.ts):
- *   - `label`: one per tracker lane (`lane:<lane>`, its colour and description);
  *   - `milestone`: one per Milestone item (`<id> · <title>`, its computed state
  *     and the reason in the description, closed once shipped);
  *   - `issue`: one per tracker item, Milestones included — its title (the
@@ -62,9 +61,11 @@ function itemIssue(item: InputItem, status: ItemStatus, input: ProjectionInput):
   // A Milestone is open or closed by its computed state; any other item by its record.
   const closed = milestone ? status.state === "shipped" : item.state === "closed";
   const reason = milestone ? (closed ? "completed" : null) : item.resolution === null ? null : STATE_REASONS[item.resolution];
+  const adopted = item.gh === null ? null : /^issue-([1-9]\d*)$/u.exec(item.gh);
   return {
     class: "issue",
     key: item.id,
+    ...(adopted === null ? {} : { adopt: Number(adopted[1]) }),
     fields: {
       title: item.title ?? item.id,
       block: itemBlock(item, status, input),
@@ -149,11 +150,10 @@ function mainRedIssue(run: ProjectionInput["mainRuns"][number], input: Projectio
 export function project(input: ProjectionInput): Projection {
   const statuses = itemStatuses(input.items, { decisions: input.decisions, recordedEvidence: new Set(input.recordedEvidence), repositoryUrl: input.repositoryUrl });
   const status = (item: InputItem): ItemStatus => statuses.get(item.id) ?? { state: "planned", because: "not judged" };
-  const labels: ProjectedObject[] = input.lanes.map((lane) => ({ class: "label", key: laneLabel(lane.lane), fields: { color: lane.color, description: lane.description } }));
   const milestones = input.items.filter((item) => item.type === "Milestone").map((item) => milestoneObject(item, status(item), input));
   const issues = [...input.items.map((item) => itemIssue(item, status(item), input)), ...input.mainRuns.map((run) => mainRedIssue(run, input))];
   const order = (object: ProjectedObject): number => PROJECTION_CLASSES.indexOf(object.class);
-  const objects = [...labels, ...milestones, ...issues].sort((left, right) => order(left) - order(right) || compareUtf8Bytes(left.key, right.key));
+  const objects = [...milestones, ...issues].sort((left, right) => order(left) - order(right) || compareUtf8Bytes(left.key, right.key));
   return { schema: PROJECTION_SCHEMA, source: input.source, ledger: input.ledger, objects };
 }
 

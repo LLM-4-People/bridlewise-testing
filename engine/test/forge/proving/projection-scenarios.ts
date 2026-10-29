@@ -30,7 +30,6 @@
 import { join } from "node:path";
 
 import { TRACKER_BOARD } from "../../../src/kernel/verification-paths.ts";
-import { TRACKER_LANES } from "../../../src/workflow/failure-owners.ts";
 import { configuredForge } from "../../../src/workflow/forge/configured-forge.ts";
 import { applyProjection, type ProjectionReceipt } from "../../../src/workflow/forge/projector/apply.ts";
 import { hostConfinement } from "../../../src/workflow/forge/projector/confined.ts";
@@ -44,20 +43,20 @@ const ENGINE_ROOT = join(import.meta.dirname, "..", "..", "..");
 const FIXTURE_SOURCE = "5eed".repeat(10);
 /** The most writes one scenario run makes; the fixture needs far fewer. */
 const ALLOWANCE = 50;
-/** The fixture's lane: a declared tracker lane, never one of the scenarios' own. */
+/** The fixture's lane: a tracker lane whose label `docs/community/labels.json` declares, never one of the scenarios' own. */
 const LANE = "floor";
 /** The field V-28 expects GitHub to drop. */
 export const V28_CANDIDATE = "issue/PG28-PROBE.type";
 
 const item = (id: string, overrides: Partial<InputItem> = {}): InputItem => ({
-  id, type: "Task", title: `Proving ground: ${id}`, state: "open", resolution: null, lane: LANE, milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null,
+  id, type: "Task", title: `Proving ground: ${id}`, state: "open", resolution: null, lane: LANE, milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null, gh: null,
   body: `The projector's proving-ground fixture item ${id}.`, path: `${TRACKER_BOARD.items}/${id}.md`, ...overrides,
 });
 
 function fixtureInput(ground: ProvingGround, items: readonly InputItem[]): ProjectionInput {
   return {
     schema: PROJECTION_INPUT_SCHEMA, source: FIXTURE_SOURCE, ledger: null, repositoryUrl: `${ground.webUrl}/${ground.owner}/${ground.name}`,
-    items, lanes: [{ lane: LANE, color: TRACKER_LANES[LANE].color, description: TRACKER_LANES[LANE].description }], decisions: [], recordedEvidence: [], mainRuns: [],
+    items, decisions: [], recordedEvidence: [], mainRuns: [],
   };
 }
 

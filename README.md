@@ -14,13 +14,13 @@ This repository is the development floor: the source of Bridlewise together with
 
 | Claim | Checked by | Proof |
 |---|---|---|
-| It tells you it is not ready for production: its readiness check answers harnessReady false | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
-| Calling harness with no subcommand is refused with a typed error, no\_harness\_subcommand, that lists every available verb | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
-| A run executes once: reopening it never starts a second execution | `testing.ci` | [tests/prevention/run-executes-once.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/run-executes-once.test.ts) |
-| Commands the model starts cannot read outside the project (Linux, Landlock) | `testing.ci` | [tests/prevention/subprocess-confinement-owner.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/subprocess-confinement-owner.test.ts) |
-| Secrets the harness detects are redacted before the prompt reaches the provider | `testing.ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
-| Every change passes a secret scan before it lands in the public tree | `testing.secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
-| CodeQL analyses every change | `testing.codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
+| It tells you it is not ready for production: its readiness check answers harnessReady false | `ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| Calling harness with no subcommand is refused with a typed error, no\_harness\_subcommand, that lists every available verb | `ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| A run executes once: reopening it never starts a second execution | `ci` | [tests/prevention/run-executes-once.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/run-executes-once.test.ts) |
+| Commands the model starts cannot read outside the project (Linux, Landlock) | `ci` | [tests/prevention/subprocess-confinement-owner.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/subprocess-confinement-owner.test.ts) |
+| Secrets the harness detects are redacted before the prompt reaches the provider | `ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
+| Every change passes a secret scan before it lands in the public tree | `secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
+| CodeQL analyses every change | `codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
 
 A claim whose check is red is struck out on the [live claims page](https://bridlewise.llm4people.dev/floor/claims/) until it passes again.
 
@@ -173,13 +173,13 @@ A fresh clone cannot run the full suites. The runners refuse with a named prereq
 - **`openssl`** — used by the outbound-HTTP test.
 - **Landlock** — the guardian tests skip the kernel path with exit 3 when the host does not expose it. A skip is not a pass.
 
-The supported shard set is `tests/test-shards.json`. Verify it against the runner's own selection, then plan the shards:
+The supported shard set is derived: every file the runner's include binding selects, minus the files that declare their own exclusion (`// @shard-exclude: <reason> (evidence: …)`). The measured weights live in `tests/test-weights.json`, written only by `measure`. Verify the population against the runner's own selection, then plan the shards:
 
 ```bash
 mkdir -p .bridlewise/shard-plan
 npm run test:list -- --out .bridlewise/shard-plan/live-manifest.json
-npm run test:verify-shards -- --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
-node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
+npm run test:verify-shards -- --live .bridlewise/shard-plan/live-manifest.json
+node scripts/test-shard-manifest.mjs plan --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
 
 `test:list` records a content fingerprint of the working tree before and after `vitest list`; `test:verify-shards` recomputes it and refuses a listing from another tree, another checkout, or a tree that moved while the listing ran. A bare `vitest list` does not run the global setup, so it takes no instrument lock or source fingerprint; its raw output is not accepted.

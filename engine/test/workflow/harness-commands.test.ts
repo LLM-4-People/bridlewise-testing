@@ -12,10 +12,9 @@ import {
   harnessSync,
   runBundleBuildStep,
   syncPassVerdict,
-  regenerateWebBudgetPopulation,
-  webBudgetPopulationStep,
   regenerateServiceWorkerDigest,
   serviceWorkerDigestStep,
+  roadmapPageStep,
   harnessNewModule,
   runArchitectureCheck,
   runInventoryCheck,
@@ -31,6 +30,7 @@ import {
   trackerBoardStep,
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
+import { regenerateRoadmapPage } from "../../src/workflow/roadmap-page.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 import { ARCHITECTURE_MODULES_PATH, architectureModulesText } from "../../src/workflow/architecture-module-entries.ts";
 import { HARNESS_COMMAND_SCHEMA_VERSION, parseHarnessCommandResult, resultHasFail, type HarnessCommandResult } from "../../src/workflow/command-result.ts";
@@ -41,7 +41,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { SERVICE_WORKER_DIGEST, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
+import { ROADMAP_PAGE, SERVICE_WORKER_DIGEST, TRACKER_BOARD, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -126,9 +126,9 @@ function registerReadOnly(): HarnessCommandResult<HarnessRegisterOutput> {
   return result;
 }
 
-function regenerateReadOnly(): HarnessCommandResult<HarnessRegenerateOutput> {
+async function regenerateReadOnly(): Promise<HarnessCommandResult<HarnessRegenerateOutput>> {
   if (cachedRegenerateReadOnly) return cachedRegenerateReadOnly;
-  const result = harnessRegenerate(ROOT, { write: false });
+  const result = await harnessRegenerate(ROOT, { write: false });
   cachedRegenerateReadOnly = result;
   return result;
 }
@@ -208,8 +208,8 @@ test("HarnessCommands: harnessTest produces valid result structure", async () =>
   }
 });
 
-test("HarnessCommands: harnessRegenerate produces valid result", () => {
-  const result = regenerateReadOnly();
+test("HarnessCommands: harnessRegenerate produces valid result", async () => {
+  const result = await regenerateReadOnly();
   assert.equal(result.schemaVersion, HARNESS_COMMAND_SCHEMA_VERSION);
   assert.equal(result.command, "regenerate");
   assert.ok(result.result.autoGenerator !== undefined);
@@ -230,60 +230,72 @@ test("HarnessCommands: harnessRegenerate produces valid result", () => {
   assert.equal(result.result.ratchetBaselines.converged, true, `the ratchet arm must converge on this tree: ${JSON.stringify(result.result.ratchetBaselines.results)}`);
 });
 
-test("HarnessCommands: the web budget population arm — check refuses a stale count by name, sync writes the derived count, then check passes", () => {
+test("HarnessCommands: the roadmap page arm — a tracker change without the page regenerated is refused by name, sync regenerates it, and both check and regenerate run it", async () => {
   // The WIRING, with a stand-in generator at the arm's own path speaking the
-  // one protocol: the real derivation is proved beside its owner
-  // (tests/prevention/web-ui-runtime-budget-verdict.test.ts). The stand-in
-  // derives 536, holds 535 in a file, and writes only when asked with --write.
-  const repository = createTempDir("web-budget-population-arm-");
+  // one protocol (the real rendering is proved beside its owner,
+  // tests/prevention/roadmap-status-owner.test.ts). The stand-in renders the
+  // page as the sorted list of the tracker items' ids, so adding an item
+  // without regenerating is exactly a tracker change the page does not show.
+  const repository = createTempDir("roadmap-page-arm-");
   try {
     const engineRoot = join(repository, "engine");
     mkdirSync(engineRoot, { recursive: true });
-    const generator = join(repository, WEB_BUDGET_POPULATION.generator);
+    const generator = join(repository, ROADMAP_PAGE.generator);
     mkdirSync(join(generator, ".."), { recursive: true });
-    const count = join(repository, "population.txt");
-    writeFileSync(count, "535");
+    const page = join(repository, ROADMAP_PAGE.path);
+    mkdirSync(join(page, ".."), { recursive: true });
+    const items = join(repository, TRACKER_BOARD.items);
+    mkdirSync(items, { recursive: true });
+    writeFileSync(join(items, "A-ONE.md"), "A-ONE\n");
+    writeFileSync(page, "A-ONE\n");
     writeFileSync(generator, [
-      'import { readFileSync, writeFileSync } from "node:fs";',
-      `const file = ${JSON.stringify(count)};`,
-      "const live = 536;",
-      'if (!process.argv.includes("--population")) { process.stdout.write("{}\\n"); process.exit(2); }',
-      'const write = process.argv.includes("--write");',
-      'const declared = Number(readFileSync(file, "utf8"));',
+      'import { readdirSync, readFileSync, writeFileSync } from "node:fs";',
+      'import { join } from "node:path";',
+      'const root = process.argv.find((a) => a.startsWith("--root="))?.slice("--root=".length);',
+      'if (root === undefined) { process.stdout.write("{}\\n"); process.exit(2); }',
+      `const file = join(root, ${JSON.stringify(ROADMAP_PAGE.path)});`,
+      `const derived = readdirSync(join(root, ${JSON.stringify(TRACKER_BOARD.items)})).map((name) => name.replace(/\\.md$/u, "")).sort().join("\\n") + "\\n";`,
       'let out;',
-      'if (declared === live) out = { allCurrent: true, status: "current", changed: [] };',
-      'else if (write) { writeFileSync(file, String(live)); out = { allCurrent: true, status: "regenerated", changed: ["engine/bridlewise.config.json"] }; }',
-      'else out = { allCurrent: false, status: "stale", changed: ["engine/bridlewise.config.json"] };',
+      'if (readFileSync(file, "utf8") === derived) out = { allCurrent: true, status: "current", changed: [] };',
+      `else if (process.argv.includes("--write")) { writeFileSync(file, derived); out = { allCurrent: true, status: "regenerated", changed: ["milestones"] }; }`,
+      'else out = { allCurrent: false, status: "stale", changed: ["milestones"] };',
       'process.stdout.write(JSON.stringify(out) + "\\n");',
       "process.exitCode = out.allCurrent ? 0 : 1;",
       "",
     ].join("\n"));
     execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
+    assert.deepEqual(await regenerateRoadmapPage(engineRoot, false), { status: "current", converged: true, changed: [] });
 
-    // A stale count: the check step FAILS, naming the population, and writes nothing.
-    const stale = regenerateWebBudgetPopulation(engineRoot, false);
-    assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["engine/bridlewise.config.json"]]);
-    const step = webBudgetPopulationStep(stale);
-    assert.equal(step.step, "web-budget-population");
+    // A tracker item added, the page left as it was: the check step FAILS, naming the page, and writes nothing.
+    writeFileSync(join(items, "B-TWO.md"), "B-TWO\n");
+    const stale = await regenerateRoadmapPage(engineRoot, false);
+    assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["milestones"]]);
+    const step = roadmapPageStep(stale);
+    assert.equal(step.step, "roadmap-page");
     assert.equal(step.status, "fail");
-    assert.match(step.message, /population differs from the live supported test files \(run harness sync\)/u);
-    assert.equal(readFileSync(count, "utf8"), "535", "a check wrote the count");
-    // Sync: the derived count is written, and the step passes after it.
-    const written = regenerateWebBudgetPopulation(engineRoot, true);
+    assert.match(step.message, /docs\/floor\/roadmap\.md's status blocks are stale against the tracker items \(run harness sync\): milestones/u);
+    assert.equal(readFileSync(page, "utf8"), "A-ONE\n", "a check wrote the page");
+    // Sync: the page is regenerated, and the step passes after it.
+    const written = await regenerateRoadmapPage(engineRoot, true);
     assert.deepEqual([written.status, written.converged], ["regenerated", true]);
-    assert.equal(readFileSync(count, "utf8"), "536", "sync did not write the derived count");
-    const current = regenerateWebBudgetPopulation(engineRoot, false);
-    assert.deepEqual(current, { status: "current", converged: true, changed: [] });
-    assert.equal(webBudgetPopulationStep(current).status, "pass");
+    assert.equal(readFileSync(page, "utf8"), "A-ONE\nB-TWO\n", "sync did not regenerate the page");
+    assert.equal(roadmapPageStep(await regenerateRoadmapPage(engineRoot, false)).status, "pass");
     // No generator in the tree (a product-only tree): converged by absence.
     rmSync(generator);
-    assert.deepEqual(regenerateWebBudgetPopulation(engineRoot, false), { status: "absent", converged: true, changed: [] });
+    assert.deepEqual(await regenerateRoadmapPage(engineRoot, false), { status: "absent", converged: true, changed: [] });
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }
+  // Wired into both commands, on this synced tree: the check's step and the regenerate's arm.
+  const checked = await checkSkipAll();
+  assert.equal(checked.result.roadmapPage.step, "roadmap-page", "the roadmap-page step is wired into harnessCheck");
+  assert.equal(checked.result.roadmapPage.status, "pass", checked.result.roadmapPage.message);
+  assert.equal((checked.result.roadmapPage.details as { status: string }).status, "current", "the check ran this tree's real roadmap generator, not an absent one");
+  const regenerated = await harnessRegenerate(ROOT, { write: false });
+  assert.deepEqual([regenerated.result.roadmapPage.status, regenerated.result.roadmapPage.converged], ["current", true], "the roadmap arm is wired into harnessRegenerate");
 });
 
-test("HarnessCommands: the service worker digest arm — check refuses a hand-edited digest by name, sync re-derives it, then check passes", () => {
+test("HarnessCommands: the service worker digest arm — check refuses a hand-edited digest by name, sync re-derives it, then check passes", async () => {
   // The WIRING, with a stand-in generator at the arm's own path speaking the
   // one protocol (the real digest is proved beside its owner,
   // tests/prevention/pwa.test.ts, hand edit included). The stand-in derives
@@ -316,7 +328,7 @@ test("HarnessCommands: the service worker digest arm — check refuses a hand-ed
     execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
 
     // A hand-edited digest: the check step FAILS, naming the worker, and writes nothing.
-    const stale = regenerateServiceWorkerDigest(engineRoot, false);
+    const stale = await regenerateServiceWorkerDigest(engineRoot, false);
     assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["public/sw.js"]]);
     const step = serviceWorkerDigestStep(stale);
     assert.equal(step.step, "service-worker-digest");
@@ -324,27 +336,27 @@ test("HarnessCommands: the service worker digest arm — check refuses a hand-ed
     assert.match(step.message, /public\/sw\.js's cache digest differs from the assets it caches \(run harness sync\)/u);
     assert.equal(readFileSync(worker, "utf8"), 'const ASSETS_DIGEST = "hand";\n', "a check wrote the worker");
     // Sync: the derived digest is written, and the step passes after it.
-    const written = regenerateServiceWorkerDigest(engineRoot, true);
+    const written = await regenerateServiceWorkerDigest(engineRoot, true);
     assert.deepEqual([written.status, written.converged], ["regenerated", true]);
     assert.equal(readFileSync(worker, "utf8"), 'const ASSETS_DIGEST = "abc";\n', "sync did not write the derived digest");
-    const current = regenerateServiceWorkerDigest(engineRoot, false);
+    const current = await regenerateServiceWorkerDigest(engineRoot, false);
     assert.deepEqual(current, { status: "current", converged: true, changed: [] });
     assert.equal(serviceWorkerDigestStep(current).status, "pass");
     // No generator in the tree (a product-only tree): converged by absence.
     rmSync(generator);
-    assert.deepEqual(regenerateServiceWorkerDigest(engineRoot, false), { status: "absent", converged: true, changed: [] });
+    assert.deepEqual(await regenerateServiceWorkerDigest(engineRoot, false), { status: "absent", converged: true, changed: [] });
   } finally {
     rmSync(repository, { recursive: true, force: true });
   }
 });
 
-test("HarnessCommands: harnessRegenerate result is frozen", () => {
-  const result = regenerateReadOnly();
+test("HarnessCommands: harnessRegenerate result is frozen", async () => {
+  const result = await regenerateReadOnly();
   assert.ok(Object.isFrozen(result));
 });
 
-test("HarnessCommands: harnessRegenerate integrity hash is valid", () => {
-  const result = regenerateReadOnly();
+test("HarnessCommands: harnessRegenerate integrity hash is valid", async () => {
+  const result = await regenerateReadOnly();
   const { integrityHash, ...unsigned } = result;
   assert.equal(sha256(canonicalJson(unsigned)), integrityHash);
 });
@@ -499,20 +511,20 @@ test("HarnessCommands: harnessCheck inventory step checks inventory hash", async
   assert.ok(["pass", "fail", "skip"].includes(result.result.inventory.status));
 });
 
-test("HarnessCommands: the inventory check judges the tree, not its cache — the cache is the owner's to rewrite (#221)", () => {
+test("HarnessCommands: the inventory check judges the tree, not its cache — the cache is the owner's to rewrite (#221)", async () => {
   const copy = createRepositoryWorkingCopy("inventory-owner-check-", { include: engineGeneratorPopulation });
   const engine = copy.engineRoot;
   try {
     const inventoryPath = join(engine, VERIFICATION_PATHS.testInventory);
     // The inventory is not committed: a fresh copy has none until its owner writes it.
     assert.equal(existsSync(inventoryPath), false, "the copy carries no committed inventory");
-    assert.equal(runInventoryCheck(engine).status, "pass", "an absent cache is no drift of the tree");
+    assert.equal((await runInventoryCheck(engine)).status, "pass", "an absent cache is no drift of the tree");
     execFileSync(process.execPath, [join(engine, "scripts", "test-inventory.ts"), "--write"], { cwd: engine, stdio: "pipe" });
     const written = JSON.parse(readFileSync(inventoryPath, "utf8")) as { tests: unknown[] };
     assert.ok(written.tests.length > 0, "the owner writes the tree's inventory");
     // An emptied cache is no drift of the tree either, and the owner restores it on its next write.
     writeFileSync(inventoryPath, `${JSON.stringify({ ...written, tests: [] })}\n`);
-    assert.equal(runInventoryCheck(engine).status, "pass");
+    assert.equal((await runInventoryCheck(engine)).status, "pass");
     execFileSync(process.execPath, [join(engine, "scripts", "test-inventory.ts"), "--write"], { cwd: engine, stdio: "pipe" });
     assert.equal((JSON.parse(readFileSync(inventoryPath, "utf8")) as { tests: unknown[] }).tests.length, written.tests.length, "the owner rewrote the cache");
   } finally {
@@ -667,7 +679,7 @@ test("HarnessCommands: harnessTest with all discovers verification test files ma
   }
 });
 
-test("HarnessCommands: 2 consecutive harnessRegenerate calls are consistent (determinism)", () => {
+test("HarnessCommands: 2 consecutive harnessRegenerate calls are consistent (determinism)", async () => {
   // Determinism is proven by matching results across repeated calls; two
   // distinct invocations of the same scenario. Determinism is a pairwise
   // property — run A must equal run B — so a third invocation adds no
@@ -676,8 +688,8 @@ test("HarnessCommands: 2 consecutive harnessRegenerate calls are consistent (det
   // fresh. Comparing the two proves the function is deterministic without
   // paying for a third full repository scan.
   const results = [
-    regenerateReadOnly(),
-    harnessRegenerate(ROOT, { write: false }),
+    await regenerateReadOnly(),
+    await harnessRegenerate(ROOT, { write: false }),
   ];
   for (let i = 1; i < results.length; i++) {
     assert.equal(results[0]!.command, results[i]!.command);
@@ -717,10 +729,10 @@ test("HarnessCommands: harnessCheck and harnessRegister produced JSON can be re-
   assert.equal(registerReparsed.command, registerResult.command);
 });
 
-test("HarnessCommands: harnessRegenerate write=false does not modify clean project files", () => {
+test("HarnessCommands: harnessRegenerate write=false does not modify clean project files", async () => {
   const rootPolicyPath = join(ROOT, engineModuleSourceRelative("root-policy.ts"));
   const before = readFileSync(rootPolicyPath, "utf8");
-  regenerateReadOnly();
+  await regenerateReadOnly();
   const after = readFileSync(rootPolicyPath, "utf8");
   assert.equal(before, after);
 });
@@ -1212,14 +1224,14 @@ test("runHarnessCli: sync --with-bundle flag is accepted (no unknown-flag error)
 // manually. The read-only path must never mutate the manifest.
 // ---------------------------------------------------------------------------
 
-test("HarnessCommands: harnessRegenerate write=false skips the auto-add step", () => {
-  const result = regenerateReadOnly();
+test("HarnessCommands: harnessRegenerate write=false skips the auto-add step", async () => {
+  const result = await regenerateReadOnly();
   assert.equal(result.result.dispositionAutoAdd.status, "skipped");
   assert.equal(result.result.dispositionAutoAdd.addedCount, 0);
   assert.deepEqual(result.result.dispositionAutoAdd.addedPaths, []);
 });
 
-test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qualified test file", () => {
+test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qualified test file", async () => {
   // Repository-local working copy: the safe repository reader (used by the
   // test-inventory subprocess) rejects roots under mounted-ancestor /tmp
   // (safe_path_root_ancestor_mountpoint), so fixtures that exercise it must
@@ -1236,7 +1248,7 @@ test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qual
     writeFileSync(join(fixtureRoot, newFile), `import test from "node:test";\ntest("fixture", () => {});\n`);
     // The copy has its own index, and a new test source must be in it (test_surface_source_untracked otherwise).
     execFileSync("git", ["add", "-N", "--", newFile], { cwd: fixtureRoot });
-    const result = harnessRegenerate(fixtureRoot, { write: true });
+    const result = await harnessRegenerate(fixtureRoot, { write: true });
     assert.equal(result.command, "regenerate");
     assert.equal(result.result.dispositionAutoAdd.status, "current");
     assert.equal(result.result.dispositionAutoAdd.addedCount, 0);
@@ -1244,14 +1256,14 @@ test("HarnessCommands: harnessRegenerate write=true adds no entry for a new qual
     // (A recognizable source OUTSIDE the qualified patterns is an exception the auto-heal records as pending, and the
     // conservation pin of the non-canonical set then refuses until it is restated: auto-heal.test.ts and the
     // conservation tests own that.)
-    const second = harnessRegenerate(fixtureRoot, { write: true });
+    const second = await harnessRegenerate(fixtureRoot, { write: true });
     assert.equal(second.result.dispositionAutoAdd.status, "current");
     assert.equal(second.result.dispositionAutoAdd.addedCount, 0);
     // A community surface with no sources (a hand-made shadow) is the arm's typed refusal, and it fails the regenerate (#56 review).
     const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: fixtureRoot, encoding: "utf8" }).trim();
     mkdirSync(join(top, ".github"), { recursive: true });
     writeFileSync(join(top, ".github", "CONTRIBUTING.md"), "a hand-made page\n");
-    const refused = harnessRegenerate(fixtureRoot, { write: true });
+    const refused = await harnessRegenerate(fixtureRoot, { write: true });
     assert.equal(refused.result.communityFiles.status, "refused");
     assert.match(refused.result.communityFiles.refusal, /^community_/u);
     assert.equal(refused.status, "fail");
@@ -1275,10 +1287,10 @@ test("HarnessCommands: one regenerate converges after a contract source edit, an
   try {
     const stale = readFileSync(outputs[0]!, "utf8");
     appendFileSync(join(engine, contract.sourcePath), "\n// convergence witness\n");
-    harnessRegenerate(engine, { write: true });
+    await harnessRegenerate(engine, { write: true });
     const afterFirst = bytes();
     assert.notEqual(readFileSync(outputs[0]!, "utf8"), stale, "the first pass rewrites the artifact for the new source pin");
-    harnessRegenerate(engine, { write: true });
+    await harnessRegenerate(engine, { write: true });
     assert.deepEqual(bytes(), afterFirst, "a second regenerate must change nothing");
     const current = await harnessCheck(engine, { skipTypecheck: true });
     assert.equal(current.result.configSchemaArtifact.status, "pass");
@@ -1295,7 +1307,7 @@ test("HarnessCommands: the community-files arm is wired into harnessCheck and ha
   const result = await checkSkipAll();
   assert.equal(result.result.communityFiles.step, "community-files");
   assert.equal(result.result.communityFiles.status, "pass", result.result.communityFiles.message);
-  const regenerated = harnessRegenerate(ROOT, { write: false });
+  const regenerated = await harnessRegenerate(ROOT, { write: false });
   assert.equal(regenerated.result.communityFiles.status, "current");
   assert.equal(regenerated.result.communityFiles.converged, true);
   const refused = communityFilesStep({ status: "refused", converged: false, changed: [], refusal: "community_shadow_file: x" });

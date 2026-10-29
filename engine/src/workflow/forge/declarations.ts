@@ -4,13 +4,14 @@
  * P2.2):
  *
  * - the `forge` configuration section (`forge-config.ts`): the topology, the
- *   stage, the plan, the merge-queue parameters, the areas, labels, autolinks
- *   and the Project;
+ *   stage, the plan, the merge-queue parameters, the areas (and their `area:`
+ *   labels), autolinks and the Project;
  * - the App registry (`app-registry.ts`): every App id a ruleset names is a
  *   reference to it, resolved at plan time;
  * - the community sources (`../community/sources.ts`, GH-9): the teams the
  *   role table declares, and the issue types the issue forms set (every one
- *   must be in {@link FORGE_ISSUE_TYPES}, or the declarations are refused);
+ *   must be in {@link FORGE_ISSUE_TYPES}, or the declarations are refused),
+ *   and every other label (`docs/community/labels.json`, the one declaration);
  * - the workflows in the tree: the third-party actions they pin are the
  *   allowed-actions list.
  *
@@ -20,10 +21,12 @@
 import { deepFreeze } from "../../kernel/integrity.ts";
 import type { CommunityIntake, CommunityRoles } from "../community/sources.ts";
 import { teamsOf } from "../community/sources.ts";
+import type { DeclaredLabel } from "../community/labels.ts";
 import { ForgeError } from "./codes.ts";
 import { FORGE_REPOSITORY_KINDS, trunkRepository, type ForgeRepository, type ForgeSettings } from "./forge-config.ts";
 import { rulesetWithGithubDefaults, scopeName, type ForgeObject, type ForgeObjectKind, type ForgeReference, type ForgeScope } from "./forge-state.ts";
 import { TRACKER_ITEM_TYPES, type TrackerItemType } from "../failure-owners.ts";
+import { repositoryIdentity } from "./repository-identity.ts";
 
 /** GitHub's issue-type colours. */
 type IssueTypeColor = "gray" | "blue" | "green" | "yellow" | "orange" | "red" | "pink" | "purple";
@@ -102,6 +105,8 @@ export type DeclarationSources = Readonly<{
   settings: ForgeSettings;
   intake: CommunityIntake;
   roles: CommunityRoles;
+  /** Every label but the `area:` ones: the ONE declaration, `docs/community/labels.json` (`../community/labels.ts`). */
+  labels: readonly DeclaredLabel[];
   /** Every `uses:` reference in the tree's workflows (`owner/repo@ref`, `owner/repo/path@ref`, `./local`). */
   workflowActions: readonly string[];
 }>;
@@ -282,6 +287,8 @@ function repositorySettings(settings: ForgeSettings, actionPatterns: readonly st
       object("repository-settings", scope, repository.name, {
         ...MERGE_ONLY.settings,
         merge_commit_title: "PR_TITLE", merge_commit_message: "PR_BODY",
+        // The trunk's homepage is its site, from the one declared address.
+        ...(repository.kind === "trunk" ? { homepage: repositoryIdentity(settings).pagesUrl } : {}),
         // No Update-branch button: GitHub's update commit takes the clicker's identity, and a personal address would
         // re-enter history; a lane merges main itself.
         allow_auto_merge: false, delete_branch_on_merge: true, allow_update_branch: false,
@@ -381,7 +388,7 @@ function organisation(settings: ForgeSettings, roles: CommunityRoles): readonly 
 }
 
 /** The vocabulary: labels, issue types and fields, autolinks, the Project (github-only §9.2). */
-function vocabulary(settings: ForgeSettings, intake: CommunityIntake): readonly ForgeObject[] {
+function vocabulary(settings: ForgeSettings, intake: CommunityIntake, declaredLabels: readonly DeclaredLabel[]): readonly ForgeObject[] {
   const org: ForgeScope = { kind: "org" };
   const trunk: ForgeScope = { kind: "repo", repository: trunkRepository(settings).name };
   const typeNames = new Set(FORGE_ISSUE_TYPES.map((type) => type.name));
@@ -391,7 +398,7 @@ function vocabulary(settings: ForgeSettings, intake: CommunityIntake): readonly 
   }
   const labels = [
     ...settings.areas.map((area) => ({ name: `area:${area.id}`, color: area.color, description: area.description })),
-    ...settings.labels,
+    ...declaredLabels,
   ];
   const names = labels.map((label) => label.name.toLowerCase());
   if (new Set(names).size !== names.length) throw new ForgeError("forge_declaration_invalid", "Two labels share a name.", {});
@@ -418,6 +425,30 @@ function vocabulary(settings: ForgeSettings, intake: CommunityIntake): readonly 
 }
 
 /** THE DECLARATIONS: every object the forge owns, in apply order (what a later object references exists first). */
+/**
+ * THE PAGES SITES (plans/domain-move.md, W2): every repository that declares
+ * `pages`. Each is built the declared way, on its own custom domain
+ * (`site.host`, or none), with HTTPS enforced. The organisation site declares
+ * none, strictly: a domain on it would become every unconfigured project
+ * site's. A repository's `apps` (beyond the registry's kinds) are installed
+ * on it: the organisation site's publisher writes its redirect pages.
+ */
+function pagesSites(settings: ForgeSettings): readonly ForgeObject[] {
+  return settings.repositories.filter((repository) => repository.pages !== undefined).flatMap((repository) => {
+    const scope: ForgeScope = { kind: "repo", repository: repository.name };
+    const pages = repository.pages!;
+    return [
+      object("pages", scope, repository.name, {
+        build_type: pages.build,
+        ...(pages.build === "legacy" ? { source: { branch: pages.branch, path: pages.path } } : {}),
+        cname: repository.site?.host ?? null,
+        https_enforced: true,
+      }),
+      ...(repository.apps ?? []).map((role) => object("app-installation", scope, role, { installed: true })),
+    ];
+  });
+}
+
 export function forgeDeclarations(sources: DeclarationSources): readonly ForgeObject[] {
   const { settings } = sources;
   const objects = [
@@ -426,7 +457,8 @@ export function forgeDeclarations(sources: DeclarationSources): readonly ForgeOb
     ...environments(settings),
     ...rulesets(settings),
     ...provingGrounds(settings),
-    ...vocabulary(settings, sources.intake),
+    ...pagesSites(settings),
+    ...vocabulary(settings, sources.intake, sources.labels),
   ];
   const files = objects.map((entry) => entry.file);
   if (new Set(files).size !== files.length) throw new ForgeError("forge_declaration_invalid", "Two declared objects share a file.", {});

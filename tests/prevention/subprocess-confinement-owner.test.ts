@@ -2397,8 +2397,9 @@ describe("E. derived rules with their own bounds", () => {
     // cannot cross a filesystem, and `/tmp` may be a different device. In the
     // checkout's declared fixture root (the harness's state folder), the one
     // place inside the checkout a test may write — never beside the harness
-    // in the checkout itself, which a test run sees read-only (decision
-    // TEST-CONFINEMENT-SELF-BIND).
+    // in the repository's own root, which a test run sees read-only (decision
+    // TEST-CONFINEMENT-SELF-BIND), and where an entry is an undeclared root
+    // entry to declared-root-inventory.test.ts while it exists.
     const harnessRoot = createRepositoryLocalTemporaryDirectory("second-name-harness-");
     const victim = join(harnessRoot, "src", "kernel", "root-policy.ts");
     mkdirSync(dirname(victim), { recursive: true });

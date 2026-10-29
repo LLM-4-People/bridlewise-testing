@@ -65,26 +65,50 @@ ships into the client bundle or the server runtime.
   and `gif.ts` its PNG-to-GIF encoder. [Shipping](../docs/shipping.md#cockpit-captures)
   states what it guarantees.
 - `rendered/` — the rendered judgement: what the browser actually shows,
-  judged by ONE rule table (`rules.ts`: the brand mark's computed paint and
-  visibility, the families text renders in, the Content-Security-Policy meta
-  tag and no violation of it, no request leaving the origin; canvas fonts are
-  recorded at the context's setter). Every row runs in every render state of
-  its surface (desktop, dark, narrow, reduced motion, print), each judged once
-  the page is quiet: no request in flight, no short timer pending, no DOM
-  mutation for the quiet window.
+  judged by ONE rule table. `rules.ts` holds these rows:
+  - the brand mark's computed paint and visibility;
+  - the families text renders in (canvas fonts recorded at the context's
+    setter);
+  - the Content-Security-Policy meta tags, first and exactly as the site's
+    policy says, and no violation of them;
+  - no request leaving the site's origin and path;
+  - on the site: every colour and duration computing to a token's value,
+    no sideways scroll (the narrow state is a phone's width), a load within
+    the layout-shift budget, one main and one h1, alt text, the faces
+    actually loaded.
+  Every row runs in every render state of its surface (desktop, dark,
+  narrow, reduced motion, print), each judged once the page is quiet: no
+  request in flight, no short timer pending, no DOM mutation for the quiet
+  window. The site is judged in both of its themes.
   `judge.ts` runs the table on a page and over every page of a built site
   (`judge.ts site`); the capture walk calls it on every cockpit view
   (`capture/cockpit.ts --judge-only`); `proof.ts` proves each rule on planted
   breaks. CI's "Rendered pages" job runs all three.
+- `visual/` — the visual regression check. `plan.ts` declares the key
+  pages, both themes, three viewports, the volatile regions and the gate;
+  `screens.ts` builds no baseline: it shoots the base commit's site and the
+  head's in one browser in one run and compares the bytes, writing a
+  side-by-side report with diffs. A changed picture needs the pull request's
+  `visual-change` label. The Pages workflow's `visual` job runs it. What
+  every page must hold is the rendered table's (`rendered/`).
 - `floor/` — the testing-site toolchain. `site.mjs` assembles the Jekyll
   source tree, `status.mjs` and `atlas.mjs` build the generated floor data,
   `files.mjs` shares the filesystem reads, and every GitHub read goes
   through the forge port (`engine/src/workflow/forge/repository-reads.ts`).
+  `site-design.mjs` writes the site's design assets at build time from the
+  one design system: the token sheet (only what the site's stylesheets read,
+  through `shared/token-reader.ts`), the self-hosted fonts, the icon, and the
+  mark from its one geometry. `site-style.mjs` then parses every stylesheet
+  the assembled source hands Jekyll (css-tree) and refuses the build on a
+  colour, duration or face that is not a token, a theme block, a fallback,
+  an `@import`, a remote `url()` or a Sass source, and parses every layout,
+  include and HTML page (parse5) to refuse a `<style>`, a `style=` or a
+  resource loaded from elsewhere.
   `roadmap-status.ts` is the one writer of `docs/floor/roadmap.md`'s status
   blocks: it renders them from the tracker items (`docs/trackers/items/`,
   states computed by `engine/src/workflow/tracker-status.ts`), the decision
-  records, and the non-proofs in `docs/floor/evidence.md`. Run `npm run docs:roadmap` to regenerate;
-  `npm run docs:roadmap -- --check` is the read-only form, and
+  records, and the non-proofs in `docs/floor/evidence.md`. `harness sync` runs it on every sync
+  (`ROADMAP_PAGE`, right after the task board) and `harness check` runs it read-only, and
   `tests/prevention/roadmap-status-owner.test.ts` refuses drift.
 
 ## Where it lives and what consumes it

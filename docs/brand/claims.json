@@ -6,7 +6,7 @@
       "kind": "holds-when-green",
       "text": "It tells you it is not ready for production: its readiness check answers harnessReady false",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/public/cli.test.mjs"
     },
@@ -15,7 +15,7 @@
       "kind": "holds-when-green",
       "text": "Calling harness with no subcommand is refused with a typed error, no_harness_subcommand, that lists every available verb",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/public/cli.test.mjs"
     },
@@ -24,7 +24,7 @@
       "kind": "holds-when-green",
       "text": "A run executes once: reopening it never starts a second execution",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/prevention/run-executes-once.test.ts"
     },
@@ -33,7 +33,7 @@
       "kind": "holds-when-green",
       "text": "Commands the model starts cannot read outside the project (Linux, Landlock)",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/prevention/subprocess-confinement-owner.test.ts"
     },
@@ -42,7 +42,7 @@
       "kind": "holds-when-green",
       "text": "Secrets the harness detects are redacted before the prompt reaches the provider",
       "checks": [
-        "testing.ci"
+        "ci"
       ],
       "evidence": "tests/prevention/redaction-reaches-provider.test.ts"
     },
@@ -51,7 +51,7 @@
       "kind": "holds-when-green",
       "text": "Every change passes a secret scan before it lands in the public tree",
       "checks": [
-        "testing.secret"
+        "secret"
       ],
       "evidence": "scripts/check-secrets.mjs"
     },
@@ -60,7 +60,7 @@
       "kind": "holds-when-green",
       "text": "CodeQL analyses every change",
       "checks": [
-        "testing.codeql"
+        "codeql"
       ],
       "evidence": ".github/workflows/codeql.yml"
     },

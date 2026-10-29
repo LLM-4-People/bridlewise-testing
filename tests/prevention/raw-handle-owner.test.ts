@@ -131,12 +131,12 @@ const LEGACY_RAW_HANDLE_SITES: ReadonlyArray<Readonly<{
   {
     file: modulePathMatching("process/supervised-run.ts"),
     what: "spawn(",
-    why: "the TEST-RUN supervisor (both suites' runners and the nested launches tests make): the web server never loads it, and the runner process that does has no component registry; the child it spawns is the native subreaper, whose receipt accounts for every process of the run and which kills them all when the run ends",
+    why: "THE ONE PROCESS SUPERVISOR, in the engine CLI and the test runners only (the web server never loads it, and those processes have no component registry): the test-run mode spawns the native subreaper, whose receipt accounts for every process of the run and which kills them all when the run ends; the work-bounded mode (runCpuBounded: the history importer's pinned tools and the maintainer's `gh` in forge/maintainer-cli.ts, which spawns nothing of its own) spawns its command in a process group of its own, stopped as a group through the owned-process terminate when its CPU budget or stall bound is reached",
   },
   {
     file: modulePathMatching("process/supervised-run.ts"),
     what: "setInterval(",
-    why: "the same test-run supervisor's stall clock: cleared when the supervised run settles (exit-backed, bounded by the kill grace), in a runner process the web server never is",
+    why: "the same supervisor's watch clocks — the test-run mode's stall clock and the work-bounded mode's CPU and stall poll — each cleared when its run settles (exit-backed), in an engine CLI or runner process the web server never is",
   },
   {
     file: modulePathMatching("db/client.ts"),
@@ -187,16 +187,6 @@ const LEGACY_RAW_HANDLE_SITES: ReadonlyArray<Readonly<{
     file: modulePathMatching("intelligence/process-farm.ts"),
     what: "fork(",
     why: "THE farm owner: farm children are forked from worker-thread isolates, where a registry write would land in an isolate-local module the server's route can never read — the census owns their anatomy (the farm-child argv spec + their process chains); see component-registry.ts's header for the full statement",
-  },
-  {
-    file: modulePathMatching("forge/maintainer-cli.ts"),
-    what: "spawn(",
-    why: "the maintainer's `gh` during Session 1 only (`harness forge apps create`, an engine CLI verb the web server never loads; engine cannot import the server registry): one child per call, awaited to its close, ended only by its stall or CPU limit through the one terminator",
-  },
-  {
-    file: modulePathMatching("forge/maintainer-cli.ts"),
-    what: "setInterval(",
-    why: "the same `gh` call's progress watch (the stall and CPU-limit check): cleared when the child closes or fails to spawn, in the engine CLI process, never the web server's",
   },
 ];
 
@@ -294,7 +284,7 @@ describe("A. source-scan — raw standing handles appear ONLY in registry-regist
 
 describe("B. the legacy list is counted and argued — it cannot grow quietly", () => {
   test("the legacy list holds exactly the declared count", () => {
-    expect(LEGACY_RAW_HANDLE_SITES.length, "a new legacy site must argue for itself HERE, in this count").toBe(14);
+    expect(LEGACY_RAW_HANDLE_SITES.length, "a new legacy site must argue for itself HERE, in this count").toBe(12);
   });
 
   test("every legacy entry carries a real justification (not an empty apology)", () => {

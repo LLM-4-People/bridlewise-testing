@@ -292,6 +292,7 @@ export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.fr
  * exemption hides the next new producer). Each key is `module::symbol`.
  */
 export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Object.freeze({
+  "scripts/test-shard-manifest.mjs::measureWeights": "assembles the weights file from measuredFileDurationMs (the registered producer) over a green run's reports; it subtracts no timestamp itself",
   "engine/scripts/tooling/compile-cache.ts::pruneCompileCache": "prunes the V8 compile cache to its byte bound and reports what it removed; a maintenance count, not a judged signal",
   "engine/scripts/tooling/compile-cache.ts::pruneCompileCacheAtEnablement": "runs that prune at most once per interval when the cache is enabled and says what it did; a maintenance line, not a judged signal",
   "engine/scripts/tooling/compile-cache.ts::scanCacheDirectory": "counts cache entries so the prune can bound itself; a maintenance count, not a measurement",
@@ -314,6 +315,7 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "src/state/chat-messages.ts::settleHydratedRunningToolCalls": "settles hydrated running tool calls; a state repair, not a measurement",
   "engine/src/process/process-facts.ts::startWallTimeMsOf": "reads a process start stamp for the instrument lock's identity; identity, not a duration",
   "engine/src/process/process-facts.ts::processIdentity": "assembles the process's identity for the instrument lock; identity, not a measurement",
+  "engine/src/process/process-facts.ts::processGroupMembers": "samples a process group's members (identity, parent, CPU) for the work-bounded supervisor's stop decision on ONE tool run (supervised-run.ts runCpuBounded); never recorded, quoted or compared across runs by the floor",
   "server/observability/metrics-recorder.ts::recordLlmCall": "records one LLM call into the metrics collector; a recording hook, not a computed quantity",
   "server/observability/metrics-recorder.ts::recordToolCall": "records one tool call into the metrics collector; a recording hook, not a computed quantity",
 });
@@ -617,7 +619,7 @@ const SHARD_WEIGHT: MetricEntry = {
     forbids: ["cpuUsage(", "cpuMs", "wallClockMs"],
   },
   consumers: [
-    { kind: "record", id: "weightMs", source: "tests/test-shards.json" },
+    { kind: "record", id: "weightMs", source: "tests/test-weights.json" },
     { kind: "record", id: "assignShards", source: "scripts/test-shard-manifest.mjs" },
     { kind: "doc", id: "shard weights", source: MEASUREMENT_DOC_SOURCE, anchor: "shard weights" },
   ],

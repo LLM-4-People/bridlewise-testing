@@ -1176,13 +1176,6 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     inputs: z.array(repositoryRelativePath).min(1).max(64).optional(),
     ledger: z.enum(SUITE_LEDGER_NAMES).optional(),
     requires: z.array(workspaceCommandName).min(1).max(8).optional(),
-    // `holdsInstrumentLock` — declared only on a SETUP command that is a heavy
-    // instrument (the web module cache warm-up collects the whole suite): the
-    // runner admits it as a heavy run under its per-run caps before the
-    // command starts (at once: it never waits for another run), runs it once
-    // per tree, and a READ-ONLY workspace's create does not run it (a verifier
-    // runs single files; its first run warms the cache).
-    holdsInstrumentLock: z.literal(true).optional(),
   });
   const workspacePhaseSchema = z.array(workspaceCommandName).max(32);
   const workspaceLockSchema = z.strictObject({
@@ -1322,7 +1315,8 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
     phase: z.literal("accumulation"),
     minimumJudgedRuns: z.number().int().min(2).max(50),
     maxPopulationDriftFraction: z.number().positive().lt(1),
-    derivedAtTestFileCount: z.number().int().positive().max(100000).optional(),
+    // No `derivedAtTestFileCount`: in accumulation the population is the live supported one, derived on
+    // every read, never a committed number a branch that adds a test would edit.
     // The retired declaration, recorded and marked incomparable — never
     // rescaled into the new unit and never eligible for the new window.
     legacy: z.strictObject({
@@ -1643,9 +1637,24 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
   // typecheck is bounded by its CPU work and one hang backstop like every
   // harness subprocess, src/process/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
+  // `subprocessBounds`: how every harness subprocess is bounded (the one
+  // bounded run, src/process/subprocess-bounds.ts; read by `subprocessBounds`,
+  // src/workflow/workflow-config.ts, each unset field its documented default):
+  // its process group's CPU budget, the CPU floor below which it is not
+  // progressing, the stall window, the one wall hang backstop, how often it is
+  // read, the grace between a stop's SIGTERM and SIGKILL, and the output it
+  // may hold. The kernel's CPU limit is derived from them, never set apart.
   const harnessConfigSchema = z.strictObject({
     commandErroredRetries: z.number().int().min(0).max(10).optional(),
     commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),
+    subprocessBounds: z.strictObject({
+      cpuBudgetMs: z.number().int().min(1_000).max(86_400_000).optional(),
+      stallMs: z.number().int().min(1_000).max(86_400_000).optional(),
+      hangBackstopMs: z.number().int().min(1_000).max(604_800_000).optional(),
+      pollMs: z.number().int().min(10).max(60_000).optional(),
+      killGraceMs: z.number().int().min(10).max(600_000).optional(),
+      outputBytes: z.number().int().min(65_536).max(1_073_741_824).optional(),
+    }).optional(),
   }).optional();
   // Promotion (src/workflow/promotion/): `profileDirectory` is the
   // repository-relative directory that holds the promotion profiles on the

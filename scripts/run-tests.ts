@@ -348,7 +348,8 @@ async function main(): Promise<void> {
       return;
     }
   }
-  instrumentLock.release();
+  // A failing run hands its failure to the release, so a run cut at its memory cap is refused WITH it.
+  instrumentLock.release(completion.kind === "pass" && run.exitCode === 0 ? undefined : `the web suite ended: ${completion.kind === "pass" ? `exit code ${String(run.exitCode)}` : completion.message}`);
   process.exitCode = completion.kind === "pass" ? run.exitCode : 1;
 }
 

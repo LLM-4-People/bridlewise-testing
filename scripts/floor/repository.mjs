@@ -71,6 +71,17 @@ export const SITE_URL = COORDINATES.siteUrl;
 export const LEGACY_BASEURL = "/bridlewise-testing";
 
 /**
+ * The whole URL the site answered at before the rename: the owner's GitHub
+ * Pages host (GitHub's rule: the owner, lower-cased, under `github.io`) and
+ * {@link LEGACY_BASEURL}. After the rename the organisation site
+ * (`<owner>.github.io`) is what answers there (`buildRedirectSite`).
+ */
+export function legacySiteUrl(coordinates = COORDINATES) {
+  return `https://${coordinates.owner.toLowerCase()}.github.io${LEGACY_BASEURL}/`;
+}
+export const LEGACY_SITE_URL = legacySiteUrl();
+
+/**
  * The names this project's public repositories have had: the source before
  * the rename, and the product repository it replaces. A page spelling either
  * would point at a repository that is not the one the site is built from.

@@ -55,6 +55,24 @@ export function ownCgroupPath(): string | undefined {
   return procfsDocument("self", "cgroup")?.split("\n").find((line) => line.startsWith("0::"))?.slice(3);
 }
 
+/**
+ * One interface file of THIS process's own cgroup v2 (`/sys/fs/cgroup` +
+ * `ownCgroupPath()` + `name`, e.g. `memory.swap.max`), trimmed; `undefined`
+ * when the process has no cgroup v2 path or the file does not exist (the
+ * controller or the accounting is absent on this host).
+ */
+export function ownCgroupFile(name: string): string | undefined {
+  const path = ownCgroupPath();
+  if (path === undefined) return undefined;
+  try {
+    return readFileSync(`/sys/fs/cgroup${path}/${name}`, "utf8").trim();
+  } catch (error) {
+    // Absent is an answer (the caller refuses on it); any other failure is loud.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 /** THIS process's CPU-time limit in force (`/proc/self/limits`), soft and hard, as written there (seconds, or "unlimited"); `undefined` when unreadable. */
 export function ownCpuTimeLimit(): Readonly<{ soft: string; hard: string }> | undefined {
   const line = procfsDocument("self", "limits")?.split("\n").find((one) => one.startsWith("Max cpu time"));
@@ -460,6 +478,66 @@ export function parentOf(pid: number): number | undefined {
 /** The process group id, or `undefined`. */
 export function processGroupOf(pid: number): number | undefined {
   return statNumber(pid, STAT_FIELD.pgrp);
+}
+
+/** One live member of a process group, as procfs answers now: its identity, its parent, and the CPU it and its reaped children used. */
+export type GroupMemberSample = Readonly<{ pid: number; startTime: number; ppid: number; cpuMs: number; runMs: number; waitMs: number; runnable: boolean }>;
+
+/**
+ * Every live member of process group `pgid`, with its CPU time in ms (its
+ * own user and system time plus its reaped children's, `proc(5)` fields
+ * 14-17) and what the scheduler says of it ({@link schedulerFacts}). A caller that budgets a group's WORK accumulates these samples
+ * (a member that vanished took its time with it: `src/process/supervised-run.ts`
+ * keeps its last sample unless its parent is a live member, whose reaped-child
+ * time now holds it). Empty when no member is left or procfs cannot answer.
+ */
+export function processGroupMembers(pgid: number): readonly GroupMemberSample[] {
+  const members: GroupMemberSample[] = [];
+  for (const pid of allProcessIds()) {
+    const fields = statFieldsOf(pid);
+    if (fields === undefined || Number(fields[STAT_FIELD.pgrp - 3]) !== pgid) continue;
+    const at = (field: number): number => Number(fields[field - 3]);
+    const used = [STAT_FIELD.utime, STAT_FIELD.stime, STAT_FIELD.cutime, STAT_FIELD.cstime].map(at);
+    const startTime = at(STAT_FIELD.starttime);
+    const ppid = at(STAT_FIELD.ppid);
+    const scheduler = schedulerFacts(pid);
+    if (!used.every(Number.isFinite) || !Number.isFinite(startTime) || !Number.isFinite(ppid) || scheduler === undefined) continue;
+    members.push(Object.freeze({ pid, startTime, ppid, cpuMs: used.reduce((sum, value) => sum + value, 0) * CLOCK_TICK_MS, ...scheduler }));
+  }
+  return Object.freeze(members);
+}
+
+/**
+ * What the scheduler says of `pid`'s threads, summed (`/proc/<pid>/task/<tid>/schedstat`: the time each ran
+ * and the time it waited RUNNABLE on a run queue, in ns, exact, unlike the clock-tick `stat` times; and each
+ * thread's state, `stat` field 3): the time it ran and the time a busy host kept it waiting for a core, in ms,
+ * and whether a thread is runnable now (`R`: running, or waiting for a core). The kernel adds a thread's wait
+ * when it is next scheduled, so a thread starved right now shows only as runnable. A thread that ends between
+ * the listing and its read is skipped; `undefined` when the process is gone (or procfs keeps no schedstat).
+ */
+function schedulerFacts(pid: number): Readonly<{ runMs: number; waitMs: number; runnable: boolean }> | undefined {
+  let tids: readonly string[];
+  try {
+    tids = readdirSync(procfsPath(String(pid), "task"));
+  } catch {
+    return undefined;
+  }
+  let runNs = 0;
+  let waitNs = 0;
+  let runnable = false;
+  let read = false;
+  for (const tid of tids) {
+    const fields = procfsDocument(String(pid), "task", tid, "schedstat")?.trim().split(/\s+/u);
+    const ran = fields === undefined ? Number.NaN : Number(fields[0]);
+    const waited = fields === undefined ? Number.NaN : Number(fields[1]);
+    if (!Number.isFinite(ran) || !Number.isFinite(waited)) continue;
+    runNs += ran;
+    waitNs += waited;
+    read = true;
+    const stat = procfsDocument(String(pid), "task", tid, "stat");
+    if (stat !== undefined && parseStatLine(stat)?.[0] === "R") runnable = true;
+  }
+  return read ? { runMs: runNs / 1_000_000, waitMs: waitNs / 1_000_000, runnable } : undefined;
 }
 
 /** The process's start time (clock ticks since boot, `proc(5)` field 22), or `undefined`. */

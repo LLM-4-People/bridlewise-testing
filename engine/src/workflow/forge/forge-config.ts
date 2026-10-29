@@ -6,7 +6,8 @@
  * organisation, the API and web origins, the request bounds, the repository
  * topology (each repository's `kind`, github-only §2.1), the local Apps page,
  * and what the declarations are made of (the stage, the plan, the merge
- * queue, the areas, labels, autolinks, Dependabot, the Project, the retired
+ * queue, the areas (and their `area:` labels; every other label is
+ * `docs/community/labels.json`'s), autolinks, Dependabot, the Project, the retired
  * objects). There is no default in code: a checkout whose document declares no
  * `forge` section is the typed `forge_not_configured` (its one reader,
  * `configured-forge.ts`). This module imports no configuration reader (the
@@ -15,7 +16,7 @@
 import { z } from "zod";
 
 import { deepFreeze, type DeepReadonly } from "../../kernel/integrity.ts";
-import type { ForgeRepositoryKind } from "./app-registry.ts";
+import { FORGE_APP_ROLES, type ForgeRepositoryKind } from "./app-registry.ts";
 import type { ForgeEndpoint } from "./port.ts";
 
 /** The `kind` custom property's allowed values (runbook P1.8); `none` is a repository the topology does not govern. */
@@ -109,6 +110,18 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
       host: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u),
       docsPath: z.string().regex(/^\/(?:[a-z0-9-]+\/)*$/u),
     }).optional(),
+    /**
+     * The repository's Pages site, declared (the `pages` kind): built by a
+     * workflow, or from a branch's folder (`legacy`, the organisation site's
+     * redirect pages). Its custom domain is `site.host` (none without
+     * `site`); HTTPS is always enforced.
+     */
+    pages: z.discriminatedUnion("build", [
+      z.strictObject({ build: z.literal("workflow") }),
+      z.strictObject({ build: z.literal("legacy"), branch: z.string().regex(/^[A-Za-z0-9._\/-]{1,100}$/u), path: z.enum(["/", "/docs"]) }),
+    ]).optional(),
+    /** Apps installed on this repository beyond the registry's kinds (`installedOn`): the organisation site's publisher, which writes its pages. */
+    apps: z.array(z.enum(FORGE_APP_ROLES)).max(4).optional(),
     /** Where the product is published (exactly one repository). */
     product: z.literal(true).optional(),
     /** The public preview repository: the product as published before the rename (at most one). */
@@ -181,12 +194,6 @@ export const FORGE_CONFIG_SCHEMA = z.strictObject({
     color: z.string().regex(/^[0-9a-f]{6}$/u),
     paths: z.array(z.string().regex(/^\/(?:[A-Za-z0-9._-]+\/)*(?:[A-Za-z0-9._-]+)?$/u)).min(1),
   })).min(1),
-  /** Labels beyond the `area:` ones (lanes, workflow markers): name, colour (six hex digits) and description. */
-  labels: z.array(z.strictObject({
-    name: z.string().min(1).max(50),
-    color: z.string().regex(/^[0-9a-f]{6}$/u),
-    description: z.string().max(100),
-  })),
   /** Autolinks on the trunk: `<keyPrefix><num>` in any GitHub text links to `urlTemplate` (which holds `<num>`). */
   autolinks: z.array(z.strictObject({
     keyPrefix: z.string().regex(/^[A-Za-z][A-Za-z0-9._-]{0,31}-$/u),

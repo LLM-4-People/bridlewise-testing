@@ -26,6 +26,10 @@ The one checker is `engine/scripts/verification/tracker-entries.ts`
 commands these files name exist; the commit door judges the `acted_in` paths
 of every decision a commit writes).
 
+How far each decision is built is drawn on the
+[development floor](../floor/index.md#how-far-the-decisions-are-built), counted
+from these files when the site is built.
+
 The index below is GENERATED from the files' front matter and titles by
 `harness sync` (`engine/scripts/verification/decision-index.ts`; `harness
 check` reports it stale): change a decision's file, never its row.
@@ -83,6 +87,7 @@ check` reports it stale): change a decision's file, never its row.
 
 | Id | Decision | By | State |
 |---|---|---|---|
+| [ADDED-CONTENT](ADDED-CONTENT-a-commit-never-publishes-a-host.md) | A commit never publishes a host | coordinator | partial (GH-537) |
 | [D-09](D-09-credentials-never-in-repository-records.md) | Agents never write a credential into a record | coordinator | standing |
 | [D-10](D-10-precedence-of-records.md) | Which record wins | coordinator | standing |
 | [D-11](D-11-isolation-tooling.md) | Isolation tooling: one workspace tool | coordinator | partial (A5-CANDIDATE-RETIRE) |

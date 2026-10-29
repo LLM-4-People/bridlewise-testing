@@ -15,7 +15,7 @@ The `tests/helpers/` folder of the development surface.
 - `budget-history.ts` — tHE RUN-HISTORY LEDGER'S WEB BINDING — the web path, bound onto the shared owner.
 - `budget-paths.ts` — shared budget-summary path — the single owner of the `.bridlewise/web-test-results/latest-summary.json` path.
 
-- `test-manifest.ts` — reads `tests/test-shards.json` once: the supported population a full run judges, and every declared exclusion with the reason it cannot be judged in this snapshot.
+- `test-manifest.ts` — the derived shard population (`scripts/test-shard-manifest.mjs`, `readShardPopulation`): the supported population a full run judges, and every declared exclusion with the reason it cannot be judged in this snapshot.
 - `budget-verdict.ts` — tHE VERDICT MOVED; THE DOOR STAYED. The runtime budget's decision logic — summary judgment, the three run-cost gates, the sustained-condition streak,….
 - `client-writes.ts` — tHE WRITE-DOOR SCANNERS — one owner for "which `client.ts` calls change the world, and which module owes the read-only assertion". WHY THIS EXISTS AS….
 - `data-loss-helpers.ts` — shared helpers for the data-loss mechanical tests.
@@ -34,7 +34,7 @@ The `tests/helpers/` folder of the development surface.
 - `migrate-path-literals.ts` — migrate prevention guards off hardcoded product-path literals onto the module resolver.
 - `mock-http.ts` — shared HTTP mock primitives for tests that exercise.
 - `module-resolver.ts` — tHE SINGLE OWNER OF "WHERE DOES A PRODUCT MODULE LIVE". ── THE DEFECT THIS OWNER ENDS ──────────────────────────────────────────── A module's.
-- `network-install.ts` — the one reader of "this shell text installs system packages from the network" (`networkInstalls`), shared by the workflow-policy, external-surface-registry and guardian-compiler-pin guards.
+- `network-install.ts` — the one reader of "this shell text installs system packages from the network" (`networkInstalls`), shared by the workflow-policy, external-surface-registry and guardian-compiler-pin guards; its command splitter, its quote-aware tokenizer and its command-substitution reader (`shellCommands`, `shellWords`, `commandSubstitutions`) are also what workflow-policy's label-write rule reads a step's `run:` with.
 - `multi-user.ts` — multi-user test helpers.
 - `native-authority.ts` — the shared native-authority ceiling suite: a delegation profile's tool names stay a ceiling under restrictions, proven on the admitted native request.
 - `playwright-liveness.ts` — tHE FOURTH DECLARATION CLASS: Playwright's `testDir` + `testMatch`. Three file-selecting declaration classes already refuse a dead member at their….

@@ -58,7 +58,7 @@ import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, PRIVATE_STA
 import { flakeCauseContentKeys, judgeCauseChange, parseFlakeCause } from "../git/flake-cause-fixes.ts";
 import { gitOutput, type GitRepository } from "../git/tree-reader.ts";
 import { configuredGitRepository, configuredWorktreeGitPort } from "../git/worktree-port.ts";
-import { SUBPROCESS_BOUNDS, worktreeOperationTimeouts } from "./workflow-config.ts";
+import { configuredSubprocessBounds, worktreeOperationTimeouts } from "./workflow-config.ts";
 import { resolveRepositoryRegistry, workspaceRootOf } from "./repository-registry.ts";
 import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
@@ -66,7 +66,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { deepFreeze, randomBytes, sha256 } from "../kernel/integrity.ts";
 import { admitEvidenceStore, evidenceStoreLocation, keepEvidenceBytes } from "./evidence-store.ts";
-import { holdInstrumentLock, wholeInstrumentTestFileCount } from "../process/instrument-lock.ts";
+import { holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold } from "../process/instrument-lock.ts";
 import { runTestCommand, superviseCommand, vitestCommand } from "../process/supervised-run.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { isSensitiveKeyName } from "../privacy/secret-signals.ts";
@@ -607,22 +607,23 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
     if (moveLock === undefined) throw new InputError("testExecution.instrumentLock is not declared: a move sets up checkouts as an admitted heavy run", "instrument_lock_undeclared");
     const lock = holdInstrumentLock({
       config: moveLock, harnessRoot: ENGINE_ROOT, runner: "flake move (two inventories)",
-      testFileCount: wholeInstrumentTestFileCount(moveLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
+      testFileCount: wholeInstrumentTestFileCount(moveLock, "flake-reproduction"), cpu: configuredSubprocessBounds(),
     });
     const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake move", ensureTestProcessSupervisor());
-    try {
-      const inventoryAt: InventoryAt = async (commit) => {
-        await checkout.moveTo(commit);
-        const failed = (await runCheckoutPhase(isolation, "regenerate", checkout.run)).find((step) => step.status === "fail");
-        if (failed !== undefined) throw new InputError(`the test inventory of ${commit} could not be generated (${failed.step}): ${failed.message}`, "flake_move_inventory_missing");
-        return readFileSync(join(checkout.path, engineRelative, VERIFICATION_PATHS.testInventory), "utf8");
-      };
-      const recorded = await recordIdentityMoves(move, topRepository, inventoryAt, (record) => writeRecordFile(identityMoveFileName(record.from), serializeIdentityMove(record)), () => new Date());
-      return { result: wrapResult("flake", move.moves.map((pair, index) => ({ identity: pair.from, recorded: recorded[index]! })), { status: "pass" }), exitCode: 0 };
-    } finally {
-      checkout.close();
-      lock.release();
-    }
+    return withinInstrumentHold(lock, async () => {
+      try {
+        const inventoryAt: InventoryAt = async (commit) => {
+          await checkout.moveTo(commit);
+          const failed = (await runCheckoutPhase(isolation, "regenerate", checkout.run)).find((step) => step.status === "fail");
+          if (failed !== undefined) throw new InputError(`the test inventory of ${commit} could not be generated (${failed.step}): ${failed.message}`, "flake_move_inventory_missing");
+          return readFileSync(join(checkout.path, engineRelative, VERIFICATION_PATHS.testInventory), "utf8");
+        };
+        const recorded = await recordIdentityMoves(move, topRepository, inventoryAt, (record) => writeRecordFile(identityMoveFileName(record.from), serializeIdentityMove(record)), () => new Date());
+        return { result: wrapResult("flake", move.moves.map((pair, index) => ({ identity: pair.from, recorded: recorded[index]! })), { status: "pass" }), exitCode: 0 };
+      } finally {
+        checkout.close();
+      }
+    });
   }
   const request = parseFlakeReproduceArgs(argv);
   const testPathOf = (file: string): string => request.suite === "engine" ? `${engineRelative}/${file}` : file;
@@ -641,35 +642,36 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
   // A whole instrument (it runs suites at two revisions), heavy by kind.
   const lock = holdInstrumentLock({
     config: declaredLock, harnessRoot: ENGINE_ROOT, runner: `flake reproduce (${String(request.tests.length)} test(s))`,
-    testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), cpu: SUBPROCESS_BOUNDS,
+    testFileCount: wholeInstrumentTestFileCount(declaredLock, "flake-reproduction"), cpu: configuredSubprocessBounds(),
   });
   const supervisor = ensureTestProcessSupervisor();
   const checkout = privateCheckout(snapshot, isolation, top, topRepository, engineRelative, "flake reproduce", supervisor);
-  try {
-    const answers = await reproduceFlake(request, topRepository, testPathOf, async (revision, files) => {
-      await checkout.moveTo(resolveCommit(topRepository, revision === "parent" ? `${request.fix}^` : request.fix));
-      return runReproductionTests(checkout.path, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
-    }, (record, bytes) => writeRecordFile(flakeReproductionFileName(record.identity, record.fix.commit), bytes), {
-      runs: request.statistical ? statisticalRunsOf(request, config) : deterministicRuns(request.preload, significance, deterministicShims),
-      preloadSha256,
-      now: () => new Date(),
-      // The one producer owns the sample; this record keeps its raw one-minute
-      // leg and records null when the reading is unreadable, never 0.
-      load: () => readAmbientLoadPerCpu().loads?.[0] ?? null,
-      significance,
-      deterministicShims,
-      priorLooks: (identity, fixCommit) => claimLooks(readFlakeAttempts(ENGINE_ROOT).looks, identity, fixCommit),
-      attemptId: () => randomBytes(16).toString("hex"),
-      // Each run's output, redacted (D-09), kept in the evidence store: the attempt names it by digest.
-      keepOutput: (output) => keepEvidenceBytes(evidence(), Buffer.from(persistableText(output), "utf8")),
-      appendAttempt: (attempt) => appendFlakeAttempt(ENGINE_ROOT, attempt),
-    });
-    const recorded = answers.filter((answer) => "recorded" in answer).length;
-    return { result: wrapResult("flake", answers, { status: recorded === answers.length ? "pass" : "fail" }), exitCode: recorded === answers.length ? 0 : 1 };
-  } finally {
-    checkout.close();
-    lock.release();
-  }
+  return withinInstrumentHold(lock, async () => {
+    try {
+      const answers = await reproduceFlake(request, topRepository, testPathOf, async (revision, files) => {
+        await checkout.moveTo(resolveCommit(topRepository, revision === "parent" ? `${request.fix}^` : request.fix));
+        return runReproductionTests(checkout.path, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
+      }, (record, bytes) => writeRecordFile(flakeReproductionFileName(record.identity, record.fix.commit), bytes), {
+        runs: request.statistical ? statisticalRunsOf(request, config) : deterministicRuns(request.preload, significance, deterministicShims),
+        preloadSha256,
+        now: () => new Date(),
+        // The one producer owns the sample; this record keeps its raw one-minute
+        // leg and records null when the reading is unreadable, never 0.
+        load: () => readAmbientLoadPerCpu().loads?.[0] ?? null,
+        significance,
+        deterministicShims,
+        priorLooks: (identity, fixCommit) => claimLooks(readFlakeAttempts(ENGINE_ROOT).looks, identity, fixCommit),
+        attemptId: () => randomBytes(16).toString("hex"),
+        // Each run's output, redacted (D-09), kept in the evidence store: the attempt names it by digest.
+        keepOutput: (output) => keepEvidenceBytes(evidence(), Buffer.from(persistableText(output), "utf8")),
+        appendAttempt: (attempt) => appendFlakeAttempt(ENGINE_ROOT, attempt),
+      });
+      const recorded = answers.filter((answer) => "recorded" in answer).length;
+      return { result: wrapResult("flake", answers, { status: recorded === answers.length ? "pass" : "fail" }), exitCode: recorded === answers.length ? 0 : 1 };
+    } finally {
+      checkout.close();
+    }
+  }, (answer) => (answer.exitCode === 0 ? undefined : "the reproduction recorded fewer answers than it was asked for"));
 }
 
 /** A statistical request's N: the configured one (required, never a default), or `--runs` when that is more — never fewer. */

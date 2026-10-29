@@ -45,11 +45,18 @@
  * declared in JUDGE_LIMITS, and every report prints it. The request rows stay
  * on for the whole session.
  */
+import { readFileSync } from "node:fs";
+
+import { PALETTE_BURN_DOWN, scopeBase, SITE_FONT_PATH, SITE_THEME_SELECTORS, sitePolicies } from "../../shared/site-page.ts";
+import { concreteColor, readTokenOwner, resolveToken, themeColor, themeTokens, THEMES } from "../../shared/token-reader.ts";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
-import { TOKEN_THEMES, tokenValues, type TokenTheme } from "../token-owner.ts";
+import { TOKEN_THEMES, TOKENS_PATH, tokenValues, type TokenTheme } from "../token-owner.ts";
 import { vendoredFaces } from "../vendor-fonts.ts";
 
 export type Surface = "cockpit" | "site";
+
+/** Which pages a row's input is built for: their surface, and the base path they are served under ("" at the root). */
+export type Scope = Readonly<{ surface: Surface; base: string }>;
 
 /** What the page recorded as it ran (judge.ts keeps it in Node, so a frame or worker that is gone still counts). */
 export type Recorded = Readonly<{
@@ -80,7 +87,8 @@ export type PageRule = Readonly<{
   surfaces: readonly Surface[];
   /** Surfaces it does not hold on yet, each with the reason and who flips it. */
   pending?: Readonly<Partial<Record<Surface, string>>>;
-  input: () => unknown;
+  /** The row's input, built in Node for the judged pages' scope. */
+  input: (scope: Scope) => unknown;
   /**
    * Runs in every judged frame: `top` is the page's own document, and only
    * there is `record` given (it holds the whole page's, every frame's).
@@ -94,7 +102,7 @@ export type RequestRule = Readonly<{
   holds: string;
   surfaces: readonly Surface[];
   pending?: Readonly<Partial<Record<Surface, string>>>;
-  judge: (url: string, resourceType: string, origin: string) => string | null;
+  judge: (url: string, resourceType: string, origin: string, base: string) => string | null;
 }>;
 
 export type RenderedRule = PageRule | RequestRule;
@@ -122,8 +130,18 @@ const FACE_TOKENS: readonly string[] = ["--face-sans", "--face-mono"];
  * owner did not declare, and is judged by what it renders.
  */
 const faceStacks = (): Readonly<Record<string, string>> => tokenValues("carbon", FACE_TOKENS);
-const markThemes = (): readonly Readonly<{ selector: string; colors: Readonly<Record<string, string>> }>[] =>
-  (Object.keys(TOKEN_THEMES) as TokenTheme[]).map((theme) => ({ selector: TOKEN_THEMES[theme], colors: tokenValues(theme, [...new Set(markParts().map((part) => part.token))]) }));
+/** Each theme's selector on the surface's root (the cockpit's own attribute, the site's `data-theme`) with the owner's mark colours. */
+const markThemes = (surface: Surface): readonly Readonly<{ selector: string; colors: Readonly<Record<string, string>> }>[] =>
+  (Object.keys(TOKEN_THEMES) as TokenTheme[])
+    .map((theme) => ({ theme, selector: surface === "site" ? SITE_THEME_SELECTORS[theme] : TOKEN_THEMES[theme] }))
+    // The theme a bare root wears comes first, so the last selector a root matches is the theme it wears.
+    .sort((a, b) => Number(a.selector !== ":root") - Number(b.selector !== ":root"))
+    .map(({ theme, selector }) => ({ selector, colors: tokenValues(theme, [...new Set(markParts().map((part) => part.token))]) }));
+/** The vendored faces, each file as the surface serves it (the site serves them under its base path). */
+const servedFaces = (scope: Scope): readonly VendoredFace[] => vendoredFaces().map((face) => (scope.surface !== "site" ? face : {
+  family: face.family,
+  files: face.files.map((file) => `${scopeBase(scope.base)}/${SITE_FONT_PATH}/${file.split("/").pop() ?? file}`),
+}));
 
 /** Where the brand mark renders: the cockpit's `Brand.svelte` and any page that includes the generated mark. */
 const MARK_SELECTOR = ".brand > svg, svg[data-brand-mark]";
@@ -155,6 +173,9 @@ export const KIT: Readonly<Record<keyof Kit, (...args: never[]) => unknown>> = {
 function judgeMark(args: { input: { parts: readonly MarkPart[]; selector: string; themes: readonly { selector: string; colors: Readonly<Record<string, string>> }[] }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
   const findings: string[] = [];
   const { parts, selector, themes } = args.input;
+  // A site page whose sheet still carries its own palette (the burn-down list, #161) inks the mark from it.
+  const ownPalette = (args.input as { ownPalette?: readonly string[] }).ownPalette ?? [];
+  if ([...document.styleSheets].some((sheet) => ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
   const describe = kit.describe;
   const marks = kit.elements(document).filter((el) => el.matches(selector));
   if (marks.length === 0 && args.top && args.surface === "cockpit") findings.push("no brand mark is rendered on this view");
@@ -329,21 +350,217 @@ function judgeFonts(args: { input: { stacks: Readonly<Record<string, string>>; f
 }
 
 /**
- * THE CONTENT SECURITY POLICY every page carries as its meta tag, exactly:
- * the browser itself then refuses any font, stylesheet, script or image from
- * elsewhere, and any inline script or style. The page's owner writes it into
- * the page; this is the one statement of what it must say.
+ * THE CONTENT SECURITY POLICIES every page carries as its first meta tags,
+ * exactly: the origin policy and the base-path policy, whose intersection the
+ * browser enforces (only files under the site's own path on its origin load;
+ * no inline script or style). Their one statement is `shared/site-page.ts`
+ * `sitePolicies()`, which the site's builder writes into every page; the
+ * cockpit adopts them when it sends one (#319).
  */
-export const CONTENT_SECURITY_POLICY = "default-src 'self'; base-uri 'none'";
+export const CONTENT_SECURITY_POLICIES = sitePolicies;
 
-/** The page carries exactly one CSP meta tag, and it says exactly the policy. */
-function judgeCspMeta(args: { input: { policy: string }; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+/** The page carries exactly the policy tags, first in its head after the charset, each saying exactly its policy. */
+function judgeCspMeta(args: { input: { policies: readonly string[] }; surface: Surface; top: boolean; record: Recorded | null }): string[] {
   if (!args.top && location.protocol === "about:") return []; // a srcdoc or blank frame lives under its parent's policy
+  const { policies } = args.input;
   const metas = [...document.querySelectorAll("meta")].filter((m) => (m.getAttribute("http-equiv") ?? "").toLowerCase() === "content-security-policy");
-  if (metas.length !== 1) return [`the page carries ${metas.length} Content-Security-Policy meta tags, not one`];
+  if (metas.length !== policies.length) return [`the page carries ${metas.length} Content-Security-Policy meta tags, not ${policies.length}`];
+  const findings: string[] = [];
+  const head = [...document.head.children];
+  if (!(head[0]?.tagName === "META" && head[0].hasAttribute("charset") && metas.every((meta, index) => head[index + 1] === meta))) {
+    findings.push("the Content-Security-Policy meta tags are not the head's first elements after <meta charset>: what loads before them is not under them");
+  }
   const normal = (policy: string): string => policy.split(";").map((d) => d.trim().replace(/\s+/gu, " ")).filter((d) => d.length > 0).join("; ");
-  const content = normal(metas[0]!.getAttribute("content") ?? "");
-  return content === normal(args.input.policy) ? [] : [`the Content-Security-Policy is "${content}", not "${normal(args.input.policy)}"`];
+  metas.forEach((meta, index) => {
+    const content = normal(meta.getAttribute("content") ?? "");
+    if (content !== normal(policies[index]!)) findings.push(`Content-Security-Policy ${index + 1} is "${content}", not "${normal(policies[index]!)}"`);
+  });
+  return findings;
+}
+
+/**
+ * WHAT A SITE PAGE MAY COMPUTE, from the token owner (never from the page's
+ * own custom properties): each theme's concrete value of every colour token,
+ * and every duration token's value, each written out literally so the page
+ * computes it the way it computes its own.
+ */
+type TokenInput = Readonly<{
+  themes: readonly Readonly<{ selector: string; colours: readonly string[] }>[];
+  durations: readonly string[];
+  ownPalette: readonly string[];
+}>;
+
+function ownerTokenInput(scope: Scope): TokenInput {
+  const owner = readTokenOwner(readFileSync(TOKENS_PATH, "utf8"));
+  const selectors = scope.surface === "site" ? SITE_THEME_SELECTORS : TOKEN_THEMES;
+  const themes = [...THEMES]
+    .map((theme) => {
+      const colours: string[] = [];
+      for (const name of themeTokens(owner, theme).keys()) {
+        try {
+          colours.push(themeColor(owner, theme, name));
+        } catch { /* not a colour token */ }
+      }
+      // A media remap of a colour (a forced-colours or contrast remap) is the owner's value in that media.
+      for (const remap of owner.media) {
+        const values = new Map([...themeTokens(owner, theme), ...remap.values]);
+        for (const name of remap.values.keys()) {
+          try {
+            colours.push(concreteColor(resolveToken(values, name)));
+          } catch { /* not a colour token */ }
+        }
+      }
+      return { selector: selectors[theme], colours: [...new Set(colours)] };
+    })
+    .sort((a, b) => Number(a.selector !== ":root") - Number(b.selector !== ":root"));
+  const durations = new Set<string>();
+  for (const theme of THEMES) {
+    // Each theme's values, and each media remap of them (a reduced-motion remap is the owner's own duration too).
+    for (const values of [themeTokens(owner, theme), ...owner.media.map((remap) => new Map([...themeTokens(owner, theme), ...remap.values]))]) {
+      for (const name of values.keys()) {
+        try {
+          const value = resolveToken(values, name);
+          if (/\d(?:ms|s)\b/u.test(value)) durations.add(value);
+        } catch { /* a token that does not resolve is the owner's own guard's */ }
+      }
+    }
+  }
+  return { themes, durations: [...durations], ownPalette: [...PALETTE_BURN_DOWN.keys()] };
+}
+
+/**
+ * Every colour the page shows (text, grounds, drawn borders and outlines,
+ * decorations, SVG paint) is the token owner's value of a colour token in the
+ * theme the page wears. Colours are compared as the browser paints them (one
+ * pixel each, so `rgb()` and `color(srgb …)` of the same colour agree). A
+ * page whose sheet still carries its own palette (the burn-down list) is not
+ * judged here.
+ */
+function judgeTokenColours(args: { input: TokenInput; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+  const { themes, ownPalette } = args.input;
+  if ([...document.styleSheets].some((sheet) => ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
+  const theme = themes.filter((t) => document.documentElement.matches(t.selector)).at(-1);
+  if (theme === undefined) return ["the page's root wears none of the owner's themes"];
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (context === null) return ["the judgement cannot paint a colour (no 2D canvas)"];
+  const paint = (value: string): readonly number[] => {
+    context.clearRect(0, 0, 1, 1);
+    context.fillStyle = "rgba(0, 0, 0, 0)";
+    context.fillStyle = value;
+    context.fillRect(0, 0, 1, 1);
+    return [...context.getImageData(0, 0, 1, 1).data];
+  };
+  const allowed = [...theme.colours, "rgba(0, 0, 0, 0)"].map(paint);
+  const near = (a: readonly number[], b: readonly number[]): boolean => (a[3]! === 0 && b[3]! === 0) || a.every((channel, index) => Math.abs(channel - b[index]!) <= 2);
+  const shapes = new Set(["rect", "circle", "ellipse", "path", "polygon", "polyline", "text", "tspan"]);
+  const off = new Map<string, string[]>();
+  // Every colour an animation names in its keyframes is judged, whatever its
+  // play state, finite or infinite: an animation may pass through a colour it
+  // never lands on, or never land at all. Each is resolved on the element
+  // itself, so var() and currentcolor read what the element reads. A
+  // transition's keyframes are not: it goes only from where the property stood
+  // to where the page sets it, never holds, and always ends, so its colour is
+  // judged where it lands (and Chrome reports a currentcolor end as black).
+  // The property's current value is skipped only while an animation is
+  // running or pending, since it then sits between two keyframes; a finished
+  // animation that fills forwards holds its end value, judged like any other,
+  // and the judge finishes every finite animation and judges again
+  // (judgeFuture).
+  const offInKeyframes: string[] = [];
+  const moving = new WeakMap<Element, Set<string>>();
+  const inFlight = (element: Element): Set<string> => {
+    let properties = moving.get(element);
+    if (properties === undefined) {
+      properties = new Set<string>();
+      for (const animation of element.getAnimations()) {
+        const effect = animation.effect as KeyframeEffect | null;
+        const moves = animation.playState === "running" || animation.pending;
+        const transition = animation as Animation & { transitionProperty?: string };
+        const named = new Set<string>();
+        if (moves && typeof transition.transitionProperty === "string") named.add(transition.transitionProperty);
+        for (const frame of effect?.getKeyframes?.() ?? []) {
+          const judged = typeof transition.transitionProperty !== "string";
+          for (const [key, value] of Object.entries(frame)) {
+            if (["offset", "computedOffset", "easing", "composite"].includes(key)) continue;
+            const property = key.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`);
+            if (moves) named.add(property);
+            if (judged && /color$|^fill$|^stroke$/u.test(property) && typeof value === "string" && value !== "none" && !value.startsWith("url(")) {
+              const probe = document.createElement("span");
+              element.append(probe);
+              probe.style.setProperty("color", value);
+              const resolved = getComputedStyle(probe).color;
+              probe.remove();
+              if (!allowed.some((colour) => near(colour, paint(resolved)))) offInKeyframes.push(`${property} ${value} in a keyframe of an animation on ${kit.describe(element)}`);
+            }
+          }
+        }
+        for (const property of named) properties.add(property);
+      }
+      moving.set(element, properties);
+    }
+    return properties;
+  };
+  const note = (what: string, value: string, element: Element): void => {
+    if (value === "" || value === "none" || value.startsWith("url(")) return;
+    if (inFlight(element).has(what) || inFlight(element).has("all")) return;
+    const painted = paint(value);
+    if (allowed.some((colour) => near(colour, painted))) return;
+    const key = `${what} ${value}`;
+    const seen = off.get(key) ?? [];
+    if (seen.length < 3) seen.push(kit.describe(element));
+    off.set(key, seen);
+  };
+  for (const element of [document.body, ...kit.elements(document)]) {
+    if (element.getClientRects().length === 0) continue;
+    inFlight(element); // judges every keyframe colour, on every shown element
+    const s = getComputedStyle(element);
+    const text = [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0);
+    if (text) note("color", s.color, element);
+    note("background-color", s.backgroundColor, element);
+    for (const side of ["top", "right", "bottom", "left"]) {
+      if (s.getPropertyValue(`border-${side}-style`) !== "none" && s.getPropertyValue(`border-${side}-width`) !== "0px") note(`border-${side}-color`, s.getPropertyValue(`border-${side}-color`), element);
+    }
+    if (s.outlineStyle !== "none" && s.outlineWidth !== "0px") note("outline-color", s.outlineColor, element);
+    if (text && s.textDecorationLine !== "none") note("text-decoration-color", s.textDecorationColor, element);
+    if (element instanceof SVGElement && shapes.has(element.tagName.toLowerCase())) note("fill", s.fill, element);
+    // A line has no area: only its stroke paints.
+    if (element instanceof SVGElement && (shapes.has(element.tagName.toLowerCase()) || element.tagName.toLowerCase() === "line")) note("stroke", s.stroke, element);
+  }
+  return [
+    ...[...off].map(([key, where]) => `${key} is not the token owner's value of a colour token in this theme (${where.join(", ")})`),
+    ...[...new Set(offInKeyframes)].map((entry) => `${entry} is not the token owner's value of a colour token in this theme`),
+  ];
+}
+
+/** Every transition and animation the page runs lasts 0s or the token owner's value of a duration token. */
+function judgeTokenDurations(args: { input: TokenInput; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+  const { durations, ownPalette } = args.input;
+  if ([...document.styleSheets].some((sheet) => ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
+  const probe = document.createElement("span");
+  document.documentElement.append(probe);
+  const allowed = new Set<string>(["0s"]);
+  for (const value of durations) {
+    probe.style.setProperty("transition-duration", value);
+    allowed.add(getComputedStyle(probe).transitionDuration);
+  }
+  probe.remove();
+  const off = new Map<string, string[]>();
+  for (const element of [document.body, ...kit.elements(document)]) {
+    const s = getComputedStyle(element);
+    for (const [property, values] of [["transition-duration", s.transitionDuration], ["animation-duration", s.animationDuration]] as const) {
+      for (const value of values.split(",").map((part) => part.trim())) {
+        if (allowed.has(value)) continue;
+        const key = `${property} ${value}`;
+        const seen = off.get(key) ?? [];
+        if (seen.length < 3) seen.push(kit.describe(element));
+        off.set(key, seen);
+      }
+    }
+  }
+  return [...off].map(([key, where]) => `${key} is not the token owner's value of a duration token (${where.join(", ")})`);
 }
 
 /** No Content-Security-Policy violation happened in any frame of the page (recorded from the first byte by judge.ts). */
@@ -356,16 +573,79 @@ function judgeJudgeable(args: { input: Record<string, never>; surface: Surface; 
   return [...(args.record?.unjudgeable ?? [])];
 }
 
-/** A request that leaves the page's origin (data:, blob: and about: URLs are the page's own). */
-function judgeOrigin(url: string, resourceType: string, origin: string): string | null {
+/** The page fits its viewport: nothing scrolls sideways (judged on the page's own document). */
+function judgeNoSidewaysScroll(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  if (!args.top) return [];
+  const wide = document.documentElement.scrollWidth;
+  return wide > window.innerWidth ? [`the page scrolls sideways (${wide}px wide in a ${window.innerWidth}px viewport)`] : [];
+}
+
+/** The page's own layout shifts stay within the budget (judge.ts counts them, never its own viewport and media changes). */
+function judgeLayoutShift(args: { input: { budget: number; ownPalette: readonly string[] }; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  if (!args.top) return [];
+  // The demos on the palette burn-down list render their record by script
+  // after load; they are rebuilt under #161, and judged here when they are.
+  if ([...document.styleSheets].some((sheet) => args.input.ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
+  const shift = (globalThis as unknown as { __renderedShift?: { value: number } }).__renderedShift;
+  if (shift === undefined) return ["the page was not instrumented for layout shift"];
+  return shift.value > args.input.budget ? [`the layout shifts by ${shift.value.toFixed(3)} (budget ${args.input.budget})`] : [];
+}
+
+/** One main landmark and one top heading (the page's own document). */
+function judgeLandmarks(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  if (!args.top) return [];
+  const findings: string[] = [];
+  const mains = document.querySelectorAll("main").length;
+  const h1s = document.querySelectorAll("h1").length;
+  if (mains !== 1) findings.push(`${mains} <main> landmarks, not one`);
+  if (h1s !== 1) findings.push(`${h1s} <h1> headings, not one`);
+  return findings;
+}
+
+/** Every image says what it shows (an empty alt marks a decorative one), in any frame or open shadow root. */
+function judgeAltText(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+  const missing = kit.elements(document).filter((el) => el.tagName === "IMG" && !el.hasAttribute("alt")).map((img) => img.getAttribute("src") ?? "an image");
+  return missing.length === 0 ? [] : [`${missing.length} image(s) without alt text (${missing.slice(0, 3).join(", ")})`];
+}
+
+/**
+ * Wherever text renders in one of the token owner's stacks, the face that
+ * stack names first actually loaded: no text is set in a fallback face.
+ */
+function judgeFacesLoaded(args: { input: { stacks: Readonly<Record<string, string>> }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+  const normal = (family: string): string => family.split(",").map((f) => f.trim().replace(/^["']|["']$/gu, "")).filter((f) => f.length > 0).join(", ");
+  const findings: string[] = [];
+  const elements = kit.elements(document);
+  for (const [token, ownerStack] of Object.entries(args.input.stacks)) {
+    const stack = normal(ownerStack);
+    const used = elements.some((el) => normal(getComputedStyle(el).fontFamily) === stack
+      && [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0)
+      && el.getClientRects().length > 0);
+    if (!used) continue;
+    const first = stack.split(", ")[0]!;
+    const loaded = [...document.fonts].some((face) => normal(face.family) === first && face.status === "loaded");
+    if (!loaded) findings.push(`${first} (${token}) did not load: text in that stack is set in a fallback face`);
+  }
+  return findings;
+}
+
+/** The budget the page's own layout shifts may sum to (Core Web Vitals' "good" bound). */
+export const LAYOUT_SHIFT_BUDGET = 0.1;
+
+/** A request that leaves the page's origin, or the site's base path on it (data:, blob: and about: URLs are the page's own). */
+function judgeOrigin(url: string, resourceType: string, origin: string, base: string): string | null {
   if (/^(?:data|blob|about):/u.test(url)) return null;
-  let at: string;
+  let at: URL;
   try {
-    at = new URL(url).origin;
+    at = new URL(url);
   } catch {
     return `a ${resourceType} request to an unparseable URL: ${url}`;
   }
-  return at === origin ? null : `a ${resourceType} request left the origin: ${url}`;
+  if (at.origin !== origin) return `a ${resourceType} request left the origin: ${url}`;
+  // The origin may be shared by several sites (each a path on it): a page's
+  // own files are the ones under its base path.
+  const scope = scopeBase(base);
+  return scope === "" || at.pathname === scope || at.pathname.startsWith(`${scope}/`) ? null : `a ${resourceType} request left the site's base path ${scope}/: ${url}`;
 }
 
 /** One state a page is judged in: its media, its motion preference, and (on the site, where the judge owns the window) its viewport and colour scheme. */
@@ -431,8 +711,9 @@ export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string; why: s
   { id: "between-steps", limit: `a change that appears and is undone within one step (${String(STEP_MS)} ms of page time) of a page's future is not seen`, why: "the future is judged after each step; a state that comes and goes between two judgements is never on screen when one is made" },
   { id: "past-the-future", limit: `work a page schedules later than ${String(FUTURE_MS)} ms of page time into its future is not run`, why: "the future must end for a judgement to end: a page that polls schedules work forever" },
   { id: "real-time-loops", limit: "work driven by the browser's own task queues in wall time — a MessageChannel or postMessage loop, a chain on network or idle callbacks the clock does not fake — is judged only as far as it got by each judgement", why: "the page clock fakes timers, intervals and animation frames, not the task queues; running those forward needs the browser's virtual time, which cannot be handed back to real time (the capture walk needs real time between views)" },
-  { id: "infinite-animations", limit: "an infinite CSS or Web animation is judged where it stands at each judgement, not at every point of its cycle", why: "it has no end to finish to" },
-  { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement); a keyframe off the tokens only between those moments is not seen", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
+  { id: "infinite-animations", limit: "an infinite CSS or Web animation is judged where it stands at each judgement, not at every point of its cycle, except its colours: every colour its keyframes name is judged against the tokens", why: "it has no end to finish to; its keyframes are the only place its colours can all be read" },
+  { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement), and every colour its keyframes name is judged against the tokens; a value between two keyframes is not judged", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
+  { id: "load-shifts", limit: "a layout shift the page makes while it loads, before it is ready (its requests done, its fonts settled) and a frame is drawn, is not counted: a web font's swap, an image without set dimensions arriving late, and a stylesheet applied after the first paint (async CSS) are each one, and each is a shift a reader can see", why: "when a load's shifts land depends on the host: a late font swapped inside the count on a loaded host and before it on an idle one (#632), so the count opens where every host agrees; judging these three needs controlled delays (a load-stress pass), not the host's" },
   { id: "forced-states-churn", limit: "an element a page adds while the states are being forced, after the forcing pass's last look for new elements (or in a shadow root or frame it adds), is judged without them", why: "a page that keeps replacing its nodes would otherwise keep the pass going; reading the tree again would drop the states already forced, so the pass reads it once and looks twice more in the scopes it read" },
   { id: "forced-states-together", limit: "hover, active and focus are forced on every element at once (focus only where an element can take it), not one element at a time", why: "one forced pass shows any rule those states turn on; combinations that cannot occur together may also be judged" },
   { id: "hostile-pages", limit: "a page written to hide from the judgement — one that takes a removed frame's setters, or stops the Content-Security-Policy violation event before the judge's listener — can evade it", why: "the judge's threat model is our own pages making mistakes; it records in the page, where such a page can interfere" },
@@ -456,32 +737,48 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     kind: "page",
     id: "brand-mark",
     holds: "Every rendered brand mark, in any frame or open shadow root, draws exactly the declared parts, each in the token owner's value of its token for the theme it wears, opaque, unfiltered, visible, unclipped and unmasked, and has a size.",
-    surfaces: ["cockpit"],
-    pending: { site: "the site's layout draws a mark of its own (another geometry, painted with currentColor) until DESIGN generates it from brand-mark.ts (#201); DESIGN adds \"site\" here when it does" },
-    input: () => ({ parts: markParts(), selector: MARK_SELECTOR, themes: markThemes() }),
+    surfaces: ["cockpit", "site"],
+    input: (scope: Scope) => ({ parts: markParts(), selector: MARK_SELECTOR, themes: markThemes(scope.surface), ownPalette: scope.surface === "site" ? [...PALETTE_BURN_DOWN.keys()] : [] }),
     judge: judgeMark as PageRule["judge"],
   },
   {
     kind: "page",
     id: "font-families",
     holds: "Every text that renders (a text node with a box, a form control's value, generated content; open shadow roots included) computes exactly one of the token owner's --face-* stacks, in every state including hover and focus; every font face is a token family loaded from its vendored files; every canvas font, in any frame, is exactly a --face-* stack.",
-    surfaces: ["cockpit"],
-    pending: { site: "the site declares its own --sans/--mono stacks until it wears the token owner (DESIGN, #201); DESIGN adds \"site\" here when it does" },
-    // Each token family is bound to the files the font owner vendors for it (scripts/vendor-fonts.ts, its lock).
-    input: () => ({ stacks: faceStacks(), faces: vendoredFaces() satisfies readonly VendoredFace[] }),
+    surfaces: ["cockpit", "site"],
+    // Each token family is bound to the files the font owner vendors for it (scripts/vendor-fonts.ts, its lock),
+    // as the surface serves them.
+    input: (scope: Scope) => ({ stacks: faceStacks(), faces: servedFaces(scope) satisfies readonly VendoredFace[] }),
     judge: judgeFonts as PageRule["judge"],
   },
   {
     kind: "page",
     id: "csp-meta",
-    holds: `Every page carries exactly one Content-Security-Policy meta tag, saying exactly "${CONTENT_SECURITY_POLICY}".`,
-    surfaces: [],
+    holds: "Every page carries exactly two Content-Security-Policy meta tags, first in its head after the charset, saying exactly sitePolicies(base) (shared/site-page.ts): the origin policy and the base-path policy.",
+    surfaces: ["site"],
     pending: {
-      site: "DESIGN adds the meta tag to the site's one layout (#201); DESIGN adds \"site\" here when it does",
       cockpit: "the cockpit sends no Content-Security-Policy yet (#319); its owner adds \"cockpit\" here when it does",
     },
-    input: () => ({ policy: CONTENT_SECURITY_POLICY }),
+    input: (scope: Scope) => ({ policies: sitePolicies(scope.base) }),
     judge: judgeCspMeta as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "token-colours",
+    holds: "Every colour the page shows (text, grounds, drawn borders and outlines, decorations, SVG paint) is the token owner's value of a colour token in the theme the page wears; a page on the palette burn-down list is exempt until #161.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's components are not yet judged by computed colour; its owner adds \"cockpit\" here when they are" },
+    input: ownerTokenInput,
+    judge: judgeTokenColours as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "token-durations",
+    holds: "Every transition and animation the page runs lasts 0s or the token owner's value of a duration token; a page on the palette burn-down list is exempt until #161.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's motion is not yet judged by computed duration; its owner adds \"cockpit\" here when it is" },
+    input: ownerTokenInput,
+    judge: judgeTokenDurations as PageRule["judge"],
   },
   {
     kind: "page",
@@ -500,9 +797,54 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     judge: judgeJudgeable as PageRule["judge"],
   },
   {
+    kind: "page",
+    id: "no-sideways-scroll",
+    holds: "The page fits every viewport it is judged at: nothing scrolls sideways.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's views are not yet judged for sideways scroll; its owner adds \"cockpit\" here when they are" },
+    input: () => ({}),
+    judge: judgeNoSidewaysScroll as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "layout-shift",
+    holds: `The page's own layout shifts (its load and its future; never the judge's viewport and media changes) sum to no more than ${String(LAYOUT_SHIFT_BUDGET)}; a demo on the palette burn-down list is exempt until #161.`,
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's views stream content by design; its owner sets a budget and adds \"cockpit\" here" },
+    input: () => ({ budget: LAYOUT_SHIFT_BUDGET, ownPalette: [...PALETTE_BURN_DOWN.keys()] }),
+    judge: judgeLayoutShift as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "landmarks",
+    holds: "The page has exactly one <main> landmark and one <h1>.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit is one application view, not a document; its owner decides its landmark rule" },
+    input: () => ({}),
+    judge: judgeLandmarks as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "alt-text",
+    holds: "Every image carries alt text (empty for a decorative one).",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's views are not yet judged for alt text; its owner adds \"cockpit\" here when they are" },
+    input: () => ({}),
+    judge: judgeAltText as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "faces-loaded",
+    holds: "Wherever text renders in one of the token owner's stacks, the face that stack names first actually loaded: no text is set in a fallback.",
+    surfaces: ["site"],
+    pending: { cockpit: "the capture walk's fixture views are not yet judged for loaded faces; its owner adds \"cockpit\" here when they are" },
+    input: () => ({ stacks: faceStacks() }),
+    judge: judgeFacesLoaded as PageRule["judge"],
+  },
+  {
     kind: "request",
     id: "same-origin",
-    holds: "No request leaves the page's origin: no font, stylesheet, script, image or beacon from anywhere else.",
+    holds: "No request leaves the page's origin, or its base path on that origin (another site of a shared origin is elsewhere): no font, stylesheet, script, image or beacon from anywhere else.",
     surfaces: ["cockpit", "site"],
     judge: judgeOrigin,
   },

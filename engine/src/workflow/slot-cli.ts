@@ -7,7 +7,11 @@
  * CPU-time limit; adopted into the run's record, so a door killed outright
  * leaves the record live until the command and everything it started are
  * gone), and the record is released when the command ends; its exit code is
- * the command's.
+ * the command's. A run in which the kernel killed a process for passing its
+ * memory cap ends in the admission owner's typed refusal
+ * (`run_memory_cap_exceeded`, raised when the run's record is released),
+ * never an ordinary signal ending; a door that BORROWS an outer run keeps
+ * its command's own exit code, and the outer run's owner reports the kill.
  */
 import { constants } from "node:os";
 import { basename } from "node:path";
@@ -16,8 +20,8 @@ import { fileURLToPath } from "node:url";
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
-import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount } from "../process/instrument-lock.ts";
-import { SUBPROCESS_BOUNDS } from "./workflow-config.ts";
+import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
+import { configuredSubprocessBounds } from "./workflow-config.ts";
 import { runTestCommand } from "../process/supervised-run.ts";
 import { repositoryToplevel } from "../git/repository-ownership.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
@@ -60,14 +64,16 @@ function declaredInstrumentLock<T>(lock: T | undefined): T {
   return lock;
 }
 
-export async function runInsideInstrumentLock(runner: string, testFileCount: number, command: readonly string[], options: Readonly<{ lockPath?: string; onResult?: (chunk: Buffer) => void }> = {}): Promise<Readonly<{ exitCode: number; ending: string }>> {
+export async function runInsideInstrumentLock(runner: string, testFileCount: number, command: readonly string[], options: Readonly<{ lockPath?: string; caps?: PerRunCaps; onResult?: (chunk: Buffer) => void }> = {}): Promise<Readonly<{ exitCode: number; ending: string }>> {
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
   const config = readTestExecutionConfig(engineRoot);
-  // `lockPath`: a test's own registry (the host's registry is never a test's to write).
+  // `lockPath`: a test's own registry (the host's registry is never a test's
+  // to write), and only there `caps`: a test's own caps.
+  if (options.caps !== undefined && options.lockPath === undefined) throw new InputError("a run's caps are the config's; only a test's own registry (lockPath) takes caps of its own", INPUT_ERROR_CODE);
   const lock = options.lockPath !== undefined
-    ? admitInstrumentRun(options.lockPath, runner, declaredInstrumentLock(config.instrumentLock).perRun, SUBPROCESS_BOUNDS)
-    : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: SUBPROCESS_BOUNDS });
-  try {
+    ? admitInstrumentRun(options.lockPath, runner, options.caps ?? declaredInstrumentLock(config.instrumentLock).perRun, configuredSubprocessBounds())
+    : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: configuredSubprocessBounds() });
+  return withinInstrumentHold(lock, async () => {
     // CONFINED, always (decision TEST-CONFINEMENT-SELF-BIND): heavy load is test load — coverage, the raw and
     // supported vitest runs, the browser runs, the perf profile — through the one test-execution door. Work that must
     // write the checkout (a build, `harness sync`) runs through its declared trusted runner, never here.
@@ -87,9 +93,7 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
     });
     const exitCode = run.signal !== null ? 128 + constants.signals[run.signal] : run.ending === "exited" ? run.exitCode : 1;
     return deepFreeze({ exitCode, ending: run.ending });
-  } finally {
-    lock.release();
-  }
+  }, (ended) => (ended.exitCode === 0 ? undefined : `the command ${runner} ended ${ended.ending} with exit code ${String(ended.exitCode)}`));
 }
 
 export async function runSlotCli(argv: readonly string[]): Promise<CommandAnswer<SlotRunOutput>> {

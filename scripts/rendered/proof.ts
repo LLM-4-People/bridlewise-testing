@@ -21,7 +21,7 @@ import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { instrumentContext, judgeFuture, judgeStates, launchBrowser, navigate, openPage, serveSite, siteRestore } from "./judge.ts";
 import { tokenValues } from "../token-owner.ts";
 import { vendoredFaces } from "../vendor-fonts.ts";
-import { CONTENT_SECURITY_POLICY, JUDGE_LIMITS, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
+import { CONTENT_SECURITY_POLICIES, JUDGE_LIMITS, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
 
 /** The mark as Brand.svelte draws it, from the one geometry and its tokens (never a copy of its coordinates). */
 function markSvg(): string {
@@ -59,7 +59,7 @@ const vendoredFace = (file: string): string => `<style>@font-face { font-family:
 const canvasFont = (token: "--face-sans" | "--face-mono"): string => `12px ${OWNER[token]!}`;
 
 /** The clean page: the owner's token values, a brand mark painted from its tokens, text in the stacks. */
-const CLEAN = `<!doctype html><html><head><meta charset="utf-8"><title>clean</title>
+const CLEAN = `<!doctype html><html><head><meta charset="utf-8"><!--PLANT-POLICY--><title>clean</title>
 <style>
 :root { ${declarations(OWNER)} }
 body { font-family: var(--face-sans); }
@@ -72,9 +72,19 @@ button, input, textarea, select { font: inherit; }
 <main><p id="prose">A sentence in the sans stack.</p><p>Inline <code>code</code> in the mono stack.</p></main><!--PLANT-BODY--></body></html>`;
 
 /** A page: what it adds to the clean one, and the rule that must name it. `only` judges it with exactly those rows (a row pending on every surface is proved this way). */
-type Plant = Readonly<{ name: string; head?: string; body?: string; rule: string; only?: readonly string[] }>;
+/** `base`: the base path the page is judged as served under (the site's rows read it); the cockpit's own pages are at the root. */
+type Plant = Readonly<{ name: string; policy?: string; head?: string; body?: string; rule: string; only?: readonly string[]; base?: string }>;
 
 const cspMeta = (policy: string): string => `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
+
+/** The fixture is served under /proof: its two policies, scoped there, as the site's builder writes them. */
+const PROOF_BASE = "/proof";
+const [ORIGIN_POLICY, PATH_POLICY] = CONTENT_SECURITY_POLICIES(PROOF_BASE);
+const POLICIES = `${cspMeta(ORIGIN_POLICY)}${cspMeta(PATH_POLICY)}`;
+
+/** The clean page's text and ground in the owner's tokens: the base the token-colour and token-duration rows are proved on. */
+const SITE_INKS = "<style>body { color: var(--ink-1); background: var(--ground-0); }</style>";
+const SITE_ROWS: readonly string[] = ["token-colours", "token-durations"];
 /** A script that runs `body` in a dedicated worker. */
 const inWorker = (body: string): string => `<script>new Worker(URL.createObjectURL(new Blob([${JSON.stringify(body)}], { type: "text/javascript" })))</script>`;
 /** A script that runs `body` once `delay` ms of page time have passed. */
@@ -96,6 +106,21 @@ function steady(response: ServerResponse): void {
   }, STEADY_EVERY_MS);
   response.on("close", () => clearInterval(tick));
 }
+
+/**
+ * The proof's late face: a vendored face served LATE_FACE_MS after it is asked
+ * for, so the page paints in its fallback first and swaps when it arrives, as
+ * a web font does on a loaded host (#632). Deterministic: the delay is the
+ * server's, not the host's. Sized up (size-adjust) so the swap moves the
+ * block below it by about the shift #632 saw (0.22 against 0.24).
+ */
+const LATE_FACE_PATH = "/proof/late-face.woff2";
+const LATE_FACE_MS = 1500;
+function lateFace(response: ServerResponse): void {
+  const timer = setTimeout(() => servedFont(OTHER_FILE!)(response), LATE_FACE_MS);
+  response.on("close", () => clearTimeout(timer));
+}
+const LATE_FACE_TEXT = "The model brings the strength. The harness holds the reins. ".repeat(6);
 
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
@@ -183,14 +208,44 @@ const PLANTS: readonly Plant[] = [
   { name: "a same-origin frame claiming the artifact attribute", body: `<iframe data-artifact="frame" srcdoc="<p style='font-family: Georgia'>not a user artifact</p>"></iframe>`, rule: "font-families" },
   { name: "a paint worklet", body: `<script>CSS.paintWorklet.addModule(URL.createObjectURL(new Blob(["registerPaint('x', class { paint() {} })"], { type: "text/javascript" })))</script>`, rule: "judgeable" },
   { name: "text drawn in a canvas's default font", body: '<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").fillText("x", 0, 10)</script>', rule: "font-families" },
-  { name: "the Content-Security-Policy meta tag missing", rule: "csp-meta", only: ["csp-meta"] },
-  { name: "a loosened Content-Security-Policy", head: cspMeta(`${CONTENT_SECURITY_POLICY.replace("'self'", "'self' 'unsafe-inline'")}`), rule: "csp-meta", only: ["csp-meta"] },
-  { name: "a second Content-Security-Policy meta tag", head: `${cspMeta(CONTENT_SECURITY_POLICY)}${cspMeta("default-src *")}`, rule: "csp-meta", only: ["csp-meta"] },
-  { name: "a resource the policy blocks", head: cspMeta("default-src 'self' 'unsafe-inline'"), body: '<img alt="" src="https://cdn.example.invalid/pixel.png">', rule: "csp-violations", only: ["csp-violations"] },
+  { name: "the Content-Security-Policy meta tag missing", rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "a loosened Content-Security-Policy", policy: `${cspMeta(ORIGIN_POLICY.replace("'self'", "'self' 'unsafe-inline'"))}${cspMeta(PATH_POLICY)}`, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "the origin policy alone (every site of a shared origin admitted)", policy: cspMeta(ORIGIN_POLICY), rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "the path policy scoped to another site's path", policy: `${cspMeta(ORIGIN_POLICY)}${cspMeta(CONTENT_SECURITY_POLICIES("/other")[1])}`, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "the two policies in the wrong order", policy: `${cspMeta(PATH_POLICY)}${cspMeta(ORIGIN_POLICY)}`, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "the policies after something that loads before them", head: POLICIES, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "a script from another site's path on the same origin", body: '<script src="/elsewhere/loader.js"></script>', rule: "same-origin" , base: PROOF_BASE },
+  { name: "a colour that is no token", head: `${SITE_INKS}<style>#prose { color: rgb(200, 30, 30) }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a colour named through an escape", head: `${SITE_INKS}<style>#prose { color: \\63 rimson }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a mix of a token and a literal", head: `${SITE_INKS}<style>#prose { color: color-mix(in srgb, var(--ink-1) 50%, red) }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a token the page redefines (judged against the owner, not the page)", head: `${SITE_INKS}<style>:root { --ink-1: rgb(200, 30, 30) }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a drawn border in a literal", head: `${SITE_INKS}<style>#prose { border: 1px solid #ff0000 }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a colour set by a script", head: SITE_INKS, body: '<script>document.getElementById("prose").style.backgroundColor = "gold"</script>', rule: "token-colours", only: SITE_ROWS },
+  { name: "a drawn line stroked off its token", head: SITE_INKS, body: '<svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" style="stroke: rgb(250, 10, 10)"></line></svg>', rule: "token-colours", only: SITE_ROWS },
+  { name: "a mark part painted off its token", head: `${SITE_INKS}<style>.brand circle { fill: orange !important }</style>`, rule: "token-colours", only: SITE_ROWS },
+  { name: "a colour that lands off its token after a transition", head: `${SITE_INKS}<style>#prose { transition: color 600ms linear }</style>`, body: '<script>addEventListener("load", () => requestAnimationFrame(() => { document.getElementById("prose").style.color = "rgb(200, 30, 30)"; }))</script>', rule: "token-colours", only: ["token-colours"] },
+  { name: "a finished animation that fills forwards holding a colour off its token", head: `${SITE_INKS}<style>@keyframes off { to { color: rgb(200, 30, 30) } } #prose { animation: off 600ms linear forwards }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "an endless animation through a colour off its token", head: `${SITE_INKS}<style>@keyframes pulse { 50% { color: rgb(200, 30, 30) } } #prose { animation: pulse 1s linear infinite }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "an animation that ends off its token at once and holds it", head: `${SITE_INKS}<style>@keyframes off { to { color: rgb(200, 30, 30) } } #prose { animation: off 0.001s forwards }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "an endless animation through a colour off its token at a frame's pace", head: `${SITE_INKS}<style>@keyframes off { 50% { color: rgb(200, 30, 30) } } #prose { animation: off 0.001s infinite }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "a running animation through a colour off its token, ending on a token and holding nothing", head: `${SITE_INKS}<style>@keyframes via { 50% { color: rgb(200, 30, 30) } to { color: var(--ink-2) } } #prose { animation: via 20s linear }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "a duration that is no token", head: `${SITE_INKS}<style>#prose { transition: color 120ms }</style>`, rule: "token-durations", only: SITE_ROWS },
+  { name: "an animation duration that is no token", head: `${SITE_INKS}<style>@keyframes k { to { opacity: 1 } } #prose { animation: k 2.5s infinite }</style>`, rule: "token-durations", only: SITE_ROWS },
+  { name: "a third Content-Security-Policy meta tag", policy: POLICIES, head: cspMeta("default-src *"), rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "a page wider than its viewport", body: '<div style="width: 4000px; height: 1px"></div>', rule: "no-sideways-scroll", only: ["no-sideways-scroll"] },
+  { name: "a block pushed in above the text after the first paint", body: '<section style="height: 90vh"><p>Text a reader is reading, filling the window.</p></section><script>addEventListener("load", () => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => { const d = document.createElement("div"); d.style.height = "300px"; document.body.prepend(d); }, 50))))</script>', rule: "layout-shift", only: ["layout-shift"] },
+  { name: "a block pushed in by a timer the moment the page loads", body: '<section style="height: 90vh"><p>Text a reader is reading, filling the window.</p></section><script>addEventListener("load", () => setTimeout(() => { const d = document.createElement("div"); d.style.height = "300px"; document.body.prepend(d); }, 0))</script>', rule: "layout-shift", only: ["layout-shift"] },
+  { name: "no top heading", rule: "landmarks", only: ["landmarks"] },
+  { name: "two top headings", body: "<h1>one</h1><h1>two</h1>", rule: "landmarks", only: ["landmarks"] },
+  { name: "a second main landmark", body: "<h1>t</h1><main><p>again</p></main>", rule: "landmarks", only: ["landmarks"] },
+  { name: "an image without alt text", body: '<img src="figure.png">', rule: "alt-text", only: ["alt-text"] },
+  { name: "the first face of a stack not loaded", rule: "faces-loaded", only: ["faces-loaded"] },
+  { name: "a resource the policy blocks", policy: cspMeta("default-src 'self' 'unsafe-inline'"), body: '<img alt="" src="https://cdn.example.invalid/pixel.png">', rule: "csp-violations", only: ["csp-violations"] },
 ];
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "a web font that arrives after the first paint and reflows the text", head: `<style>@font-face { font-family: "Late Proof"; src: url("${LATE_FACE_PATH}") format("woff2"); font-display: swap; size-adjust: 250% } #late { font: 16px/normal "Late Proof", serif }</style>`, body: `<div id="late">${LATE_FACE_TEXT}</div><section style="height: 70vh"><p>Below the late text, filling the window.</p></section>`, rule: "layout-shift", only: ["layout-shift"] },
   { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
   // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.
   // Every animation frame, as an animated list does (not a task-queue loop as fast as the browser runs it: that hogs the browser itself).
@@ -205,7 +260,15 @@ const CLEAN_TOO: readonly Plant[] = [
   { name: "the input types HTML draws no text for", body: '<input type="checkbox" checked style="font-family: Georgia"><input type="radio" checked style="font-family: Georgia"><input type="range" style="font-family: Georgia"><input type="color" style="font-family: Georgia"><input type="hidden" value="x" style="font-family: Georgia">', rule: "font-families" },
   { name: "a focusable control in the stacks", body: '<button id="go">go</button><input value="typed">', rule: "font-families" },
   { name: "a canvas given a token family", body: `<canvas id="c"></canvas><script>document.getElementById("c").getContext("2d").font = ${JSON.stringify(canvasFont("--face-mono"))}</script>`, rule: "font-families" },
-  { name: "the exact policy, spaced differently", head: cspMeta(CONTENT_SECURITY_POLICY.replace("; ", " ;  ")), rule: "csp-meta", only: ["csp-meta"] },
+  { name: "the exact policies, spaced differently", policy: `${cspMeta(ORIGIN_POLICY.replace("; ", " ;  "))}${cspMeta(PATH_POLICY.replace("; ", " ;  "))}`, rule: "csp-meta", only: ["csp-meta"] , base: PROOF_BASE },
+  { name: "text and ground in their tokens, the mark in its own", head: SITE_INKS, rule: "token-colours", only: SITE_ROWS },
+  { name: "a page that fits, one main, one top heading, every image described", body: '<h1>t</h1><img alt="" src="figure.png">', rule: "landmarks", only: ["no-sideways-scroll", "layout-shift", "landmarks", "alt-text"] },
+  { name: "a colour in flight between two tokens, landing on a token", head: `${SITE_INKS}<style>#prose { transition: color 600ms linear }</style>`, body: '<script>addEventListener("load", () => requestAnimationFrame(() => { document.getElementById("prose").style.color = "var(--ink-2)"; }))</script>', rule: "token-colours", only: ["token-colours"] },
+  { name: "an endless animation between two tokens", head: `${SITE_INKS}<style>@keyframes breathe { 50% { color: var(--ink-2) } } #prose { animation: breathe 1s linear infinite }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "a running animation between two tokens", head: `${SITE_INKS}<style>@keyframes walk { from { color: var(--ink-1) } to { color: var(--ink-2) } } #prose { animation: walk 20s linear }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "a finished animation that fills forwards holding a token", head: `${SITE_INKS}<style>@keyframes settle { to { color: var(--ink-2) } } #prose { animation: settle 600ms linear forwards }</style>`, rule: "token-colours", only: ["token-colours"] },
+  { name: "a line stroked in a token (its fill paints nothing)", head: SITE_INKS, body: '<svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" style="stroke: var(--ink-2)"></line></svg>', rule: "token-colours", only: SITE_ROWS },
+  { name: "a transition in the owner's duration", head: `${SITE_INKS}<style>#prose { transition: color calc(30ms * 3) }</style>`, rule: "token-durations", only: SITE_ROWS },
 ];
 
 /** Builds the fixture site, judges every page as the cockpit is judged (every rule), and returns what failed. */
@@ -214,21 +277,21 @@ async function prove(executable: string | null): Promise<readonly string[]> {
   const failures: string[] = [];
   try {
     writeFileSync(join(dir, "clean.html"), CLEAN);
-    const page = (plant: Plant): string => CLEAN.replace("<!--PLANT-HEAD-->", plant.head ?? "").replace("<!--PLANT-BODY-->", plant.body ?? "");
+    const page = (plant: Plant): string => CLEAN.replace("<!--PLANT-POLICY-->", plant.policy ?? "").replace("<!--PLANT-HEAD-->", plant.head ?? "").replace("<!--PLANT-BODY-->", plant.body ?? "");
     PLANTS.forEach((plant, i) => writeFileSync(join(dir, `plant-${i}.html`), page(plant)));
     CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
       only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
-    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady, ...Object.fromEntries(FACES.flatMap((face) => face.files).map((file) => [file, servedFont(file)])) });
+    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady, [LATE_FACE_PATH]: lateFace, ...Object.fromEntries(FACES.flatMap((face) => face.files).map((file) => [file, servedFont(file)])) });
     const browser = await launchBrowser(executable);
     try {
       // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
       // then through its future; the request rows listen for the whole visit.
       const states = RENDER_STATES.filter((s) => s.surfaces.includes("site"));
-      const judge = async (file: string, only?: readonly string[]): Promise<readonly string[]> => {
+      const judge = async (file: string, only?: readonly string[], base = ""): Promise<readonly string[]> => {
         const context = await browser.newContext({ serviceWorkers: "block" });
         const requests: string[] = [];
-        await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding));
+        await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding), base);
         const view = await openPage(context);
         await navigate(view, `${origin}/proof/${file}`);
         const selected = rows(only);
@@ -239,11 +302,11 @@ async function prove(executable: string | null): Promise<readonly string[]> {
       const clean = await judge("clean.html");
       if (clean.length > 0) failures.push(`the clean page is not clean:\n    ${clean.join("\n    ")}`);
       for (const [i, plant] of PLANTS.entries()) {
-        const findings = await judge(`plant-${i}.html`, plant.only);
+        const findings = await judge(`plant-${i}.html`, plant.only, plant.base);
         if (!findings.some((f) => f.includes(`[${plant.rule}]`))) failures.push(`${plant.name}: not caught by ${plant.rule} (found: ${findings.join("; ") || "nothing"})`);
       }
       for (const [i, plant] of CLEAN_TOO.entries()) {
-        const findings = await judge(`clean-${i}.html`, plant.only);
+        const findings = await judge(`clean-${i}.html`, plant.only, plant.base);
         if (findings.length > 0) failures.push(`the clean page is not clean (${plant.name}): ${findings.join("; ")}`);
       }
     } finally {

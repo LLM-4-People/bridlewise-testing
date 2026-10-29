@@ -58,7 +58,7 @@ import { currentQualificationOutcome, finalizeQualifiedRun, runForInvocation } f
 import type { RunQualificationTerminal } from "../../engine/src/shared/budget-verdict.ts";
 import { readTrackedTreeDirty } from "../../engine/src/shared/tree-identity.ts";
 import { readRunCpu, type CalibrationReading } from "../../engine/src/shared/run-cpu.ts";
-import { accumulationPopulation, measureWebBudget, syncWebBudgetPopulation } from "../../scripts/testing/measure-web-budget.ts";
+import { measureWebBudget } from "../../scripts/testing/measure-web-budget.ts";
 import { engineConfigDocumentPath } from "../../engine/src/kernel/config.ts";
 import { atomicWriteFile } from "../../engine/src/filesystem/atomic-write.ts";
 import { resetServerConfig } from "../../server/kernel/config.ts";
@@ -835,38 +835,16 @@ describe("the measuring tool's arithmetic (D-17): the floor from the ledger's ow
     expect(report.declared.derivedAtTestFileCount).toBe(fullRunModuleCount());
   });
 
-  test("HARNESS SYNC generates the population: this tree's accumulation population is the live supported count, judged current", () => {
-    // The arm harness sync and harness check run (scripts/testing/measure-web-budget.ts --population):
-    // no pull request types the number; a new test file moves it through here.
-    expect(syncWebBudgetPopulation(false)).toEqual({ allCurrent: true, status: "current", changed: [], population: fullRunModuleCount(), phase: "accumulation" });
-  });
-
-  test("the population arm: a stale count fails the check, naming the document; sync records the live count; the measured phase is left to its measurement", () => {
-    const live = fullRunModuleCount();
+  test("IN ACCUMULATION THE POPULATION IS DERIVED, never committed: the live supported count is read, and a committed count is refused by name", () => {
+    // No branch that adds a test edits a shared count: the window is filled at the live population.
     const real = readCpuBudget();
     if (!("phase" in real)) throw new Error("this tree's budget is expected to be in its accumulation phase");
-    const recorded: number[] = [];
-    const sources = (declared: number) => ({ budget: () => ({ ...real, derivedAtTestFileCount: declared }) as ReturnType<typeof readCpuBudget>, live: () => live, record: (n: number) => { recorded.push(n); } });
-    // Stale, checked: refused, with the document named, and nothing written.
-    expect(syncWebBudgetPopulation(false, sources(live - 1))).toEqual({ allCurrent: false, status: "stale", changed: ["engine/bridlewise.config.json"], population: live, phase: "accumulation" });
-    expect(recorded).toEqual([]);
-    // Stale, synced: the LIVE count is recorded, once.
-    expect(syncWebBudgetPopulation(true, sources(live - 1))).toEqual({ allCurrent: true, status: "regenerated", changed: ["engine/bridlewise.config.json"], population: live, phase: "accumulation" });
-    expect(recorded).toEqual([live]);
-    // Current: nothing to write.
-    expect(syncWebBudgetPopulation(true, sources(live))).toMatchObject({ allCurrent: true, status: "current" });
-    expect(recorded).toEqual([live]);
-    // The measured phase: its population is the measurement's, never moved by the arm.
-    const measured = { budget: () => ({ metric: "calibrated-work/v1", baselineFloorUnitsPerTestFile: 100, derivedAtTestFileCount: live - 40 }) as unknown as ReturnType<typeof readCpuBudget>, live: () => live, record: (n: number) => { recorded.push(n); } };
-    expect(syncWebBudgetPopulation(true, measured)).toEqual({ allCurrent: true, status: "current", changed: [], population: live - 40, phase: "measured" });
-    expect(recorded).toEqual([live]);
-  });
-
-  test("the TOOL generates the accumulation population: current when it equals the live count, drifted on check, written on write", () => {
-    expect(accumulationPopulation(534, 534, false)).toBe("current");
-    expect(accumulationPopulation(534, 534, true)).toBe("current");
-    expect(accumulationPopulation(534, 535, false)).toBe("drifted");
-    expect(accumulationPopulation(536, 535, true)).toBe("write");
+    expect(real.derivedAtTestFileCount).toBe(fullRunModuleCount());
+    const document = JSON.parse(readFileSync(engineConfigDocumentPath(), "utf8")) as { testExecution: { webUiSuiteCpuBudget: Record<string, unknown> } };
+    const declared = document.testExecution.webUiSuiteCpuBudget;
+    expect("derivedAtTestFileCount" in declared, "the settings document commits an accumulation population").toBe(false);
+    const committed = readCpuBudget({ ...declared, derivedAtTestFileCount: fullRunModuleCount() });
+    expect("missing" in committed && committed.missing).toContain("is not declared in the accumulation phase");
   });
 
   test("the TOOL writes only the document it measured: a HARNESS_CONFIG_PATH elsewhere is refused before any write (WF-1b3b design LOW 12)", () => {

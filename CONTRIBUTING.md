@@ -150,6 +150,28 @@ bar](docs/process/AGENTS.md#evidence).
 4. It lands as a merge commit once the required checks and the review are
    green; the issues it resolves close when it lands.
 
+## Talking to the bots
+
+On an issue or a pull request, a comment whose first line is a command goes to
+the harness. The publisher App answers each command comment once, and a triage command (`/accept`, `/decline`, `/duplicate`) opens a pull request adding the issue's record.
+
+| Command | Where | Who | What it does |
+|---|---|---|---|
+| `/help` | issue, pull request | Contributor and above | list the commands and who may use them |
+| `/status [<record-id> or #<n>]` | issue, pull request | Contributor and above | the record's state, lane, milestone, severity and blockers, read from the harness's records (this issue's when none is named) |
+| `/accept <P0-P3> <milestone> [<parent-id>]` | issue | Triager and above | adopt this intake issue: the harness opens a pull request adding its record |
+| `/decline <reason>` | issue | Triager and above | record the intake as not planned, with the reason, through a pull request |
+| `/duplicate #<n>` | issue | Triager and above | record the intake as a duplicate of #n, through a pull request |
+| `/explain` | pull request | Contributor and above | the door's explanation of this pull request's verdict: the failing gate, its evidence and its owning record |
+
+- The command starts the comment: a quoted, indented or mid-text command is
+  never run, so quoting someone does not repeat what they typed.
+- Who may run a command comes from your permission on the repository, through
+  the [role table](GOVERNANCE.md#roles), never from how GitHub labels you.
+- A bot never changes an issue's state itself. A triage command adds a record
+  through a pull request, reviewed and landed like any other.
+- Type `/help` on any issue or pull request for this table as the bot knows it.
+
 ## AI-assisted contributions
 
 AI-assisted work is welcome. You remain responsible for the result. Disclose

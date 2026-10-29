@@ -44,10 +44,20 @@ folder owns what they are told and who may do what.
   exists, to flip live; an undeclared one). GitHub has no API that creates a
   category, so the audit is the receipt of the registry's live statuses and
   the maintainer's checklist.
+- `labels.ts` — THE LABELS, DECLARED ONCE: `docs/community/labels.json` is the
+  one declaration of every label but the forge's `area:` ones (community,
+  Dependabot, lanes, the forge's markers), each with its colour and
+  description; `readLabels` validates it for `harness check`, for the
+  projector (from its source commit's tree, through the one reader
+  `readCommunitySource`, which takes a repository root or a tree) and for the
+  forge, whose `harness forge apply` is the one writer and `plan`/`audit` the
+  one drift report. No workflow and no projector writes a label: they apply
+  declared ones, and a missing one is a loud failure.
 - `commands.ts` — THE ISSUEOPS COMMANDS: the one registry (`/help`, `/status`,
   `/accept`, `/decline`, `/duplicate`, `/explain`: each one's
   minimum role, where it works, its usage and summary), `parseCommandLine` (a
-  comment's FIRST non-blank line only, so a quote never re-runs a command),
+  comment's first line, only when the comment starts with `/`, so a quote
+  never re-runs a command),
   `authorise` (the commenter's permission against the role ladder, never
   `author_association`) and `commandTable` (the generated command table).
 - `issue-ops.ts` — THE DECISION, pure: `decide(comment, facts)` answers a reply

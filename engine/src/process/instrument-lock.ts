@@ -18,13 +18,39 @@
  * the cap: admission moves the ADMITTING PROCESS ITSELF into a cgroup v2
  * scope of the run's own (`bridlewise-run-<record nonce>.scope`, made by the
  * systemd user manager's `StartTransientUnit` with this process's pid:
- * `MemoryMax` and `CPUWeight` from `testExecution.instrumentLock.perRun`)
+ * `MemoryMax` and `CPUWeight` from `testExecution.instrumentLock.perRun`,
+ * `MemorySwapMax=0` and `OOMPolicy=continue`)
  * and under the CPU-time limit of every harness subprocess
  * (`src/process/subprocess-bounds.ts` `limitOwnCpu`). Everything the run
  * starts from then on — a supervised command, a worker, a child spawned
  * directly — is born inside the scope and under the limit; nothing it starts
  * is uncapped. A host that cannot make the scope or set the limit REFUSES
  * the run, typed (`per_run_caps_unavailable`): there is no uncapped mode.
+ *
+ * THE MEMORY CAP MEANS THE CAP. Without `MemorySwapMax=0` a run past its
+ * `MemoryMax` is swapped out, not stopped: measured (GH-7, #553), 1 GiB
+ * allocated under a 1% cap went to swap and the run ended normally. So the
+ * scope allows no swap, and admission READS BACK the kernel's own
+ * `memory.swap.max` (it must be 0) and `memory.max` (it must be a number):
+ * a host whose cgroup v2 has no swap accounting, or that did not apply
+ * either, is refused typed (`per_run_caps_unavailable`), never run under
+ * cap-plus-swap. Past the cap the kernel kills the run's largest process.
+ * `OOMPolicy=continue` keeps the rest of the scope alive: under the user
+ * manager's default (`stop`, measured on this host) systemd SIGTERMs every
+ * process of the scope the moment one is OOM-killed — the runner that
+ * admitted the run and every sibling worker mid-test — so nothing is left
+ * to say what happened. The policy is READ BACK from the unit like the
+ * memory files (a scope under another policy is refused).
+ *
+ * A RUN THE KERNEL CUT IS A TYPED REFUSAL, from this owner. When the run that
+ * ADMITTED a scope releases its record, it reads the scope's `memory.events`
+ * `oom_kill`: a kill there fails the release with `run_memory_cap_exceeded`
+ * ("a process in this run was killed for passing the run's memory cap"),
+ * whoever the run is (a suite runner, `ws validate`/`merge`, `flake
+ * reproduce`, a checkout's setup, `slot run`), so a cut run is never mistaken
+ * for a crash or a flake. It names the run, never one command: the kernel
+ * says THAT a process of the scope was killed, not which. A borrower (a
+ * nested door inside the run) blames nothing; the run's owner reports it.
  *
  * NESTING, read from the records' structured fields AND the kernel's: a
  * process BORROWS a live run (a validate's suites, a slot run's command,
@@ -56,7 +82,7 @@ import type { WholeInstrumentKind } from "../kernel/config-contracts.ts";
 import { hostUserCacheFolder } from "../filesystem/user-folders.ts";
 import { repositoryToplevel } from "../git/repository-ownership.ts";
 import { ownedInstrumentHold, setOwnedInstrumentHold } from "./instrument-lock-adoption.ts";
-import { ancestorsOf, isOwnProcessIdentityLive, ownCgroupPath } from "./process-facts.ts";
+import { ancestorsOf, isOwnProcessIdentityLive, ownCgroupFile, ownCgroupPath } from "./process-facts.ts";
 
 export type InstrumentLockConfig = Readonly<{
   /** The lock file, relative to the host user's cache folder (`hostUserCacheFolder`). */
@@ -77,9 +103,39 @@ export type InstrumentHold = Readonly<{
   owns: boolean;
   runner: string;
   path: string;
-  /** Frees an owned hold (idempotent; a borrowed or light hold frees nothing). */
-  release: () => void;
+  /**
+   * Frees an owned hold (a borrowed or light hold frees nothing). `failure`
+   * is the run's OWN failure if it was failing (a thrown error, or what its
+   * ending was): a run cut at its memory cap is refused typed
+   * (`run_memory_cap_exceeded`) and that refusal CARRIES the failure (its
+   * message names both; `cause` is the failure), never replaces it.
+   */
+  release: (failure?: unknown) => void;
 }>;
+
+/**
+ * Runs `body` inside `hold`, then releases it with the body's own failure (a
+ * throw, or what `failureOf` says of its result), so a run cut at its memory
+ * cap is refused typed WITH what the run was doing; without a cut, the body's
+ * own throw stands. Every door that holds a run for a body uses this.
+ */
+export async function withinInstrumentHold<T>(hold: InstrumentHold, body: () => Promise<T> | T, failureOf: (result: T) => unknown = () => undefined): Promise<T> {
+  let result: T;
+  try {
+    result = await body();
+  } catch (error) {
+    hold.release(error);
+    throw error;
+  }
+  hold.release(failureOf(result));
+  return result;
+}
+
+/** A run's own failure, in words, for the memory refusal that carries it. */
+function failureInWords(failure: unknown): string {
+  if (failure instanceof Error) return `${failure.name}: ${failure.message}`;
+  return String(failure);
+}
 
 /**
  * The lock file of `config` for the harness checkout at `harnessRoot`: under
@@ -193,7 +249,7 @@ export function admittedRuns(lockPath: string): readonly string[] {
 /** The refusal of a run whose caps this host cannot put in force. */
 function capsUnavailable(caps: PerRunCaps, why: string): HarnessError {
   return new HarnessError(
-    `a heavy run is admitted only under its per-run caps (its own cgroup v2 scope: MemoryMax ${String(caps.memoryMaxPercent)}%, CPUWeight ${String(caps.cpuWeight)}; ` +
+    `a heavy run is admitted only under its per-run caps (its own cgroup v2 scope: MemoryMax ${String(caps.memoryMaxPercent)}% with no swap, CPUWeight ${String(caps.cpuWeight)}; ` +
       `and the CPU-time limit), and this host could not put them in force (${why}). Nothing runs uncapped: give the host a running systemd user manager ` +
       "(`loginctl enable-linger`), `busctl` and `prlimit`.",
     "per_run_caps_unavailable",
@@ -214,7 +270,8 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
   const unit = runScopeUnit(nonce);
   const memoryScale = Math.min(0xffffffff, Math.round((caps.memoryMaxPercent / 100) * 0xffffffff));
   const started = spawnSync("busctl", ["--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager",
-    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "4", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
+    "StartTransientUnit", "ssa(sv)a(sa(sv))", unit, "fail", "6", "PIDs", "au", "1", String(process.pid), "MemoryMaxScale", "u", String(memoryScale),
+    "MemorySwapMax", "t", "0", "OOMPolicy", "s", "continue",
     "CPUWeight", "t", String(caps.cpuWeight), "CollectMode", "s", "inactive-or-failed", "0"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (started.error !== undefined || started.status !== 0) {
     throw capsUnavailable(caps, `busctl StartTransientUnit ${started.error !== undefined ? started.error.message : `exited ${String(started.status)}: ${started.stderr.trim()}`}`);
@@ -228,8 +285,48 @@ function enterRunScope(nonce: string, caps: PerRunCaps, cpu: SubprocessBounds): 
     if (Date.now() - since > cpu.hangBackstopMs) throw capsUnavailable(caps, `HUNG: the start job of ${unit} was still pending at the ${String(cpu.hangBackstopMs / 1000)} s hang backstop (wall)`);
     Atomics.wait(PAUSE, 0, 0, 5);
   }
+  verifyRunScopeCaps(unit, caps);
   const limited = limitOwnCpu(cpu);
   if (limited !== null) throw capsUnavailable(caps, limited);
+}
+
+/**
+ * READ BACK what the kernel and the user manager hold for the scope THIS
+ * process is in (`unit`): a cap the host did not apply is no cap. Refused
+ * typed (`per_run_caps_unavailable`) unless `memory.swap.max` is 0, it exists
+ * at all (swap accounting on), `memory.max` is a byte count, and the unit's
+ * OOMPolicy is `continue`.
+ */
+export function verifyRunScopeCaps(unit: string, caps: PerRunCaps): void {
+  const swapMax = ownCgroupFile("memory.swap.max");
+  if (swapMax === undefined) throw capsUnavailable(caps, `this host's cgroup v2 has no memory.swap.max for ${unit} (swap accounting is off), so its memory cap would be cap-plus-swap`);
+  if (swapMax !== "0") throw capsUnavailable(caps, `${unit} holds memory.swap.max ${swapMax}, not 0: the run could swap past its memory cap`);
+  const memoryMax = ownCgroupFile("memory.max");
+  if (memoryMax === undefined || !/^\d+$/u.test(memoryMax)) throw capsUnavailable(caps, `${unit} holds memory.max ${memoryMax ?? "(absent)"}, not a byte count`);
+  const oomPolicy = runScopeOomPolicy(unit);
+  if (oomPolicy !== "continue") throw capsUnavailable(caps, `${unit} runs under OOMPolicy ${oomPolicy ?? "(unreadable)"}, not continue: one process past the cap would stop the whole run before it could say so`);
+}
+
+/** The OOM policy systemd holds for the run's scope `unit` (`Manager.GetUnit`, then the Scope's `OOMPolicy`), or `undefined` when unreadable. */
+function runScopeOomPolicy(unit: string): string | undefined {
+  const found = spawnSync("busctl", ["--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "GetUnit", "s", unit], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const path = found.status === 0 ? /^o "([^"]+)"/mu.exec(found.stdout)?.[1] : undefined;
+  if (path === undefined) return undefined;
+  const policy = spawnSync("busctl", ["--user", "get-property", "org.freedesktop.systemd1", path, "org.freedesktop.systemd1.Scope", "OOMPolicy"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return policy.status === 0 ? /^s "([^"]*)"/mu.exec(policy.stdout)?.[1] : undefined;
+}
+
+/**
+ * How many processes the kernel has killed in the admitted run's scope THIS
+ * process is inside for passing the run's memory cap (`memory.events`
+ * `oom_kill`); `undefined` outside a run's scope (a light run has no cap of
+ * its own).
+ */
+function runScopeOomKills(): number | undefined {
+  if (!/\/bridlewise-run-[^/]+\.scope$/u.test(ownCgroupPath() ?? "")) return undefined;
+  const events = ownCgroupFile("memory.events");
+  const kills = events === undefined ? undefined : /^oom_kill (\d+)$/mu.exec(events)?.[1];
+  return kills === undefined ? undefined : Number(kills);
 }
 
 /**
@@ -259,11 +356,30 @@ export function admitInstrumentRun(lockPath: string, runner: string, caps: PerRu
     throw error;
   }
   setOwnedInstrumentHold(answer.handle);
+  // Released once: a later call (a runner's catch after a refused release) does nothing, so the refusal is said once.
+  let released = false;
   return deepFreeze({
     owns: true, runner: label, path: lockPath,
-    release: () => {
+    release: (failure?: unknown) => {
+      if (released) return;
+      released = true;
       if (ownedInstrumentHold() === answer.handle) setOwnedInstrumentHold(undefined);
       answer.handle.release();
+      // The scope is the run's own (made at admission, so it started at 0):
+      // a kill in it means the run was cut at its memory cap.
+      const kills = runScopeOomKills();
+      if (kills !== undefined && kills > 0) {
+        const refusal = new HarnessError(
+          `a process in the run ${label} was killed for passing the run's memory cap (${String(kills)} kill(s) in its scope's memory.events; ` +
+            `MemoryMax ${String(caps.memoryMaxPercent)}% with no swap): the run ended there and its result is not a test result. ` +
+            (failure === undefined ? "" : `The run was also failing when it was released (${failureInWords(failure)}), which the cut may have caused. `) +
+            "Use less memory, or raise testExecution.instrumentLock.perRun.memoryMaxPercent in bridlewise.config.json.",
+          "run_memory_cap_exceeded",
+        );
+        // The run's own failure rides along as the refusal's cause: the operator sees both.
+        if (failure !== undefined) Object.defineProperty(refusal, "cause", { value: failure, enumerable: false, writable: false, configurable: true });
+        throw refusal;
+      }
     },
   });
 }
@@ -279,7 +395,7 @@ export function holdInstrumentLock(options: Readonly<{
   harnessRoot: string;
   runner: string;
   testFileCount: number;
-  /** The CPU-time limit every process of the run gets (the harness's `SUBPROCESS_BOUNDS`). */
+  /** The CPU-time limit every process of the run gets (the harness's `harness.subprocessBounds`, `configuredSubprocessBounds`). */
   cpu: SubprocessBounds;
 }>): InstrumentHold {
   if (options.config === undefined) {

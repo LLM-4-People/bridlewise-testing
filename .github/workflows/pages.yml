@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
   merge_group:
+  # A push builds at once, while its checks still run; the last status
+  # workflow to finish at main's tip rebuilds the site with the final results
+  # (scripts/floor/rebuild-gate.mjs; the list is REBUILD_WORKFLOWS, which a
+  # test holds this to).
+  workflow_run:
+    workflows: [CI, CodeQL, Docs links, Secret scan]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       supersede_published:
@@ -17,22 +25,20 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build the site
-    if: github.event.repository.visibility == 'public'
+  # Only for a completed status workflow: whether that completion rebuilds the
+  # site from main's tip. It reads main's tip from GitHub and the completed
+  # run's id, never the run's head, which a fork's pull request controls.
+  rebuild-gate:
+    name: Decide the rebuild
+    if: github.event_name == 'workflow_run' && github.event.repository.visibility == 'public'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    # A pull request's build replaces its previous one; every other build is
-    # its own run, so a main build is never cancelled.
-    concurrency:
-      group: pages-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    timeout-minutes: 10
     permissions:
       contents: read
-      pages: read
       actions: read
-      security-events: read
-      vulnerability-alerts: read
+    outputs:
+      build: ${{ steps.gate.outputs.build }}
+      sha: ${{ steps.gate.outputs.sha }}
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -44,10 +50,57 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # The builder reads the site configuration with the repository's one
-      # YAML reader (the yaml package).
-      - name: Install web dependencies
-        run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "true"
+
+      - name: Decide
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: node scripts/floor/rebuild-gate.mjs
+
+  build:
+    name: Build the site
+    needs: rebuild-gate
+    if: >-
+      always() && github.event.repository.visibility == 'public'
+      && (github.event_name != 'workflow_run' || needs.rebuild-gate.outputs.build == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # A pull request's build replaces its previous one; every other build is
+    # its own run, so a main build is never cancelled (the rebuild gate lets
+    # one completion per commit through).
+    concurrency:
+      group: pages-build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      # The commit this site is built from: main's tip for a rebuild (the gate's answer), else the event's own.
+      SITE_SHA: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || github.sha }}
+    permissions:
+      contents: read
+      pages: read
+      actions: read
+      security-events: read
+      vulnerability-alerts: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || '' }}
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+
+      # The site builder's one setup (web and engine dependencies, the
+      # config's mode), shared with every checkout the visual job builds.
+      - name: Set up the site build
+        uses: ./.github/actions/site-build-setup
 
       - name: Configure Pages
         id: pages
@@ -58,12 +111,6 @@ jobs:
       # then the folder is empty and the site lists no versions.
       - name: Collect the released docs snapshots
         run: mkdir -p "$RUNNER_TEMP/versions"
-
-      - name: Install the engine (the builder and the floor read through the forge port)
-        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
 
       - name: Build the site source
         env:
@@ -87,7 +134,7 @@ jobs:
         with:
           source: ./.site
           destination: ./_site
-          build_revision: ${{ github.sha }}
+          build_revision: ${{ env.SITE_SHA }}
 
       - name: Merge the snapshots and check links and design
         env:
@@ -117,6 +164,110 @@ jobs:
           SUPERSEDE: ${{ inputs.supersede_published }}
         run: echo "::notice title=Pages deploy-order override::approved to replace the site published from $SUPERSEDE"
 
+  visual:
+    name: Visual regression
+    # The key pages of the base commit and of this one, built from their own
+    # trees and shot by one browser in one run, compared byte for byte
+    # (scripts/visual/screens.ts). A changed picture needs the
+    # `visual-change` label; a broken invariant never passes.
+    if: github.event.repository.visibility == 'public' && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    concurrency:
+      group: pages-visual-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      VISUAL_BASEURL: /visual
+      # The commit this run judges; a pull request's and a merge group's own
+      # (the visual job never runs for a rebuild).
+      SITE_SHA: ${{ github.sha }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Set up the site build
+        uses: ./.github/actions/site-build-setup
+
+      - name: Check out the base commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+
+      - name: Set up the base commit's site build
+        uses: ./.github/actions/site-build-setup
+        with:
+          root: ${{ runner.temp }}/base
+
+      # Each source step writes its own OFFLINE floor snapshot (no live run
+      # enters a picture), so base and head differ only by their trees.
+      - name: Build both site sources
+        run: |
+          node scripts/build-site.mjs source --out .site-head --baseurl "$VISUAL_BASEURL"
+          (cd "$RUNNER_TEMP/base" && node scripts/build-site.mjs source --out .site --baseurl "$VISUAL_BASEURL") || { echo "visual_base_unbuildable: the base commit's one site builder did not build its site; land the site builder (#62) before judging pictures against it"; exit 1; }
+
+      - name: Build the head site with Jekyll
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
+        with:
+          source: ./.site-head
+          destination: ./_visual/head
+          build_revision: ${{ env.SITE_SHA }}
+
+      - name: Move the base source into the workspace
+        run: mv "$RUNNER_TEMP/base/.site" ./.site-base
+
+      - name: Build the base site with Jekyll
+        uses: actions/jekyll-build-pages@44a6e6beabd48582f863aeeb6cb2151cc1716697 # v1
+        with:
+          source: ./.site-base
+          destination: ./_visual/base
+          build_revision: ${{ env.SITE_SHA }}
+
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Read whether the change is declared
+        id: declared
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        # A merge group's ref is GitHub's own queue branch (refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>).
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
+            PR="$(printf '%s' "$GITHUB_REF" | sed -n 's#.*/pr-\([0-9]*\)-.*#\1#p')"
+            PR_LABELS="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '[.[].name]')"
+          fi
+          if printf '%s' "$PR_LABELS" | grep -q '"visual-change"'; then echo "flag=--change-declared" >> "$GITHUB_OUTPUT"; else echo "flag=" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Shoot and compare
+        env:
+          DECLARED: ${{ steps.declared.outputs.flag }}
+        run: node scripts/visual/screens.ts --base _visual/base --head _visual/head --baseurl "$VISUAL_BASEURL" --out "$RUNNER_TEMP/visual" $DECLARED
+
+      - name: Write the job summary
+        if: always()
+        run: if [ -f "$RUNNER_TEMP/visual/summary.md" ]; then cat "$RUNNER_TEMP/visual/summary.md" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: visual-report
+          path: ${{ runner.temp }}/visual
+          if-no-files-found: ignore
+          retention-days: 14
+
   deploy:
     name: Deploy to GitHub Pages
     # Only main deploys: a pull request or a merge-queue build checks the site
@@ -125,9 +276,9 @@ jobs:
       always() && needs.build.result == 'success'
       && (needs.approve-override.result == 'success' || needs.approve-override.result == 'skipped')
       && github.event.repository.visibility == 'public'
-      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_run')
       && github.ref == 'refs/heads/main'
-    needs: [build, approve-override]
+    needs: [rebuild-gate, build, approve-override]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Deployments are serialised, and every pending one waits its turn: the
@@ -150,17 +301,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || '' }}
 
       - name: Set up Node 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
 
-      - name: Install the engine (the check reads GitHub through the forge port)
-        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "true"
 
       # Builds finish out of commit order; a site built from an older commit
       # never replaces a newer one (scripts/floor/deploy-order.mjs).
@@ -169,7 +320,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SUPERSEDE: ${{ inputs.supersede_published }}
-        run: node scripts/floor/deploy-order.mjs --sha "$GITHUB_SHA" --supersede "$SUPERSEDE"
+          SITE_SHA: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || github.sha }}
+        run: node scripts/floor/deploy-order.mjs --sha "$SITE_SHA" --supersede "$SUPERSEDE"
 
       - name: Deploy
         id: deployment

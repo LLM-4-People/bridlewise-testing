@@ -51,16 +51,6 @@ export const FRONT_DOOR_GENERATOR = deepFreeze({
 } as const);
 
 /**
- * THE WEB TEST BUDGET'S POPULATION: `generator` (repository-relative) writes
- * the accumulation-phase `derivedAtTestFileCount` from the live supported
- * population on every `harness sync`, and `harness check` judges it, so no
- * pull request types the number (a new test file moves it through here).
- */
-export const WEB_BUDGET_POPULATION = deepFreeze({
-  generator: "scripts/testing/measure-web-budget.ts",
-} as const);
-
-/**
  * THE SERVICE WORKER'S CACHE DIGEST: `generator` (repository-relative) writes
  * the digest line of `path` from every public asset the worker caches, on
  * every `harness sync`, and `harness check` judges it. A hand edit of the line,
@@ -70,6 +60,19 @@ export const WEB_BUDGET_POPULATION = deepFreeze({
 export const SERVICE_WORKER_DIGEST = deepFreeze({
   generator: "scripts/service-worker-cache.ts",
   path: "public/sw.js",
+} as const);
+
+/**
+ * THE ROADMAP PAGE'S STATUS BLOCKS: `generator` (repository-relative) renders
+ * the generated blocks of `path` from the tracker items, the decision records
+ * and the evidence page's non-proofs, on every `harness sync`, right after the
+ * task board; `harness check` judges them. A tracker item change (a hand edit
+ * or the IssueOps record writer's) without the page regenerated fails the
+ * check, so no generated view of the tracker is ever left stale.
+ */
+export const ROADMAP_PAGE = deepFreeze({
+  generator: "scripts/floor/roadmap-status.ts",
+  path: "docs/floor/roadmap.md",
 } as const);
 
 /**

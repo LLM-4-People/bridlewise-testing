@@ -44,12 +44,11 @@
     "preflight": "node bin/bridlewise.mjs preflight",
     "test:public": "node --experimental-strip-types engine/scripts/tooling/test-guards.ts tests/public/*.test.mjs",
     "test:list": "node scripts/testing/test-listing.mjs list --out node_modules/.cache/bridlewise/test-listing.json",
-    "test:verify-shards": "node scripts/testing/test-listing.mjs verify --manifest tests/test-shards.json --live node_modules/.cache/bridlewise/test-listing.json",
+    "test:verify-shards": "node scripts/testing/test-listing.mjs verify --live node_modules/.cache/bridlewise/test-listing.json",
     "dossier-floor:update": "node --experimental-strip-types scripts/testing/update-dossier-floor.ts",
     "check:secrets": "node scripts/check-secrets.mjs",
     "verify:public": "npm run typecheck && npm run check:secrets && npm run test:public",
     "docs:links": "node scripts/check-docs-links.mjs",
-    "docs:roadmap": "node --experimental-strip-types scripts/floor/roadmap-status.ts",
     "design:coverage": "node scripts/floor/design-coverage.mjs --site .site/_site"
   },
   "dependencies": {
@@ -63,7 +62,9 @@
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
     "@testing-library/svelte": "^5.4.2",
     "@types/node": "^24.13.3",
+    "css-tree": "^3.2.1",
     "jsdom": "^29.1.1",
+    "parse5": "^8.0.1",
     "svelte": "^5.56.7",
     "svelte-check": "^4.7.3",
     "tinyglobby": "^0.2.17",
