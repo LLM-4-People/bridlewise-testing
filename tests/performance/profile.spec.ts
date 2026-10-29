@@ -67,7 +67,7 @@ import {
   apiLogin,
   buildReport,
   writeReport,
-  REPORT_PATH,
+  profileReportOut,
   round,
   discoverApiRoutesFromSource,
   profileApiRoutes,
@@ -934,7 +934,7 @@ test("profile the cockpit end to end", async ({ page, browserName }, testInfo) =
     realData: { longChat: longChatResult, manyProjects: manyProjectsResult },
     viewports: viewportProfiles,
   });
-  await writeReport(REPORT_PATH, report);
+  await writeReport(profileReportOut(), report);
   await testInfo.attach("profile-page-diagnostics", { body: JSON.stringify({ pageEvidence, failedResponses, pendingApi: [...pendingApi], pendingAll: [...pendingAll] }), contentType: "application/json" });
 
   // ── Inline safety assertions (coarse; precise gates in the regression test) ──

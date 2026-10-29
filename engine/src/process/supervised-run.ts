@@ -34,14 +34,23 @@
  * The native binary is built by the caller (`ensureTestProcessSupervisor()`,
  * `engine/guardian/build.ts`) and
  * handed in: this layer runs processes, it builds nothing.
+ *
+ * - {@link runTestCommand}: THE ONE TEST-EXECUTION DOOR — {@link superviseCommand}
+ *   with the run CONFINED, always: the whole filesystem read-only to the
+ *   command and every descendant but its own per-run scratch root and the
+ *   checkout's declared writable places (decision TEST-CONFINEMENT-SELF-BIND).
+ *   Every route that runs tests goes through it; {@link superviseCommand}
+ *   itself runs the trusted, non-test commands (a checkout's setup, a build).
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { constants } from "node:os";
+import { join } from "node:path";
 import type { Readable } from "node:stream";
 
+import { checkoutConfinementPlaces, closeTestRunScratch, openTestRunScratch, testRunEnvironment } from "../filesystem/checkout-write-door.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { isProcessAlive, isProcessGroupAlive, isProcessIdentityLive, ownedAnnouncement, ownedChild, processGroupMembers, terminate, type OwnedProcess, type ProcessIdentity } from "./process-facts.ts";
+import { isProcessAlive, isProcessGroupAlive, isProcessIdentityLive, ownedAnnouncement, ownedChild, processGroupMembers, procfsDocument, terminate, type OwnedProcess, type ProcessIdentity } from "./process-facts.ts";
 import { adoptIntoOwnedInstrumentLock } from "./instrument-lock-adoption.ts";
 import { guarded } from "./fault-policy.ts";
 import { assertSubprocessBounds, COMMAND_NOT_FOUND, cpuLimitedInvocation, type BoundedEnding, type SubprocessBounds } from "./subprocess-bounds.ts";
@@ -66,6 +75,14 @@ export type TestProcessSupervision = Readonly<{
   /** Every process it killed: the command (when killed) and each killed descendant. */
   killed: readonly number[];
   noOwnedChildren: boolean;
+  /**
+   * The confined run's cgroup layout (decision TEST-CONFINEMENT-SELF-BIND, the run's cgroup): `own-leaf` when its
+   * cgroup namespace was rooted at a leaf of its own (worker leaves below were the run's to make), `started-cgroup`
+   * when it rooted where it started (a cgroup the user does not own: no worker leaves), null for an unconfined command.
+   */
+  runCgroup: "own-leaf" | "started-cgroup" | null;
+  /** Whether the command's confinement was refused at its own setup (it never ran): told apart from a command exiting 125 itself. */
+  confinementRefused: boolean;
 }>;
 
 const isInteger = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value);
@@ -76,7 +93,9 @@ function receiptOf(line: Record<string, unknown>): Omit<TestProcessSupervision, 
   const reaped = line["reaped"];
   if (!isInteger(line["commandPid"]) || !isInteger(line["status"]) || !isBoolean(line["timedOut"]) || !isBoolean(line["interrupted"])
     || !isBoolean(line["commandKilled"]) || !isBoolean(line["noOwnedChildren"]) || !isInteger(line["waitedCpuUs"])
-    || !isInteger(line["supervisorCpuUsBeforeReceipt"]) || !Array.isArray(reaped)) return undefined;
+    || !isInteger(line["supervisorCpuUsBeforeReceipt"]) || !Array.isArray(reaped)
+    || !(line["runCgroup"] === null || line["runCgroup"] === "own-leaf" || line["runCgroup"] === "started-cgroup")
+    || !isBoolean(line["confinementRefused"])) return undefined;
   const children = reaped.map((entry: unknown) => {
     const child = entry as Record<string, unknown> | null;
     return child !== null && typeof child === "object" && isInteger(child["pid"]) && isInteger(child["status"]) && isBoolean(child["killed"])
@@ -87,6 +106,7 @@ function receiptOf(line: Record<string, unknown>): Omit<TestProcessSupervision, 
     commandPid: line["commandPid"], status: line["status"], timedOut: line["timedOut"], interrupted: line["interrupted"],
     reaped: Object.freeze(children as NonNullable<(typeof children)[number]>[]), commandKilled: line["commandKilled"],
     waitedCpuUs: line["waitedCpuUs"], supervisorCpuUsBeforeReceipt: line["supervisorCpuUsBeforeReceipt"], noOwnedChildren: line["noOwnedChildren"],
+    runCgroup: line["runCgroup"], confinementRefused: line["confinementRefused"],
   };
 }
 
@@ -129,6 +149,60 @@ function supervisorArguments(ceilingMs: number, graceMs: number, command: string
     throw new InputError("A supervised process needs positive finite bounds", "test_process_bounds_invalid");
   }
   return [...(passFd ? ["--pass-fd"] : []), String(Math.ceil(ceilingMs)), String(Math.ceil(graceMs)), command, ...args];
+}
+
+/**
+ * THE ONE VITEST COMMAND every vitest route runs through {@link runTestCommand}:
+ * node itself on the checkout's vitest entry (no `npx` between: the run's
+ * result channel, fd 3, reaches vitest's main process), with vite's
+ * config loaded by its module runner (`--configLoader=runner`): the default
+ * loader bundles the config into `node_modules/.vite-temp`, a write into the
+ * read-only checkout.
+ */
+export function vitestCommand(checkout: string, args: readonly string[]): readonly [string, readonly string[]] {
+  return [process.execPath, [join(checkout, "node_modules", "vitest", "vitest.mjs"), ...args, "--configLoader=runner"]];
+}
+
+/**
+ * THE CONFINEMENT OF ONE RUN (decision TEST-CONFINEMENT-SELF-BIND; the user's
+ * rule that a malicious module cannot bypass core): the supervisor's arguments
+ * — the checkout, the run's scratch root and the checkout's declared writable
+ * places (the write door's `checkoutConfinementPlaces`, checked there first;
+ * the native supervisor checks each again by descriptor and binds it from that
+ * descriptor) — PROBED before use, every time: a host or a place that refuses
+ * is a typed refusal naming why and the fix, never an unconfined run.
+ */
+export function testConfinement(supervisor: string, checkout: string, scratch: string): readonly string[] {
+  const places = checkoutConfinementPlaces(checkout);
+  const args = Object.freeze([
+    "--checkout", places.root, "--scratch", scratch,
+    ...places.writable.flatMap((place) => ["--writable", place]),
+  ]);
+  const probe = spawnSync(supervisor, ["--probe-confinement", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (probe.error !== undefined || probe.status !== 0) {
+    const said = (probe.stderr || String(probe.error ?? `exit ${String(probe.status)}`)).trim();
+    throw new HarnessError(
+      `The test confinement refused this run, so no test runs (${said}). ${confinementRemedy(said)}`,
+      "test_confinement_unavailable",
+    );
+  }
+  return args;
+}
+
+/**
+ * The fix for the step the supervisor refused (N9): the user-namespace host
+ * fix only when namespaces were refused, the kernel when mount_setattr is
+ * missing, the place itself when a writable place was refused.
+ */
+function confinementRemedy(said: string): string {
+  if (/unshare|map this user/u.test(said)) {
+    return procfsDocument("sys", "kernel", "apparmor_restrict_unprivileged_userns")?.trim() === "1"
+      ? "AppArmor restricts unprivileged user namespaces here; admit them for this checkout's test supervisor alone, once: `node engine/guardian/build.ts --apparmor-install` prints the commands"
+      : "Unprivileged user namespaces are not available (check /proc/sys/user/max_user_namespaces and the kernel's user-namespace support).";
+  }
+  if (/mount_setattr|open_tree|move_mount/u.test(said)) return "The confinement needs Linux 5.12 or later (mount_setattr, open_tree, move_mount).";
+  if (/writable place|scratch root|checkout must/u.test(said)) return "Fix the named place (a real directory, at its canonical path, with no hard-linked file beneath it), then run again.";
+  return "The step it names failed; the run is refused rather than run unconfined.";
 }
 
 /**
@@ -199,9 +273,49 @@ export type SupervisedCommand = Readonly<{
  * the kill grace).
  */
 export function superviseCommand(options: SupervisedCommandOptions): Promise<SupervisedCommand> {
+  return supervise(options, []);
+}
+
+/** {@link runTestCommand}'s options: a supervised command's, and the checkout it runs in. */
+export type TestCommandOptions = SupervisedCommandOptions & Readonly<{
+  /** The checkout the tests are of: read-only to them but its declared writable places. */
+  checkout: string;
+}>;
+
+/**
+ * THE ONE TEST-EXECUTION DOOR: `command` supervised and CONFINED. It gets a
+ * fresh scratch root of its own (the write door's `openTestRunScratch`, removed
+ * when the run ends, whatever its outcome), its TMPDIR, node compile cache and
+ * scratch variable inside it, and sees everything else read-only but
+ * the checkout's declared writable places ({@link testConfinement}).
+ * Confinement is what this door IS, not an option of it.
+ */
+export async function runTestCommand(options: TestCommandOptions): Promise<SupervisedCommand> {
+  const scratch = openTestRunScratch();
+  try {
+    const confinement = testConfinement(options.supervisor, options.checkout, scratch.bound);
+    const run = await supervise({ ...options, env: testRunEnvironment(scratch, options.env) }, confinement);
+    // Refused at the run's own setup after the probe passed (a place that changed between them): the command never
+    // ran, and that is the same typed refusal as the probe's, never an exit code a command could also give.
+    if (run.supervision?.confinementRefused === true) {
+      throw new HarnessError(
+        "The test confinement refused this run at its own setup (after its probe passed), so no test ran; the supervisor printed the step it refused. " +
+        "A writable place most likely changed between the probe and the run (a file of more than one name beneath it): remove the link and run again.",
+        "test_confinement_unavailable",
+      );
+    }
+    return run;
+  } finally {
+    // Reported BESIDE the run's result (always on), never instead of it: a test cannot trade its verdict for a crash.
+    const unremoved = closeTestRunScratch(scratch);
+    if (unremoved !== null) process.emitWarning(unremoved, { code: "test_run_scratch_unremoved" });
+  }
+}
+
+function supervise(options: SupervisedCommandOptions, confinement: readonly string[]): Promise<SupervisedCommand> {
   const killGraceMs = options.killGraceMs;
   const passFd = options.onResult !== undefined;
-  const args = supervisorArguments(options.hardCeilingMs, killGraceMs, options.command, options.args, passFd);
+  const args = [...confinement, ...supervisorArguments(options.hardCeilingMs, killGraceMs, options.command, options.args, passFd)];
   const startedAt = Date.now();
   let lastOutputAt = startedAt;
   // fd 3 carries the supervisor's receipt (the command never inherits it); fd

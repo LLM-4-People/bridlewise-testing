@@ -19,6 +19,8 @@
     "test:editor": "node --experimental-strip-types scripts/tooling/test-guards.ts test/editor/*.test.ts",
     "test:unit": "node --experimental-strip-types scripts/tooling/test-guards.ts",
     "test:live": "node --experimental-strip-types scripts/tooling/test-guards.ts live/*.test.ts",
+    "test:live:s1": "node --experimental-strip-types scripts/tooling/test-guards.ts live/s1-b02-hostile-real.test.ts live/s1-b03-hostile-real.test.ts",
+    "test:live:host": "node --experimental-strip-types scripts/tooling/test-guards.ts live/instrument-lock.test.ts live/test-run-lock.test.ts live/long-task-runner.test.ts live/door-canaries.test.ts",
     "inventory:generate": "node scripts/test-inventory.ts --write",
     "inventory:check": "node scripts/test-inventory.ts --check",
     "inventory:recover": "node scripts/test-inventory.ts --recover",

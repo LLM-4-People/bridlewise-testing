@@ -111,7 +111,7 @@ import { dirname, join, resolve } from "node:path";
 import { bestEffort } from "./best-effort.ts";
 import { finiteNumber, nonNegativeNumber, type GateOutcome, type JudgedRunRecord, type RunQualification, type RunQualificationTerminal } from "./budget-verdict.ts";
 import { auditEvent } from "./debug/debug-system.ts";
-import { contentKeyDigest, reproducedDigests, type CountedFlakeReproduction, type IdentityMove } from "./flake-reproduction.ts";
+import { contentKeyDigest, reproducedDigests, type CountedFlakeReproduction, type ReadIdentityMove } from "./flake-reproduction.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { withFileLock } from "../filesystem/file-lock.ts";
 import { ensurePrivateStateDirectory } from "../filesystem/private-state.ts";
@@ -1101,7 +1101,7 @@ export interface CauseEvidence {
   readonly significance: number;
   /** The preloaded modules whose one run per side is strong (`testExecution.flakeReproduction.deterministicShims`). */
   readonly deterministicShims: readonly string[];
-  readonly moves: readonly IdentityMove[];
+  readonly moves: readonly ReadIdentityMove[];
   /** The suites' identities now; null for a suite with no live suite (nothing moves out of it). */
   readonly suites: SuiteIdentities | null;
   readonly contentKeyAt: ContentKeyAt;
@@ -1123,7 +1123,7 @@ export interface FixedSuspect {
 /** A suspect whose test left the hermetic suite by a recorded move to the live suite. */
 export interface MovedSuspect {
   readonly suspect: FlakySuspect;
-  readonly move: IdentityMove;
+  readonly move: ReadIdentityMove;
 }
 
 /**

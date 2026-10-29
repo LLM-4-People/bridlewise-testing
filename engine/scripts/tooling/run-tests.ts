@@ -25,7 +25,7 @@ import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { ensurePrivateStateDirectory } from "../../src/filesystem/private-state.ts";
 import { canonicalJson } from "../../src/kernel/integrity.ts";
 import { harnessFolderChanges, harnessFolderIdentity } from "../../src/kernel/config.ts";
-import { repositoryRefChanges, repositoryRefIdentity } from "../../src/git/repository-ownership.ts";
+import { repositoryRefChanges, repositoryRefIdentity, repositoryToplevel } from "../../src/git/repository-ownership.ts";
 import { parseJsonExact } from "../../src/kernel/json-integrity.ts";
 import { isPlainObject } from "../../src/shared/type-guards.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
@@ -92,10 +92,18 @@ export async function runWorkerWithEvidence(
     // ceiling sits a stall bound above the worker's own watchdog ceiling, so
     // the worker's abort always reports first.
     const { engineSuiteWatchdog } = readTestExecutionConfig(workingDirectory);
+    // EVERY WORKER RUN IS CONFINED (decision TEST-CONFINEMENT-SELF-BIND): the test and the check modes alike run the
+    // inventory, so both go through the one test-execution door (recorded-command.ts → runTestCommand). The runner
+    // itself, and its reports, stay outside.
     const observation = await runRecordedCommand({
       arguments: arguments_,
       cwd: workingDirectory,
-      supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs, killGraceMs: engineSuiteWatchdog.killGraceMs },
+      supervision: {
+        supervisor: ensureTestProcessSupervisor(),
+        hardCeilingMs: engineSuiteWatchdog.hardCeilingMs + engineSuiteWatchdog.stallTimeoutMs,
+        killGraceMs: engineSuiteWatchdog.killGraceMs,
+        checkout: repositoryToplevel(workingDirectory, "directory") ?? workingDirectory,
+      },
       ...(options.environment === undefined ? {} : { environment: options.environment }),
       ...(options.setupFailureCode === undefined ? {} : { setupFailureCode: options.setupFailureCode }),
       ...(options.stop === undefined ? {} : { stop: options.stop }),

@@ -45,7 +45,7 @@ nothing about either tree).
   (`namedTestFileCount`); a web run that miscounts itself light is still
   caught by the vitest door, which re-runs it inside the supervising door.
   Known limit: the guard that every door reaches the lock is a hand list of
-  source patterns over named files (engine/test/prevention/test-run-lock.test.ts),
+  source patterns over named files (engine/live/test-run-lock.test.ts),
   not a search for every spawn of a runner (L-3, owned by the TASKS row
   LOCK-DOOR-CENSUS).
   **Amendment (round 4):** the claim above is the VITEST DOOR's, and the door

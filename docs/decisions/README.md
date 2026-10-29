@@ -131,6 +131,7 @@ check` reports it stale): change a decision's file, never its row.
 | [D-07](D-07-undeclared-function-call-is-recoverable.md) | An undeclared function call is a recoverable refusal | coordinator | pending (RC-29) |
 | [D-08](D-08-background-mode-per-provider.md) | Background mode only where the provider declares it | coordinator | pending (RC-43) |
 | [GUARD-F5](GUARD-F5-a-link-under-the-floor-is-kept-out-by-what-it-names.md) | A link under the keep-out floor is kept out by what it names | coordinator | partial (KEEP-OUT-HARDLINKS) |
+| [TEST-CONFINEMENT-SELF-BIND](TEST-CONFINEMENT-SELF-BIND-a-test-run-sees-its-checkout-read-only.md) | A test run sees its checkout read-only; a self-bind is not a mountpoint | coordinator | done |
 
 ## Prompt cache
 

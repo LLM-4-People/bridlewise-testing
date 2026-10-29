@@ -119,10 +119,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:src/filesystem/checkout-write-door.ts:pure:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:src/filesystem/database-files.ts:pure:filesystem-read",
       "reason": "#563"
     },
@@ -683,10 +679,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:src/filesystem/checkout-write-door.ts:node:fs:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:src/filesystem/database-files.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
@@ -979,10 +971,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:src/shared/workflow/e2e-runner.mjs:git-invocation:git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:src/timeline/ledger-dig.ts:node:sqlite:filesystem-write",
       "reason": "#563"
     },
@@ -1272,10 +1260,6 @@
     },
     {
       "key": "architecture-effect-unmodeled:src/shared/memory/retrieval/embeddings.ts:dynamic-import",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:src/shared/workflow/e2e-runner.mjs:node:child_process:dynamic-executable-execSync",
       "reason": "#563"
     },
     {
@@ -2083,10 +2067,6 @@
       "reason": "#563"
     },
     {
-      "key": "environment-configuration-source:filesystem/checkout-write-door.ts",
-      "reason": "#563"
-    },
-    {
       "key": "environment-configuration-source:filesystem/private-home.ts",
       "reason": "#563"
     },
@@ -2863,10 +2843,6 @@
       "reason": "#563"
     },
     {
-      "key": "governed-sink-unmodeled:src/shared/workflow/e2e-runner.mjs",
-      "reason": "#563"
-    },
-    {
       "key": "governed-sink-unmodeled:src/timeline/effect-documents.ts",
       "reason": "#563"
     },
@@ -3036,10 +3012,6 @@
     },
     {
       "key": "production-effect-api:filesystem/atomic-write.ts:unlinkSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:filesystem/checkout-write-door.ts:mkdirSync",
       "reason": "#563"
     },
     {
@@ -3243,10 +3215,6 @@
       "reason": "#563"
     },
     {
-      "key": "production-effect-api:workflow/flake-cli.ts:rmSync",
-      "reason": "#563"
-    },
-    {
       "key": "production-effect-api:workflow/forge/generated-files.ts:rmSync",
       "reason": "#563"
     },
@@ -3412,10 +3380,6 @@
     },
     {
       "key": "standalone-runtime-sink-unmodeled:src/shared/git-churn.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "standalone-runtime-sink-unmodeled:src/shared/workflow/e2e-runner.mjs",
       "reason": "#563"
     },
     {

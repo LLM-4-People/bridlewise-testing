@@ -4,6 +4,7 @@ The `engine/test/support/` folder of the development surface.
 
 ## What each file does
 
+- `arm-test-key-home.ts` — the guard runner's `node --import` preload: arms the run's private key home inside its confinement, before any test file starts.
 - `assertions.ts` — the `assertions` module.
 - `authority-graph-fixture.ts` — the `authority-graph-fixture` module.
 - `authority-graph-test-catalog.ts` — the `authority-graph-test-catalog` module.

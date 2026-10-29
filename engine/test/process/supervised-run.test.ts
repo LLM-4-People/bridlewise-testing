@@ -67,7 +67,7 @@ test("the recorded command (the engine worker's launch) runs supervised: the obs
   const observation = await runRecordedCommand({
     arguments: ["-e", leavesAGrandchild(pidFile, 0)],
     cwd: process.cwd(),
-    supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: 60_000, killGraceMs: 500 },
+    supervision: { supervisor: ensureTestProcessSupervisor(), hardCeilingMs: 60_000, killGraceMs: 500, checkout: process.cwd() },
   });
   assert.equal(observation.exitCode, 0);
   assert.equal(observation.spawnErrorCode, null);
@@ -78,14 +78,18 @@ test("the recorded command (the engine worker's launch) runs supervised: the obs
 
 test("a receipt is CHECKED: a malformed or truncated last line is an absent receipt, never a cast", () => {
   const announce = `{"announcedCommandPid":42}\n`;
-  const good = `{"commandPid":42,"status":0,"timedOut":false,"interrupted":false,"commandKilled":false,"reaped":[{"pid":43,"status":9,"killed":true}],"noOwnedChildren":true,"waitedCpuUs":1,"supervisorCpuUsBeforeReceipt":2}\n`;
+  const good = `{"commandPid":42,"status":0,"timedOut":false,"interrupted":false,"commandKilled":false,"reaped":[{"pid":43,"status":9,"killed":true}],"noOwnedChildren":true,"runCgroup":"own-leaf","confinementRefused":false,"waitedCpuUs":1,"supervisorCpuUsBeforeReceipt":2}\n`;
   const read = readSupervisorReceipt(announce + good);
+  assert.equal(read.receipt?.runCgroup, "own-leaf");
   assert.equal(read.announcedCommandPid, 42);
   assert.deepEqual(read.receipt?.killed, [43]);
   for (const broken of [
     good.replace('"status":0', '"status":"0"'),
     good.replace('{"pid":43,"status":9,"killed":true}', '{"pid":43}'),
     good.replace(',"waitedCpuUs":1', ""),
+    good.replace('"runCgroup":"own-leaf"', '"runCgroup":"elsewhere"'),
+    good.replace('"runCgroup":"own-leaf",', ""),
+    good.replace('"confinementRefused":false', '"confinementRefused":"no"'),
     good.slice(0, 40),
   ]) {
     const refused = readSupervisorReceipt(announce + broken);
@@ -104,7 +108,9 @@ function fakeSupervisor(ending: "exits" | "never-closes"): Readonly<{ path: stri
   const dir = createTempDir("supervised-fake-");
   const pidFile = join(dir, "holder.pid");
   const path = join(dir, "fake-supervisor");
-  writeFileSync(path, `#!/bin/sh\nsleep 30 &\necho $! > ${JSON.stringify(pidFile)}\n${ending === "exits" ? "exit 0" : "sleep 30"}\n`);
+  // A confinement probe (a recorded command is a test run, probed first) is answered at once: the fake misbehaves
+  // only as the run's supervisor.
+  writeFileSync(path, `#!/bin/sh\n[ "$1" = --probe-confinement ] && exit 0\nsleep 30 &\necho $! > ${JSON.stringify(pidFile)}\n${ending === "exits" ? "exit 0" : "sleep 30"}\n`);
   chmodSync(path, 0o755);
   return { path, holderPid: () => Number(readFileSync(pidFile, "utf8")) };
 }
@@ -144,7 +150,7 @@ test("the recorded command marks its pipes INCOMPLETE when the supervised output
   const fake = fakeSupervisor("exits");
   t.after(() => killQuietly(fake.holderPid()));
   const observation = await runRecordedCommand({
-    arguments: ["-e", "0"], cwd: process.cwd(), supervision: { supervisor: fake.path, hardCeilingMs: 60_000, killGraceMs: 300 },
+    arguments: ["-e", "0"], cwd: process.cwd(), supervision: { supervisor: fake.path, hardCeilingMs: 60_000, killGraceMs: 300, checkout: process.cwd() },
   });
   assert.equal(observation.spawnErrorCode, "test_process_supervisor_unverified");
   for (const pipe of [observation.stdout, observation.stderr, observation.resultPipe]) assert.equal(pipe.complete, false);

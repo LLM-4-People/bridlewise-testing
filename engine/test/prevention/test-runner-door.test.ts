@@ -42,12 +42,14 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
-import { doorNodeArgs, doorRun } from "../../scripts/tooling/test-guards.ts";
+import { doorNodeArgs, doorRun, unreviewedLiveFiles, withoutNodeOptions } from "../../scripts/tooling/test-guards.ts";
+import { configuredGitRepository } from "../../src/git/worktree-port.ts";
+import { createRepoWithCommit, withGitAdapter } from "../support/git-fixtures.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
@@ -117,6 +119,9 @@ test("a vitest run rooted in the engine dead-ends clean (live drive)", () => {
         join(WEB_ROOT, "node_modules", "vitest", "dist", "cli.js"),
         "run",
         "test/editor/",
+        // Loaded by vite's module runner, as every vitest route of the one test-execution door loads it: this test runs
+        // confined, and the default loader bundles the config into the read-only node_modules/.vite-temp.
+        "--configLoader=runner",
       ],
       { cwd: scratch, encoding: "utf8", timeout: 120_000 },
     );
@@ -253,13 +258,15 @@ test("THE SPACE-FORM HOLE (review of #626): `--import ./noop.mjs` from a folder 
   assert.ok(!run.stdout.includes("RAN-UNBOUNDED"), "a discovered test ran outside the bounds");
 });
 
-test("the door hands node EXACTLY its own argv — the bounds' preload, --test with the backstop, the door's flags, then the files it bounds — and main runs THAT, never the arguments it was given", () => {
+test("the door hands node EXACTLY its own argv — the key-home and bounds' preloads, --test with the backstop, the door's flags, then the files it bounds — and main runs THAT, never the arguments it was given", () => {
   const dir = createTempDir("subset-door-argv-");
   writeFileSync(join(dir, "a.test.ts"), "");
   const door = doorRun(["a.test.ts", "--test-name-pattern=x"], dir);
   const bounds = { hangBackstopMs: 600_000, cpuClasses: null, repositoryRoot: dir, files: door.files };
   assert.deepEqual(doorNodeArgs(bounds, door), [
     "--experimental-strip-types",
+    // The run's key home, armed inside the run (the one test-execution door confines it).
+    `--import=${join(ROOT, "test", "support", "arm-test-key-home.ts")}`,
     engineTestBoundsImport(bounds),
     "--test",
     "--test-timeout=600000",
@@ -271,4 +278,54 @@ test("the door hands node EXACTLY its own argv — the bounds' preload, --test w
   const mainBody = source.slice(source.indexOf("export async function main"));
   assert.ok(mainBody.includes("args: doorNodeArgs(bounds, door)"), "main hands node the door's own argv");
   assert.ok(!mainBody.includes("process.argv.slice(2)]") && !mainBody.includes("...process.argv"), "main never spreads the arguments it was given into node's argv");
+});
+
+test("the LIVE door runs only the live suite, unconfined: a run mixing a hermetic file, or a module-loading flag beside a live file, is refused before anything runs", () => {
+  const door = (...args: string[]): ReturnType<typeof spawnSync> =>
+    spawnSync(process.execPath, ["--experimental-strip-types", join(ROOT, "scripts", "tooling", "test-guards.ts"), ...args], { cwd: ROOT, encoding: "utf8" });
+  const mixed = door("live/provider-smoke.test.ts", "test/process/confinement-canary.test.ts");
+  assert.equal(mixed.status, 1);
+  assert.ok(String(mixed.stderr).includes("test_live_suite_mixed"), String(mixed.stderr));
+  // Every flag outside the live allow list, each a route round 3 named: a module named directly, an env file whose
+  // NODE_OPTIONS names one, a config file that imports one.
+  const envFile = join(createTempDir("live-door-env-"), "canary.env");
+  writeFileSync(envFile, "NODE_OPTIONS=--import=./test/process/confinement-canary.test.ts\n");
+  for (const flag of ["--import=test/process/confinement-canary.test.ts", "--require=test/process/confinement-canary.test.ts", "--test-reporter=test/process/confinement-canary.test.ts",
+    `--env-file=${envFile}`, `--env-file-if-exists=${envFile}`, `--experimental-config-file=${envFile}`, "--experimental-test-coverage"]) {
+    const loaded = door(flag, "live/provider-smoke.test.ts");
+    assert.equal(loaded.status, 1, flag);
+    assert.ok(String(loaded.stderr).includes("test_live_suite_flag"), `${flag}: ${String(loaded.stderr)}`);
+  }
+});
+
+test("the LIVE child is started without its caller's NODE_OPTIONS: an inherited --import never loads a module unconfined (round 3, must-fix 2)", () => {
+  const environment = withoutNodeOptions({ NODE_OPTIONS: "--import=./probe.mjs", PATH: "/usr/bin" });
+  assert.deepEqual(environment, { PATH: "/usr/bin" });
+  // And the live run is launched with it: read from the door's own source (the run itself is unconfined, so no
+  // confined test can watch it start).
+  const source = readSourceView(join(ROOT, "scripts", "tooling", "test-guards.ts")).code();
+  assert.ok(source.includes("superviseCommand({ ...command, env: withoutNodeOptions(process.env) })"), "the live run no longer drops NODE_OPTIONS");
+});
+
+test("the live door runs only the reviewed live set: an untracked copy, an edited file and a hard link are each refused, the committed file admitted (planted; review of #634, #14)", () => {
+  withGitAdapter((git, _runtime, root) => {
+    const repository = createRepoWithCommit(git, root, "live-set", { readmeContent: "committed live test" });
+    const committed = join(repository, "README.md");
+    const handle = configuredGitRepository({}, repository);
+    assert.deepEqual(unreviewedLiveFiles(handle, [committed]), [], "the committed file is the reviewed one");
+    const untracked = join(repository, "copy.test.ts");
+    writeFileSync(untracked, "an untracked copy");
+    assert.deepEqual(unreviewedLiveFiles(handle, [untracked]), ["copy.test.ts: not committed"]);
+    const linked = join(repository, "linked.test.ts");
+    linkSync(untracked, linked);
+    assert.deepEqual(unreviewedLiveFiles(handle, [linked]), ["linked.test.ts: has more than one name (a hard link)"]);
+    writeFileSync(committed, "edited after review");
+    assert.deepEqual(unreviewedLiveFiles(handle, [committed]), ["README.md: differs from its committed content"]);
+  });
+});
+
+test("the live door's refusal of an unreviewed live file sits before the run starts (its wiring, read from the door's source)", () => {
+  const door = readSourceView(new URL("../../scripts/tooling/test-guards.ts", import.meta.url).pathname).code();
+  const check = door.indexOf("unreviewedLiveFiles(configuredGitRepository(");
+  assert.ok(check !== -1 && check < door.indexOf("enforceTestRunLock(runner"), "the live door no longer checks the reviewed live set before it runs");
 });

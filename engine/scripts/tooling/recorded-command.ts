@@ -1,7 +1,7 @@
 import { execPath } from "node:process";
 
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
-import { superviseCommand, supervisedEndingLines, type SupervisedCommand } from "../../src/process/supervised-run.ts";
+import { runTestCommand, supervisedEndingLines, type SupervisedCommand } from "../../src/process/supervised-run.ts";
 
 export type RecordedCommandRequest = Readonly<{
   arguments: readonly string[];
@@ -17,7 +17,7 @@ export type RecordedCommandRequest = Readonly<{
    * `hardCeilingMs`; a stopped one has `killGraceMs` before the SIGKILL; its
    * fd 3 (the result pipe) is passed through.
    */
-  supervision: Readonly<{ supervisor: string; hardCeilingMs: number; killGraceMs: number }>;
+  supervision: Readonly<{ supervisor: string; hardCeilingMs: number; killGraceMs: number; checkout: string }>;
 }>;
 
 export type ObservedPipe = Readonly<{
@@ -76,8 +76,10 @@ async function runSupervised(
   if (request.stop?.aborted === true) forward();
   else request.stop?.addEventListener("abort", forward, { once: true });
   try {
-    const run = await superviseCommand({
+    // A recorded command is a test worker's run: through the one test-execution door, confined.
+    const run = await runTestCommand({
       supervisor: supervision.supervisor,
+      checkout: supervision.checkout,
       command: execPath,
       args: request.arguments,
       hardCeilingMs: supervision.hardCeilingMs,

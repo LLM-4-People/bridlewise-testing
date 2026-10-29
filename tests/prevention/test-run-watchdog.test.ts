@@ -39,7 +39,7 @@
 import { describe, expect, test } from "vitest";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
 import type { SuiteWatchdog } from "../../engine/src/workflow/workflow-config.ts";
@@ -54,7 +54,7 @@ import { createTempDir } from "../helpers/temp-dir.ts";
 import { walk, relpath, SOURCE_EXTS } from "../helpers/source-scan.ts";
 
 const WATCHDOG: SuiteWatchdog = { stallTimeoutMs: 1_500, hardCeilingMs: 60_000, killGraceMs: 500 };
-const quiet = { write: () => undefined, watchIntervalMs: 100 } as const;
+const quiet = { checkout: process.cwd(), write: () => undefined, watchIntervalMs: 100 } as const;
 
 /** The native supervisor this process started (the one child running the supervisor binary). */
 function supervisorPid(): number | undefined {
@@ -149,30 +149,35 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
 
   test("C3: actual focused wrapper refuses inner forced cleanup even when its outer command finishes normally", async () => {
     const dir = createTempDir("ch-focused-wrapper-completion-");
-    const bin = join(dir, "bin");
-    mkdirSync(bin);
+    // The wrapper runs the project's own vitest entry (the door's `vitestCommand`): a project folder of the test's own
+    // whose `node_modules/vitest/vitest.mjs` is the substitute, the wrapper run there (its project is its cwd).
+    const project = join(dir, "project");
+    const entry = join(project, "node_modules", "vitest", "vitest.mjs");
+    mkdirSync(dirname(entry), { recursive: true });
     for (const straggler of [false, true]) {
       const pidPath = join(dir, "focused-straggler.pid");
       const invocationPath = join(dir, "invocation.json");
       // Substitute only the wrapper's external command. Drive the real CLI
       // entrypoint, inner native supervisor, cleanup and final exit decision.
-      writeFileSync(join(bin, "npx"), [
-        `#!${process.execPath}`,
-        "const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs');",
+      writeFileSync(entry, [
+        "import { spawn } from 'node:child_process'; import { writeFileSync } from 'node:fs';",
         `writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({ argv: process.argv.slice(2), token: process.env.HARNESS_RUN_INVOCATION }));`,
         ...(straggler ? [
           "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true }); child.unref();",
           `writeFileSync(${JSON.stringify(pidPath)}, String(child.pid));`,
         ] : []),
-      ].join("\n"), { mode: 0o700 });
+      ].join("\n"));
       const token = qualificationInvocation({});
       const output: string[] = [];
-      const environment: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, [QUALIFICATION_INVOCATION_ENV]: token };
+      const environment: NodeJS.ProcessEnv = { ...process.env, [QUALIFICATION_INVOCATION_ENV]: token };
       delete environment.HARNESS_MUTATION_RUN;
       const run = await superviseCommand({
         supervisor: ensureTestProcessSupervisor(), command: process.execPath,
         args: [join(process.cwd(), "scripts", "run-tests.ts"), "focused-fixture.test.ts"],
-        ...WATCHDOG, env: environment,
+        // The OUTER stall clock is not this test's subject (the wrapper's own completion verdict is): a 1.5 s silence
+        // bound on a wrapper that cold-starts a confined run killed it under load (FLAKY-WATCHDOG-C3), so it gets the
+        // suite's ordinary bound; the ceiling still ends a hung wrapper.
+        cwd: project, ...WATCHDOG, stallTimeoutMs: 60_000, env: environment,
         onStdout: (chunk) => { output.push(chunk.toString()); },
         onStderr: (chunk) => { output.push(chunk.toString()); },
       });
@@ -184,7 +189,7 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
       // FLAKY-WATCHDOG-C3 red was the bare `expected 70 to be +0` and named
       // no fault, which is why it could not be closed.
       expect(run.exitCode, `the focused wrapper exited ${String(run.exitCode)}; its own output:\n${output.join("")}`).toBe(straggler ? 1 : 0);
-      expect(JSON.parse(readFileSync(invocationPath, "utf8"))).toEqual({ argv: ["vitest", "run", "focused-fixture.test.ts"], token });
+      expect(JSON.parse(readFileSync(invocationPath, "utf8"))).toEqual({ argv: ["run", "focused-fixture.test.ts", "--configLoader=runner"], token });
       if (straggler) {
         expect(output.join("")).toMatch(/web test command did not complete normally/u);
         expect(isProcessAlive(Number(readFileSync(pidPath, "utf8")))).toBe(false);
@@ -222,7 +227,7 @@ describe("1. the watchdog lives outside the runtime and kills on a STALL, never 
       `import { writeFileSync } from "node:fs";`,
       `import { superviseRun } from ${JSON.stringify(join(process.cwd(), "scripts", "run-tests.ts"))};`,
       `const child = ${JSON.stringify(`require('node:fs').writeFileSync(${JSON.stringify(childPid)}, String(process.pid)); setInterval(() => process.stdout.write('.'), 100);`)};`,
-      `const run = await superviseRun(process.execPath, ["-e", child], { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 500 }, { write: () => undefined, watchIntervalMs: 100, stopWhenLauncherExits: true });`,
+      `const run = await superviseRun(process.execPath, ["-e", child], { stallTimeoutMs: 60_000, hardCeilingMs: 120_000, killGraceMs: 500 }, { checkout: process.cwd(), write: () => undefined, watchIntervalMs: 100, stopWhenLauncherExits: true });`,
       `writeFileSync(${JSON.stringify(result)}, JSON.stringify(run));`,
       "process.exit(0);",
     ].join("\n"));

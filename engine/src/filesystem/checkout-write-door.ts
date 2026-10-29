@@ -101,14 +101,16 @@
  * primitive that must commit with a raw `rename` (the journaled multi-file
  * commit) asks the door first.
  */
-import { lstatSync, mkdirSync, openSync, realpathSync, statSync, type Stats } from "node:fs";
+import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { SecurityError } from "../kernel/errors.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { identityKey } from "./path-identity.ts";
+import { identityKey, identityOverlapIndex, resolveLocation } from "./path-identity.ts";
+import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, removeOwnedTemporaryDirectory } from "./private-state.ts";
 import { ancestorsOf, commandLineOf, executableOf, openFileTargetsOf, procfsAvailable, workingDirectoryOf } from "../process/process-facts.ts";
 
 const POLICY = ROOT_POLICY.verification.checkoutWriteDoor;
@@ -298,7 +300,10 @@ function arm(identity: CheckoutIdentity): void {
     // Held, never closed: the descriptor IS the marker a scrubbed descendant
     // finds. Node opens it close-on-exec, so no child inherits it — a child
     // is found through this process, or re-arms itself when it loads this module.
-    openSync(marker, "a", PRIVATE_FILE_MODE);
+    // Read-only when it exists: inside a confined test run the state root is
+    // read-only, and the door made the marker before the run
+    // (`checkoutConfinementPlaces`).
+    openSync(marker, existsSync(marker) ? "r" : "a", PRIVATE_FILE_MODE);
   } catch (error) {
     warnLoudly("HARNESS_CHECKOUT_DOOR_MARKER_UNAVAILABLE", "the checkout write door could not hold its marker file; descendants with a scrubbed env will not see this test run", {
       marker, error: (error as Error).message,
@@ -420,10 +425,13 @@ function protectedRootHolding(canonical: string): string | undefined {
 }
 
 /**
- * Whether `relativePath` lies in a writable state root of `root`: the
- * checkout's own (`<root>/.bridlewise/…`) or a package's
- * (`<root>/<package>/.bridlewise/…`, the package holding its own
- * `package.json`). A same-named folder anywhere deeper is not a state root:
+ * Whether `relativePath` lies in a state root of `root` (the IN-PROCESS door:
+ * a process under test may write no tracked file): the checkout's own
+ * (`<root>/.bridlewise/…`) or a package's (`<root>/<package>/.bridlewise/…`,
+ * the package holding its own `package.json`). Inside a confined run the
+ * kernel narrows this to the declared places (`POLICY.writablePlaces`,
+ * {@link checkoutConfinementPlaces}); the runners outside it write their
+ * ledgers in the state root. A same-named folder anywhere deeper is not a state root:
  * a planted `engine/src/.bridlewise/x.ts` was writable and broke
  * `harness check` (wf1c-correctness §1 VT15).
  */
@@ -432,6 +440,62 @@ function inWritableDirectory(root: string, relativePath: string): boolean {
   return (POLICY.writableDirectoryNames as readonly string[]).some((name) =>
     (segments.length > 1 && segments[0] === name) ||
     (segments.length > 2 && segments[1] === name && entryStats(join(root, segments[0]!, "package.json"))?.isFile() === true));
+}
+
+/**
+ * THE WRITABLE PLACES OF `root` for a confined run: each declared place of the
+ * state root (`POLICY.writablePlaces`, inside the in-process door's {@link inWritableDirectory}) at the
+ * checkout's top and in each top-level package (a folder holding its own
+ * `package.json`), by the same top-level-or-package rule as the in-process door.
+ */
+function checkoutWritablePlaces(root: string): readonly Readonly<{ segments: readonly string[] }>[] {
+  const packages = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entryStats(join(root, entry.name, "package.json"))?.isFile() === true)
+    .map((entry) => entry.name)
+    .toSorted();
+  return [[], ...packages.map((name) => [name])].flatMap((folder) =>
+    (POLICY.writablePlaces as readonly string[]).map((place) => ({ segments: [...folder, ...place.split("/")] })));
+}
+
+/**
+ * THE PLACES A CONFINED TEST RUN MAY WRITE IN ITS CHECKOUT (decision
+ * TEST-CONFINEMENT-SELF-BIND; the one supervisor's door,
+ * `src/process/supervised-run.ts` `runTestCommand`, confines every test run to
+ * them and its own scratch root): the checkout's canonical root and exactly
+ * {@link checkoutWritablePlaces}, made real directories first. A place that is
+ * a link or not a directory, or whose way passes a link, is refused
+ * (`test_confinement_writable_unsafe`). This is the FIRST check; the native
+ * supervisor checks each place again by descriptor and binds it from that
+ * descriptor, so nothing can be swapped between the check and the bind.
+ */
+export function checkoutConfinementPlaces(checkout: string): Readonly<{ root: string; writable: readonly string[] }> {
+  const root = resolveLocation(realpathSync(checkout), "the confined checkout");
+  const writable: string[] = [];
+  for (const place of checkoutWritablePlaces(root)) {
+    const path = join(root, ...place.segments);
+    // Every folder on the way, the place itself last, is a real directory or absent (then made, never through a link).
+    for (let index = 0; index < place.segments.length; index += 1) {
+      const step = join(root, ...place.segments.slice(0, index + 1));
+      const found = entryStats(step);
+      if (found !== undefined && (found.isSymbolicLink() || !found.isDirectory())) {
+        throw new SecurityError(
+          `The test confinement refuses ${path}: ${index === place.segments.length - 1 ? "a writable place" : `${step} on its way`} must be a real directory, and it is ${found.isSymbolicLink() ? "a link" : "not a directory"} (it could carry a write into the read-only checkout). Remove it; the run recreates it.`,
+          "test_confinement_writable_unsafe",
+        );
+      }
+      if (found === undefined) ensurePrivateStateDirectory(step);
+    }
+    writable.push(path);
+  }
+  // The checkout-under-test marker exists before the run: inside it the state root is read-only, and a runner there
+  // holds the marker open read-only (`arm`). A run started inside a confined run cannot make one (its state root is
+  // read-only there too): its runner's arming reports the missing marker loudly, as it always has.
+  const marker = join(root, ...POLICY.markerFile.split("/"));
+  if (!existsSync(marker) && enclosingTestRunScratch() === undefined) {
+    mkdirSync(dirname(marker), { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+    closeSync(openSync(marker, "a", PRIVATE_FILE_MODE));
+  }
+  return Object.freeze({ root, writable: Object.freeze(writable) });
 }
 
 /**
@@ -458,4 +522,129 @@ export function assertCheckoutWriteAllowed(path: string): void {
     "drive write-mode generators on a working copy (createRepositoryWorkingCopy), never on the checkout a test runs in",
     CHECKOUT_WRITE_REFUSAL_CODE,
   );
+}
+
+/**
+ * THE SCRATCH ROOT OF THE CONFINED TEST RUN this process is in (decision
+ * TEST-CONFINEMENT-SELF-BIND), or `undefined` outside one: the one place
+ * outside the declared writable places such a run may write. Its caches
+ * (vite's, vitest's module cache, node's compile cache), its temp folder and
+ * its key home live under it, so nothing a confined run writes is executed or
+ * trusted by a later run.
+ */
+export function enclosingTestRunScratch(): string | undefined {
+  const scratch = process.env[POLICY.scratchEnvironmentVariable];
+  if (scratch === undefined || scratch.length === 0) return undefined;
+  // PROVEN, never taken on the variable's word: a launcher that inherited it (a stale export, a phase environment)
+  // would hand the supervisor any folder outside the checkout as the run's writable scratch, and a hand-set one would
+  // let vitest start outside the door. Only a process the kernel already confines (its own tree read-only) has one.
+  if (!kernelConfinesThisProcess()) {
+    throw new SecurityError(
+      `${POLICY.scratchEnvironmentVariable} is set (${scratch}) but this process is in no confined test run: its own tree ` +
+      `(${OWN_TREE}) is writable. Unset it; a run's scratch is made by the one test-execution door (runTestCommand), never inherited`,
+      TEST_RUN_SCRATCH_UNCONFINED_CODE,
+    );
+  }
+  return scratch;
+}
+
+/** The refusal of a scratch variable outside a confined run (see `enclosingTestRunScratch`). */
+export const TEST_RUN_SCRATCH_UNCONFINED_CODE = "test_run_scratch_unconfined";
+
+/** This module's own tree (the engine folder): read-only to a confined run, whatever checkout it is. */
+const OWN_TREE = fileURLToPath(new URL("../..", import.meta.url));
+
+/** Whether the kernel refuses a write to this module's own tree as a read-only filesystem: the confinement's own proof. */
+function kernelConfinesThisProcess(): boolean {
+  try {
+    accessSync(OWN_TREE, constants.W_OK);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EROFS") return true;
+    if (code === "EACCES" || code === "EPERM") return false;
+    throw error;
+  }
+}
+
+export type TestRunScratch = Readonly<{
+  /** The run's own scratch root (an owned temporary folder), removed when the run ends. */
+  root: string;
+  /** The root the supervisor binds writable: the enclosing run's, inside a confined run (this root lies in it), else this one. */
+  bound: string;
+  /** The run's environment additions: its temp folder, compile cache and scratch variable. */
+  environment: Readonly<Record<string, string>>;
+}>;
+
+/**
+ * Makes a confined run's scratch root ({@link closeTestRunScratch} removes
+ * it): an owned temporary folder in this process's temp folder, outside the
+ * checkout, at its canonical path. Inside a confined run that folder lies in
+ * the enclosing run's scratch, which stays the bound root, so what the
+ * enclosing test made in its own temporary folders stays its to write.
+ */
+export function openTestRunScratch(): TestRunScratch {
+  const root = realpathSync(createOwnedTemporaryDirectory(tmpdir(), "test-run-"));
+  for (const place of ["tmp", "compile-cache"]) mkdirSync(join(root, place));
+  return Object.freeze({
+    root,
+    bound: enclosingTestRunScratch() ?? root,
+    environment: Object.freeze({ TMPDIR: join(root, "tmp"), NODE_COMPILE_CACHE: join(root, "compile-cache"), [POLICY.scratchEnvironmentVariable]: root }),
+  });
+}
+
+/** The confined run's environment: the caller's (this process's when it names none) with the scratch's additions. */
+export function testRunEnvironment(scratch: TestRunScratch, base: Readonly<NodeJS.ProcessEnv> | undefined): NodeJS.ProcessEnv {
+  return { ...(base ?? process.env), ...scratch.environment };
+}
+
+/**
+ * Removes a scratch root {@link openTestRunScratch} made, whatever the run's
+ * outcome. A test may leave a folder it cannot list (mode 000) in its temp
+ * folder: the tree is made the owner's again — folders only, walked without
+ * following a link — and removed. Answers why it could not be removed, or
+ * `null`: a failed removal is reported by the caller BESIDE the run's result,
+ * never in place of it.
+ */
+export function closeTestRunScratch(scratch: TestRunScratch): string | null {
+  try {
+    removeOwnedTemporaryDirectory(scratch.root);
+    return null;
+  } catch (first) {
+    try {
+      reopenOwnFolders(scratch.root);
+      removeOwnedTemporaryDirectory(scratch.root);
+      return null;
+    } catch (second) {
+      return `the run's scratch root ${scratch.root} could not be removed (${(first as Error).message}; then ${(second as Error).message})`;
+    }
+  }
+}
+
+/** Every folder of `root` made listable and writable by its owner again, never following a link. */
+function reopenOwnFolders(root: string): void {
+  const found = lstatSync(root, { throwIfNoEntry: false });
+  if (found === undefined || !found.isDirectory()) return;
+  chmodSync(root, 0o700);
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.isDirectory()) reopenOwnFolders(join(root, entry.name));
+  }
+}
+
+/**
+ * WHICH SUITE A `node --test` RUN IS (the guard runner's, scripts/tooling/test-guards.ts),
+ * from the very files node will run (absolute, the runner resolved them), by
+ * their real location, never by how a path is spelled (N3, N7). The LIVE
+ * suite's (`liveRoot`, unconfined by design: real host facts) is a run whose
+ * every file really lies there; a run mixing live and hermetic files is
+ * refused, so a hermetic file never rides along unconfined.
+ */
+export function testRunSuiteOf(files: readonly string[], liveRoot: string): "live" | "hermetic" | Readonly<{ refused: string }> {
+  const live = resolveLocation(realpathSync(liveRoot), "the live suite");
+  const overlap = identityOverlapIndex();
+  const located = files.map((file) => resolveLocation(realpathSync(file), "a test file"));
+  const inLive = located.filter((file) => overlap.atOrUnder(file, live));
+  if (inLive.length === 0) return "hermetic";
+  if (inLive.length !== located.length) return { refused: "test_live_suite_mixed: a live-suite run takes engine/live/ files only: the live suite runs unconfined, a hermetic file never does" };
+  return "live";
 }

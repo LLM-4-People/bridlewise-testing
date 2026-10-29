@@ -646,7 +646,9 @@ function noteStoreState(next: SettingsStoreState): SettingsStoreState {
   if (next.state === "unreadable" || next.state === "refused") {
     const serving = snapshot?.path === next.path ? "the last readable settings stay in force" : "no setting can be read";
     const saves = next.state === "unreadable" ? " and every settings save is refused" : "";
-    webConsoleError(`[bridlewise web] ${CONFIG_UNREADABLE_CODE}: the settings file ${next.path} is ${next.state} (${next.reason ?? "unknown"}); ${serving}${saves} until it is fixed`);
+    // What still holds and why come BEFORE the path: the always-on line is bounded, and a long settings path (a deep
+    // checkout, a test run's scratch) used to cut exactly the clauses that say what is in force and why.
+    webConsoleError(`[bridlewise web] ${CONFIG_UNREADABLE_CODE}: the settings file is ${next.state}; ${serving}${saves} until it is fixed (${next.reason ?? "unknown"}; ${next.path})`);
   } else if (previous !== undefined) {
     webConsoleInfo(`[bridlewise web] the settings file ${next.path} is ${next.state} (was ${previous.state})`);
   }

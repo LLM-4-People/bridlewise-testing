@@ -75,7 +75,10 @@ const UNLOGGED_REPRODUCTION_SCHEMA_VERSION = schemaId("flake-reproduction", 2);
 export const FLAKE_ATTEMPT_SCHEMA_VERSION = schemaId("flake-attempt", 2);
 /** An attempt's id: 32 hex characters. */
 const ATTEMPT_ID = z.string().regex(/^[0-9a-f]{32}$/u);
-export const IDENTITY_MOVE_SCHEMA_VERSION = schemaId("identity-move", 1);
+/** A move record as written today: v2 carries the reason the test left the hermetic suite. */
+export const IDENTITY_MOVE_SCHEMA_VERSION = schemaId("identity-move", 2);
+/** A move record written before reasons were kept (still read, never written). */
+export const IDENTITY_MOVE_V1_SCHEMA_VERSION = schemaId("identity-move", 1);
 
 const COMMIT = z.string().regex(/^[0-9a-f]{40}$/u);
 const DIGEST = z.string().regex(/^[0-9a-f]{64}$/u);
@@ -171,8 +174,7 @@ const FLAKE_REPRODUCTION_SCHEMA = z.strictObject({
 
 export type FlakeReproduction = z.infer<typeof FLAKE_REPRODUCTION_SCHEMA>;
 
-const IDENTITY_MOVE_SCHEMA = z.strictObject({
-  schemaVersion: z.literal(IDENTITY_MOVE_SCHEMA_VERSION),
+const IDENTITY_MOVE_FIELDS = {
   suite: z.enum(["engine", "web"]),
   /** The hermetic identity on the move commit's parent. */
   from: z.string().min(1),
@@ -181,9 +183,27 @@ const IDENTITY_MOVE_SCHEMA = z.strictObject({
   /** The commit the test left the hermetic suite in. */
   commit: COMMIT,
   recordedAt: z.string().refine((value) => Number.isFinite(Date.parse(value)), "an ISO instant"),
+} as const;
+
+const IDENTITY_MOVE_SCHEMA = z.strictObject({
+  schemaVersion: z.literal(IDENTITY_MOVE_SCHEMA_VERSION),
+  ...IDENTITY_MOVE_FIELDS,
+  /** Why it runs in the live suite (unconfined): the host fact it needs, in plain words. */
+  reason: z.string().trim().min(1),
 });
 
+const IDENTITY_MOVE_V1_SCHEMA = z.strictObject({
+  schemaVersion: z.literal(IDENTITY_MOVE_V1_SCHEMA_VERSION),
+  ...IDENTITY_MOVE_FIELDS,
+});
+
+/** A move record as READ: a v2 record, or a v1 one written before reasons were kept. */
+const READ_IDENTITY_MOVE_SCHEMA = z.discriminatedUnion("schemaVersion", [IDENTITY_MOVE_SCHEMA, IDENTITY_MOVE_V1_SCHEMA]);
+
+/** A move record as written (v2, with its reason). */
 export type IdentityMove = z.infer<typeof IDENTITY_MOVE_SCHEMA>;
+/** A move record as read: v2, or v1 without a reason. */
+export type ReadIdentityMove = z.infer<typeof READ_IDENTITY_MOVE_SCHEMA>;
 
 /** One attempt of the door, recorded or refused: what ran, what each run printed (kept in the evidence store, by digest), and what came of each test. */
 const FLAKE_ATTEMPT_SCHEMA = z.strictObject({
@@ -368,13 +388,13 @@ export function serializeIdentityMove(record: IdentityMove): string {
 /** The records under `engineRoot`: reproductions, moves, and every file the schemas refused (said by the reader's caller). */
 export function readFlakeReproductions(engineRoot: string): Readonly<{
   records: readonly CountedFlakeReproduction[];
-  moves: readonly IdentityMove[];
+  moves: readonly ReadIdentityMove[];
   ignored: readonly IgnoredFlakeReproduction[];
 }> {
   const directory = flakeReproductionDirectory(engineRoot);
   if (!existsSync(directory)) return deepFreeze({ records: [], moves: [], ignored: [] });
   const records: CountedFlakeReproduction[] = [];
-  const moves: IdentityMove[] = [];
+  const moves: ReadIdentityMove[] = [];
   const ignored: IgnoredFlakeReproduction[] = [];
   const log = readFlakeAttempts(engineRoot);
   ignored.push(...log.refused);
@@ -397,21 +417,22 @@ export function readFlakeReproductions(engineRoot: string): Readonly<{
       ignored.push({ file, why: "written before the door kept its attempt log: no attempt shows it (re-run harness flake reproduce)" });
       continue;
     }
-    const isMove = (parsed as { schemaVersion?: unknown } | null)?.schemaVersion === IDENTITY_MOVE_SCHEMA_VERSION;
-    const result = isMove ? IDENTITY_MOVE_SCHEMA.safeParse(parsed) : FLAKE_REPRODUCTION_SCHEMA.safeParse(parsed);
+    const version = (parsed as { schemaVersion?: unknown } | null)?.schemaVersion;
+    const isMove = version === IDENTITY_MOVE_SCHEMA_VERSION || version === IDENTITY_MOVE_V1_SCHEMA_VERSION;
+    const result = isMove ? READ_IDENTITY_MOVE_SCHEMA.safeParse(parsed) : FLAKE_REPRODUCTION_SCHEMA.safeParse(parsed);
     if (!result.success) {
       ignored.push({ file, why: result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") });
       continue;
     }
     const expected = isMove
-      ? identityMoveFileName((result.data as IdentityMove).from)
+      ? identityMoveFileName((result.data as ReadIdentityMove).from)
       : flakeReproductionFileName((result.data as FlakeReproduction).identity, (result.data as FlakeReproduction).fix.commit);
     if (name !== expected) {
       ignored.push({ file, why: `named ${name}, but its key names ${expected}` });
       continue;
     }
     if (isMove) {
-      moves.push(result.data as IdentityMove);
+      moves.push(result.data as ReadIdentityMove);
       continue;
     }
     const reproduction = result.data as FlakeReproduction;

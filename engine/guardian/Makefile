@@ -63,7 +63,7 @@ test_process_supervisor: $(BUILD)/test-process-supervisor
 # Compiled to a private temporary and renamed into place: two concurrent
 # makes (two suites starting at once) never leave a torn binary behind.
 $(BUILD)/test-process-supervisor: test-process-supervisor.c | $(BUILD)
-	$(CC) $(CFLAGS) -o $@.$$$$.tmp $< -lm && mv -f $@.$$$$.tmp $@
+	$(CC) $(CFLAGS) -o $@.$$$$.tmp $< -lm -lpthread && mv -f $@.$$$$.tmp $@
 
 $(TEST_BIN): $(TEST_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(TEST_SRC)

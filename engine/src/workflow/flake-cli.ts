@@ -7,7 +7,9 @@
  *         [--env NAME=VALUE …] [--setup <shell command>] [--during <shell command>]
  *         [--preload <repository path>] [--seed <integer>] [--only-named] [--statistical [--runs <n>]]
  *
- *     harness flake move --suite engine --commit <commit> --from <hermetic identity> --to <live identity>
+ *     harness flake move --suite engine --commit <commit> --from <hermetic identity> --to <live identity> --reason <why>
+ *         [--from … --to … --reason …] [--commit <commit> --from …]   (several moves, several commits: one private checkout,
+ *         each commit's inventories read once)
  *
  * REPRODUCE. Each `--cause` names the cause paths of the `--test` before it
  * (the test's own file may be one): one call reproduces every test one fix
@@ -45,7 +47,7 @@
  * reporter), so the identity and the digest are spelled by the same owners
  * the ledgers use, whatever the reproduced tree's own runner looked like.
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -65,7 +67,7 @@ import { VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { deepFreeze, randomBytes, sha256 } from "../kernel/integrity.ts";
 import { admitEvidenceStore, evidenceStoreLocation, keepEvidenceBytes } from "./evidence-store.ts";
 import { holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold } from "../process/instrument-lock.ts";
-import { superviseCommand } from "../process/supervised-run.ts";
+import { runTestCommand, superviseCommand, vitestCommand } from "../process/supervised-run.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { isSensitiveKeyName } from "../privacy/secret-signals.ts";
 import { directoryGitEnvironment } from "../git/repository-ownership.ts";
@@ -126,7 +128,9 @@ export type FlakeReproductionRequest = Readonly<{
   runs: number | null;
 }>;
 
-export type IdentityMoveRequest = Readonly<{ suite: "engine"; commit: string; from: string; to: string }>;
+/** One move of a call: the commit it left the hermetic suite in, the hermetic identity, the live one it became, and why it runs unconfined. */
+export type IdentityMovePair = Readonly<{ commit: string; from: string; to: string; reason: string }>;
+export type IdentityMoveRequest = Readonly<{ suite: "engine"; moves: readonly IdentityMovePair[] }>;
 
 /** One test's answer: its record, or why it has none. */
 export type ReproductionAnswer = Readonly<{ identity: string; recorded: string } | { identity: string; refused: string }>;
@@ -136,7 +140,7 @@ const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 const USAGE = "harness flake takes: reproduce --suite engine|web --fix <commit> --test <identity> --cause <path>[,<path>…] [--test … --cause …] " +
   "[--env NAME=VALUE …] [--setup <command>] [--during <command>] [--preload <repository path>] [--seed <integer>] [--only-named] [--statistical [--runs <n>]]; " +
-  "or move --suite engine --commit <commit> --from <hermetic identity> --to <live identity>";
+  "or move --suite engine --commit <commit> --from <hermetic identity> --to <live identity> --reason <why it runs unconfined> [--from … --to … --reason …] [--commit <commit> --from …]";
 
 /** The flag pairs of a `harness flake` verb (`--name value`; `--statistical` stands alone). */
 function flagPairs(argv: readonly string[], standalone: ReadonlySet<string>): readonly Readonly<{ flag: string; value: string }>[] {
@@ -206,19 +210,38 @@ export function parseFlakeReproduceArgs(argv: readonly string[]): FlakeReproduct
   return deepFreeze({ suite, tests: tests.map((one) => ({ identity: one.identity, causes: one.causes! })), fix, environment, setup, during, preload, seed, onlyNamed, statistical, runs });
 }
 
-/** Parse `move` arguments. */
+/**
+ * Parse `move` arguments: one or more moves, each `--from <hermetic identity>
+ * --to <live identity> --reason <why it runs unconfined>` in that order, each
+ * under the `--commit` before it (the commit it left the hermetic suite in; a
+ * call may name several, its moves grouped under each).
+ */
 export function parseFlakeMoveArgs(argv: readonly string[]): IdentityMoveRequest {
   if (argv[0] !== "move") throw new InputError(USAGE, INPUT_ERROR_CODE);
-  const values: Record<string, string> = {};
+  let suite: string | undefined, commit: string | undefined;
+  const moves: { commit: string; from: string; to?: string; reason?: string }[] = [];
   for (const { flag, value } of flagPairs(argv, new Set())) {
-    if (!["--suite", "--commit", "--from", "--to"].includes(flag)) throw new InputError(`unknown flag ${flag}`, INPUT_ERROR_CODE);
-    values[flag] = value;
+    if (flag === "--suite") suite = value;
+    else if (flag === "--commit") commit = value;
+    else if (flag === "--from") {
+      if (commit === undefined) throw new InputError("each --from follows the --commit it moved in", INPUT_ERROR_CODE);
+      moves.push({ commit, from: value });
+    } else if (flag === "--to" || flag === "--reason") {
+      const last = moves.at(-1);
+      const field = flag === "--to" ? "to" : "reason";
+      if (last === undefined || last[field] !== undefined) throw new InputError(`each ${flag} follows its own --from`, INPUT_ERROR_CODE);
+      last[field] = value;
+    } else throw new InputError(`unknown flag ${flag}`, INPUT_ERROR_CODE);
   }
-  if (values["--suite"] !== "engine") throw new InputError("--suite must be engine: only the engine has a live suite", INPUT_ERROR_CODE);
-  const [commit, from, to] = [values["--commit"], values["--from"], values["--to"]];
-  if (commit === undefined || from === undefined || to === undefined) throw new InputError("--commit, --from and --to are required", INPUT_ERROR_CODE);
-  if (failureIdentityFile(from) === null || failureIdentityFile(to) === null) throw new InputError("--from and --to are ledger identities (`<file>::<test name>`)", INPUT_ERROR_CODE);
-  return deepFreeze({ suite: "engine", commit, from, to });
+  if (suite !== "engine") throw new InputError("--suite must be engine: only the engine has a live suite", INPUT_ERROR_CODE);
+  if (moves.length === 0 || moves.some((move) => move.to === undefined || move.reason === undefined)) {
+    throw new InputError("--commit and at least one --from, each with its --to and --reason, are required", INPUT_ERROR_CODE);
+  }
+  for (const move of moves) {
+    if (failureIdentityFile(move.from) === null || failureIdentityFile(move.to!) === null) throw new InputError("--from and --to are ledger identities (`<file>::<test name>`)", INPUT_ERROR_CODE);
+    if (move.reason!.trim().length === 0) throw new InputError(`the move of ${move.from} says no reason: name the host fact it needs`, INPUT_ERROR_CODE);
+  }
+  return deepFreeze({ suite: "engine", moves: moves.map((move) => ({ commit: move.commit, from: move.from, to: move.to!, reason: move.reason! })) });
 }
 
 /** One run's answer: what each test did, and everything the run printed (kept as evidence). */
@@ -452,20 +475,40 @@ function commitInventoryOf(text: string): CommitInventory {
 }
 
 /**
- * THE MOVE'S JUDGEMENT: the hermetic identity is in the commit's parent's
- * inventory and not in the commit's, and the destination's file is a live
- * suite file of the commit's inventory. Refused otherwise, by name.
+ * THE MOVES' JUDGEMENT, each pair on its own, each commit's and its parent's inventory read once for the call:
+ * the hermetic identity is in the commit's parent's inventory and not in the
+ * commit's, and the destination's file is a live suite file of the commit's
+ * inventory. One pair refused refuses the whole call, naming every refused
+ * pair, and writes nothing; otherwise every move is written (v2, with its
+ * reason). Answers the written records' keys, in the call's order.
  */
-export async function recordIdentityMove(request: IdentityMoveRequest, repository: GitRepository, inventoryAt: InventoryAt, write: (record: IdentityMove) => string, now: () => Date): Promise<string> {
-  const commit = resolveCommit(repository, request.commit);
-  const parent = resolveCommit(repository, `${commit}^`);
-  const before = commitInventoryOf(await inventoryAt(parent));
-  const after = commitInventoryOf(await inventoryAt(commit));
-  if (!before.hermetic.has(request.from)) throw new InputError(`${request.from} is not a test of the hermetic suite at ${parent}: nothing moved`, "flake_move_refused");
-  if (after.hermetic.has(request.from)) throw new InputError(`${request.from} is still a test of the hermetic suite at ${commit}: it did not leave`, "flake_move_refused");
-  const destination = failureIdentityFile(request.to)!;
-  if (!after.liveFiles.has(destination)) throw new InputError(`${destination} is not a live suite file at ${commit} (the inventory's qualified-external sources)`, "flake_move_refused");
-  return write({ schemaVersion: IDENTITY_MOVE_SCHEMA_VERSION, suite: request.suite, from: request.from, to: request.to, commit, recordedAt: now().toISOString() });
+export async function recordIdentityMoves(request: IdentityMoveRequest, repository: GitRepository, inventoryAt: InventoryAt, write: (record: IdentityMove) => string, now: () => Date): Promise<readonly string[]> {
+  // Each distinct commit's inventory, and its parent's, read once for the whole call.
+  const inventories = new Map<string, CommitInventory>();
+  const inventoryOf = async (commit: string): Promise<CommitInventory> => {
+    const known = inventories.get(commit);
+    if (known !== undefined) return known;
+    const read = commitInventoryOf(await inventoryAt(commit));
+    inventories.set(commit, read);
+    return read;
+  };
+  const judged: { move: IdentityMovePair; commit: string; refusal: string | null }[] = [];
+  for (const move of request.moves) {
+    const commit = resolveCommit(repository, move.commit);
+    const parent = resolveCommit(repository, `${commit}^`);
+    const before = await inventoryOf(parent);
+    const after = await inventoryOf(commit);
+    const destination = failureIdentityFile(move.to)!;
+    const refusal = !before.hermetic.has(move.from) ? `${move.from} is not a test of the hermetic suite at ${parent}: nothing moved`
+      : after.hermetic.has(move.from) ? `${move.from} is still a test of the hermetic suite at ${commit}: it did not leave`
+        : !after.liveFiles.has(destination) ? `${move.to}: ${destination} is not a live suite file at ${commit} (the inventory's qualified-external sources)`
+          : null;
+    judged.push({ move, commit, refusal });
+  }
+  const refusals = judged.flatMap((entry) => entry.refusal === null ? [] : [entry.refusal]);
+  if (refusals.length > 0) throw new InputError(`no move is recorded: ${refusals.join("; ")}`, "flake_move_refused");
+  const recordedAt = now().toISOString();
+  return judged.map(({ move, commit }) => write({ schemaVersion: IDENTITY_MOVE_SCHEMA_VERSION, suite: request.suite, from: move.from, to: move.to, reason: move.reason, commit, recordedAt }));
 }
 
 /**
@@ -575,8 +618,8 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
           if (failed !== undefined) throw new InputError(`the test inventory of ${commit} could not be generated (${failed.step}): ${failed.message}`, "flake_move_inventory_missing");
           return readFileSync(join(checkout.path, engineRelative, VERIFICATION_PATHS.testInventory), "utf8");
         };
-        const recorded = await recordIdentityMove(move, topRepository, inventoryAt, (record) => writeRecordFile(identityMoveFileName(record.from), serializeIdentityMove(record)), () => new Date());
-        return { result: wrapResult("flake", [{ identity: move.from, recorded }], { status: "pass" }), exitCode: 0 };
+        const recorded = await recordIdentityMoves(move, topRepository, inventoryAt, (record) => writeRecordFile(identityMoveFileName(record.from), serializeIdentityMove(record)), () => new Date());
+        return { result: wrapResult("flake", move.moves.map((pair, index) => ({ identity: pair.from, recorded: recorded[index]! })), { status: "pass" }), exitCode: 0 };
       } finally {
         checkout.close();
       }
@@ -607,7 +650,7 @@ export async function runFlakeCli(argv: readonly string[]): Promise<CommandAnswe
     try {
       const answers = await reproduceFlake(request, topRepository, testPathOf, async (revision, files) => {
         await checkout.moveTo(resolveCommit(topRepository, revision === "parent" ? `${request.fix}^` : request.fix));
-        return runTests(checkout.path, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
+        return runReproductionTests(checkout.path, engineRelative, request, preloadFile, files, supervisor, config.engineSuiteWatchdog);
       }, (record, bytes) => writeRecordFile(flakeReproductionFileName(record.identity, record.fix.commit), bytes), {
         runs: request.statistical ? statisticalRunsOf(request, config) : deterministicRuns(request.preload, significance, deterministicShims),
         preloadSha256,
@@ -640,7 +683,11 @@ export function statisticalRunsOf(request: Pick<FlakeReproductionRequest, "runs"
 }
 
 /** One run of `files` in `checkout` under the request's conditions, read by this checkout's reproduction reporter. */
-async function runTests(
+/**
+ * ONE RUN of the named tests' files in `checkout`, as a reproduction runs them: through the one test-execution door
+ * (confined), the report on the run's result channel. Exported for the live suite's canary of this route.
+ */
+export async function runReproductionTests(
   checkout: string,
   engineRelative: string,
   request: FlakeReproductionRequest,
@@ -649,12 +696,12 @@ async function runTests(
   supervisor: string,
   watchdog: Readonly<{ hardCeilingMs: number; killGraceMs: number }>,
 ): Promise<ReproductionRun> {
-  const output = join(checkout, ".flake-reproduction-report.json");
-  // Each run writes its own report: a run that reaches no reporter must not read the last run's.
-  rmSync(output, { force: true });
+  // The report reaches this process on the run's own result channel (its fd 3), never through a file a confined
+  // test could write: each run has its own, so a run that reaches no reporter reads nothing.
+  const output = "/dev/fd/3";
   const world = createShimWorld(tmpdir(), ENGINE_ROOT);
   try {
-    return await runInWorld(checkout, engineRelative, request, preloadFile, files, supervisor, watchdog, output, shimEnvironment(process.env, request, world, output));
+    return await runInWorld(checkout, engineRelative, request, preloadFile, files, supervisor, watchdog, shimEnvironment(process.env, request, world, output));
   } finally {
     removeOwnedTemporaryDirectory(world.root);
   }
@@ -669,7 +716,6 @@ async function runInWorld(
   files: readonly string[],
   supervisor: string,
   watchdog: Readonly<{ hardCeilingMs: number; killGraceMs: number }>,
-  output: string,
   environment: Record<string, string>,
 ): Promise<ReproductionRun> {
   // Everything the run prints is echoed AND kept: the attempt keeps it as evidence.
@@ -690,9 +736,10 @@ async function runInWorld(
   const names = request.tests.map(({ identity }) => identity.slice(identity.indexOf("::") + 2).replace(/ \(skipped\)$/u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
   const only = !request.onlyNamed ? []
     : [`--test-name-pattern=^(?:${names.join("|")})$`];
+  // THROUGH THE ONE TEST-EXECUTION DOOR, CONFINED, each suite's test runner directly (its report on the result channel).
   const [command, args] = request.suite === "engine"
-    ? [process.execPath, ["--experimental-strip-types", "scripts/tooling/test-guards.ts", ...preload, ...order, ...only, "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${reporter}`, `--test-reporter-destination=${output}`, ...files]] as const
-    : ["npx", ["vitest", "run", ...files, ...order, "--reporter=default", `--reporter=${reporter}`]] as const;
+    ? [process.execPath, ["--experimental-strip-types", "--test", ...preload, ...order, ...only, "--test-reporter=spec", "--test-reporter-destination=stdout", `--test-reporter=${reporter}`, "--test-reporter-destination=stdout", ...files]] as const
+    : vitestCommand(checkout, ["run", ...files, ...order, "--reporter=default", `--reporter=${reporter}`]);
   const stopDuring = new AbortController();
   const alongside = request.during === null ? undefined
     : superviseCommand({ supervisor, command: "sh", args: ["-c", request.during], cwd, env: environment, hardCeilingMs: watchdog.hardCeilingMs, killGraceMs: watchdog.killGraceMs, stop: stopDuring.signal, ...echo });
@@ -700,14 +747,18 @@ async function runInWorld(
   // same way, reaches vitest and every worker it starts through NODE_OPTIONS — which the DOOR sets: a request's own
   // NODE_OPTIONS is a door-owned variable, refused, so no preload ever runs unpinned.
   const runEnvironment = request.suite === "web" && preloadFile !== null ? { ...environment, NODE_OPTIONS: `--import=${pathToFileURL(preloadFile).href}` } : environment;
+  const reported: Buffer[] = [];
   try {
-    await superviseCommand({ supervisor, command, args, cwd, env: runEnvironment, hardCeilingMs: watchdog.hardCeilingMs, killGraceMs: watchdog.killGraceMs, ...echo });
+    await runTestCommand({
+      supervisor, checkout, command, args, cwd, env: runEnvironment, hardCeilingMs: watchdog.hardCeilingMs, killGraceMs: watchdog.killGraceMs, ...echo,
+      onResult: (chunk) => { reported.push(chunk); },
+    });
   } finally {
     stopDuring.abort();
     await alongside;
   }
   try {
-    return { report: JSON.parse(readFileSync(output, "utf8")) as ReproductionReport, output: printed.join("") };
+    return { report: JSON.parse(Buffer.concat(reported).toString("utf8")) as ReproductionReport, output: printed.join("") };
   } catch (error) {
     throw new InputError(`the reproduction run wrote no readable report (${(error as Error).message}): its runner did not reach the reporter`, "flake_reproduction_report_missing");
   }

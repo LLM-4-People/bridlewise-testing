@@ -25,18 +25,18 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
-import { liveFileLockHolder } from "../../src/filesystem/file-lock.ts";
-import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../../src/process/instrument-lock.ts";
-import { subprocessBounds } from "../../src/workflow/workflow-config.ts";
+import { ensureTestProcessSupervisor } from "../guardian/build.ts";
+import { liveFileLockHolder } from "../src/filesystem/file-lock.ts";
+import { admitInstrumentRun, admittedRuns, borrowInstrumentLock, holdInstrumentLock, instrumentLockPath, isHeavyRun, wholeInstrumentTestFileCount } from "../src/process/instrument-lock.ts";
+import { subprocessBounds } from "../src/workflow/workflow-config.ts";
 
 const DEFAULT_SUBPROCESS_BOUNDS = subprocessBounds({});
-import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../../src/process/process-facts.ts";
-import { namedTestFileCount } from "../../scripts/tooling/test-run-lock.ts";
-import { createTempDir } from "../support/temp-dir.ts";
-import { requireHost } from "../support/host-requirement.ts";
+import { allProcessIds, commandLineOf, isProcessAlive, ownedChild, processIdentity, procfsDocument, terminate } from "../src/process/process-facts.ts";
+import { namedTestFileCount } from "../scripts/tooling/test-run-lock.ts";
+import { createTempDir } from "../test/support/temp-dir.ts";
+import { requireHost } from "../test/support/host-requirement.ts";
 
-const ENGINE = join(fileURLToPath(new URL("../../", import.meta.url)));
+const ENGINE = join(fileURLToPath(new URL("../", import.meta.url)));
 const LOCK_OWNER = pathToFileURL(join(ENGINE, "src", "process", "instrument-lock.ts")).href;
 const SUPERVISOR_OWNER = pathToFileURL(join(ENGINE, "src", "process", "supervised-run.ts")).href;
 

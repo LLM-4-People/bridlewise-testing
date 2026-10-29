@@ -37,7 +37,8 @@ index entry to HEAD — is in `CONTRIBUTING.md`.
   config's required 0600 mode, then `phases.setup` — `npm ci` from the candidate's
   own lockfiles in both trees, the guardian plus its test binaries
   (`test_payload`, `test-process-supervisor`) and the bundle. The web suite's
-  module cache is not warmed: a fresh candidate's first web run builds its
+  module cache is not warmed: a test run's caches live in its own scratch and
+  go with it (decision TEST-CONFINEMENT-SELF-BIND), so each web run builds its
   transforms (CPU work; its run-cost gates say "not judged"), #652;
 - runs `harness sync --with-bundle` — the candidate's own engine, whose
   command repeats its pass until one changes no generated output (the ONE

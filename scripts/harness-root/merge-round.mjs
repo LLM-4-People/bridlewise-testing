@@ -78,6 +78,30 @@ import {
 import { DEFAULT_E2E_SUITE_TIMEOUT_MS, DEFAULT_MERGE_LOCK_TIMEOUT_MS } from "../../engine/src/workflow/workflow-config.ts";
 import { acquireFileLock } from "../../engine/src/filesystem/file-lock.ts";
 import { HarnessError } from "../../engine/src/kernel/errors.ts";
+import { runTestCommand } from "../../engine/src/process/supervised-run.ts";
+import { ensureTestProcessSupervisor } from "../../engine/guardian/build.ts";
+import { repositoryToplevel } from "../../engine/src/git/repository-ownership.ts";
+import { readTestExecutionConfig } from "../../engine/src/workflow/test-result-collector.ts";
+
+/**
+ * The e2e suite's runner: `node <args>` THROUGH THE ONE TEST-EXECUTION DOOR
+ * (`runTestCommand`), confined, the checkout the staging tree lies in
+ * read-only to it, bounded by the native supervisor at `timeoutMs`.
+ */
+async function runSuiteThroughTheDoor(args, { cwd, env, timeoutMs }) {
+  const engineRoot = fileURLToPath(new URL("../../engine/", import.meta.url));
+  const output = [];
+  const run = await runTestCommand({
+    supervisor: ensureTestProcessSupervisor(),
+    checkout: repositoryToplevel(cwd, "directory") ?? cwd,
+    command: process.execPath, args, cwd, env,
+    hardCeilingMs: timeoutMs,
+    killGraceMs: readTestExecutionConfig(engineRoot).engineSuiteWatchdog.killGraceMs,
+    onStdout: (chunk) => output.push(chunk),
+    onStderr: (chunk) => output.push(chunk),
+  });
+  return { output: Buffer.concat(output).toString("utf8"), exitCode: run.ending === "exited" ? run.exitCode : 1, timedOut: run.ending === "ceiling" };
+}
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -462,7 +486,7 @@ export async function mergeRound({
   if (runE2e) {
     try {
       const { runE2e } = await import("../../engine/src/shared/workflow/e2e-runner.mjs");
-      report.e2e = await runE2e({ integrationDir: stagingDir, timeoutMs: e2eTimeoutMs });
+      report.e2e = await runE2e({ integrationDir: stagingDir, timeoutMs: e2eTimeoutMs, runSuite: runSuiteThroughTheDoor });
     } catch (e) {
       report.e2e = { passed: false, error: `e2e runner failed to load/run: ${e.message}`, testCount: 0, failCount: 0, summary: String(e) };
     }

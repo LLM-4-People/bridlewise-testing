@@ -29,11 +29,7 @@
 // 4. Returns { passed, testCount, failCount, summary, files, failures }.
 
 import { existsSync, readdirSync } from "node:fs";
-import { join, resolve, relative } from "node:path";
-import { execSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
-const HERE = fileURLToPath(new URL(".", import.meta.url));
+import { join, relative } from "node:path";
 
 // Test extensions collected. The.ts-family (.ts/.mts/.cts) requires type
 // stripping; the flag is added only when at least one such file is present.
@@ -91,11 +87,15 @@ export function supportsStripTypes() {
  *   `DEFAULT_E2E_SUITE_TIMEOUT_MS` (engine/src/workflow/workflow-config.ts, the one owner);
  *   this argv-dispatching `.mjs` stays outside the harness module graph
  *   (test/prevention/entrypoint-recording-wiring.test.ts), so it holds no default of its own.
+ * @param {(args: string[], opts: {cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number}) => Promise<{output: string, exitCode: number, timedOut: boolean}>} opts.runSuite
+ *   REQUIRED: runs `node <args>` THROUGH THE ONE TEST-EXECUTION DOOR (the merge gate passes one built on
+ *   `runTestCommand`, engine/src/process/supervised-run.ts). This `.mjs` stays outside the harness module graph, so
+ *   it starts no process of its own: no runner given is a failed gate, said so.
  * @param {boolean} [opts.stripTypes] override strip-types detection
  * @param {number} [opts.concurrency] override test-concurrency (default: 4, or 1 when only 1 file)
  * @returns {Promise<{passed: boolean, testCount: number, failCount: number, passCount: number, summary: string, files: string[], failures: string[]}>}
  */
-export async function runE2e({ integrationDir, timeoutMs, stripTypes, concurrency } = {}) {
+export async function runE2e({ integrationDir, timeoutMs, runSuite, stripTypes, concurrency } = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     // An unbounded suite is never run: no bound given is a failed gate, said so.
     return {
@@ -106,6 +106,13 @@ export async function runE2e({ integrationDir, timeoutMs, stripTypes, concurrenc
       summary: `no suite bound: runE2e needs timeoutMs (a positive integer of milliseconds), got ${String(timeoutMs)}`,
       files: [],
       failures: [],
+    };
+  }
+  if (typeof runSuite !== "function") {
+    return {
+      passed: false, testCount: 0, failCount: 0, passCount: 0,
+      summary: "no test-execution door: runE2e needs runSuite (the merge gate's runner through runTestCommand)",
+      files: [], failures: [],
     };
   }
   const files = collectTestFiles(integrationDir);
@@ -138,22 +145,17 @@ export async function runE2e({ integrationDir, timeoutMs, stripTypes, concurrenc
   const childEnv = { ...process.env };
   delete childEnv.NODE_TEST_CONTEXT;
   delete childEnv.NODE_IN_TEST_CONTEXT;
-  const stripFlag = useStrip ? "--experimental-strip-types --no-warnings=ExperimentalWarning" : "";
-  const concurrencyFlag = useConcurrency > 1 ? `--test-concurrency=${useConcurrency}` : "";
-  const cmd = `node --test ${stripFlag} ${concurrencyFlag} ${files.map((f) => `"${f}"`).join(" ")}`;
-  try {
-    stdout = execSync(cmd, {
-      cwd: integrationDir,
-      timeout: timeoutMs,
-      stdio: ["pipe", "pipe", "pipe"],
-      encoding: "utf8",
-      env: childEnv,
-    });
-  } catch (e) {
-    stdout = (e.stdout || "") + (e.stderr || "");
-    exitCode = e.status ?? 1;
-    if (e.killed) timedOut = true;
-  }
+  // Through the caller's test-execution door (runSuite): the suite runs confined, bounded at `timeoutMs`.
+  const args = [
+    "--test",
+    ...(useStrip ? ["--experimental-strip-types", "--no-warnings=ExperimentalWarning"] : []),
+    ...(useConcurrency > 1 ? [`--test-concurrency=${useConcurrency}`] : []),
+    ...files,
+  ];
+  const run = await runSuite(args, { cwd: integrationDir, env: childEnv, timeoutMs });
+  stdout = run.output;
+  timedOut = run.timedOut;
+  exitCode = run.exitCode;
 
   const testCount = countMatches(stdout, /[ℹ#]\s+tests\s+\d+/);
   const passCount = countMatches(stdout, /[ℹ#]\s+pass\s+\d+/);
@@ -241,37 +243,4 @@ function extractFailures(text, integrationDir) {
     }
   }
   return out;
-}
-
-// CLI: `node e2e-runner.mjs --integration <dir> --timeout-ms <ms>`
-const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
-  const args = process.argv.slice(2);
-  let integrationDir = resolve(HERE, "integration");
-  let timeoutMs;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--integration" && args[i + 1]) integrationDir = resolve(args[++i]);
-    else if (args[i] === "--timeout-ms" && args[i + 1]) timeoutMs = Number(args[++i]);
-  }
-  if (timeoutMs === undefined) {
-    console.error("usage: node e2e-runner.mjs --integration <dir> --timeout-ms <ms>  (the merge gate's bound is DEFAULT_E2E_SUITE_TIMEOUT_MS in engine/src/workflow/workflow-config.ts)");
-    process.exitCode = 2;
-  } else runE2e({ integrationDir, timeoutMs }).then((r) => {
-    console.log(JSON.stringify({
-      passed: r.passed,
-      testCount: r.testCount,
-      passCount: r.passCount,
-      failCount: r.failCount,
-      skipCount: r.skipCount,
-      summary: r.summary,
-      files: r.files,
-      failures: r.failures.slice(0, 20).map((f) => ({ file: f.file, name: f.name })),
-      timedOut: r.timedOut,
-      exitCode: r.exitCode,
-      stripTypes: r.stripTypes,
-      tsFiles: r.tsFiles,
-    }, null, 2));
-    // The exit code is set and the loop drains: `process.exit()` can deadlock at shutdown (Node #54918, #351).
-    process.exitCode = r.passed ? 0 : 1;
-  }).catch((e) => { console.error(e); process.exitCode = 1; });
 }

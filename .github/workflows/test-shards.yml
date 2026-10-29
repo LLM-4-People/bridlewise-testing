@@ -78,6 +78,11 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain --untracked-files=no)"
 
+      # The listing runs vitest through the one test-execution door, confined
+      # (decision TEST-CONFINEMENT-SELF-BIND): admitted as in the shard job.
+      - name: Admit user namespaces for the test supervisor alone
+        run: sh -ec "$(node engine/guardian/build.ts --apparmor-install)"
+
       - name: Enumerate what the runner actually selects
         run: npm run test:list -- --out "$RUNNER_TEMP/live-manifest.json"
 
@@ -151,6 +156,15 @@ jobs:
           npm run bootstrap:hooks
           npm --prefix engine run build:bundle
           make -C engine/guardian all
+
+      # Every test run is confined in unprivileged user namespaces (the one
+      # test-execution door, decision TEST-CONFINEMENT-SELF-BIND). The image's
+      # AppArmor restricts those; the contributor setup admits them for this
+      # checkout's test supervisor at its exact path (CONTRIBUTING's one-time
+      # step), never a global sysctl: CI and a contributor's machine run the
+      # same setup.
+      - name: Admit user namespaces for the test supervisor alone
+        run: sh -ec "$(node engine/guardian/build.ts --apparmor-install)"
 
       - name: Record the guardian build stamp and diagnostic digest
         run: |

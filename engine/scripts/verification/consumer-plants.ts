@@ -282,10 +282,12 @@ function main(): void {
       .filter((plant) => plant.startsWith(repository.root + "/"))
       .map((plant) => relative(repository.root, plant));
     if (files.length === 0) continue;
+    // Each suite through its own runner, so through the one test-execution door (confined): the web runner for vitest,
+    // the guard runner for node --test — never a test runner spawned here.
     const [command, args] =
       repository.runner === "vitest"
-        ? ["npx", ["vitest", "run", ...files, "--reporter=dot"]]
-        : ["node", ["--experimental-strip-types", "--test", ...files]];
+        ? [process.execPath, ["--experimental-strip-types", join(MONOREPO_ROOT, "scripts", "run-tests.ts"), ...files, "--reporter=dot"]]
+        : [process.execPath, ["--experimental-strip-types", join(MONOREPO_ROOT, "engine", "scripts", "tooling", "test-guards.ts"), ...files]];
     process.stdout.write(`\n[consumer-plants] ${repository.name}: ${command} ${args.join(" ")}\n`);
     try {
       execFileSync(command, args, { cwd: repository.root, stdio: "inherit" });

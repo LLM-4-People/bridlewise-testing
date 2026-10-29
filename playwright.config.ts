@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 import { assertSpecPatternsAreLive } from "./tests/helpers/playwright-liveness.ts";
@@ -36,6 +37,7 @@ assertSpecPatternsAreLive("playwright.config.ts", TEST_DIR, SPEC_TREES, import.m
 // database, and the API server this run starts keeps its databases in the
 // run's own folder. A server it would REUSE is judged by the global setup.
 const API_SERVER_STATE = armPlaywrightRun(import.meta.dirname);
+const BROWSER_RESULTS = join(import.meta.dirname, ".bridlewise", "browser-results");
 
 export default defineConfig({
   testDir: TEST_DIR,
@@ -50,7 +52,10 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: "html",
+  // Reports go to a declared place of the checkout's state root (`browser-results`): the browser routes run confined,
+  // the rest of the checkout read-only to them, and a report is output nothing later trusts.
+  reporter: [["html", { outputFolder: join(BROWSER_RESULTS, "report"), open: "never" }]],
+  outputDir: join(BROWSER_RESULTS, "test-results"),
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "on-first-retry",
@@ -71,7 +76,9 @@ export default defineConfig({
   // entry reuses a server the dev workflow already has up.
   webServer: [
     {
-      command: "npm run dev",
+      // Vite's own entry with its config loaded by the module runner: the default loader bundles the config into
+      // the checkout's node_modules/.vite-temp, which a confined run cannot write.
+      command: "node node_modules/vite/bin/vite.js --configLoader runner",
       url: "http://127.0.0.1:5173",
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,

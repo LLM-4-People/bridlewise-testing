@@ -381,6 +381,16 @@ test("runE2e never runs an unbounded suite: a missing or invalid timeoutMs is a 
   rmSync(root, { recursive: true, force: true });
 });
 
+test("runE2e starts no process of its own: without the caller's test-execution door it is a failed gate, said so", async () => {
+  const { root, integrationDir } = setupTmpWorkspace();
+  writeFile(integrationDir, "test/a.test.mjs", `import {test} from "node:test"; test("a",()=>{})`);
+  const report = await runE2e({ integrationDir, timeoutMs: 60_000 });
+  assert.equal(report.passed, false);
+  assert.equal(report.testCount, 0, "nothing ran");
+  assert.match(report.summary, /no test-execution door/);
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("onlyExperiments restricts the merge to the named subset", async () => {
   const { root, experimentsRoot, integrationDir } = setupTmpWorkspace();
   for (const n of ["exp100-a", "exp200-b", "exp300-c"]) {

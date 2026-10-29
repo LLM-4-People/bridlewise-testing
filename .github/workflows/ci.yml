@@ -51,6 +51,14 @@ jobs:
       - name: Install the tracked hooks
         run: npm run bootstrap:hooks
 
+      # Every test run is confined in unprivileged user namespaces (the one
+      # test-execution door, decision TEST-CONFINEMENT-SELF-BIND): the listing,
+      # the smoke tests and the guards below run through it. The image's
+      # AppArmor restricts those; admitted for this checkout's test supervisor
+      # at its exact path (CONTRIBUTING's one-time step), never a global sysctl.
+      - name: Admit user namespaces for the test supervisor alone
+        run: sh -ec "$(node engine/guardian/build.ts --apparmor-install)"
+
       - name: Verify the derived shard population is the runner's selection
         run: |
           npm run test:list -- --out "$RUNNER_TEMP/live-manifest.json"
@@ -102,7 +110,7 @@ jobs:
 
       - name: Run the engine prevention guard for unhandled catch blocks
         working-directory: engine
-        run: node --experimental-strip-types --test test/prevention/no-unhandled-errors.test.ts
+        run: node --experimental-strip-types scripts/tooling/test-guards.ts test/prevention/no-unhandled-errors.test.ts
 
   # Generated values are never edited by hand: hashes, pins, inventories,
   # manifests and README consumer blocks come from `harness sync`. This job
@@ -140,6 +148,14 @@ jobs:
         uses: ./.github/actions/engine-setup
         with:
           ignore-scripts: "false"
+
+      # Every test run is confined in unprivileged user namespaces (the one
+      # test-execution door, decision TEST-CONFINEMENT-SELF-BIND): `harness check`
+      # runs its tests through it. The image's
+      # AppArmor restricts those; admitted for this checkout's test supervisor
+      # at its exact path (CONTRIBUTING's one-time step), never a global sysctl.
+      - name: Admit user namespaces for the test supervisor alone
+        run: sh -ec "$(node engine/guardian/build.ts --apparmor-install)"
 
       - name: Run every generator, then harness check
         working-directory: engine
@@ -333,6 +349,20 @@ jobs:
         run: |
           mkdir -p "$HOME/.cache/bridlewise-tmp/ci"
           TMPDIR="$HOME/.cache/bridlewise-tmp/ci" npm --prefix engine test
+
+      # S1-B02 and S1-B03 HOSTILE-REAL need a real supplementary group, which
+      # the engine suite's read-only checkout (an unprivileged user namespace)
+      # cannot map: they live in the live suite, unconfined by design, and run
+      # here (decision TEST-CONFINEMENT-SELF-BIND).
+      - name: Run the live S1 scenarios
+        run: TMPDIR="$HOME/.cache/bridlewise-tmp/ci" npm --prefix engine run test:live:s1
+
+      # The heavy-run admission and the long-task runner need the host's user
+      # service manager (a cgroup scope, systemd --user), which a confined test
+      # run cannot reach by design (decision TEST-CONFINEMENT-SELF-BIND): they
+      # are live-suite facts, run here unconfined.
+      - name: Run the live host-admission tests
+        run: TMPDIR="$HOME/.cache/bridlewise-tmp/ci" npm --prefix engine run test:live:host
 
       # The runner writes its verdict to one summary file; the job prints the
       # failing tests and their reasons, so a red run is readable without a

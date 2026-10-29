@@ -31,14 +31,14 @@ function writeJson(path, value) {
 test("the documented listing commands run bare, as their npm scripts say", () => {
   // The scripts were wired without arguments while the CLI required them, so
   // the documented command could not run at all. Run both as npm runs them.
+  // The listing lands in this run's own temp folder (a later --out wins): the checkout is read-only to a test run.
   const root = process.cwd();
-  const listing = join(root, "node_modules", ".cache", "bridlewise", "test-listing.json");
-  rmSync(listing, { force: true });
-  execFileSync("npm", ["run", "test:list"], { cwd: root, stdio: "pipe" });
+  const listing = join(mkdtempSync(join(tmpdir(), "bridlewise-listing-")), "test-listing.json");
+  execFileSync("npm", ["run", "test:list", "--", "--out", listing], { cwd: root, stdio: "pipe" });
   const document = JSON.parse(readFileSync(listing, "utf8"));
   assert.equal(document.schemaVersion, "bridlewise-test-listing/v1");
   assert.ok(document.files.length > 0, "the listing must select the live test population");
-  const verdict = execFileSync("npm", ["run", "test:verify-shards"], { cwd: root, encoding: "utf8" });
+  const verdict = execFileSync("npm", ["run", "test:verify-shards", "--", "--live", listing], { cwd: root, encoding: "utf8" });
   assert.match(verdict, /supported, \d+ excluded, \d+ live/u);
 });
 
@@ -307,7 +307,7 @@ test("the shard manifest hash is the canonical sorted-path hash", () => {
   assert.notEqual(manifestHash(["a.test.ts"]), manifestHash(["b.test.ts"]));
 });
 
-test("the manifest verifier accounts for every live file exactly once", () => {
+test("the manifest verifier accounts for every live file exactly once", async () => {
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-manifest-"));
   try {
     const manifest = join(work, "manifest.json");
@@ -338,7 +338,7 @@ test("the manifest verifier accounts for every live file exactly once", () => {
       files: files.map((file) => ({ file: join(work, file), projectName: "node" })),
     });
     const listed = ["tests/unit/a.test.ts", "tests/unit/b.test.ts", "tests/unit/private.test.ts"];
-    const verdict = verifyPopulation({
+    const verdict = await verifyPopulation({
       root: work, weightsPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
       list: () => enumerate(listed),
     });
@@ -349,8 +349,8 @@ test("the manifest verifier accounts for every live file exactly once", () => {
 
     // A LISTING FROM ANOTHER TREE IS REFUSED: the wrapper records the working
     // tree it selected from, and a different tree cannot be certified by it.
-    assert.throws(
-      () => verifyPopulation({
+    await assert.rejects(
+      async () => verifyPopulation({
         root: work, weightsPath: manifest, livePath: live, tree: "another-tree", fingerprint,
         list: () => enumerate(listed),
       }),
@@ -359,15 +359,15 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     // The same listing with no explicit tree is still verified against the
     // computed tree: `--tree` is a cross-check, not the source of the check.
     assert.equal(
-      verifyPopulation({ root: work, weightsPath: manifest, livePath: live, fingerprint, list: () => enumerate(listed) }).liveCount,
+      (await verifyPopulation({ root: work, weightsPath: manifest, livePath: live, fingerprint, list: () => enumerate(listed) })).liveCount,
       3,
     );
 
     // And the UNBOUND shape — a plain `vitest list` array — is refused:
     // it carries no tree identity, so it could have come from anywhere.
     writeJson(live, [{ file: join(work, "tests/unit/a.test.ts") }, { file: join(work, "tests/unit/b.test.ts") }]);
-    assert.throws(
-      () => verifyPopulation({
+    await assert.rejects(
+      async () => verifyPopulation({
         root: work, weightsPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
         list: () => enumerate(listed),
       }),
@@ -382,8 +382,8 @@ test("the manifest verifier accounts for every live file exactly once", () => {
         { file: join(work, "tests/unit/unclassified.test.ts") },
       ],
     });
-    assert.throws(
-      () => verifyPopulation({
+    await assert.rejects(
+      async () => verifyPopulation({
         root: work, weightsPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
         list: () => enumerate(["tests/unit/a.test.ts", "tests/unit/unclassified.test.ts"]),
       }),
@@ -394,7 +394,7 @@ test("the manifest verifier accounts for every live file exactly once", () => {
   }
 });
 
-test("a stale listing cannot be verified by supplying the fingerprint it was written under", () => {
+test("a stale listing cannot be verified by supplying the fingerprint it was written under", async () => {
   // The defect: `--tree` was the only tree the verifier compared against, so
   // a caller passed the OLD fingerprint (the one the listing recorded) and the
   // listing verified even though the tree had moved since. The verifier now
@@ -434,13 +434,13 @@ test("a stale listing cannot be verified by supplying the fingerprint it was wri
     });
     // The old listing with the old explicit fingerprint: refused by the
     // computed tree, even though the caller's value matches the document.
-    assert.throws(
-      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, tree: oldTree, list: enumerateCurrent }),
+    await assert.rejects(
+      async () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, tree: oldTree, list: enumerateCurrent }),
       /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
     );
     // ...and without the flag, for the same reason.
-    assert.throws(
-      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: enumerateCurrent }),
+    await assert.rejects(
+      async () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: enumerateCurrent }),
       /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
     );
     // A current listing verifies; `--tree` agrees with the computation.
@@ -450,7 +450,7 @@ test("a stale listing cannot be verified by supplying the fingerprint it was wri
       files: [{ file: join(work, "tests/unit/a.test.ts") }, { file: join(work, "tests/unit/b.test.ts") }],
     });
     assert.equal(
-      verifyPopulation({ root: work, weightsPath: manifest, livePath: live, tree: currentTree, list: enumerateCurrent }).fileCount,
+      (await verifyPopulation({ root: work, weightsPath: manifest, livePath: live, tree: currentTree, list: enumerateCurrent })).fileCount,
       2,
     );
   } finally {
@@ -458,7 +458,7 @@ test("a stale listing cannot be verified by supplying the fingerprint it was wri
   }
 });
 
-test("a forged listing cannot omit a file the fresh enumeration selects", () => {
+test("a forged listing cannot omit a file the fresh enumeration selects", async () => {
   // THE SELF-ATTESTED-LISTING DEFECT. Verification used to consume the
   // listing's own `files` array as the live population: the tree fingerprint
   // was recomputed, but nothing re-ran the enumeration, so editing the
@@ -502,8 +502,8 @@ test("a forged listing cannot omit a file the fresh enumeration selects", () => 
     });
     // RED BEFORE THE FIX: the forged listing verified because nothing
     // re-derived the population.
-    assert.throws(
-      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: freshEnumeration }),
+    await assert.rejects(
+      async () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: freshEnumeration }),
       (err) => err.message.includes("OMITS") && err.message.includes("tests/unit/c.test.ts"),
     );
     // The same subject cannot invent a file the enumeration did not select.
@@ -517,8 +517,8 @@ test("a forged listing cannot omit a file the fresh enumeration selects", () => 
         { file: join(work, "tests/unit/invented.test.ts") },
       ],
     });
-    assert.throws(
-      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: freshEnumeration }),
+    await assert.rejects(
+      async () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: freshEnumeration }),
       (err) => err.message.includes("names") && err.message.includes("tests/unit/invented.test.ts"),
     );
   } finally {
@@ -526,7 +526,7 @@ test("a forged listing cannot omit a file the fresh enumeration selects", () => 
   }
 });
 
-test("a listing is bound to the working tree it selected from, and a tree that moves during it is refused", () => {
+test("a listing is bound to the working tree it selected from, and a tree that moves during it is refused", async () => {
   // THE GAP THIS CLOSES: `vitest list` does not run the vitest global setup,
   // so the listing process itself takes no source fingerprint (and no lock).
   // The `list` command reads one before and after; a tree that moves is not a
@@ -546,7 +546,7 @@ test("a listing is bound to the working tree it selected from, and a tree that m
     assert.notEqual(second, first);
 
     // A listing over a still tree records that identity.
-    const listing = listTestFiles({
+    const listing = await listTestFiles({
       root: work,
       run: () => ({ status: 0, stdout: JSON.stringify([{ file: join(work, "tests/unit/a.test.ts") }]), stderr: "" }),
     });
@@ -554,8 +554,8 @@ test("a listing is bound to the working tree it selected from, and a tree that m
     assert.equal(listing.schemaVersion, "bridlewise-test-listing/v1");
 
     // A listing that writes while it runs is refused, not quietly recorded.
-    assert.throws(
-      () =>
+    await assert.rejects(
+      async () =>
         listTestFiles({
           root: work,
           run: () => {

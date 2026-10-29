@@ -232,8 +232,10 @@ describe("the real server with a settings file that goes bad at runtime", () => 
     const document = JSON.parse(good.toString("utf8")) as Record<string, unknown>;
     document["privacy"] = { ...(document["privacy"] as Record<string, unknown>), enabledCategories: ["secret"] };
     expect(atomicWriteFile(configPath, `${JSON.stringify(document, null, 2)}\n`, { createMode: 0o600 }).success).toBe(true);
-    for (let i = 0; i < 50 && !logs().stderr.includes("is refused (privacy_section_refused"); i += 1) await sleep(100);
-    expect(logs().stderr, "the store watch did not refresh the snapshot without a request").toContain("is refused (privacy_section_refused");
+    // The refusal line: what still holds first, then the path and the reason (the always-on line is bounded).
+    const refusedByWatch = /the settings file is refused;[^\n]*privacy_section_refused/u;
+    for (let i = 0; i < 50 && !refusedByWatch.test(logs().stderr); i += 1) await sleep(100);
+    expect(logs().stderr, "the store watch did not refresh the snapshot without a request").toMatch(refusedByWatch);
     const [health, projects] = await Promise.all([send(base, "GET", "/api/health"), send(base, "GET", "/api/projects", { cookie })]);
     expect(health.status, "one weakened leaf answered 503 on every route").toBe(200);
     expect(projects.status).toBe(200);

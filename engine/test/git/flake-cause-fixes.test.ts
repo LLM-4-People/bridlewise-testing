@@ -30,6 +30,7 @@ import {
   flakeReproductionDirectory,
   flakeReproductionFileName,
   IDENTITY_MOVE_SCHEMA_VERSION,
+  IDENTITY_MOVE_V1_SCHEMA_VERSION,
   identityMoveFileName,
   serializeFlakeReproduction,
   serializeIdentityMove,
@@ -344,12 +345,20 @@ test("A MOVED TEST clears only by a RECORDED MOVE into the live suite's manifest
   assert.deepEqual(reds(history, await evidenceOf(fixture, gone)), [moved], "absent from the hermetic suite, but no move is recorded: red");
   const directory = flakeReproductionDirectory(fixture.engineRoot);
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, identityMoveFileName(IDENTITY)), serializeIdentityMove({
-    schemaVersion: IDENTITY_MOVE_SCHEMA_VERSION, suite: "engine", from: IDENTITY, to: live, commit: fixture.git("rev-parse", "HEAD"), recordedAt: "2026-10-08T00:00:00.000Z",
-  }));
+  // A move written before reasons were kept (v1) is still read: it counts as recorded, exactly as a v2 record does.
+  writeFileSync(join(directory, identityMoveFileName(IDENTITY)), `${JSON.stringify({
+    commit: fixture.git("rev-parse", "HEAD"), from: IDENTITY, recordedAt: "2026-10-08T00:00:00.000Z", schemaVersion: IDENTITY_MOVE_V1_SCHEMA_VERSION, suite: "engine", to: live,
+  })}\n`);
   const verdict = judged(history, await evidenceOf(fixture, gone));
   assert.deepEqual(verdict.reds, []);
   assert.deepEqual(verdict.moved.map((entry) => [entry.suspect.identity, entry.move.to]), [[moved, live]]);
+  // The same move as v2, with its reason: read the same way, the reason kept on the record.
+  writeFileSync(join(directory, identityMoveFileName(IDENTITY)), serializeIdentityMove({
+    schemaVersion: IDENTITY_MOVE_SCHEMA_VERSION, suite: "engine", from: IDENTITY, to: live, commit: fixture.git("rev-parse", "HEAD"), recordedAt: "2026-10-08T00:00:00.000Z",
+    reason: "needs the host's user service manager",
+  }));
+  const verdictV2 = judged(history, await evidenceOf(fixture, gone));
+  assert.deepEqual(verdictV2.moved.map((entry) => [entry.suspect.identity, "reason" in entry.move ? entry.move.reason : null]), [[moved, "needs the host's user service manager"]]);
   assert.deepEqual(reds(history, await evidenceOf(fixture, { hermetic: new Set([IDENTITY]), live: new Set([live]) })), [moved], "the test is back in the hermetic suite: red");
   assert.deepEqual(reds(history, await evidenceOf(fixture, { hermetic: new Set(), live: new Set() })), [moved], "the destination is not in the live manifest: red");
   assert.deepEqual(reds(history, await evidenceOf(fixture, null)), [moved], "a suite with no live suite moves nothing");

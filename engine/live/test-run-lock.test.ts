@@ -28,18 +28,20 @@ import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { enforceTestRunLock, TEST_RUN_LOCK_FILE_NAME, type TestRunLock } from "../../scripts/tooling/test-run-lock.ts";
-import { FILE_LOCK_SCHEMA_VERSION, type FileLockContent } from "../../src/filesystem/file-lock.ts";
-import { admittedRuns, borrowInstrumentLock } from "../../src/process/instrument-lock.ts";
-import { ensurePrivateStateDirectory } from "../../src/filesystem/private-state.ts";
-import { processIdentity } from "../../src/process/process-facts.ts";
-import { readSourceView } from "../../scripts/verification/source-view.ts";
-import { bodyCalls, functionBody } from "../../src/shared/source-structure.ts";
-import { astNode, astNodeArray, parseSourceModule, walkAst } from "../../src/quality-packs/prevention/ast-helpers.ts";
-import { createTempDir } from "../support/temp-dir.ts";
+import { enforceTestRunLock, TEST_RUN_LOCK_FILE_NAME, type TestRunLock } from "../scripts/tooling/test-run-lock.ts";
+import { FILE_LOCK_SCHEMA_VERSION, type FileLockContent } from "../src/filesystem/file-lock.ts";
+import { admittedRuns, borrowInstrumentLock } from "../src/process/instrument-lock.ts";
+import { ensurePrivateStateDirectory } from "../src/filesystem/private-state.ts";
+import { processIdentity } from "../src/process/process-facts.ts";
+import { readSourceView } from "../scripts/verification/source-view.ts";
+import { bodyCalls, functionBody } from "../src/shared/source-structure.ts";
+import { astNode, astNodeArray, parseSourceModule, walkAst } from "../src/quality-packs/prevention/ast-helpers.ts";
+import { createTempDir } from "../test/support/temp-dir.ts";
+import { ensureTestProcessSupervisor } from "../guardian/build.ts";
+import { runTestCommand, vitestCommand } from "../src/process/supervised-run.ts";
 
-const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+const ENGINE_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SETUP_DIR = join(REPO_ROOT, "tests", "setup");
 const MODULE_URL = pathToFileURL(join(ENGINE_ROOT, "scripts", "tooling", "test-run-lock.ts")).href;
 
@@ -211,7 +213,7 @@ function callsWithOption(path: string, source: string, callee: string, option: s
 }
 
 test("THE VITEST DOOR PASSES THE COUNT VITEST ITSELF SELECTS, a listing too: one file is light, the suite (or `vitest list` of it) is heavy — driven through the door's own setup with a door of the test's own", async () => {
-  const { setup, teardown } = await import("../../../tests/setup/concurrency-lock.ts");
+  const { setup, teardown } = await import("../../tests/setup/concurrency-lock.ts");
   const asked: number[] = [];
   const door = async (_runner: string, options: Readonly<{ testFileCount: number }>): Promise<TestRunLock> => {
     asked.push(options.testFileCount);
@@ -327,10 +329,13 @@ test("PC-5: the build config is never a runner — vitest given it refuses at lo
     if (before === undefined) delete process.env["VITEST"];
     else process.env["VITEST"] = before;
   }
-  // The live drive: vitest itself, handed the build config, refuses before collecting a file.
-  const drive = spawnSync(join(REPO_ROOT, "node_modules", ".bin", "vitest"), ["list", "--config", "vite.config.ts"], { cwd: REPO_ROOT, encoding: "utf8", timeout: 120_000 });
-  assert.notEqual(drive.status, 0, `vitest ran with the build config:\n${drive.stdout}`);
-  assert.match(`${drive.stdout}${drive.stderr}`, /not the web test runner's/u);
+  // The live drive: vitest itself, handed the build config, refuses before collecting a file. Started through the one
+  // test-execution door like every runner start (confined), so this live test starts no runner outside it.
+  let printed = "";
+  const [command, args] = vitestCommand(REPO_ROOT, ["list", "--config", "vite.config.ts"]);
+  const drive = await runTestCommand({ supervisor: ensureTestProcessSupervisor(), checkout: REPO_ROOT, command, args, cwd: REPO_ROOT, hardCeilingMs: 120_000, killGraceMs: 5_000, onStdout: (chunk) => { printed += chunk.toString(); }, onStderr: (chunk) => { printed += chunk.toString(); } });
+  assert.notEqual(drive.exitCode, 0, `vitest ran with the build config:\n${printed}`);
+  assert.match(printed, /not the web test runner's/u);
 });
 
 test("wiring: every playwright config names a global setup door that takes the lock", () => {
@@ -407,9 +412,9 @@ test("wiring: every other heavy door takes the SAME one lock — the web runner,
   );
   const slot = sourceText(join(ENGINE_ROOT, "src", "workflow", "slot-cli.ts"));
   assert.ok(slot.includes("../process/instrument-lock.ts") && /holdInstrumentLock\(/u.test(slot), "`harness slot run` takes the one lock");
-  assert.ok(/superviseCommand\(/u.test(slot) && !/\bspawn\(/u.test(slot), "`harness slot run` runs its command under the supervisor (adopted), never a bare spawn");
+  assert.ok(/runTestCommand\(/u.test(slot) && !/\bspawn\(/u.test(slot), "`harness slot run` runs its command under the supervisor (adopted, through the one test-execution door), never a bare spawn");
   const profile = sourceText(join(REPO_ROOT, "scripts", "testing", "perf-profile.ts"));
-  assert.ok(/runInsideInstrumentLock\(\s*"perf profile"/u.test(profile) && /inProcess: true/u.test(profile) && bodyCalls(functionBody(profile, "runToExit"), "superviseCommand"),
+  assert.ok(/runInsideInstrumentLock\(\s*"perf profile"/u.test(profile) && /inProcess: true/u.test(profile) && bodyCalls(functionBody(profile, "runToExit"), "runTestCommand"),
     "the perf profile holds the lock through the supervising door and runs Playwright under the supervisor (L-N1)");
   // A bare heavy vitest run (outside every door) re-runs ITSELF inside the one supervising door, never holding the
   // lock in its own process.
@@ -478,4 +483,21 @@ test("ONE DEFINITION OF HEAVY (design L-2): a run of fewer than the configured t
   // Every entry passes the count of the files it runs (the type requires it; the vitest door counts vitest's own selection).
   const vitestDoor = sourceText(join(SETUP_DIR, "concurrency-lock.ts"));
   assert.match(vitestDoor, /globTestSpecifications\(filter\)/u, "the vitest door counts the files vitest itself selects");
+});
+
+// From test/prevention/exclusive-create-owner.test.ts: an admitted heavy run's record needs the host's user service
+// manager (a cgroup scope), which a confined test run cannot reach (decision TEST-CONFINEMENT-SELF-BIND).
+test("the test-run lock publishes its record through the owner: the registry folder is fsynced once the record is named", () => {
+  const root = createTempDir("exclusive-create-test-run-lock-");
+  const folder = join(root, "locks", `${TEST_RUN_LOCK_FILE_NAME}.runs`);
+  const body = `const {enforceTestRunLock}=await import(${JSON.stringify(join(ENGINE_ROOT, "scripts/tooling/test-run-lock.ts"))});const lock=await enforceTestRunLock("probe",{lockDir:${JSON.stringify(join(root, "locks"))},testFileCount:Number.POSITIVE_INFINITY});lock.release();`;
+  const script = `import fs from "node:fs";import {syncBuiltinESMExports} from "node:module";
+    const folder=${JSON.stringify(folder)};const opens=new Map(),open=fs.openSync,sync=fs.fsyncSync;let folderSyncs=0;
+    fs.openSync=(p,...a)=>{const fd=open(p,...a);opens.set(fd,String(p));return fd;};
+    fs.fsyncSync=(fd)=>{if(opens.get(fd)===folder)folderSyncs++;return sync(fd);};syncBuiltinESMExports();
+    ${body}console.log(JSON.stringify({folderSyncs}));`;
+  const child = spawnSync(process.execPath, ["--no-warnings", "--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
+  const { folderSyncs } = JSON.parse(child.stdout.trim().split("\n").at(-1)!) as { folderSyncs: number };
+  assert.ok(folderSyncs >= 1, `its folder was fsynced after the record was named (${folderSyncs})`);
 });

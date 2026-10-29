@@ -663,7 +663,9 @@ for (const control of ["clean-pass", "clean-failed", "straggler"] as const) {
       fixture.candidate, failed ? [entry.name] : [], []);
     const stdout = Buffer.from("native fixture stdout\n");
     const stderr = Buffer.from("native fixture stderr\n");
-    const identityPath = join(root, "descendant-identity.json");
+    // Outside the repository: the worker sees its checkout read-only (the test confinement), so what its straggler
+    // reports is written where any test's own scratch goes.
+    const identityPath = join(createTempDir(`bridlewise-native-completion-${control}-identity-`), "descendant-identity.json");
     const worker = observationWorker(root, stdout, stderr, canonicalBytes(result), failed ? 1 : 0, false,
       control === "straggler" ? identityPath : undefined);
     const observedPath = join(root, "adapter-observed.json");

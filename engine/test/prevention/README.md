@@ -76,7 +76,7 @@ The `engine/test/prevention/` folder of the development surface.
 - `static-literal-extraction-cache.test.ts` — prevention test for the filesystem-backed static-literal extraction cache + the harness sync --with-bundle workflow improvement.
 - `subprocess-mock.test.ts` — prevention test for the shared subprocess mock helper.
 - `suite-cpu-budget.test.ts` — tHE SUITE CPU GATE, DRIVEN BRANCH BY BRANCH. `scripts/run-tests.ts` judges each full run at end-of-run through the shared verdict owner.
-- `test-run-lock.test.ts` — prevention test for the one-instrument lock; also proves the build config (`vite.config.ts`) is never a runner: vitest handed it refuses at load.
+- `test-execution-door.test.ts` — no test runner (`node --test`, vitest, Playwright) is started outside the one test-execution door: every site in code, package scripts, CI and configured phases is named with how it reaches `runTestCommand`; each spelling of a runner start is caught.
 - `test-runner-door.test.ts` — pREVENTION — the engine's test runner is `node --test`, and a vitest invocation rooted here must dead-end, never silently run the wrong suite.
 - `test-runtime-budget.test.ts` — test-runtime budget — THE TREE'S HALF of the gate.
 - `timeline-intent-recording.test.ts` — the `timeline-intent-recording.test` module.

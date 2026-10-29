@@ -22,7 +22,8 @@ import { INPUT_ERROR_CODE, InputError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import { admitInstrumentRun, holdInstrumentLock, wholeInstrumentTestFileCount, withinInstrumentHold, type PerRunCaps } from "../process/instrument-lock.ts";
 import { configuredSubprocessBounds } from "./workflow-config.ts";
-import { superviseCommand } from "../process/supervised-run.ts";
+import { runTestCommand } from "../process/supervised-run.ts";
+import { repositoryToplevel } from "../git/repository-ownership.ts";
 import { wrapResult, type CommandAnswer } from "./command-result.ts";
 import { readTestExecutionConfig } from "./test-result-collector.ts";
 
@@ -63,7 +64,7 @@ function declaredInstrumentLock<T>(lock: T | undefined): T {
   return lock;
 }
 
-export async function runInsideInstrumentLock(runner: string, testFileCount: number, command: readonly string[], options: Readonly<{ lockPath?: string; caps?: PerRunCaps }> = {}): Promise<Readonly<{ exitCode: number; ending: string }>> {
+export async function runInsideInstrumentLock(runner: string, testFileCount: number, command: readonly string[], options: Readonly<{ lockPath?: string; caps?: PerRunCaps; onResult?: (chunk: Buffer) => void }> = {}): Promise<Readonly<{ exitCode: number; ending: string }>> {
   const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
   const config = readTestExecutionConfig(engineRoot);
   // `lockPath`: a test's own registry (the host's registry is never a test's
@@ -73,8 +74,12 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
     ? admitInstrumentRun(options.lockPath, runner, options.caps ?? declaredInstrumentLock(config.instrumentLock).perRun, configuredSubprocessBounds())
     : holdInstrumentLock({ config: config.instrumentLock, harnessRoot: engineRoot, runner, testFileCount, cpu: configuredSubprocessBounds() });
   return withinInstrumentHold(lock, async () => {
-    const run = await superviseCommand({
+    // CONFINED, always (decision TEST-CONFINEMENT-SELF-BIND): heavy load is test load — coverage, the raw and
+    // supported vitest runs, the browser runs, the perf profile — through the one test-execution door. Work that must
+    // write the checkout (a build, `harness sync`) runs through its declared trusted runner, never here.
+    const run = await runTestCommand({
       supervisor: ensureTestProcessSupervisor(),
+      checkout: repositoryToplevel(engineRoot, "directory") ?? engineRoot,
       command: command[0]!,
       args: command.slice(1),
       hardCeilingMs: config.engineSuiteWatchdog.hardCeilingMs,
@@ -83,6 +88,8 @@ export async function runInsideInstrumentLock(runner: string, testFileCount: num
       onStderr: (chunk) => process.stderr.write(chunk),
       env: { ...process.env, [INSIDE_INSTRUMENT_LOCK_VARIABLE]: "1" },
       killOnInterrupt: true,
+      // A confined run hands back what it made on its result channel (its fd 3), never through the checkout.
+      ...(options.onResult === undefined ? {} : { onResult: options.onResult }),
     });
     const exitCode = run.signal !== null ? 128 + constants.signals[run.signal] : run.ending === "exited" ? run.exitCode : 1;
     return deepFreeze({ exitCode, ending: run.ending });

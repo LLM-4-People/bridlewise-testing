@@ -28,7 +28,7 @@
 import { describe, expect, test } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   checkRepository,
@@ -40,6 +40,7 @@ import {
   patternLivenessFailure,
 } from "../../engine/scripts/verification/pattern-liveness.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { modulePath } from "../helpers/module-resolver.ts";
 import { TEST_INCLUDE } from "../test-include.ts";
 import { DECLARED_ROOT } from "../declared-root.ts";
 import { TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
@@ -184,18 +185,20 @@ function trackedTestFiles(root: string): readonly string[] {
  */
 /**
  * The files `npm run test:public` executes: the globs its script hands to
- * `node --test`, read from package.json (the script is the declaration), and
+ * the guard runner (`node --test` through the one test-execution door), read from package.json (the script is the declaration), and
  * only while the CI gate actually runs that script, so a runner nobody calls
  * selects nothing.
  */
 function publicRunnerFiles(root: string): ReadonlySet<string> {
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { scripts?: Record<string, string> };
   const script = manifest.scripts?.["test:public"] ?? "";
+  // The script runs `node --test` through the guard runner (the one test-execution door): its file arguments follow it.
   const words = script.split(/\s+/u);
-  if (words[0] !== "node" || !words.includes("--test")) return new Set();
+  const runner = words.indexOf(relative(root, modulePath("test-guards.ts")));
+  if (words[0] !== "node" || runner < 0) return new Set();
   const ci = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
   if (!/^\s*run: npm run test:public\s*$/mu.test(ci)) return new Set();
-  const globs = words.slice(words.indexOf("--test") + 1).filter((word) => !word.startsWith("-"));
+  const globs = words.slice(runner + 1).filter((word) => !word.startsWith("-"));
   return new Set(globs.flatMap((pattern) => globSync(pattern, { cwd: root })));
 }
 

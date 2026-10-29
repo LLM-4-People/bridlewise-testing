@@ -61,7 +61,7 @@
 import { execFile, spawn, spawnSync, type ExecFileException, type SpawnSyncReturns } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import {
   bestEffort,
@@ -748,9 +748,21 @@ export function projectScratchDir(projectRoot: string): string {
  */
 const SCRATCH_KEY_HEX_CHARS = 32;
 
+/**
+ * The server's own state folder: the folder of its database
+ * (`serverConfig.dbPath`), the one place this server's state is configured.
+ * Never the harness checkout's state root: a test run (which redirects the
+ * database into its own temp folder) and the real server each hold their own,
+ * and nothing a confined test writes becomes a later server's scratch or MCP
+ * home (review of #634, round 2, blocker 1; #664).
+ */
+function serverStateFolder(): string {
+  return dirname(resolve(serverConfig.dbPath));
+}
+
 /** The one directory every project's scratch folder lives under. */
 function harnessScratchRoot(): string {
-  return join(harnessRoot(), ".bridlewise", "confined-scratch");
+  return join(serverStateFolder(), "confined-scratch");
 }
 
 /**
@@ -768,7 +780,7 @@ function harnessScratchRoot(): string {
  * native tools; an MCP server keeps its own state here.
  */
 export function mcpServerHomeDir(serverId: string): string {
-  return join(harnessRoot(), ".bridlewise", "mcp-home", serverId);
+  return join(serverStateFolder(), "mcp-home", serverId);
 }
 
 /**

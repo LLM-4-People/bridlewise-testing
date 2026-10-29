@@ -22,7 +22,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 import { BUILD_CONFIG } from "./vite.config.ts";
 import { TEST_HANG_BACKSTOP_MS } from "./tests/test-budget.ts";
 import { TEST_INCLUDE } from "./tests/test-include.ts";
-import { enableSharedCompileCache } from "./engine/scripts/tooling/compile-cache.ts";
+import { enableSharedCompileCache, testRunCacheDirectory } from "./engine/scripts/tooling/compile-cache.ts";
 import { readTestExecutionConfig } from "./engine/src/workflow/test-result-collector.ts";
 import { armCheckoutUnderTest } from "./engine/src/filesystem/checkout-write-door.ts";
 import { armTestKeyHome } from "./engine/test/support/test-key-home.ts";
@@ -121,6 +121,9 @@ const nodeTests = testFiles.filter((path) => !browserTestSet.has(path));
 
 
 export default mergeConfig(BUILD_CONFIG, defineConfig({
+  // Vite's optimizer cache in the run's own scratch, discarded with the run (the default, node_modules/.vite, is in the
+  // checkout a test run sees read-only, and a later run would execute what is there).
+  cacheDir: testRunCacheDirectory("vite"),
   test: {
     // Default to the node environment (fast — no DOM setup). Files that
     // render Svelte components opt in via `// @vitest-environment jsdom`.
@@ -158,10 +161,12 @@ export default mergeConfig(BUILD_CONFIG, defineConfig({
     // per-file TS→JS transform + module-graph evaluation. The first run
     // builds the cache; subsequent runs (the common dev-iteration case)
     // read from disk — vitest docs show import 5.52s→2.35s, transform
-    // 4.02s→842ms on reruns. The cache lives in node_modules/.experimental-
-    // vitest-cache (gitignored as node_modules). `vitest --clearCache` resets.
+    // 4.02s→842ms on reruns. The cache lives in the run's own scratch (the one
+    // place the cache owner names: compile-cache.ts `testRunCacheDirectory`),
+    // discarded with the run: nothing a confined run writes is executed later.
     experimental: {
       fsModuleCache: true,
+      fsModuleCachePath: testRunCacheDirectory("vitest-module-cache"),
     },
     // Pre-bundle external dependencies (node_modules) with esbuild so each
     // worker reads one optimized bundle instead of evaluating dozens of

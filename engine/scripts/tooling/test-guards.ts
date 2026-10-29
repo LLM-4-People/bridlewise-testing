@@ -37,20 +37,32 @@
  * refused the same way (L-2026-09-29-targeted-runs-need-a-private-key-home).
  */
 
-import { globSync, statSync } from "node:fs";
+import { globSync, lstatSync, realpathSync, statSync } from "node:fs";
 
 import { InputError } from "../../src/kernel/errors.ts";
-import { resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
-import { superviseCommand } from "../../src/process/supervised-run.ts";
+import { testRunSuiteOf } from "../../src/filesystem/checkout-write-door.ts";
+import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { repositoryToplevel } from "../../src/git/repository-ownership.ts";
+import { gitOutput, type GitRepository } from "../../src/git/tree-reader.ts";
+import { configuredGitRepository } from "../../src/git/worktree-port.ts";
+import { runTestCommand, superviseCommand } from "../../src/process/supervised-run.ts";
 import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 
 import { engineTestBoundsFrom, engineTestBoundsImport, type EngineTestBounds } from "./engine-test-bounds.ts";
 import { enforceTestRunLock, type TestRunLock } from "./test-run-lock.ts";
-import { armTestKeyHome } from "../../test/support/test-key-home.ts";
 import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
+
+const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+/** The run's key-home preload (`node --import`): armed INSIDE the run, in its own scratch; each file inherits it. */
+/** The node flags that load a module (the checkout write door's one list). */
+const LIVE_RUN_FLAGS: ReadonlySet<string> = new Set(ROOT_POLICY.verification.checkoutWriteDoor.liveRunFlags);
+
+const KEY_HOME_PRELOAD = fileURLToPath(new URL("../../test/support/arm-test-key-home.ts", import.meta.url));
 
 /**
  * The flags node --test takes with NO value, which the door passes as they
@@ -107,12 +119,13 @@ export function doorRun(args: readonly string[], cwd: string): Readonly<{ flags:
 }
 
 /**
- * THE ARGV the door hands node, EXACTLY and nothing else: the bounds'
- * preload, `--test` with the backstop as its per-test timeout, the door's
+ * THE ARGV the door hands node, EXACTLY and nothing else: the key-home
+ * preload, the bounds' preload, `--test` with the backstop as its per-test timeout, the door's
  * flags, then the very files it bounds — never the arguments it was given.
  */
 export function doorNodeArgs(bounds: EngineTestBounds, door: ReturnType<typeof doorRun>): readonly string[] {
-  return ["--experimental-strip-types", engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...door.flags, ...door.files];
+  // The run's key home is armed INSIDE the run, by a preload of the `node --test` process (each file inherits it).
+  return ["--experimental-strip-types", `--import=${KEY_HOME_PRELOAD}`, engineTestBoundsImport(bounds), "--test", `--test-timeout=${String(bounds.hangBackstopMs)}`, ...door.flags, ...door.files];
 }
 
 export async function main(): Promise<void> {
@@ -133,13 +146,41 @@ export async function main(): Promise<void> {
   // configured number of test files or more (the guards: a few hundred) is
   // admitted at once, under its per-run caps, and never waits for another
   // run; a targeted run of fewer is light and records nothing.
+  // WHICH SUITE, from the very files node will run (the write door's `testRunSuiteOf`): the live suite
+  // (`engine/live/`, unconfined by design: real host facts) only when every file lies there; a mixed run is refused,
+  // so a hermetic file never rides along unconfined.
+  const suite = testRunSuiteOf(door.files, join(ENGINE_ROOT, "live"));
+  if (typeof suite !== "string") {
+    process.stderr.write(`[test-guards] REFUSED (${suite.refused})\n`);
+    process.exitCode = 1;
+    return;
+  }
+  // A live run is unconfined: any flag that could load a module of the caller's choosing (`--import=<a hermetic test>`,
+  // `--env-file` holding NODE_OPTIONS, `--experimental-config-file`) would run code outside the live suite unconfined
+  // beside it. So a live run takes only the flags that select tests (an allow list), and every other is refused.
+  const unlisted = door.flags.filter((flag) => !LIVE_RUN_FLAGS.has(flag.split("=", 1)[0]!));
+  if (suite === "live" && unlisted.length > 0) {
+    process.stderr.write(`[test-guards] REFUSED (test_live_suite_flag: a live run is unconfined and takes only ${[...LIVE_RUN_FLAGS].join(", ")}: ${unlisted.join(" ")})\n`);
+    process.exitCode = 1;
+    return;
+  }
+  // A live run is unconfined, so its files are the REVIEWED live set only: each committed (through the hooks, where the
+  // pinned live set is checked), byte-for-byte its committed content, and of one name (never a hard link of a hermetic
+  // test). An untracked copy, an edited file or a link is refused here, before anything runs (review of #634, #14).
+  if (suite === "live") {
+    const unreviewed = unreviewedLiveFiles(configuredGitRepository({}, ENGINE_ROOT), door.files);
+    if (unreviewed.length > 0) {
+      process.stderr.write(`[test-guards] REFUSED (test_live_suite_unreviewed: a live run is unconfined and runs only the committed live set; commit the file first:\n${unreviewed.map((line) => `  ${line}`).join("\n")})\n`);
+      process.exitCode = 1;
+      return;
+    }
+  }
   const lock: TestRunLock = enforceTestRunLock(runner, { testFileCount: door.files.length });
-  armTestKeyHome();
   // UNDER THE NATIVE SUPERVISOR (adopted into the run this door admitted): a
   // door killed outright leaves its `node --test` stopped with every process
   // it started, and the lock held until that is done — never a run orphaned
   // beside the next holder.
-  const engineRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const engineRoot = ENGINE_ROOT;
   const testExecution = readTestExecutionConfig(engineRoot);
   const { engineSuiteWatchdog } = testExecution;
   // THE SUITE'S OWN BOUNDS (engine-test-bounds.ts, the one construction): every
@@ -150,7 +191,7 @@ export async function main(): Promise<void> {
   const bounds = { ...engineTestBoundsFrom(testExecution, engineRoot), files: door.files };
   // A runner builds the supervisor before its run (make's incremental check); every caller inside the run resolves it.
   const supervisor = ensureTestProcessSupervisor();
-  const run = await superviseCommand({
+  const command = {
     supervisor,
     command: process.execPath,
     // `--test-timeout` IS the backstop, as the suite's `run({ timeout })` is:
@@ -158,10 +199,16 @@ export async function main(): Promise<void> {
     args: doorNodeArgs(bounds, door),
     hardCeilingMs: engineSuiteWatchdog.hardCeilingMs,
     killGraceMs: engineSuiteWatchdog.killGraceMs,
-    onStdout: (chunk) => process.stdout.write(chunk),
-    onStderr: (chunk) => process.stderr.write(chunk),
+    onStdout: (chunk: Buffer) => process.stdout.write(chunk),
+    onStderr: (chunk: Buffer) => process.stderr.write(chunk),
     killOnInterrupt: true,
-  });
+  };
+  // Through the one test-execution door, confined — except the LIVE suite, unconfined by design (real host facts:
+  // decision TEST-CONFINEMENT-SELF-BIND), the one declared exception.
+  // The live child gets no NODE_OPTIONS of its caller's: an inherited `--import=` would load a module unconfined.
+  const run = suite === "live"
+    ? await superviseCommand({ ...command, env: withoutNodeOptions(process.env) })
+    : await runTestCommand({ ...command, checkout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT });
   // The run's own failure rides along if its run was cut at the memory cap (InstrumentHold.release).
   lock.release(run.ending === "exited" && run.exitCode === 0 ? undefined : `node --test ended ${run.ending}${run.signal === null ? "" : ` (${run.signal})`} with exit code ${String(run.exitCode)}`);
   if (run.ending !== "exited") {
@@ -175,4 +222,29 @@ export async function main(): Promise<void> {
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
   await main();
+}
+
+/**
+ * The live files of `files` that are NOT the reviewed live set, each with why: not committed at HEAD, not its
+ * committed content, or a file of more than one name (a hard link aliasing another test). Empty when every file is the
+ * committed one.
+ */
+export function unreviewedLiveFiles(repository: GitRepository, files: readonly string[]): readonly string[] {
+  const top = gitOutput(repository, ["rev-parse", "--show-toplevel"]).stdout.toString("utf8").trim();
+  return files.flatMap((file) => {
+    const path = realpathSync(file);
+    const named = relative(top, path).split(sep).join("/");
+    if (lstatSync(path).nlink > 1) return [`${named}: has more than one name (a hard link)`];
+    // `<mode> blob <oid>\t<path>` when HEAD holds it (the path from the top, taken literally), nothing when it does not.
+    const entry = gitOutput(repository, ["--literal-pathspecs", "ls-tree", "--full-tree", "HEAD", "--", named]).stdout.toString("utf8");
+    const committed = /^\d+ blob ([0-9a-f]+)\t/u.exec(entry)?.[1];
+    if (committed === undefined) return [`${named}: not committed`];
+    const present = gitOutput(repository, ["hash-object", "--", path]).stdout.toString("utf8").trim();
+    return present === committed ? [] : [`${named}: differs from its committed content`];
+  });
+}
+
+/** `environment` without NODE_OPTIONS: what an unconfined live run's node is started with (round 3, must-fix 2). */
+export function withoutNodeOptions(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => name !== "NODE_OPTIONS"));
 }

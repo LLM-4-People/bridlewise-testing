@@ -2440,8 +2440,21 @@ const ROOT_POLICY_VALUE = {
           // floor. They were pruned deliberately with `harness sync --prune`;
           // the remaining non-canonical set is the public tree's actual set.
           // This pin is deliberately not auto-repaired.
-          count: 8,
-          sha256: "8dcad5535d0b50a0f849d5dcc0e472afc8d8cb2f9d297e4cc749f28fa17f51d0",
+          // RESTATED BY HAND FOR THE READ-ONLY TEST CHECKOUT (2026-10-28,
+          // decision TEST-CONFINEMENT-SELF-BIND), 8 -> 10: S1-B02-HOSTILE-REAL
+          // and S1-B03-HOSTILE-REAL moved, byte for byte, from the hermetic
+          // family files to `live/s1-b02-hostile-real.test.ts` and
+          // `live/s1-b03-hostile-real.test.ts` (`npm run test:live:s1`, run in
+          // CI's engine job): their fixture needs a real supplementary group,
+          // which the confined hermetic run's user namespace cannot map. The
+          // scenarios moved; none vanished.
+          // 10 -> 13 (2026-10-29, decision TEST-CONFINEMENT-SELF-BIND): the heavy-run admission and long-task
+          // runner tests (`live/instrument-lock`, `live/test-run-lock`, `live/long-task-runner`) need the host's user
+          // service manager, which a confined run cannot reach, so they moved to the live suite.
+          // 13 -> 14 (2026-10-29): `live/door-canaries.test.ts`, the door's canary through each runner's real entry,
+          // unconfined by necessity (round 2, blocker 5).
+          count: 14,
+          sha256: "fd94c977b1202b667b3b38ee047be40968d6461f360f4313e663cc8bb6d85375",
         },
       },
       // END AUTHORED PINS
@@ -2465,11 +2478,19 @@ const ROOT_POLICY_VALUE = {
     // environment is ever read.
     checkoutWriteDoor: {
       markerEnvironmentVariable: "HARNESS_CHECKOUT_UNDER_TEST",
+      // The variable naming a confined test run's own scratch root (set by the
+      // one test-execution door, never by a caller): its caches, temp folder
+      // and key home live there, and go with the run.
+      scratchEnvironmentVariable: "BRIDLEWISE_TEST_SCRATCH",
       markerFile: statePath("checkout-under-test"),
       // A node process RUNS tests when node's own options hold this flag, its
       // script is a test file (`recognizableSourcePatterns`), or an option
       // (a preload, a loader, eval code) names one.
       nodeTestRunnerFlag: "--test",
+      // The ONLY node options a LIVE run (unconfined: engine/live/) takes from its caller (review of #634, round 3,
+      // must-fix 2): an allow list, never a deny list, because node keeps adding options that load code
+      // (`--env-file` with NODE_OPTIONS in it, `--experimental-config-file`). Each only selects tests.
+      liveRunFlags: ["--test-name-pattern", "--test-skip-pattern", "--test-only"],
       // The node options whose VALUE is code node runs (a preload, a loader,
       // eval text, a test reporter or global-setup module): only these can
       // name a test file. Any other valued option (`--watch-path
@@ -2498,10 +2519,25 @@ const ROOT_POLICY_VALUE = {
       ],
       // The executables whose command lines are read as node's (ancestors only).
       nodeExecutableNames: ["node", "nodejs"],
-      // The only directories of a checkout under test a test may write: a
-      // state root at the checkout's top, or at the top of one of its
-      // packages (a folder holding its own package.json, e.g. the engine) —
-      // never a same-named folder planted deeper (`src/.bridlewise/x.ts`).
+      // The only directories of a checkout under test a test may write (the
+      // in-process door here and the kernel's confinement, decision
+      // TEST-CONFINEMENT-SELF-BIND): these places of the state root at the
+      // checkout's top, or at the top of one of its packages (a folder holding
+      // its own package.json, e.g. the engine) — never a same-named folder
+      // planted deeper (`src/.bridlewise/x.ts`), and never the rest of the
+      // state root: the index baseline, the journals, the commit guard's
+      // state, the evidence store and the locks are trusted by later runs,
+      // so a test must not be able to forge them. The fixture root (owned
+      // temporaries, swept by owner), the web run ledger the in-run reporter
+      // writes (#655: forgeable, to move to the runner outside); the config's
+      // write locks (a settings test takes
+      // the live config's; a lock carries no content a later run trusts); and
+      // the engine suite's schedule the worker writes (an order, not a trust);
+      // and the browser runs' reports (output, never read back as a verdict).
+      writablePlaces: [statePath("test-fixtures"), statePath("web-test-results"), statePath("config-locks"), statePath("test-schedule"), statePath("browser-results")],
+      // The in-process door's state roots (a process under test writes no
+      // tracked file; the runners outside a confined run write their ledgers
+      // there): every place above lies in one of them.
       writableDirectoryNames: [STATE_DIRECTORY_NAME],
     },
     // A PROCESS UNDER TEST DIALS NOTHING BUT THIS MACHINE: the outbound door

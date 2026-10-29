@@ -32,7 +32,10 @@ export const TEST_RESULT_COLLECTION_DIRECTORY = statePath("state", "test-results
  * never to a failure.
  */
 const TEST_FILE_DURATIONS_SCHEMA_VERSION = schemaId("test-file-durations", 1);
-export const TEST_FILE_DURATIONS_PATH = statePath("state", "test-results", "file-durations.json");
+// Its own folder of the state root, a declared writable place of a confined test run (the worker writes it inside the
+// run): a schedule only orders the parallel phase, nothing a later run trusts. The run ledgers beside the old place
+// are written by the runner outside the run.
+export const TEST_FILE_DURATIONS_PATH = statePath("test-schedule", "file-durations.json");
 
 /**
  * Longest-processing-time-first ordering for parallel lane scheduling:
