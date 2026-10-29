@@ -73,7 +73,7 @@ test("the claims register: the three kinds pass; every violation is named, in mo
 
 test("the messaging source: complete and honest, or refused", () => {
   assert.deepEqual(messagingViolations({ schema: "bridlewise-messaging/v1", ...SOURCE }), []);
-  // The addresses are package.json's, never restated in the words.
+  // The addresses are the repository identity's (package.json carries its generated copy), never restated in the words.
   assert.deepEqual(messagingViolations({ schema: "bridlewise-messaging/v1", ...MESSAGING }), ["repositoryUrl is not a field of the messaging source", "siteUrl is not a field of the messaging source"]);
   assert.equal(readWords(REPOSITORY_ROOT).repositoryUrl, JSON.parse(readFileSync(join(REPOSITORY_ROOT, "package.json"), "utf8")).repository.url.replace(/\.git$/u, ""));
   const problems = messagingViolations({ ...SOURCE, schema: "x", status: "Production ready.", description: "x".repeat(351), topics: ["agent-harness"], promise: "Ship 10x faster, guaranteed.", tagline: "!", about: { ...SOURCE.about, sourceUrl: "ftp://x" } });

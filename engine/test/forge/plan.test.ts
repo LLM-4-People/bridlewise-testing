@@ -23,11 +23,11 @@ import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
 import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
 import { temporaryKeyHome } from "./forge-key-home.ts";
-import { SETTINGS, SOURCES } from "./forge-settings.ts";
+import { SETTINGS, SOURCES, TRUNK } from "./forge-settings.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 const ORG = "LLM-4-People";
-const REPO = "bridlewise-testing";
+const REPO = TRUNK;
 
 function contextOf(fake: FakeGithub) {
   return { client: githubClient(fake.endpoint(), memoryCredential("user:maintainer", fake.userToken("maintainer"))), organization: ORG, maxPages: 10 };
@@ -88,12 +88,12 @@ test("plan, apply, verify: create and update what differs, leave the rest, repor
   fake.objects.set(`/orgs/${ORG}/installations`, { total_count: 1, installations: [{ id: 77, app_id: 1234, app_slug: "bridlewise-publisher" }] });
   // Retiring a ruleset weakens protection: refused, nothing written, until it is acknowledged by id.
   const before = fake.requests.filter((request) => request.method !== "GET").length;
-  await assert.rejects(forgeApply(context, objects, retired), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:protect-release-tags/u.test(error.message));
+  await assert.rejects(forgeApply(context, objects, retired), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && error.message.includes(`ruleset:${REPO}:protect-release-tags`));
   assert.equal(fake.requests.filter((request) => request.method !== "GET").length, before, "nothing was written");
-  const outcome = await forgeApply(context, objects, retired, new Set(["ruleset:bridlewise-testing:protect-release-tags"]));
-  assert.deepEqual(outcome.acceptedLoosening, [{ id: "ruleset:bridlewise-testing:protect-release-tags", loosening: ["deletes the ruleset"] }], "the acknowledgement is in the receipt");
+  const outcome = await forgeApply(context, objects, retired, new Set([`ruleset:${REPO}:protect-release-tags`]));
+  assert.deepEqual(outcome.acceptedLoosening, [{ id: `ruleset:${REPO}:protect-release-tags`, loosening: ["deletes the ruleset"] }], "the acknowledgement is in the receipt");
   assert.deepEqual(outcome.applied.map((applied) => `${applied.action} ${applied.kind} ${applied.key}`).sort(), [
-    "create label area:engine", "create ruleset product", "retire ruleset protect-release-tags", "update label lane:gh-1", "update repository-settings bridlewise-testing",
+    "create label area:engine", "create ruleset product", "retire ruleset protect-release-tags", "update label lane:gh-1", `update repository-settings ${REPO}`,
   ]);
   const created = (fake.objects.get(rulesets) as { name: string; bypass_actors?: { actor_id: number }[] }[]).find((ruleset) => ruleset.name === "product");
   assert.equal(created?.bypass_actors?.[0]?.actor_id, 1234, "the reference was resolved to the App's id");
@@ -359,7 +359,7 @@ test("barrier 1, tighten first: the baseline is created and read back BEFORE the
   assert.deepEqual([...trunk.loosening!].sort(), ["removes rule pull_request", "removes rule required_status_checks"]);
   assert.equal(trunk.moved, true, "every removed rule is carried by the baseline for this repository's kind");
   const outcome = await forgeApply(context, objects, []);
-  assert.deepEqual(outcome.movedLoosening, ["ruleset:bridlewise-testing:trunk"]);
+  assert.deepEqual(outcome.movedLoosening, [`ruleset:${REPO}:trunk`]);
   const writes = fake.requests.map((request, index) => ({ request, index })).filter(({ request }) => request.method !== "GET");
   const baselineWrite = writes.find(({ request }) => request.method === "POST" && request.path === `/orgs/${ORG}/rulesets`)!.index;
   const trunkWrite = writes.find(({ request }) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`))!.index;
@@ -391,10 +391,10 @@ test("barrier 3, acknowledgement: a weakening that is not a move is refused befo
   const plan = await forgePlan(context, weakened, []);
   assert.equal(entry(plan, "ruleset", "trunk").moved, false);
   assert.ok(entry(plan, "ruleset", "trunk").loosening!.some((reason) => reason.startsWith("adds bypass")));
-  await assert.rejects(forgeApply(context, weakened, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  await assert.rejects(forgeApply(context, weakened, []), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged") && error.message.includes(`ruleset:${REPO}:trunk`));
   assert.ok(!fake.requests.some((request) => request.method !== "GET"), "nothing was written, the baseline included");
-  const outcome = await forgeApply(context, weakened, [], new Set(["ruleset:bridlewise-testing:trunk"]));
-  assert.equal(outcome.acceptedLoosening[0]?.id, "ruleset:bridlewise-testing:trunk");
+  const outcome = await forgeApply(context, weakened, [], new Set([`ruleset:${REPO}:trunk`]));
+  assert.equal(outcome.acceptedLoosening[0]?.id, `ruleset:${REPO}:trunk`);
   // The classifier, directly: tightening and neutral changes are not loosenings (near misses).
   assert.deepEqual(looseningOf("ruleset", { enforcement: "active", rules: [{ type: "deletion" }, { type: "creation" }] }, { enforcement: "active", rules: [{ type: "deletion" }] }), []);
   assert.deepEqual(looseningOf("actions-permissions", { sha_pinning_required: true, allowed_actions: "selected" }, { sha_pinning_required: false, allowed_actions: "all" }), []);
@@ -411,8 +411,8 @@ test("barrier 4, the move's premises are READ FROM GITHUB: a repository whose li
   const plan = await forgePlan(context, objects, []);
   assert.equal(entry(plan, "ruleset", "trunk").moved, true, "by the declarations, the move holds");
   assert.deepEqual(entry(plan, "custom-property-values", "kind").loosening, ['kind "tool" -> "trunk"'], "changing a set kind is not proven stricter");
-  await assert.rejects(forgeApply(context, objects, [], new Set(["custom-property-values:bridlewise-testing:kind"])),
-    (error: unknown) => isForgeError(error, "forge_tighten_unverified") && /does not include kind tool/u.test(error.message) && /ruleset:bridlewise-testing:trunk/u.test(error.message));
+  await assert.rejects(forgeApply(context, objects, [], new Set([`custom-property-values:${REPO}:kind`])),
+    (error: unknown) => isForgeError(error, "forge_tighten_unverified") && /does not include kind tool/u.test(error.message) && error.message.includes(`ruleset:${REPO}:trunk`));
   assert.ok(fake.requests.some((request) => request.method === "PATCH" && request.path.endsWith("/properties/values")), "the acknowledged kind change was sent");
   assert.ok(!fake.requests.some((request) => request.method === "PUT" && request.path.startsWith(`/repos/${ORG}/${REPO}/rulesets/`)), "the trunk kept its rules: main is never left unprotected");
 });
@@ -529,9 +529,9 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).push({ id: 4242, name: "protect-release-tags", source_type: "Repository", target: "tag", enforcement: "active", rules: [] });
     fake.objects.set(`/repos/${ORG}/${REPO}/rulesets/4242`, (fake.objects.get(`/repos/${ORG}/${REPO}/rulesets`) as Record<string, unknown>[]).at(-1));
     await assert.rejects(run("apply", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_loosening_unacknowledged"));
-    const accepted = await run("apply", "--accept-loosening", "ruleset:bridlewise-testing:protect-release-tags", "--token-env", variable);
+    const accepted = await run("apply", "--accept-loosening", `ruleset:${REPO}:protect-release-tags`, "--token-env", variable);
     assert.equal(accepted.result.status, "pass");
-    assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), ["ruleset:bridlewise-testing:protect-release-tags"]);
+    assert.deepEqual((accepted.result.result as { acceptedLoosening: { id: string }[] }).acceptedLoosening.map((entry) => entry.id), [`ruleset:${REPO}:protect-release-tags`]);
     // A planted drift the apply cannot remove (a write GitHub answers but ignores): the apply's verdict is its post-apply audit, so it FAILS.
     fake.route("PATCH", /^\/repos\/[^/]+\/[^/]+\/labels\/[^/]+$/u, () => ({ status: 200, body: {} }));
     const label = (fake.objects.get(`/repos/${ORG}/${REPO}/labels`) as Record<string, unknown>[]).find((candidate) => candidate.name === "area:engine")!;
@@ -554,7 +554,7 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, notLoggedIn), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed"));
     assert.deepEqual(ghCalls.map((args) => args.slice(0, 2).join(" ")), ["auth status"], "the wired gh, and nothing else, was asked");
     const noDoor = { ...wiring, maintainerCli: recordingGh((args) => args[0] === "auth" ? { status: 0 } : { status: 1, stderr: "gh: Not Found (HTTP 404)" }) };
-    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && /bridlewise-testing/u.test(error.message));
+    await assert.rejects(runForgeCli(top, ["apps", "create"], () => {}, noDoor), (error: unknown) => isForgeError(error, "forge_environment_missing") && error.message.includes(REPO));
     // Every input of apps create is the WIRED one: a section whose trunk has a name the configuration never uses, the
     // wired endpoint and key home handed to the page (recorded, not served), and the wired gh asked about that trunk.
     const wiredSettings = { ...SETTINGS, repositories: SETTINGS.repositories.map((repository) => repository.kind === "trunk" ? { ...repository, name: "wired-trunk" } : repository) };
@@ -576,16 +576,16 @@ test("the CLI door: plan, audit and apply through runForgeCli, a stale tree and 
     const created = await runForgeCli(top, ["apps", "create"], () => {}, allWired);
     assert.equal(created.result.status, "pass");
     assert.ok(ghCalls.some((args) => args.includes("repos/LLM-4-People/wired-trunk/environments/door")), JSON.stringify(ghCalls));
-    assert.ok(!ghCalls.some((args) => args.some((arg) => arg.includes("bridlewise-testing"))), "the configured trunk is never asked about");
+    assert.ok(!ghCalls.some((args) => args.some((arg) => arg.includes(REPO))), "the configured trunk is never asked about");
     assert.equal(handed?.settings, wiredSettings, "the page gets the wired section");
     assert.equal(handed?.endpoint, wiredEndpoint, "the page gets the wired endpoint");
     assert.equal(handed?.keyHome, wiredKeyHome, "the page gets the wired key home");
     // And a bypass of the wired gh cannot hang: under test the real gh is refused at once, typed.
     await assert.rejects(maintainerCli(SETTINGS.webUrl, SETTINGS.maintainerCli).ready(), (error: unknown) => isForgeError(error, "forge_maintainer_cli_failed") && error.facts.underTest === true);
     // A hand edit of a generated file: refused before the credential is read or GitHub is asked.
-    writeFileSync(join(top, ".github/forge/label/bridlewise-testing.area_ci.json"), "{}\n");
+    writeFileSync(join(top, `.github/forge/label/${REPO}.area_ci.json`), "{}\n");
     const asked = fake.requests.length;
-    await assert.rejects(run("plan", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && /label\/bridlewise-testing\.area_ci\.json/u.test(error.message));
+    await assert.rejects(run("plan", "--token-env", variable), (error: unknown) => isForgeError(error, "forge_declaration_invalid") && error.message.includes(`label/${REPO}.area_ci.json`));
     assert.equal(fake.requests.length, asked);
   } finally {
     delete process.env[variable];

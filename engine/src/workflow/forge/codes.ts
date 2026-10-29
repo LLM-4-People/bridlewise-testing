@@ -45,6 +45,7 @@ const FORGE_CODES = deepFreeze({
   forge_asset_sink_failed: { class: "errored", remedy: "Writing the downloaded bytes failed here, not on GitHub (a full disk, a removed folder, a permission): fix the local destination and download again; nothing partial was published." },
   forge_asset_redirect_refused: { class: "refused", remedy: "GitHub redirected an asset download to an origin not in `forge.assetOrigins`, or the asset host redirected again (a chain is never followed): if GitHub moved its asset hosts, add the new origin to the forge section deliberately." },
   forge_endpoint_invalid: { class: "input", remedy: "Name the API as an absolute https URL (http only for a loopback test server) with no credentials, query or fragment." },
+  forge_identity_copy_invalid: { class: "input", remedy: "A file that carries a copy of the repository identity has lost its field (package.json `repository`, `homepage` and `bugs`; CITATION.cff `repository-code`): restore the field, then run harness sync, which writes it from the forge section." },
   forge_app_unknown: { class: "input", remedy: "Name one of the App registry's roles (`app-registry.ts`)." },
   forge_app_key_unavailable: { class: "refused", remedy: "Create the App and store its key with `harness forge apps create` (the key home holds it; nobody copies a key by hand)." },
   forge_app_key_invalid: { class: "integrity", remedy: "The stored App record is unreadable or its key is not an RSA private key: recreate the key in the App's settings and store it again with `harness forge apps create`." },

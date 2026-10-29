@@ -379,6 +379,10 @@
       "sha256": "a9636142974b671d6a86e2c394bbd6fd1fcd31c3ea5a56d501547c63b7cbe345"
     },
     {
+      "path": ".github/forge/repository-identity.json",
+      "sha256": "8a3e4500a15b5a6bd312b548fcbabfb8139583f3c9b57a9bd81971ddbfe4776d"
+    },
+    {
       "path": ".github/CODEOWNERS",
       "sha256": "53510448b93ce60429a537217b5ded7deb36dc77b56e448b6952bf5c63d90ad7"
     }
