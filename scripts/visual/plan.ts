@@ -54,6 +54,8 @@ export const VOLATILE_SELECTORS: readonly string[] = Object.freeze([
   "[data-volatile]",
   "[data-commit]",
   "[data-floor-status] dd",
+  // The fallback callout quotes the offline snapshot's reason, which carries its generation time.
+  "[data-status-fallback]",
   ".stamp",
   "time",
 ]);
