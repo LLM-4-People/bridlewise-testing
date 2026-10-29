@@ -34,7 +34,7 @@ import { atomicWriteFile } from "../engine/src/filesystem/atomic-write.ts";
 import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../src/cockpit/shell/brand-mark.ts";
 import { syncServiceWorker } from "./service-worker-cache.ts";
-import { tokenValues } from "./token-owner.ts";
+import { readTokenOwner, themeColor } from "../shared/token-reader.ts";
 import { deflateSync, crc32 } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -48,21 +48,11 @@ const SITE_MARK = resolve(ROOT, "docs", "assets", "mark.svg");
 /** The one geometry, shared with the cockpit's `Brand.svelte`. */
 const MARK = BRAND_MARK;
 
-/** The Carbon (first `:root`) value of each token the mark uses, read from the owner (scripts/token-owner.ts). */
+/** The Carbon value of each token the mark uses, read through the one token reader. */
 export function markColors(css = readFileSync(TOKENS, "utf8")) {
+  const owner = readTokenOwner(css);
   const names = [MARK.tile, MARK.rein.ink, MARK.beam.ink, ...MARK.lines.map((l) => l.ink)];
-  let values;
-  try {
-    values = tokenValues("carbon", names, css);
-  } catch (error) {
-    throw new Error(`[brand-mark] ${error instanceof Error ? error.message : String(error)} in ${TOKENS}`);
-  }
-  const colors = {};
-  for (const name of names) {
-    if (!/^#[0-9a-fA-F]{6}$/.test(values[name])) throw new Error(`[brand-mark] ${name} is not a #rrggbb value in the Carbon :root of ${TOKENS}`);
-    colors[name] = values[name].toLowerCase();
-  }
-  return colors;
+  return Object.fromEntries(names.map((name) => [name, themeColor(owner, "carbon", name)]));
 }
 
 /** The vector mark: a rounded Carbon tile carrying the rein, the lines and the beam. */

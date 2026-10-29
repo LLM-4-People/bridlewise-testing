@@ -9,7 +9,8 @@
  *    (its body wrapped as raw text: a GitHub Markdown page holds no Liquid),
  *    the redirect pages for older URLs, the `/v/` versions page and
  *    `versions.json` listing the released docs snapshots, and the deployment
- *    base path written into `_config.yml`.
+ *    base path written into `_config.yml`, and the design system's generated
+ *    assets (`site-design.mjs`).
  * 2. Jekyll (`actions/jekyll-build-pages`) turns that source into `_site`.
  * 3. `finishSite` — each release's PRE-BUILT docs snapshot (built at release
  *    time with the base path `<base>/v/<version>`, an immutable release
@@ -37,6 +38,8 @@ import { coverage } from "./design-coverage.mjs";
 import { stableJson } from "./files.mjs";
 import { COORDINATES, LEGACY_BASEURL, SITE_URL } from "./repository.mjs";
 import { crawlSiteLinks } from "./site-links.mjs";
+import { writeSiteDesign } from "./site-design.mjs";
+import { builtPolicyViolations, judgeSiteStyles } from "./site-style.mjs";
 import { BUILDER_OWNED_CONFIG_KEYS, DOCS_ROOT, legacyAliases, rewritePageLinks, siteLinkTargets, siteSourceViolations, sitePlan, siteUrlForPermalink } from "./site-pages.mjs";
 import { buildStatus } from "./status.mjs";
 
@@ -59,6 +62,8 @@ const MARKUP_OWNER = "shared/markup.ts";
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$/u;
 /** The site folder that holds the released snapshots; the source must not publish into it. */
 export const VERSIONS_FOLDER = "v";
+/** The file beside each moved page that forwards the reader to its new place. */
+export const MOVED_SCRIPT = "moved.js";
 
 function fail(message) {
   throw new Error(message);
@@ -220,8 +225,11 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
       join(directory, "index.html"),
       frontMatter({ layout: "default", page_class: "article", title: `Moved: ${name}` })
         + `<div class="callout-warning" role="status">\n  <p>This page moved to <a href="${escapeHtml(target)}">${escapeHtml(target)}</a>.</p>\n</div>\n`
-        + `<script>location.replace(${JSON.stringify(target)});</script>\n`,
+        // The forward is a file beside the page, not an inline script: the
+        // page's Content-Security-Policies run only files under the site's path.
+        + `<script src="${MOVED_SCRIPT}"></script>\n`,
     );
+    writeFileSync(join(directory, MOVED_SCRIPT), `location.replace(${JSON.stringify(target)});\n`);
     redirectedPaths += 1;
   }
 
@@ -256,6 +264,14 @@ export async function buildSiteSource({ root, out, baseurl, versionsDir = null, 
   mkdirSync(join(outRoot, "floor/data"), { recursive: true });
   writeFileSync(join(outRoot, "floor/data/atlas.json"), stableJson(atlas));
   writeFileSync(join(outRoot, "floor/data/status.json"), stableJson(status));
+  // The design system's generated half: the token sheet, fonts, icon, mark
+  // and figures, from their one owners (`site-design.mjs`).
+  writeSiteDesign({ root: repositoryRoot, outRoot, baseurl });
+  // Every stylesheet this source hands Jekyll reads the owner's tokens and
+  // declares none of its own, and no layout, include or HTML page carries a
+  // style or loads from elsewhere (`site-style.mjs`).
+  const style = judgeSiteStyles({ root: repositoryRoot, sourceRoot: outRoot });
+  if (style.findings.length > 0) fail(`${String(style.findings.length)} style finding(s): the site's sheets and markup read the one design system (scripts/floor/site-style.mjs):\n  ${style.findings.join("\n  ")}`);
 
   // Every site path a page or layout names must be one this source builds:
   // a page, a redirect, the versions page, a served file, or one Jekyll
@@ -315,6 +331,9 @@ export function finishSite({ site, baseurl, versionsDir = null }) {
   const links = crawlSiteLinks({ siteRoot, baseurl });
   const design = coverage(siteRoot, { exclude: versions.map((version) => `/${VERSIONS_FOLDER}/${version}/`) });
   const findings = [
+    // An allow-list judged on what was built: every HTML file Pages serves
+    // carries the site's two policies first, whatever produced it.
+    ...builtPolicyViolations({ siteRoot, baseurl, versions }).map((finding) => `policy: ${finding}`),
     ...links.unresolved.map((entry) => `link: ${entry.page}: ${entry.href} → ${entry.resolved}`),
     ...[...design.missing].map(([name, pages]) => `design: .${name} has no CSS rule (${pages.slice(0, 3).join(", ")})`),
     ...[...design.unused].map(([name]) => `design: floor.css declares .${name} but no page uses it`),
