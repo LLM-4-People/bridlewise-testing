@@ -293,6 +293,8 @@ export function readTestExecutionConfig(root: string): Readonly<{
   concurrency?: ConcurrencyMode;
   parallelConcurrency?: number;
   fullSuiteParallelConcurrency?: number;
+  /** The policy over the measured per-worker peak (headroom, the unmeasured share before it is stale); absent: not declared. */
+  workerMemory?: Readonly<{ headroomFactor: number; maxUnmeasuredShare: number }>;
   /** A test's hang backstop, its only wall bound (`DEFAULT_TEST_HANG_BACKSTOP_MS` for a foreign root). */
   testHangBackstopMs: number;
   /** The per-test CPU classes (`DEFAULT_TEST_CPU_CLASSES` for a foreign root). */
@@ -354,6 +356,7 @@ export function readTestExecutionConfig(root: string): Readonly<{
     ...(testExecution.fullSuiteParallelConcurrency !== undefined
       ? { fullSuiteParallelConcurrency: testExecution.fullSuiteParallelConcurrency }
       : {}),
+    ...(testExecution.workerMemory !== undefined ? { workerMemory: testExecution.workerMemory } : {}),
     testHangBackstopMs: testExecution.testHangBackstopMs ?? DEFAULT_TEST_HANG_BACKSTOP_MS,
     testCpuClasses: testExecution.testCpuClasses ?? DEFAULT_TEST_CPU_CLASSES,
     engineSuiteWatchdog: testExecution.engineSuiteWatchdog ?? DEFAULT_ENGINE_SUITE_WATCHDOG,

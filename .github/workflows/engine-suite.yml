@@ -1,0 +1,135 @@
+name: Engine suite
+
+# THE ENGINE SUITE on a hosted runner, ONE definition: ci.yml calls it on
+# every push and pull request, and it is dispatchable on its own to MEASURE
+# the per-worker memory (`measure-worker-memory`): the suite then runs one
+# worker at a time, so the run never approaches its memory cap and every test
+# file's worker peak (its scope leaf's memory.peak, children included) is
+# recorded in isolation, in a receipt uploaded as an artifact.
+# `node engine/scripts/tooling/worker-memory.ts measure <receipt>` derives the
+# committed measurement (engine/traceability/worker-memory.json) from it. A
+# measuring run's wall time does not matter: the suite is judged in CPU work.
+on:
+  workflow_call:
+    inputs:
+      measure-worker-memory:
+        description: Run one worker at a time and upload the worker memory receipt
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      measure-worker-memory:
+        description: Run one worker at a time and upload the worker memory receipt
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  # The engine's own suite (engine/test, run by engine/scripts/tooling/
+  # run-tests.ts, the one engine test door). It runs on every pull request
+  # and main push and is NOT yet a required check: it becomes one (runbook
+  # P0.9) once it is green on hosted runners, with every red fixed or filed
+  # as an owned record. Its setup mirrors a shard's: the hooks, the bundle
+  # and the confinement supervisor the suite's guards exercise.
+  engine-suite:
+    name: Engine suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.measure-worker-memory && 360 || 120 }}
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            engine/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install engine dependencies
+        run: npm --prefix engine ci --no-audit --no-fund
+
+      - name: Require the pinned compiler from the runner image
+        run: |
+          # gcc-14 ships in the ubuntu-24.04 image. Installing it over the
+          # network only ever waited on a package mirror (a hung mirror held
+          # two shards for their whole 45-minute budget, #333). A missing
+          # compiler is a named failure, never an install.
+          command -v gcc-14 >/dev/null || { echo "::error::gcc-14 is not in the runner image; the guardian build needs it (#333)"; exit 1; }
+          gcc-14 --version
+
+      - name: Install hooks and build the confinement supervisor
+        run: |
+          npm run bootstrap:hooks
+          chmod 600 engine/bridlewise.config.json
+          npm --prefix engine run build:bundle
+          make -C engine/guardian all
+
+      - name: Fetch the pinned corpus subset
+        run: |
+          npm run corpus:fetch
+          npm run corpus:verify
+
+      # The image sets kernel.apparmor_restrict_unprivileged_userns=1. The
+      # namespace proofs (keep-out aliases, the procfs-less door, S1-B04/B13)
+      # need unprivileged user and mount namespaces, and refuse by name
+      # without them (#149): the job provides the capability, never a skip.
+      - name: Allow unprivileged user and mount namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # D-19: a run's temporary root lies under the per-user cache, outside
+      # the safety floor (the instrument-lock proof places a checkout there).
+      - name: Run the engine suite
+        run: |
+          mkdir -p "$HOME/.cache/bridlewise-tmp/ci"
+          TMPDIR="$HOME/.cache/bridlewise-tmp/ci" npm --prefix engine test ${{ inputs.measure-worker-memory && '-- --measure-worker-memory' || '' }}
+
+      # The runner writes its verdict to one summary file; the job prints the
+      # failing tests and their reasons, so a red run is readable without a
+      # local reproduction.
+      - name: Report the engine suite's failures
+        if: always()
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const path = "engine/.bridlewise/state/test-results/latest-summary.json";
+            if (!fs.existsSync(path)) { console.log("no summary: the runner recorded no result"); process.exit(0); }
+            const s = JSON.parse(fs.readFileSync(path, "utf8"));
+            const lines = [`## Engine suite: ${s.status}`, "", `${s.passCount} passed, ${s.failCount} failed of ${s.testCount}`, ""];
+            for (const failure of s.failures) lines.push(`- ${failure}`);
+            if (s.reasons.length > 0) lines.push("", "### Reasons", "", ...s.reasons.map((reason) => `- ${reason}`));
+            const text = lines.join("\n") + "\n";
+            process.stdout.write(text);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+          '
+
+      # The same verdict as an artifact (pass/fail/total and every failure), so
+      # a reader outside this run — the landing page's claims, bound to the job
+      # that proves each one — reads the job's own result, not a summary of it.
+      - name: Upload the engine suite's summary
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: engine-test-summary
+          path: engine/.bridlewise/state/test-results/latest-summary.json
+          if-no-files-found: error
+
+      - name: Upload the worker memory receipt
+        if: always() && inputs.measure-worker-memory
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: engine-worker-memory-receipt
+          path: engine/.bridlewise/state/test-results/worker-memory-receipt.json
+          if-no-files-found: error

@@ -330,6 +330,57 @@ export const DEFAULT_FULL_SUITE_IN_PROCESS_SERIAL_PHASE_CONCURRENCY = 4 as const
 // testExecution.fullSuiteParallelConcurrency).
 export const DEFAULT_FULL_SUITE_PARALLEL_CONCURRENCY = 12 as const;
 
+/**
+ * THE MEASURED PEAK MEMORY OF ONE ENGINE TEST WORKER (`testExecution.workerMemory`):
+ * the largest `memory.peak` a test file's own leaf of the run's scope reached
+ * in a recorded run (its children included), the file that reached it, and
+ * the headroom every worker is given over it.
+ */
+export type WorkerMemory = Readonly<{ measuredPeakBytes: number; measuredFile: string; headroomFactor: number }>;
+
+/** How many workers of each phase run at once (the parallel phase alone, then the two serial tiers), and whether the tiers may overlap. */
+export type SuiteConcurrency = Readonly<{ parallel: number; inProcessSerial: number; subprocessSerial: number; serialTiersTogether: boolean }>;
+
+/**
+ * THE SUITE'S PARALLELISM UNDER ITS MEMORY CAP, derived, never chosen: no
+ * more workers run at once than the run's cap holds at the measured
+ * per-worker peak times its headroom, `floor(capBytes / (measuredPeakBytes x
+ * headroomFactor))`; within that, the configured (CPU-tuned) counts. The cap
+ * is the admitted run's scope `memory.max`; a run with no cap of its own (a
+ * light run) keeps the configured counts.
+ *
+ * Refused typed, never guessed: a capped run with no measured peak
+ * (`worker_memory_undeclared`), and one test file whose measured peak with
+ * its headroom passes the whole cap (`worker_memory_over_share`) — a finding
+ * for that test, never a reason to raise the cap or allow swap.
+ */
+export function memoryBoundedConcurrency(configured: Omit<SuiteConcurrency, "serialTiersTogether">, capBytes: number | undefined, workerMemory: WorkerMemory | undefined): SuiteConcurrency {
+  if (capBytes === undefined) return { ...configured, serialTiersTogether: true };
+  if (workerMemory === undefined) {
+    throw new InputError(
+      `this run is capped at ${String(capBytes)} bytes, but no worker's peak memory is declared (testExecution.workerMemory): ` +
+        "the number of workers that fit under the cap derives from a measured peak, never from a guess",
+      "worker_memory_undeclared",
+    );
+  }
+  const share = workerMemory.measuredPeakBytes * workerMemory.headroomFactor;
+  const fit = Math.floor(capBytes / share);
+  if (fit < 1) {
+    throw new InputError(
+      `${workerMemory.measuredFile} alone peaks at ${String(workerMemory.measuredPeakBytes)} bytes, which with the ${String(workerMemory.headroomFactor)}x headroom ` +
+        `passes the run's whole memory cap (${String(capBytes)} bytes): make that test use less memory (the cap is not raised, and no swap is allowed)`,
+      "worker_memory_over_share",
+    );
+  }
+  const parallel = Math.min(configured.parallel, fit);
+  const serialTotal = configured.inProcessSerial + configured.subprocessSerial;
+  if (serialTotal <= fit) return { parallel, inProcessSerial: configured.inProcessSerial, subprocessSerial: configured.subprocessSerial, serialTiersTogether: true };
+  // The tiers share what fits, in their configured proportion; when not even one worker each fits, they run one after the other.
+  const inProcessSerial = Math.min(configured.inProcessSerial, Math.max(1, Math.floor((fit * configured.inProcessSerial) / serialTotal)));
+  const subprocessSerial = Math.min(configured.subprocessSerial, Math.max(1, fit - inProcessSerial));
+  return { parallel, inProcessSerial, subprocessSerial, serialTiersTogether: inProcessSerial + subprocessSerial <= fit };
+}
+
 // Content-hash AST cache bounds for S1 verification. These caches memoize
 // the Babel parse of source files so that mutated candidates (which share
 // most file contents via copy-on-write reflinks) reuse cached parses for

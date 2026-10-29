@@ -251,10 +251,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:src/process/instrument-lock.ts:pure:child-process,filesystem-read,git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:src/process/process-facts.ts:pure:filesystem-read,filesystem-write",
       "reason": "#563"
     },
@@ -892,18 +888,6 @@
     },
     {
       "key": "architecture-effect-owner:src/modules/tasks-agents/domain/handoff-protocol-authority.ts:node:fs:filesystem-read",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/process/instrument-lock.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/process/instrument-lock.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/process/instrument-lock.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
     {
