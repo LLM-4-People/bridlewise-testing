@@ -793,6 +793,25 @@ test("only exact direct read-only qualified process version capabilities are adm
   }
 });
 
+test("process.execArgv is admitted as a READ and refused as any write, delete, update, call or mutating method", () => {
+  const reads = governedViolations(`
+    export const fromEval = process.execArgv.some((option) => option === "--input-type" || option.startsWith("--input-type="));
+    export const copied = [...process.execArgv];
+  `);
+  assert.equal(reads.some((entry) => entry.startsWith("process-member-")), false, reads.join("\n"));
+  const writes = [
+    `process.execArgv = [];`,
+    `process.execArgv[0] = "--forged";`,
+    `delete process.execArgv[0];`,
+    `process.execArgv.push("--forged");`,
+    `process.execArgv.splice(0);`,
+    `process.execArgv();`,
+  ] as const;
+  for (const source of writes) {
+    assert.ok(governedViolations(source).includes("process-member-write-unmodeled:hostile-effect-fixture.ts"), source);
+  }
+});
+
 function emptyTreeIdentity(root: string) {
   const stats = lstatSync(root, { bigint: true });
   return {

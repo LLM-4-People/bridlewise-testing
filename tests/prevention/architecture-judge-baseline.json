@@ -351,10 +351,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:src/workflow/forge/maintainer-cli.ts:pure:child-process,git",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:src/workflow/forge/projector/confined.ts:pure:filesystem-read",
       "reason": "#563"
     },
@@ -1035,14 +1031,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-owner:src/workflow/forge/maintainer-cli.ts:git-invocation:git",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/workflow/forge/maintainer-cli.ts:node:child_process:child-process",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-owner:src/workflow/forge/projector/confined.ts:node:fs:filesystem-read",
       "reason": "#563"
     },
@@ -1211,10 +1199,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-unmodeled:scripts/commit-guard.ts:node:child_process:dynamic-executable-spawn",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-unmodeled:scripts/tooling/migration-write-authority-genesis.ts:node:child_process:dynamic-executable-spawnSync",
       "reason": "#563"
     },
@@ -1288,10 +1272,6 @@
     },
     {
       "key": "architecture-effect-unmodeled:src/tools/concurrent/long-task-wrapper.mjs:node:child_process:dynamic-executable-spawn",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-unmodeled:src/workflow/forge/maintainer-cli.ts:node:child_process:dynamic-executable-spawn",
       "reason": "#563"
     },
     {
@@ -2955,10 +2935,6 @@
       "reason": "#563"
     },
     {
-      "key": "process-member-unmodeled:filesystem/checkout-write-door.ts",
-      "reason": "#563"
-    },
-    {
       "key": "process-member-unmodeled:filesystem/file-lock.ts",
       "reason": "#563"
     },
@@ -2987,10 +2963,6 @@
       "reason": "#563"
     },
     {
-      "key": "process-member-unmodeled:scripts/tooling/coverage.ts",
-      "reason": "#563"
-    },
-    {
       "key": "process-member-unmodeled:scripts/tooling/inventory-test-run.ts",
       "reason": "#563"
     },
@@ -3016,10 +2988,6 @@
     },
     {
       "key": "process-member-unmodeled:workflow/promotion/release-cli.ts",
-      "reason": "#563"
-    },
-    {
-      "key": "process-member-unmodeled:workflow/promotion/trigger.ts",
       "reason": "#563"
     },
     {
@@ -3391,10 +3359,6 @@
       "reason": "#563"
     },
     {
-      "key": "standalone-runtime-sink-unmodeled:scripts/commit-guard.ts",
-      "reason": "#563"
-    },
-    {
       "key": "standalone-runtime-sink-unmodeled:scripts/tooling/verification/command-effect-inventory.ts",
       "reason": "#563"
     },
@@ -3440,10 +3404,6 @@
     },
     {
       "key": "standalone-runtime-sink-unmodeled:src/tools/concurrent/long-task-wrapper.mjs",
-      "reason": "#563"
-    },
-    {
-      "key": "standalone-runtime-sink-unmodeled:src/workflow/forge/maintainer-cli.ts",
       "reason": "#563"
     },
     {

@@ -22,7 +22,7 @@
  */
 
 import { frozenRecordsMessage, syncFrozenRecords } from "../src/workflow/record-links.ts";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,10 +43,10 @@ import { ensurePrivateStateDirectory, ownedTemporaryName, PRIVATE_STATE_DIRECTOR
 import { statePath } from "../src/kernel/product-identity.ts";
 import { ROOT_POLICY } from "../src/kernel/root-policy.ts";
 import { bootstrapProcess } from "../src/runtime/cli-debug.ts";
-import { ownedChild, terminate } from "../src/process/process-facts.ts";
 import { loadPinnedConfigSnapshotIfPresent } from "../src/kernel/config.ts";
-import { boundedEnding, cpuLimitedInvocation, type SubprocessBounds } from "../src/process/subprocess-bounds.ts";
-import { SUBPROCESS_BOUNDS } from "../src/workflow/workflow-config.ts";
+import { boundedEnding, type SubprocessBounds } from "../src/process/subprocess-bounds.ts";
+import { runCpuBounded, type CpuBoundedRun } from "../src/process/supervised-run.ts";
+import { subprocessBounds } from "../src/workflow/workflow-config.ts";
 import { applyCheckoutFiles, engineRelativePath, installedDependencyLinks } from "../src/workflow/checkout-setup.ts";
 import { buildOutputPaths } from "../src/workflow/hash-binding-registry.ts";
 import { parseHarnessCommandResult } from "../src/workflow/command-result.ts";
@@ -345,7 +345,7 @@ async function guardStagedTree(): Promise<void> {
       if (compileLegs) await refuseUncompilableStagedTree(stagedTree);
       const checked = factsLeg && existsSync(join(stagedTree, engineRelative, ROOT_POLICY.sourcePath));
       // `harness check` over the staged engine includes the frozen step; without it, the frozen step runs alone.
-      if (checked) refuseStaleGeneratedFacts(join(stagedTree, engineRelative));
+      if (checked) await refuseStaleGeneratedFacts(join(stagedTree, engineRelative));
       else refuseStaleFrozenRecords(stagedTree);
     } catch (error) {
       process.stderr.write(
@@ -419,64 +419,40 @@ function hookIntegrityProblems(repositoryRoot: string): readonly string[] {
 }
 
 // --- bounded typecheck leg (extracted and driven by engine/test/prevention/commit-compile-door.test.ts) ---
-// Bounded like every harness subprocess (src/process/subprocess-bounds.ts):
-// by its CPU WORK per process and one very large hang backstop, never by a
-// wall limit a loaded host runs out (it was the harness typecheck timeout,
-// 120 s; NO-LOAD-BLOCK A-17).
-type LegOutcome = Readonly<{ label: string; status: number | null; signal: NodeJS.Signals | null; output: string; timedOut: boolean; bounds: SubprocessBounds }>;
+// Bounded like every harness subprocess, through the one bounded run
+// (runCpuBounded, src/process/subprocess-bounds.ts): its process GROUP (npm and
+// the compiler it starts) by its CPU work, a stall, the kernel's CPU limit and
+// the one hang backstop, stopped as a group, never by a wall limit a loaded
+// host runs out (it was the harness typecheck timeout, 120 s; NO-LOAD-BLOCK A-17).
+type LegOutcome = Readonly<{ label: string; run: CpuBoundedRun; output: string; bounds: SubprocessBounds }>;
 
 function typecheckLegRefusal(outcome: LegOutcome): string {
-  return `the staged ${outcome.label} typecheck did not finish: ${boundedEnding({ status: outcome.status, signal: outcome.signal, ...(outcome.timedOut ? { errorCode: "ETIMEDOUT" } : {}) }, outcome.bounds)}`;
+  return `the staged ${outcome.label} typecheck did not finish: ${boundedEnding(outcome.run, outcome.bounds)}`;
 }
 
-function runTypecheckLeg(directory: string, label: string, bounds: SubprocessBounds): Promise<LegOutcome> {
-  return new Promise((resolveLeg) => {
-    const chunks: Buffer[] = [];
-    let timedOut = false;
-    let settled = false;
-    let timer: NodeJS.Timeout | null = null;
-    // Its own process group: killing `npm` alone leaves the compiler it started
-    // running, and the pipes then never close (the hang this bound closes).
-    // The CPU limit is set before `npm` is exec'd, so the compiler inherits it.
-    const invocation = cpuLimitedInvocation("npm", ["run", "typecheck"], bounds);
-    const child = spawn(invocation.command, [...invocation.args], { cwd: directory, stdio: ["ignore", "pipe", "pipe"], detached: true });
-    // Taken as this run's own at once, so the backstop can stop the whole group
-    // through the one terminator; a spawn that failed has no process, and its
-    // `error` event finishes the leg.
-    const owned = child.pid === undefined ? null : ownedChild(child);
-    const finish = (status: number | null, signal: NodeJS.Signals | null, suffix = ""): void => {
-      if (settled) return;
-      settled = true;
-      if (timer !== null) clearTimeout(timer);
-      resolveLeg({ label, status, signal, output: `${Buffer.concat(chunks).toString("utf8")}${suffix}`, timedOut, bounds });
-    };
-    timer = setTimeout(() => {
-      timedOut = true;
-      chunks.push(Buffer.from(`\n[commit-guard] ${label} typecheck still running at its ${String(bounds.hangBackstopMs)}ms hang backstop; killing it.\n`));
-      if (owned !== null) void terminate({ group: owned }, { graceMs: 0 });
-    }, bounds.hangBackstopMs);
-    child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.once("error", (error) => finish(null, null, error.message));
-    child.once("close", (status, signal) => finish(status, signal));
-  });
+async function runTypecheckLeg(directory: string, label: string, bounds: SubprocessBounds): Promise<LegOutcome> {
+  const run = await runCpuBounded("npm", ["run", "typecheck"], { cwd: directory, bounds });
+  return { label, run, output: `${run.stdout.toString("utf8")}${run.stderr.toString("utf8")}`, bounds };
 }
 // --- end bounded typecheck leg ---
 
 /** Both trees' compile legs, in parallel, over the STAGED tree; each leg's output is printed whole. */
 async function refuseUncompilableStagedTree(stagedTree: string): Promise<void> {
+  // The configured bounds (`harness.subprocessBounds`), each unset field its default: a checkout with no
+  // pinned document yet has nothing configured, so its legs run under the defaults.
+  const bounds = subprocessBounds(loadPinnedConfigSnapshotIfPresent()?.document ?? {});
   const outcomes = await Promise.all([
-    runTypecheckLeg(stagedTree, "web", SUBPROCESS_BOUNDS),
-    runTypecheckLeg(join(stagedTree, engineRelative), "engine", SUBPROCESS_BOUNDS),
+    runTypecheckLeg(stagedTree, "web", bounds),
+    runTypecheckLeg(join(stagedTree, engineRelative), "engine", bounds),
   ]);
   for (const outcome of outcomes) {
     process.stderr.write(`\n[commit-guard] ${outcome.label} typecheck (staged tree):\n${outcome.output}`);
-    if (outcome.timedOut || outcome.signal !== null) {
+    if (outcome.run.ending !== "exited" || outcome.run.signal !== null) {
       process.stderr.write(
         `\nCOMMIT REFUSED — ${typecheckLegRefusal(outcome)}. The staged tree is uncertified: fix the compiler/toolchain state and commit again.\n\n`,
       );
       process.exitCode = 1;
-    } else if (outcome.status !== 0) {
+    } else if (outcome.run.status !== 0) {
       process.stderr.write(
         `\nCOMMIT REFUSED — the staged ${outcome.label} tree does not compile (the suites strip types, the compiler is the certificate).\n\n`,
       );
@@ -497,18 +473,25 @@ function refuseStaleFrozenRecords(stagedTree: string): void {
 
 /**
  * `harness check --skip-typecheck` over the staged engine, run by the STAGED
- * checker itself (the check's own code may be part of the commit).
+ * checker itself (the check's own code may be part of the commit), through
+ * the one bounded run like every harness subprocess: its process group by its
+ * CPU work, a stall and the one hang backstop, never unbounded. A run a bound
+ * stopped is no verdict: the commit is refused, naming how it ended.
  */
-function refuseStaleGeneratedFacts(engineRoot: string): void {
-  const check = spawnSync(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "check", "--skip-typecheck"], {
-    cwd: engineRoot, env: directoryGitEnvironment(), encoding: "utf8", maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
+async function refuseStaleGeneratedFacts(engineRoot: string): Promise<void> {
+  const bounds = subprocessBounds(loadPinnedConfigSnapshotIfPresent()?.document ?? {});
+  const check = await runCpuBounded(process.execPath, [join(engineRoot, "src", "cli.ts"), "harness", "check", "--skip-typecheck"], {
+    cwd: engineRoot, env: directoryGitEnvironment(), bounds,
   });
-  const payload = check.stdout.trim().split("\n").at(-1) ?? "";
+  const stdout = check.stdout.toString("utf8");
+  const stderr = check.stderr.toString("utf8");
+  if (check.ending !== "exited") throw new Error(`harness check did not finish: ${boundedEnding(check, bounds)}`);
+  const payload = stdout.trim().split("\n").at(-1) ?? "";
   let result: { allPassed?: unknown } & Record<string, unknown>;
   try {
     result = parseHarnessCommandResult(JSON.parse(payload)).result as typeof result;
   } catch {
-    throw new Error(`harness check produced no result payload (status ${String(check.status)}): ${`${check.stdout}${check.stderr}`.trim().split("\n").slice(-8).join("\n")}`);
+    throw new Error(`harness check produced no result payload (status ${String(check.status)}): ${`${stdout}${stderr}`.trim().split("\n").slice(-8).join("\n")}`);
   }
   const steps = Object.values(result).filter((step): step is Readonly<{ step?: unknown; status?: unknown }> => typeof step === "object" && step !== null && "step" in step);
   if (result.allPassed === true) {

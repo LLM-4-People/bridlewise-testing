@@ -58,11 +58,10 @@ jobs:
       - name: Install web dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --ignore-scripts --no-audit --no-fund
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "true"
 
       # The key and client id reach only this step's process, by the names the App registry declares.
       - name: Audit the installation

@@ -77,7 +77,7 @@ export function itemPath(id: string): string {
  * tracker's reader first (`tracker_item_invalid`), and an id that already has
  * a file is `community_record_exists`. Answers the paths written.
  */
-export function writeIntakeRecord(root: string, record: IntakeRecord, dates: Readonly<{ opened: string; closed: string }>): readonly string[] {
+export async function writeIntakeRecord(root: string, record: IntakeRecord, dates: Readonly<{ opened: string; closed: string }>): Promise<readonly string[]> {
   const path = itemPath(record.id);
   if (existsSync(join(root, path))) refuse("community_record_exists", `${path} exists: the issue was already triaged`, { id: record.id });
   const text = intakeItemText(record, dates);
@@ -86,7 +86,7 @@ export function writeIntakeRecord(root: string, record: IntakeRecord, dates: Rea
   if (!written.success) refuse("community_record_write_failed", `Failed to write ${path}: ${written.reason ?? "unknown error"}`);
   const board = syncTrackerBoard(root, true);
   if (!board.converged) refuse("community_record_board_invalid", `the task board cannot take the record: ${board.problems.join("; ")}`);
-  const page = regenerateRoadmapPage(root, true);
+  const page = await regenerateRoadmapPage(root, true);
   if (!page.converged) refuse("community_record_roadmap_invalid", `the roadmap page cannot take the record (${page.status}): ${page.changed.join(", ")}`);
   // The arm names the blocks it rewrote; the record names the file.
   return [path, ...board.changed, ...(page.status === "regenerated" ? [ROADMAP_PAGE.path] : [])];
@@ -126,7 +126,7 @@ export async function landIntakeRecord(landing: RecordLanding, record: IntakeRec
   if (status.trim().length > 0) refuse("community_checkout_dirty", "the checkout a record lands from must be clean");
   const branch = recordBranch(record.id);
   gitOutput(repository, ["switch", "--create", branch]);
-  const paths = writeIntakeRecord(repository.root, record, dates);
+  const paths = await writeIntakeRecord(repository.root, record, dates);
   gitOutput(repository, ["add", "--", ...paths]);
   const issue = issueNumberOf(record);
   const message = `tracker: ${record.id} from #${issue} (${command})\n\nThe ${command} command on #${issue} adds this record; when it lands, the\nprojector adopts the issue from the record's gh field.\n`;
