@@ -28,7 +28,7 @@
 import { describe, expect, test } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   checkRepository,
@@ -40,6 +40,7 @@ import {
   patternLivenessFailure,
 } from "../../engine/scripts/verification/pattern-liveness.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { modulePath } from "../helpers/module-resolver.ts";
 import { TEST_INCLUDE } from "../test-include.ts";
 import { DECLARED_ROOT } from "../declared-root.ts";
 import { TEST_HANG_BACKSTOP_MS } from "../test-budget.ts";
@@ -193,7 +194,7 @@ function publicRunnerFiles(root: string): ReadonlySet<string> {
   const script = manifest.scripts?.["test:public"] ?? "";
   // The script runs `node --test` through the guard runner (the one test-execution door): its file arguments follow it.
   const words = script.split(/\s+/u);
-  const runner = words.indexOf("engine/scripts/tooling/test-guards.ts");
+  const runner = words.indexOf(relative(root, modulePath("test-guards.ts")));
   if (words[0] !== "node" || runner < 0) return new Set();
   const ci = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
   if (!/^\s*run: npm run test:public\s*$/mu.test(ci)) return new Set();
