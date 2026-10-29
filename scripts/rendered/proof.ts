@@ -18,7 +18,7 @@ import { parseArgs } from "node:util";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
-import { instrumentContext, judgeFuture, judgeStates, launchBrowser, navigate, openPage, serveSite, siteRestore } from "./judge.ts";
+import { instrumentContext, judgeFuture, judgeLoadStress, judgeStates, launchBrowser, navigate, openPage, serveSite, siteRestore } from "./judge.ts";
 import { tokenValues } from "../token-owner.ts";
 import { vendoredFaces } from "../vendor-fonts.ts";
 import { CONTENT_SECURITY_POLICIES, JUDGE_LIMITS, RENDER_STATES, RENDERED_RULES, type PageRule } from "./rules.ts";
@@ -73,7 +73,8 @@ button, input, textarea, select { font: inherit; }
 
 /** A page: what it adds to the clean one, and the rule that must name it. `only` judges it with exactly those rows (a row pending on every surface is proved this way). */
 /** `base`: the base path the page is judged as served under (the site's rows read it); the cockpit's own pages are at the root. */
-type Plant = Readonly<{ name: string; policy?: string; head?: string; body?: string; rule: string; only?: readonly string[]; base?: string }>;
+/** `stress`: judged as the load under stress (every font, image and stylesheet late, shifts counted from the start). */
+type Plant = Readonly<{ name: string; policy?: string; head?: string; body?: string; rule: string; only?: readonly string[]; base?: string; stress?: boolean }>;
 
 const cspMeta = (policy: string): string => `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
 
@@ -121,6 +122,22 @@ function lateFace(response: ServerResponse): void {
   response.on("close", () => clearTimeout(timer));
 }
 const LATE_FACE_TEXT = "The model brings the strength. The harness holds the reins. ".repeat(6);
+/** The late face's page, on any face file: its swap moves the block below by about 0.22. */
+const lateFaceHead = (file: string): string => `<style>@font-face { font-family: "Late Proof"; src: url("${file}") format("woff2"); font-display: swap; size-adjust: 250% } #late { font: 16px/normal "Late Proof", serif }</style>`;
+const LATE_FACE_BODY = `<div id="late">${LATE_FACE_TEXT}</div><section style="height: 70vh"><p>Below the late text, filling the window.</p></section>`;
+
+/** The load under stress's own resources: a tall image with its own size, and a stylesheet that pushes the text down. */
+const TALL_IMAGE_PATH = "/proof/tall.svg";
+const tallImage = (response: ServerResponse): void => {
+  response.writeHead(200, { "content-type": "image/svg+xml" });
+  response.end('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="320"><rect width="400" height="320"/></svg>');
+};
+const LATE_SHEET_PATH = "/proof/late.css";
+const lateSheet = (response: ServerResponse): void => {
+  response.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+  response.end("#prose { padding-top: 320px; }\n");
+};
+const BELOW = '<section style="height: 70vh"><p>Text a reader is reading, filling the window.</p></section>';
 
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
@@ -235,6 +252,9 @@ const PLANTS: readonly Plant[] = [
   { name: "a page wider than its viewport", body: '<div style="width: 4000px; height: 1px"></div>', rule: "no-sideways-scroll", only: ["no-sideways-scroll"] },
   { name: "a block pushed in above the text after the first paint", body: '<section style="height: 90vh"><p>Text a reader is reading, filling the window.</p></section><script>addEventListener("load", () => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => { const d = document.createElement("div"); d.style.height = "300px"; document.body.prepend(d); }, 50))))</script>', rule: "layout-shift", only: ["layout-shift"] },
   { name: "a block pushed in by a timer the moment the page loads", body: '<section style="height: 90vh"><p>Text a reader is reading, filling the window.</p></section><script>addEventListener("load", () => setTimeout(() => { const d = document.createElement("div"); d.style.height = "300px"; document.body.prepend(d); }, 0))</script>', rule: "layout-shift", only: ["layout-shift"] },
+  { name: "under load stress, a web font whose swap moves the text", head: lateFaceHead(OTHER_FILE), body: LATE_FACE_BODY, rule: "layout-shift", stress: true },
+  { name: "under load stress, a late image without set dimensions", body: `<img alt="" src="${TALL_IMAGE_PATH}">${BELOW}`, rule: "layout-shift", stress: true },
+  { name: "under load stress, a stylesheet applied after the first paint", head: `<link rel="stylesheet" href="${LATE_SHEET_PATH}" media="print" onload="this.media='all'">`, body: BELOW, rule: "layout-shift", stress: true },
   { name: "no top heading", rule: "landmarks", only: ["landmarks"] },
   { name: "two top headings", body: "<h1>one</h1><h1>two</h1>", rule: "landmarks", only: ["landmarks"] },
   { name: "a second main landmark", body: "<h1>t</h1><main><p>again</p></main>", rule: "landmarks", only: ["landmarks"] },
@@ -245,6 +265,9 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "under load stress, the clean page", rule: "layout-shift", stress: true },
+  { name: "under load stress, a late image with its dimensions set", body: `<img alt="" src="${TALL_IMAGE_PATH}" width="400" height="320">${BELOW}`, rule: "layout-shift", stress: true },
+  { name: "under load stress, a stylesheet in the head that arrives late (the first paint waits for it)", head: `<link rel="stylesheet" href="${LATE_SHEET_PATH}">`, body: BELOW, rule: "layout-shift", stress: true },
   { name: "a web font that arrives after the first paint and reflows the text", head: `<style>@font-face { font-family: "Late Proof"; src: url("${LATE_FACE_PATH}") format("woff2"); font-display: swap; size-adjust: 250% } #late { font: 16px/normal "Late Proof", serif }</style>`, body: `<div id="late">${LATE_FACE_TEXT}</div><section style="height: 70vh"><p>Below the late text, filling the window.</p></section>`, rule: "layout-shift", only: ["layout-shift"] },
   { name: "a token family loaded from its own vendored file", head: vendoredFace(SANS_FILE), rule: "font-families" },
   // A live page replaces nodes while the states are forced (the cockpit's Lens callout did): a node gone between snapshot and force is gone, not a refusal.
@@ -282,18 +305,23 @@ async function prove(executable: string | null): Promise<readonly string[]> {
     CLEAN_TOO.forEach((plant, i) => writeFileSync(join(dir, `clean-${i}.html`), page(plant)));
     const rows = (only: readonly string[] | undefined): readonly PageRule[] | undefined =>
       only === undefined ? undefined : RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && only.includes(r.id));
-    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady, [LATE_FACE_PATH]: lateFace, ...Object.fromEntries(FACES.flatMap((face) => face.files).map((file) => [file, servedFont(file)])) });
+    const { server, origin } = await serveSite(dir, "/proof", { [STEADY_PATH]: steady, [LATE_FACE_PATH]: lateFace, [TALL_IMAGE_PATH]: tallImage, [LATE_SHEET_PATH]: lateSheet, ...Object.fromEntries(FACES.flatMap((face) => face.files).map((file) => [file, servedFont(file)])) });
     const browser = await launchBrowser(executable);
     try {
       // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
       // then through its future; the request rows listen for the whole visit.
       const states = RENDER_STATES.filter((s) => s.surfaces.includes("site"));
-      const judge = async (file: string, only?: readonly string[], base = ""): Promise<readonly string[]> => {
+      const judge = async (file: string, only?: readonly string[], base = "", stress = false): Promise<readonly string[]> => {
         const context = await browser.newContext({ serviceWorkers: "block" });
         const requests: string[] = [];
-        await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding), base);
+        await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding), base, stress);
         const view = await openPage(context);
         await navigate(view, `${origin}/proof/${file}`);
+        if (stress) {
+          const findings = await judgeLoadStress(view, "cockpit");
+          await context.close();
+          return findings;
+        }
         const selected = rows(only);
         const findings = [...(await judgeStates(view, "cockpit", siteRestore(), selected, states)), ...(await judgeFuture(view, "cockpit", selected)), ...(selected === undefined ? requests : [])];
         await context.close();
@@ -302,11 +330,11 @@ async function prove(executable: string | null): Promise<readonly string[]> {
       const clean = await judge("clean.html");
       if (clean.length > 0) failures.push(`the clean page is not clean:\n    ${clean.join("\n    ")}`);
       for (const [i, plant] of PLANTS.entries()) {
-        const findings = await judge(`plant-${i}.html`, plant.only, plant.base);
+        const findings = await judge(`plant-${i}.html`, plant.only, plant.base, plant.stress);
         if (!findings.some((f) => f.includes(`[${plant.rule}]`))) failures.push(`${plant.name}: not caught by ${plant.rule} (found: ${findings.join("; ") || "nothing"})`);
       }
       for (const [i, plant] of CLEAN_TOO.entries()) {
-        const findings = await judge(`clean-${i}.html`, plant.only, plant.base);
+        const findings = await judge(`clean-${i}.html`, plant.only, plant.base, plant.stress);
         if (findings.length > 0) failures.push(`the clean page is not clean (${plant.name}): ${findings.join("; ")}`);
       }
     } finally {

@@ -37,7 +37,7 @@ import { chromium, type Browser, type BrowserContext, type CDPSession, type Fram
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
 import { SERVED_HTML, SITE_THEME_STORAGE } from "../../shared/site-page.ts";
-import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type Scope, type RenderState, type RequestRule, type Surface } from "./rules.ts";
+import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, LOAD_STRESS_MS, LOAD_STRESSED, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type Scope, type RenderState, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
   readonly code: string;
@@ -107,7 +107,7 @@ async function recordedOf(page: Page, journal: Journal, closed: readonly string[
  * worker, which no frame or CDP attach reaches, is recorded as it is made, and
  * so is a delayed scheduler.postTask, which the page clock does not run.
  */
-function instrumentFrame(binding: string): void {
+function instrumentFrame(binding: string, countFromLoad: boolean): void {
   const scope = globalThis as unknown as Record<string, unknown>;
   const call = scope[binding];
   if (typeof call !== "function") {
@@ -120,8 +120,10 @@ function instrumentFrame(binding: string): void {
   // lets it, so counting it judged the host, not the page (#632). The judge
   // stops counting while it changes the viewport and the media itself, and
   // counts again through the page's future (judgeFuture): a judge resizing a
-  // page is not the page shifting.
-  const shift = { value: 0, counting: false, set: (on: boolean): void => { void on; } };
+  // page is not the page shifting. Under load stress (judgeLoadStress) the
+  // count is open from the navigation's start: the load's own shifts are what
+  // that pass judges, its delays chosen, not the host's.
+  const shift = { value: 0, counting: countFromLoad, set: (on: boolean): void => { void on; } };
   scope.__renderedShift = shift;
   try {
     const add = (entries: readonly PerformanceEntry[]): void => {
@@ -213,7 +215,7 @@ const opening = new WeakMap<BrowserContext, number>();
  * every request rule of `surface` sees every request. A window the page opens
  * itself is reported: only pages opened by `openPage` are judged.
  */
-export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void, base = ""): Promise<void> {
+export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void, base = "", loadStress = false): Promise<void> {
   scopes.set(context, Object.freeze({ surface, base }));
   // NO WALL-CLOCK LIMIT on anything a judgement waits for — a navigation, an action, a wait — set here, once, for
   // every judged context: under host load a slow page is still a page, and Playwright's 30 s defaults would fail
@@ -224,7 +226,16 @@ export async function instrumentContext(context: BrowserContext, surface: Surfac
   surfaces.set(context, surface);
   await context.clock.install();
   await context.exposeBinding(BINDING, ({ page, frame }: { page: Page; frame: Frame }, kind: unknown, value: unknown) => record(page, frame, kind, value));
-  await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)});` });
+  await context.addInitScript({ content: `(${instrumentFrame.toString()})(${JSON.stringify(BINDING)}, ${JSON.stringify(loadStress)});` });
+  // Under load stress every font, image and stylesheet answers LOAD_STRESS_MS
+  // late, the same for every host: a page that paints before they arrive and
+  // moves when they do is found (judgeLoadStress).
+  if (loadStress) {
+    await context.route("**/*", (route) => {
+      if (!LOAD_STRESSED.has(route.request().resourceType())) return route.continue();
+      return new Promise<void>((done) => setTimeout(() => { route.continue().then(done, done); }, LOAD_STRESS_MS));
+    });
+  }
   context.on("page", (page) => {
     const expected = opening.get(context) ?? 0;
     if (expected > 0) opening.set(context, expected - 1);
@@ -672,6 +683,23 @@ export async function judgeFuture(page: Page, surface: Surface, rules?: readonly
 
 const statesOf = (surface: Surface): readonly RenderState[] => RENDER_STATES.filter((s) => s.surfaces.includes(surface));
 
+/**
+ * THE LOAD UNDER STRESS: `page`, opened by `navigate` in a context instrumented
+ * with `loadStress`, has had every font, image and stylesheet answer
+ * LOAD_STRESS_MS late, and its shift count open from the navigation's start.
+ * Once it is ready and a frame is drawn, the layout-shift row judges what the
+ * load moved: a web font's swap, a late image without set dimensions, a
+ * stylesheet applied after the first paint. The delays are the judge's, so the
+ * result is the same on every host. The page's clock is held (navigate), so
+ * its timers' shifts are the main judgement's, not counted here twice.
+ */
+export async function judgeLoadStress(page: Page, surface: Surface): Promise<readonly string[]> {
+  await ready(page);
+  await page.screenshot({ clip: { x: 0, y: 0, width: 1, height: 1 } });
+  const rows = RENDERED_RULES.filter((rule): rule is PageRule => rule.kind === "page" && rule.id === "layout-shift");
+  return (await judgePage(page, surface, rows)).map((finding) => `(the load under stress) ${finding}`);
+}
+
 async function enter(page: Page, state: RenderState): Promise<void> {
   if (state.viewport !== undefined) await page.setViewportSize({ ...state.viewport });
   await page.emulateMedia({ media: state.media, reducedMotion: state.reducedMotion, ...(state.colorScheme === undefined ? {} : { colorScheme: state.colorScheme }) });
@@ -765,6 +793,18 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
       }
       await context.close();
     }
+    // The load under stress, once per page (the lead theme): every font, image
+    // and stylesheet LOAD_STRESS_MS late, shifts counted from the start.
+    const stressed = await browser.newContext({ serviceWorkers: "block" });
+    let current = "";
+    await instrumentContext(stressed, "site", origin, (finding) => findings.add(`${current} [logbook, load stress]: ${finding}`), baseurl, true);
+    const page = await openPage(stressed);
+    for (const path of pages) {
+      current = path;
+      await navigate(page, `${origin}${path}`);
+      for (const finding of await judgeLoadStress(page, "site")) findings.add(`${path} [logbook] ${finding}`);
+    }
+    await stressed.close();
   } finally {
     await browser.close();
     await new Promise<void>((done) => server.close(() => done()));

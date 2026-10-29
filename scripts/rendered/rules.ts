@@ -695,6 +695,15 @@ export const FUTURE_MS = 30_000;
 export const STEP_MS = 1_000;
 
 /**
+ * The load under stress (judge.ts judgeLoadStress): how late every font, image
+ * and stylesheet answers, and the request kinds delayed. Chosen, not the
+ * host's, so a page that paints before they arrive and moves when they do is
+ * found on every host.
+ */
+export const LOAD_STRESS_MS = 1_000;
+export const LOAD_STRESSED: ReadonlySet<string> = new Set(["font", "image", "stylesheet"]);
+
+/**
  * THE JUDGE'S DECLARED LIMITS — what a green judgement does NOT claim, each
  * with the reason it is a limit. Every report the judge makes prints this
  * table (judge.ts `site`, proof.ts, the capture walk's --judge-only), so no
@@ -713,7 +722,8 @@ export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string; why: s
   { id: "real-time-loops", limit: "work driven by the browser's own task queues in wall time — a MessageChannel or postMessage loop, a chain on network or idle callbacks the clock does not fake — is judged only as far as it got by each judgement", why: "the page clock fakes timers, intervals and animation frames, not the task queues; running those forward needs the browser's virtual time, which cannot be handed back to real time (the capture walk needs real time between views)" },
   { id: "infinite-animations", limit: "an infinite CSS or Web animation is judged where it stands at each judgement, not at every point of its cycle, except its colours: every colour its keyframes name is judged against the tokens", why: "it has no end to finish to; its keyframes are the only place its colours can all be read" },
   { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement), and every colour its keyframes name is judged against the tokens; a value between two keyframes is not judged", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
-  { id: "load-shifts", limit: "a layout shift the page makes while it loads, before it is ready (its requests done, its fonts settled) and a frame is drawn, is not counted: a web font's swap, an image without set dimensions arriving late, and a stylesheet applied after the first paint (async CSS) are each one, and each is a shift a reader can see", why: "when a load's shifts land depends on the host: a late font swapped inside the count on a loaded host and before it on an idle one (#632), so the count opens where every host agrees; judging these three needs controlled delays (a load-stress pass), not the host's" },
+  { id: "load-shifts", limit: `a layout shift the page makes while it loads, before it is ready and a frame is drawn, is not counted in the main judgement; the load under stress counts them, with every font, image and stylesheet ${String(LOAD_STRESS_MS)} ms late`, why: "when a load's shifts land depends on the host: a late font swapped inside the count on a loaded host and before it on an idle one (#632); the delays the stress pass chooses are the same on every host, so a font's swap, a late image without set dimensions and async CSS are judged there" },
+  { id: "load-stress-order", limit: `the load under stress delays every font, image and stylesheet by the same ${String(LOAD_STRESS_MS)} ms, in the lead theme at the desktop size; a shift that needs them to arrive in another order, or only at another size, is not seen`, why: "one controlled delay judges every page once; every order of every resource is not run" },
   { id: "forced-states-churn", limit: "an element a page adds while the states are being forced, after the forcing pass's last look for new elements (or in a shadow root or frame it adds), is judged without them", why: "a page that keeps replacing its nodes would otherwise keep the pass going; reading the tree again would drop the states already forced, so the pass reads it once and looks twice more in the scopes it read" },
   { id: "forced-states-together", limit: "hover, active and focus are forced on every element at once (focus only where an element can take it), not one element at a time", why: "one forced pass shows any rule those states turn on; combinations that cannot occur together may also be judged" },
   { id: "hostile-pages", limit: "a page written to hide from the judgement — one that takes a removed frame's setters, or stops the Content-Security-Policy violation event before the judge's listener — can evade it", why: "the judge's threat model is our own pages making mistakes; it records in the page, where such a page can interfere" },
@@ -808,7 +818,7 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "layout-shift",
-    holds: `The page's own layout shifts (its load and its future; never the judge's viewport and media changes) sum to no more than ${String(LAYOUT_SHIFT_BUDGET)}; a demo on the palette burn-down list is exempt until #161.`,
+    holds: `The page's own layout shifts (its load, judged with every font, image and stylesheet late by a chosen delay, and its future; never the judge's viewport and media changes) sum to no more than ${String(LAYOUT_SHIFT_BUDGET)}; a demo on the palette burn-down list is exempt until #161.`,
     surfaces: ["site"],
     pending: { cockpit: "the cockpit's views stream content by design; its owner sets a budget and adds \"cockpit\" here" },
     input: () => ({ budget: LAYOUT_SHIFT_BUDGET, ownPalette: [...PALETTE_BURN_DOWN.keys()] }),
