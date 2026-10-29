@@ -1,6 +1,6 @@
 /**
  * THE REPRODUCTION DOOR'S JUDGEMENT (src/workflow/flake-cli.ts `reproduceFlake`,
- * `recordIdentityMove`, `parseFlakeReproduceArgs`, `parseFlakeMoveArgs`) and
+ * `recordIdentityMoves`, `parseFlakeReproduceArgs`, `parseFlakeMoveArgs`) and
  * the records it writes (src/shared/flake-reproduction.ts): a test that failed
  * on the fix's parent and passed on the fix is recorded with the digest it
  * failed with, under the one set of conditions both sides ran under, and the
@@ -25,7 +25,7 @@ import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { claimLooks, reproducedDigests, flakeAttemptDirectory, flakeAttemptFileName, flakeReproductionDirectory, flakeReproductionFileName, noOpFixProbability, readFlakeAttempts, readFlakeReproductions, runsNeeded, serializeFlakeReproduction, type FlakeAttempt, type FlakeReproduction, type IdentityMove } from "../../src/shared/flake-reproduction.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { flakyVerdictWithin } from "../../src/shared/run-history.ts";
-import { appendFlakeAttempt, assertShimWorldConfined, createShimWorld, deterministicRuns, parseFlakeMoveArgs, parseFlakeReproduceArgs, recordableConditions, recordIdentityMove, reproduceFlake, shimEnvironment, statisticalRunsOf, type ReproductionAnswer, type ReproductionReport, type ReproductionRun, type ReproductionSettings } from "../../src/workflow/flake-cli.ts";
+import { appendFlakeAttempt, assertShimWorldConfined, createShimWorld, deterministicRuns, parseFlakeMoveArgs, parseFlakeReproduceArgs, recordableConditions, recordIdentityMoves, reproduceFlake, shimEnvironment, statisticalRunsOf, type ReproductionAnswer, type ReproductionReport, type ReproductionRun, type ReproductionSettings } from "../../src/workflow/flake-cli.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 
@@ -302,19 +302,47 @@ test("A MOVE is recorded only when the inventories show it: on the hermetic suit
   const asked: string[] = [];
   const inventoryAt = async (commit: string): Promise<string> => { asked.push(commit); return inventories.get(commit) ?? assert.fail(`no inventory planted for ${commit}`); };
   const written: IdentityMove[] = [];
-  const move = (from: string, to: string): Promise<string> => recordIdentityMove(parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--from", from, "--to", to]),
-    configuredGitRepository({}, repo.root), inventoryAt, (record) => { written.push(record); return record.from; }, () => new Date("2026-10-08T00:00:00.000Z"));
-  assert.equal(await move(IDENTITY, "live/x.test.ts::counts every run, live"), IDENTITY);
+  const REASON = "needs the host's user service manager";
+  const record = (pairs: readonly (readonly [string, string])[]): Promise<readonly string[]> => recordIdentityMoves(
+    parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, ...pairs.flatMap(([from, to]) => ["--from", from, "--to", to, "--reason", REASON])]),
+    configuredGitRepository({}, repo.root), inventoryAt, (written1) => { written.push(written1); return written1.from; }, () => new Date("2026-10-08T00:00:00.000Z"));
+  assert.deepEqual(await record([[IDENTITY, "live/x.test.ts::counts every run, live"]]), [IDENTITY]);
   assert.deepEqual(asked, [before, moved], "the parent's and the commit's inventories, each by its own commit");
-  assert.deepEqual(written[0], { schemaVersion: "bridlewise-identity-move/v1", suite: "engine", from: IDENTITY, to: "live/x.test.ts::counts every run, live", commit: moved, recordedAt: "2026-10-08T00:00:00.000Z" });
+  assert.deepEqual(written[0], { schemaVersion: "bridlewise-identity-move/v2", suite: "engine", from: IDENTITY, to: "live/x.test.ts::counts every run, live", reason: REASON, commit: moved, recordedAt: "2026-10-08T00:00:00.000Z" });
   for (const [what, from, to] of [
     ["it never was a hermetic test", "test/x.test.ts::never", "live/x.test.ts::never"],
     ["it is still a hermetic test", "test/x.test.ts::stays", "live/x.test.ts::stays"],
     ["the destination is no live suite file", IDENTITY, "test/elsewhere.test.ts::counts every run"],
   ] as const) {
-    await assert.rejects(move(from, to), (error: unknown) => (error as { code?: string }).code === "flake_move_refused", what);
+    await assert.rejects(record([[from, to]]), (error: unknown) => (error as { code?: string }).code === "flake_move_refused", what);
   }
-  assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "web", "--commit", moved, "--from", IDENTITY, "--to", "live/x.test.ts::y"]), /only the engine has a live suite/u);
+  // SEVERAL MOVES, ONE CALL: both inventories are read once, each pair judged on its own; one refused pair refuses the
+  // whole call, naming it, and writes nothing.
+  asked.length = 0;
+  written.length = 0;
+  await assert.rejects(record([[IDENTITY, "live/x.test.ts::counts every run, live"], ["test/x.test.ts::stays", "live/x.test.ts::stays"]]),
+    (error: unknown) => (error as { code?: string }).code === "flake_move_refused" && (error as Error).message.includes("test/x.test.ts::stays is still a test of the hermetic suite"));
+  assert.deepEqual(asked, [before, moved], "two moves, the two inventories read once");
+  assert.deepEqual(written, [], "a refused call writes no move, not even the pairs that would pass");
+  // SEVERAL COMMITS, ONE CALL: each pair is judged at the --commit before it, each commit's inventories read once.
+  const later = repo.commit({ "engine/test/z.test.ts": "z\n" }, "a second move to the live suite");
+  inventories.set(later, inventory([["test/x.test.ts", "stays"]], ["live/x.test.ts", "live/z.test.ts"]));
+  inventories.set(moved, inventory([["test/x.test.ts", "stays"], ["test/z.test.ts", "goes later"]], ["live/x.test.ts"]));
+  inventories.set(before, inventory([["test/x.test.ts", "counts every run"], ["test/x.test.ts", "stays"], ["test/z.test.ts", "goes later"]], []));
+  asked.length = 0;
+  const writtenBoth: IdentityMove[] = [];
+  const both = await recordIdentityMoves(parseFlakeMoveArgs(["move", "--suite", "engine",
+    "--commit", moved, "--from", IDENTITY, "--to", "live/x.test.ts::counts every run, live", "--reason", REASON,
+    "--commit", later, "--from", "test/z.test.ts::goes later", "--to", "live/z.test.ts::goes later", "--reason", REASON]),
+  configuredGitRepository({}, repo.root), inventoryAt, (written1) => { writtenBoth.push(written1); return written1.from; }, () => new Date("2026-10-08T00:00:00.000Z"));
+  assert.deepEqual(both, [IDENTITY, "test/z.test.ts::goes later"]);
+  assert.deepEqual(writtenBoth.map((entry) => entry.commit), [moved, later], "each move records the commit it moved in");
+  assert.deepEqual(asked, [before, moved, later], "each commit's inventory and its parent's, read once for the call");
+  assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "engine", "--from", IDENTITY, "--to", "live/x.test.ts::y", "--reason", REASON]), /follows the --commit it moved in/u);
+  assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--from", IDENTITY, "--to", "live/x.test.ts::y"]), /--reason, are required/u, "a move without its reason");
+  assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--to", "live/x.test.ts::y", "--from", IDENTITY]), /follows its own --from/u);
+  assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--from", IDENTITY, "--to", "live/x.test.ts::y", "--reason", "  "]), /says no reason/u);
+  assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "web", "--commit", moved, "--from", IDENTITY, "--to", "live/x.test.ts::y", "--reason", REASON]), /only the engine has a live suite/u);
   assert.throws(() => parseFlakeMoveArgs(["move", "--suite", "engine", "--commit", moved, "--from", IDENTITY]), /are required/u);
 });
 
