@@ -1,31 +1,41 @@
 /**
- * THE SHARD MANIFEST AND PLAN OWNER.
+ * THE SHARD POPULATION AND PLAN OWNER.
  *
- * `vitest list --filesOnly --json` is the only population: the runner's own
- * selection, not a second glob. This module accounts for every live file as
- * either a supported file or an explicitly excluded file with a reason, then
- * turns the measured weights into deterministic disjoint shards.
+ * NOTHING HERE IS A LIST A BRANCH EDITS. The population is DERIVED: the
+ * runner's own include binding (`tests/test-include.ts`, the value
+ * `vitest.config.ts` hands the runner) expanded over the tree, cross-checked
+ * against `vitest list --filesOnly --json` by `verify`. A file is SUPPORTED
+ * unless it declares its own exclusion in a header line —
  *
- * The checked-in manifest is a measurement, not a run. A checked-in file
- * cannot carry the SHA of the commit that contains it, so it records the
- * commit whose weights were measured. The plan records the head SHA of the
- * run that will use it, and every shard report is wrapped with that same
- * provenance before the merge will consider it.
+ *   // @shard-exclude: <why it cannot be judged here> (evidence: <where that is recorded>)
  *
- * `measure` is the one weight producer. It reads the wrapped shard reports
- * from a green run (the JSON reporter's per-file `endTime - startTime`), and
- * rewrites the supported files' weights plus `measuredHeadSha`, `measuredAt`
- * and `weightSource`. It refuses a partial, duplicated, non-green or
- * different-manifest population, so a measurement cannot describe a set the
- * manifest does not carry.
+ * — the one judgement a person makes about a test file, kept in the file it
+ * is about, so it can never conflict with another branch's and leaves with
+ * the file. The weights are a MEASUREMENT, in `tests/test-weights.json`,
+ * written only by `measure` (from a green run's wrapped shard reports, the
+ * JSON reporter's per-file `endTime - startTime`). A supported file with no
+ * weight yet is planned at the median measured weight and named in the plan
+ * as unmeasured; a weight whose file left the population is ignored. A pull
+ * request that adds, removes or excludes a test therefore touches no shared
+ * aggregate (the shared `tests/test-shards.json` it replaced lost entries in
+ * merges and turned required checks red).
+ *
+ * The weights file is a measurement, not a run: it records the commit whose
+ * weights were measured. The plan records the head SHA of the run that will
+ * use it, and every shard report is wrapped with that same provenance before
+ * the merge will consider it. `measure` refuses a partial, duplicated,
+ * non-green or different-population measurement.
  */
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { isEntryPoint } from "../engine/src/runtime/entry-point.ts";
+import { TEST_INCLUDE } from "../tests/test-include.ts";
 
-export const MANIFEST_SCHEMA = "bridlewise-test-shard-manifest/v1";
+export const WEIGHTS_SCHEMA = "bridlewise-test-shard-weights/v1";
+/** The weights file, repository-relative: written only by `measure`. */
+export const WEIGHTS_PATH = "tests/test-weights.json";
 export const PLAN_SCHEMA = "bridlewise-test-shard-plan/v1";
 export const SHARD_REPORT_SCHEMA = "bridlewise-test-shard-report/v1";
 /** The one per-file duration definition the weights are measured with. */
@@ -126,55 +136,78 @@ export function manifestHash(files) {
   return sha256(files.map((file) => typeof file === "string" ? file : file.path).sort().join("\n"));
 }
 
-function readEntries(manifest, root) {
-  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
-    fail("manifest: expected an object");
-  }
-  if (manifest.schemaVersion !== MANIFEST_SCHEMA) {
-    fail(`manifest: expected schema ${MANIFEST_SCHEMA}`);
-  }
-  if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
-    fail("manifest: files must be a non-empty array");
-  }
-  if (!Array.isArray(manifest.excluded)) fail("manifest: excluded must be an array");
-  const files = manifest.files.map((entry, index) => {
-    if (entry === null || typeof entry !== "object") fail(`manifest: file ${index} is not an object`);
-    const path = normalizeFile(root, entry.path, `manifest file ${index}`);
-    if (!Number.isSafeInteger(entry.weightMs) || entry.weightMs <= 0) {
-      fail(`manifest: ${path} must carry a positive integer weightMs`);
-    }
-    return { path, weightMs: entry.weightMs };
-  });
-  const excluded = manifest.excluded.map((entry, index) => {
-    if (entry === null || typeof entry !== "object") fail(`manifest: exclusion ${index} is not an object`);
-    const path = normalizeFile(root, entry.path, `manifest exclusion ${index}`);
-    if (typeof entry.reason !== "string" || entry.reason.trim().length === 0) {
-      fail(`manifest: exclusion ${path} has no reason`);
-    }
-    if (typeof entry.evidence !== "string" || entry.evidence.trim().length === 0) {
-      fail(`manifest: exclusion ${path} has no evidence`);
-    }
-    return { path, reason: entry.reason, evidence: entry.evidence };
-  });
-  const filePaths = files.map((entry) => entry.path);
-  if (new Set(filePaths).size !== filePaths.length) fail("manifest: duplicate supported file");
-  const excludedPaths = excluded.map((entry) => entry.path);
-  if (new Set(excludedPaths).size !== excludedPaths.length) fail("manifest: duplicate exclusion");
-  for (const path of filePaths) {
-    if (excludedPaths.includes(path)) fail(`manifest: ${path} is both supported and excluded`);
-  }
-  return { files, excluded };
+/** A test file's own exclusion line; any other mention of the tag is a malformed declaration. */
+const EXCLUSION_LINE = /^[ \t]*(?:\/\/|\*)[ \t]*@shard-exclude:[ \t]*(\S.*?)[ \t]+\(evidence:[ \t]*(\S.*?)\)[ \t]*$/gmu;
+const EXCLUSION_MENTION = /@shard-exclude\b/gu;
+
+/** Every file the runner's include binding selects in the tree at `root`, repository-relative and sorted. */
+export function selectedTestFiles(root) {
+  const repositoryRoot = resolve(root);
+  const files = new Set(TEST_INCLUDE.flatMap((pattern) => globSync(pattern, { cwd: repositoryRoot })).map((file) => normalizeFile(repositoryRoot, file, "selected test file")));
+  if (files.size === 0) fail("population: the runner's include binding selects no file");
+  return [...files].sort();
 }
 
-export function readManifest(root, manifestPath) {
-  const manifest = readJson(manifestPath, "manifest");
-  const { files, excluded } = readEntries(manifest, resolve(root));
+/**
+ * The exclusion a test file declares in its own text, or null. Exactly one
+ * well-formed `@shard-exclude:` line, with a reason and its evidence; a second
+ * line, or a mention that is not a well-formed line, is refused (a typo must
+ * never silently make a file supported, nor two reasons one).
+ */
+export function declaredExclusion(text, path) {
+  const lines = [...text.matchAll(EXCLUSION_LINE)];
+  const mentions = [...text.matchAll(EXCLUSION_MENTION)].length;
+  if (mentions !== lines.length) fail(`exclusion: ${path} mentions @shard-exclude outside a well-formed "@shard-exclude: <reason> (evidence: <evidence>)" line`);
+  if (lines.length > 1) fail(`exclusion: ${path} declares more than one @shard-exclude line`);
+  return lines.length === 0 ? null : { path, reason: lines[0][1], evidence: lines[0][2] };
+}
+
+function readWeights(root, weightsPath) {
+  const document = readJson(weightsPath, "weights");
+  if (document === null || typeof document !== "object" || Array.isArray(document)) fail("weights: expected an object");
+  if (document.schemaVersion !== WEIGHTS_SCHEMA) fail(`weights: expected schema ${WEIGHTS_SCHEMA}`);
+  if (!Array.isArray(document.weights)) fail("weights: weights must be an array");
+  const weights = new Map();
+  for (const [index, entry] of document.weights.entries()) {
+    if (entry === null || typeof entry !== "object") fail(`weights: entry ${index} is not an object`);
+    const path = normalizeFile(root, entry.path, `weights entry ${index}`);
+    if (!Number.isSafeInteger(entry.weightMs) || entry.weightMs <= 0) fail(`weights: ${path} must carry a positive integer weightMs`);
+    if (weights.has(path)) fail(`weights: ${path} is weighed twice`);
+    weights.set(path, entry.weightMs);
+  }
+  return { document, weights };
+}
+
+/**
+ * THE POPULATION: the selected files, each supported or excluded by its own
+ * declaration, the supported ones weighed by the measurement. `unmeasured`
+ * files (supported, no weight yet) are planned at the median measured weight;
+ * `stale` weights (their file is no longer supported) are ignored. `hash` is
+ * the supported set's identity, shared by the plan, the reports and the merge.
+ */
+export function readShardPopulation(root, weightsPath = resolve(root, WEIGHTS_PATH)) {
+  const repositoryRoot = resolve(root);
+  const selected = selectedTestFiles(repositoryRoot);
+  const excluded = selected.flatMap((path) => {
+    const exclusion = declaredExclusion(readFileSync(resolve(repositoryRoot, path), "utf8"), path);
+    return exclusion === null ? [] : [exclusion];
+  });
+  const excludedPaths = new Set(excluded.map((entry) => entry.path));
+  const supported = selected.filter((path) => !excludedPaths.has(path));
+  if (supported.length === 0) fail("population: every selected file is excluded");
+  const { document, weights } = readWeights(repositoryRoot, weightsPath);
+  const measured = supported.filter((path) => weights.has(path)).map((path) => weights.get(path)).sort((a, b) => a - b);
+  if (measured.length === 0) fail("weights: no supported file is weighed; run `measure` from a green shard run");
+  const median = measured[Math.floor((measured.length - 1) / 2)];
+  const unmeasured = supported.filter((path) => !weights.has(path));
+  const files = supported.map((path) => ({ path, weightMs: weights.get(path) ?? median }));
   return {
-    schemaVersion: MANIFEST_SCHEMA,
-    measuredHeadSha: manifest.measuredHeadSha,
-    measuredAt: manifest.measuredAt,
+    measuredHeadSha: document.measuredHeadSha,
+    measuredAt: document.measuredAt,
     files,
     excluded,
+    unmeasured,
+    stale: [...weights.keys()].filter((path) => !supported.includes(path)).sort(),
     hash: manifestHash(files),
   };
 }
@@ -253,7 +286,7 @@ export function listTestFiles({ root = process.cwd(), run = spawnSync } = {}) {
 }
 
 /**
- * Verify the checked-in manifest against a TREE-BOUND `vitest list` output.
+ * Verify the derived population against a TREE-BOUND `vitest list` output.
  *
  * THE TREE IS RECOMPUTED HERE, NOT TAKEN FROM THE CALLER. The listing's
  * `tree` used to be compared with a caller-supplied `--tree`, so anyone could
@@ -275,9 +308,9 @@ export function listTestFiles({ root = process.cwd(), run = spawnSync } = {}) {
  * enumeration is the evidence; the subject is the thing judged. `list` is
  * injectable for fixtures that are not a real checkout.
  */
-export function verifyManifest({
+export function verifyPopulation({
   root = process.cwd(),
-  manifestPath,
+  weightsPath = undefined,
   livePath,
   tree = undefined,
   fingerprint = treeFingerprint,
@@ -287,7 +320,7 @@ export function verifyManifest({
     fail("live manifest: --tree must be a non-empty working-tree identity when supplied");
   }
   const repositoryRoot = resolve(root);
-  const manifest = readManifest(repositoryRoot, manifestPath);
+  const population = readShardPopulation(repositoryRoot, weightsPath ?? resolve(repositoryRoot, WEIGHTS_PATH));
   const liveDocument = readJson(livePath, "live manifest");
   if (Array.isArray(liveDocument)) {
     fail(
@@ -360,21 +393,68 @@ export function verifyManifest({
         `${invented.slice(0, 8).join(", ")}.`,
     );
   }
-  const known = new Set([...manifest.files.map((file) => file.path), ...manifest.excluded.map((file) => file.path)]);
-  const missing = [...liveSet].filter((file) => !known.has(file));
-  if (missing.length > 0) fail(`live manifest: unclassified file(s): ${missing.slice(0, 8).join(", ")}`);
-  const stale = [...known].filter((file) => !liveSet.has(file));
-  if (stale.length > 0) fail(`manifest: file(s) no longer selected: ${stale.slice(0, 8).join(", ")}`);
-  for (const file of manifest.files) {
-    if (!existsSync(resolve(repositoryRoot, file.path))) fail(`manifest: supported file is missing on disk: ${file.path}`);
+  // THE DERIVED POPULATION IS THE RUNNER'S SELECTION. The population every
+  // other command plans from is the include binding expanded over the tree;
+  // the runner's own listing is the evidence that the expansion selects
+  // exactly what the runner does.
+  const derived = new Set([...population.files.map((file) => file.path), ...population.excluded.map((file) => file.path)]);
+  const unselected = [...liveSet].filter((file) => !derived.has(file));
+  if (unselected.length > 0) fail(`population: the runner selects file(s) the include binding does not: ${unselected.slice(0, 8).join(", ")}`);
+  const unlisted = [...derived].filter((file) => !liveSet.has(file));
+  if (unlisted.length > 0) fail(`population: the include binding selects file(s) the runner does not: ${unlisted.slice(0, 8).join(", ")}`);
+  for (const file of population.files) {
+    if (!existsSync(resolve(repositoryRoot, file.path))) fail(`population: supported file is missing on disk: ${file.path}`);
   }
   return {
-    manifestHash: manifest.hash,
-    fileCount: manifest.files.length,
-    excludedCount: manifest.excluded.length,
+    manifestHash: population.hash,
+    fileCount: population.files.length,
+    excludedCount: population.excluded.length,
+    unmeasured: population.unmeasured,
+    stale: population.stale,
     liveCount: liveFiles.length,
     tree: currentTree,
   };
+}
+
+/** The workflow that runs the shards, and the CI workflow that calls it: the one owner of the count and the job names. */
+const SHARD_WORKFLOW = ".github/workflows/test-shards.yml";
+const CI_WORKFLOW = ".github/workflows/ci.yml";
+
+/**
+ * The calling job's name and shard count, and the shard job's name template,
+ * read from the workflows themselves (never restated): the `ci.yml` job that
+ * `uses:` the shard workflow, its `name:` and its `shards:` input; and the
+ * shard workflow's job whose `name:` carries `${{ matrix.shard }}`. Exactly
+ * one of each, or a typed refusal.
+ */
+function shardJobNaming(root) {
+  const ci = readFileSync(resolve(root, CI_WORKFLOW), "utf8");
+  const callers = [...ci.matchAll(/^ {2}[A-Za-z0-9_-]+:\n {4}name: (.+)\n {4}uses: \.\/\.github\/workflows\/test-shards\.yml\n {4}with:\n(?: {6}.+\n)*? {6}shards: "?(\d+)"?\n/gmu)];
+  if (callers.length !== 1) fail(`shard_job_unnamed: ${CI_WORKFLOW} must call ${SHARD_WORKFLOW} from exactly one named job with a shards input (found ${String(callers.length)})`);
+  const shards = readFileSync(resolve(root, SHARD_WORKFLOW), "utf8");
+  const jobs = [...shards.matchAll(/^ {4}name: (.*)\$\{\{ matrix\.shard \}\}(.*)$/gmu)];
+  if (jobs.length !== 1) fail(`shard_job_unnamed: ${SHARD_WORKFLOW} must name exactly one job by \${{ matrix.shard }} (found ${String(jobs.length)})`);
+  return { caller: callers[0][1].trim(), shardCount: Number(callers[0][2]), prefix: jobs[0][1], suffix: jobs[0][2] };
+}
+
+/**
+ * THE CI JOB THAT RUNS `file` at the tree `root`, as GitHub names it (the
+ * floor's `jobs[].name`, `<caller> / <job>` for a reusable workflow's job): the
+ * same population, weights and assignment `plan` uses, at the shard count the
+ * CI workflow declares. A file that declares its own exclusion is refused
+ * (`shard_file_excluded`, with its reason); a file the include binding does
+ * not select is refused (`shard_file_unselected`). Never "any shard".
+ */
+export function shardJobOf({ root, file, weightsPath = undefined }) {
+  const repositoryRoot = resolve(root);
+  const path = normalizeFile(repositoryRoot, file, "shard job");
+  const population = readShardPopulation(repositoryRoot, weightsPath ?? resolve(repositoryRoot, WEIGHTS_PATH));
+  const excluded = population.excluded.find((entry) => entry.path === path);
+  if (excluded !== undefined) fail(`shard_file_excluded: ${path} runs in no shard: ${excluded.reason}`);
+  if (!population.files.some((entry) => entry.path === path)) fail(`shard_file_unselected: ${path} is not selected by the runner's include binding`);
+  const naming = shardJobNaming(repositoryRoot);
+  const shard = assignShards(population.files, naming.shardCount).find((bin) => bin.files.includes(path));
+  return `${naming.caller} / ${naming.prefix}${String(shard.index)}${naming.suffix}`;
 }
 
 /** Deterministic longest-processing-time assignment by measured weights. */
@@ -399,10 +479,10 @@ export function assignmentHash(shards) {
   return sha256(shards.map((shard) => shard.files.map((file) => `${shard.index}:${file}`).join("\n")).join("\n"));
 }
 
-export function planShards({ root = process.cwd(), manifestPath, shardCount, headSha, outDir, now = new Date() }) {
+export function planShards({ root = process.cwd(), weightsPath = undefined, shardCount, headSha, outDir, now = new Date() }) {
   const repositoryRoot = resolve(root);
   if (typeof headSha !== "string" || !/^[0-9a-f]{7,64}$/i.test(headSha)) fail("headSha must be a commit SHA");
-  const manifest = readManifest(repositoryRoot, manifestPath);
+  const manifest = readShardPopulation(repositoryRoot, weightsPath ?? resolve(repositoryRoot, WEIGHTS_PATH));
   const shards = assignShards(manifest.files, shardCount);
   const plan = {
     schemaVersion: PLAN_SCHEMA,
@@ -411,6 +491,8 @@ export function planShards({ root = process.cwd(), manifestPath, shardCount, hea
     manifestHash: manifest.hash,
     assignmentHash: assignmentHash(shards),
     shardCount,
+    // Planned at the median measured weight until `measure` weighs them.
+    unmeasured: manifest.unmeasured,
     shards,
   };
   mkdirSync(outDir, { recursive: true });
@@ -438,7 +520,7 @@ function timestamp(value, subject) {
  * rounded to no elapsed milliseconds), and the declared floor of 1 is applied
  * HERE rather than in the caller: the registry names this function as the one
  * producer, and the body that derives the number is the body that owns its
- * floor. A floor in `measureManifest` made the forbidden-quantity clause
+ * floor. A floor in `measureWeights` made the forbidden-quantity clause
  * vacuous for the registry's promise (it inspected a function that computed
  * nothing) and left two bodies sharing one definition.
  */
@@ -469,7 +551,7 @@ function readMeasurementReport(repositoryRoot, reportPath, index, manifest) {
     fail(`shard report ${index}: headSha is missing`);
   }
   if (envelope.manifestHash !== manifest.hash) {
-    fail(`shard report ${index}: manifest hash does not match the checked-in manifest`);
+    fail(`shard report ${index}: its population hash does not match the population at this tree`);
   }
   const report = envelope.vitest;
   if (report === null || typeof report !== "object") fail(`shard report ${index}: vitest report is missing`);
@@ -502,19 +584,19 @@ function readMeasurementReport(repositoryRoot, reportPath, index, manifest) {
 
 /**
  * Derive the per-file weights from a complete green run's wrapped shard
- * reports and write the manifest through the owner. Without `outPath` the
- * measurement is computed and returned without touching the manifest.
+ * reports and write the weights file — its ONE writer. Without `outPath` the
+ * measurement is computed and returned without writing anything.
  */
-export function measureManifest({
+export function measureWeights({
   root = process.cwd(),
-  manifestPath,
+  weightsPath = undefined,
   reportPaths,
   headSha = undefined,
   runner = undefined,
   outPath = undefined,
 }) {
   const repositoryRoot = resolve(root);
-  const manifest = readManifest(repositoryRoot, manifestPath);
+  const manifest = readShardPopulation(repositoryRoot, weightsPath ?? resolve(repositoryRoot, WEIGHTS_PATH));
   if (!Array.isArray(reportPaths) || reportPaths.length === 0) {
     fail("measure: at least one shard report is required");
   }
@@ -545,7 +627,7 @@ export function measureManifest({
   const weights = new Map();
   for (const report of reports) {
     for (const entry of report.entries) {
-      if (!supported.has(entry.file)) fail(`measure: ${entry.file} is not a supported manifest file`);
+      if (!supported.has(entry.file)) fail(`measure: ${entry.file} is not a supported file`);
       if (weights.has(entry.file)) fail(`measure: ${entry.file} was measured more than once`);
       weights.set(entry.file, entry.durationMs);
     }
@@ -561,18 +643,14 @@ export function measureManifest({
   const weightSource = `${WEIGHT_SOURCE}; ${String(manifest.files.length)} supported files from ` +
     `${String(reports.length)} green shard report(s) at ${measuredHeadSha}` +
     `${runner === undefined ? "" : ` (${runner})`}`;
-  const raw = readJson(manifestPath, "manifest");
   const measured = {
-    ...raw,
+    schemaVersion: WEIGHTS_SCHEMA,
     measuredHeadSha,
     measuredAt: measuredAt.toISOString(),
     weightSource,
-    files: raw.files.map((entry) => {
-      const path = normalizeFile(repositoryRoot, entry.path, "manifest file");
-      // Already rounded and floored by the producer; a second floor here
-      // would be a second definition of the same weight.
-      return { ...entry, weightMs: weights.get(path) };
-    }),
+    // Already rounded and floored by the producer; a second floor here
+    // would be a second definition of the same weight.
+    weights: manifest.files.map((file) => ({ path: file.path, weightMs: weights.get(file.path) })),
   };
   if (outPath !== undefined) {
     mkdirSync(dirname(resolve(outPath)), { recursive: true });
@@ -583,8 +661,8 @@ export function measureManifest({
     measuredAt: measured.measuredAt,
     weightSource,
     fileCount: manifest.files.length,
-    totalWeightMs: measured.files.reduce((sum, file) => sum + file.weightMs, 0),
-    manifest: measured,
+    totalWeightMs: measured.weights.reduce((sum, file) => sum + file.weightMs, 0),
+    weights: measured,
   };
 }
 
@@ -618,7 +696,7 @@ function parseArgs(argv) {
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--root") options.root = argv[++index];
-    else if (arg === "--manifest") options.manifestPath = argv[++index];
+    else if (arg === "--weights") options.weightsPath = argv[++index];
     else if (arg === "--live") options.livePath = argv[++index];
     else if (arg === "--tree") options.tree = argv[++index];
     else if (arg === "--shards") options.shardCount = Number(argv[++index]);
@@ -651,34 +729,33 @@ if (isEntryPoint(import.meta.url)) {
       } else process.stdout.write(text);
     } else if (options.command === "supported") {
       // The SUPPORTED file set, one path per line: the population a full run
-      // judges. The four excluded files have declared reasons and are not a
-      // clean run's business (a runner that includes them cannot go green in
-      // the public snapshot).
-      const manifest = readJson(options.manifestPath ?? resolve(process.cwd(), "tests/test-shards.json"), "manifest");
-      for (const file of manifest.files) process.stdout.write(`${file.path}\n`);
+      // judges. A file that declares its own exclusion is not a clean run's
+      // business (a runner that includes it cannot go green here).
+      for (const file of readShardPopulation(options.root, options.weightsPath).files) process.stdout.write(`${file.path}\n`);
     } else if (options.command === "verify") {
-      if (!options.manifestPath || !options.livePath) fail("verify requires --manifest and --live");
-      // `--tree` is a cross-check, never an override: `verifyManifest`
+      if (!options.livePath) fail("verify requires --live");
+      // `--tree` is a cross-check, never an override: `verifyPopulation`
       // recomputes the working tree itself, so a stale fingerprint the caller
       // supplies cannot make an old listing verify.
-      const verdict = verifyManifest(options);
-      process.stdout.write(`shard manifest: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ${verdict.manifestHash.slice(0, 12)} at tree ${verdict.tree.slice(0, 12)}\n`);
+      const verdict = verifyPopulation(options);
+      process.stdout.write(
+        `shard population: ${verdict.fileCount} supported, ${verdict.excludedCount} excluded, ${verdict.liveCount} live, ` +
+          `${verdict.unmeasured.length} unmeasured, ${verdict.stale.length} stale weight(s), ${verdict.manifestHash.slice(0, 12)} at tree ${verdict.tree.slice(0, 12)}\n`,
+      );
     } else if (options.command === "plan") {
-      if (!options.manifestPath || !options.outDir || !options.headSha || !options.shardCount) {
-        fail("plan requires --manifest, --shards, --head, and --out-dir");
+      if (!options.outDir || !options.headSha || !options.shardCount) {
+        fail("plan requires --shards, --head, and --out-dir");
       }
       const plan = planShards(options);
       if (options.githubOutput) {
         writeFileSync(options.githubOutput, `shards=${JSON.stringify(plan.shards.map((shard) => shard.index))}\n`, { flag: "a" });
       }
-      process.stdout.write(`shard plan: ${plan.shardCount} shard(s), ${plan.manifestHash.slice(0, 12)}\n`);
+      process.stdout.write(`shard plan: ${plan.shardCount} shard(s), ${plan.manifestHash.slice(0, 12)}, ${plan.unmeasured.length} unmeasured\n`);
     } else if (options.command === "measure") {
-      if (!options.manifestPath || options.reportPaths.length === 0) {
-        fail("measure requires --manifest and at least one --report");
-      }
-      const measured = measureManifest(options);
+      if (options.reportPaths.length === 0) fail("measure requires at least one --report");
+      const measured = measureWeights(options);
       process.stdout.write(
-        `shard manifest measured: ${measured.fileCount} file(s), ` +
+        `shard weights measured: ${measured.fileCount} file(s), ` +
           `${measured.totalWeightMs}ms total, head ${measured.measuredHeadSha.slice(0, 12)}` +
           `${options.outPath ? ` -> ${options.outPath}` : " (dry run; pass --out to write)"}\n`,
       );

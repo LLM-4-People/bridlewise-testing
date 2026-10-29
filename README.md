@@ -173,13 +173,13 @@ A fresh clone cannot run the full suites. The runners refuse with a named prereq
 - **`openssl`** — used by the outbound-HTTP test.
 - **Landlock** — the guardian tests skip the kernel path with exit 3 when the host does not expose it. A skip is not a pass.
 
-The supported shard set is `tests/test-shards.json`. Verify it against the runner's own selection, then plan the shards:
+The supported shard set is derived: every file the runner's include binding selects, minus the files that declare their own exclusion (`// @shard-exclude: <reason> (evidence: …)`). The measured weights live in `tests/test-weights.json`, written only by `measure`. Verify the population against the runner's own selection, then plan the shards:
 
 ```bash
 mkdir -p .bridlewise/shard-plan
 npm run test:list -- --out .bridlewise/shard-plan/live-manifest.json
-npm run test:verify-shards -- --manifest tests/test-shards.json --live .bridlewise/shard-plan/live-manifest.json
-node scripts/test-shard-manifest.mjs plan --manifest tests/test-shards.json --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
+npm run test:verify-shards -- --live .bridlewise/shard-plan/live-manifest.json
+node scripts/test-shard-manifest.mjs plan --shards 10 --head "$(git rev-parse HEAD)" --out-dir .bridlewise/shard-plan/plan
 ```
 
 `test:list` records a content fingerprint of the working tree before and after `vitest list`; `test:verify-shards` recomputes it and refuses a listing from another tree, another checkout, or a tree that moved while the listing ran. A bare `vitest list` does not run the global setup, so it takes no instrument lock or source fingerprint; its raw output is not accepted.

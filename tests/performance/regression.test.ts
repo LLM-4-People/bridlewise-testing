@@ -1,3 +1,4 @@
+// @shard-exclude: requires the generated tests/performance report from an idle-host profile; the report is not published and cannot be produced on every shard (evidence: docs/floor/roadmap.md#snapshot · public baseline audit)
 /**
  * Performance regression gate — reads the Playwright profile report and
  * refuses one that cannot be judged: absent, measured outside the host's

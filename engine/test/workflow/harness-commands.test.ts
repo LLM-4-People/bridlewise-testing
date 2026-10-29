@@ -12,8 +12,6 @@ import {
   harnessSync,
   runBundleBuildStep,
   syncPassVerdict,
-  regenerateWebBudgetPopulation,
-  webBudgetPopulationStep,
   regenerateServiceWorkerDigest,
   serviceWorkerDigestStep,
   harnessNewModule,
@@ -41,7 +39,7 @@ import { createTempDir } from "../support/temp-dir.ts";
 import { relaxSafeReadFloorForThisFile } from "../support/test-env-helpers.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 import { ROOT_POLICY as ROOT_POLICY_AT_LOAD } from "../../src/kernel/root-policy.ts";
-import { SERVICE_WORKER_DIGEST, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../../src/kernel/verification-paths.ts";
+import { SERVICE_WORKER_DIGEST, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import {
   createRepositoryWorkingCopy,
   engineGeneratorPopulation,
@@ -228,59 +226,6 @@ test("HarnessCommands: harnessRegenerate produces valid result", () => {
   // The policy's baselines, then the architecture judge's at its fixed path in code (never a policy entry).
   assert.deepEqual(result.result.ratchetBaselines.results.map((arm) => arm.id), [...Object.keys(ROOT_POLICY_AT_LOAD.verification.ratchetBaselines), "architecture-judge"]);
   assert.equal(result.result.ratchetBaselines.converged, true, `the ratchet arm must converge on this tree: ${JSON.stringify(result.result.ratchetBaselines.results)}`);
-});
-
-test("HarnessCommands: the web budget population arm — check refuses a stale count by name, sync writes the derived count, then check passes", () => {
-  // The WIRING, with a stand-in generator at the arm's own path speaking the
-  // one protocol: the real derivation is proved beside its owner
-  // (tests/prevention/web-ui-runtime-budget-verdict.test.ts). The stand-in
-  // derives 536, holds 535 in a file, and writes only when asked with --write.
-  const repository = createTempDir("web-budget-population-arm-");
-  try {
-    const engineRoot = join(repository, "engine");
-    mkdirSync(engineRoot, { recursive: true });
-    const generator = join(repository, WEB_BUDGET_POPULATION.generator);
-    mkdirSync(join(generator, ".."), { recursive: true });
-    const count = join(repository, "population.txt");
-    writeFileSync(count, "535");
-    writeFileSync(generator, [
-      'import { readFileSync, writeFileSync } from "node:fs";',
-      `const file = ${JSON.stringify(count)};`,
-      "const live = 536;",
-      'if (!process.argv.includes("--population")) { process.stdout.write("{}\\n"); process.exit(2); }',
-      'const write = process.argv.includes("--write");',
-      'const declared = Number(readFileSync(file, "utf8"));',
-      'let out;',
-      'if (declared === live) out = { allCurrent: true, status: "current", changed: [] };',
-      'else if (write) { writeFileSync(file, String(live)); out = { allCurrent: true, status: "regenerated", changed: ["engine/bridlewise.config.json"] }; }',
-      'else out = { allCurrent: false, status: "stale", changed: ["engine/bridlewise.config.json"] };',
-      'process.stdout.write(JSON.stringify(out) + "\\n");',
-      "process.exitCode = out.allCurrent ? 0 : 1;",
-      "",
-    ].join("\n"));
-    execFileSync("git", ["init", "-q"], { cwd: repository, stdio: "pipe" });
-
-    // A stale count: the check step FAILS, naming the population, and writes nothing.
-    const stale = regenerateWebBudgetPopulation(engineRoot, false);
-    assert.deepEqual([stale.status, stale.converged, stale.changed], ["stale", false, ["engine/bridlewise.config.json"]]);
-    const step = webBudgetPopulationStep(stale);
-    assert.equal(step.step, "web-budget-population");
-    assert.equal(step.status, "fail");
-    assert.match(step.message, /population differs from the live supported test files \(run harness sync\)/u);
-    assert.equal(readFileSync(count, "utf8"), "535", "a check wrote the count");
-    // Sync: the derived count is written, and the step passes after it.
-    const written = regenerateWebBudgetPopulation(engineRoot, true);
-    assert.deepEqual([written.status, written.converged], ["regenerated", true]);
-    assert.equal(readFileSync(count, "utf8"), "536", "sync did not write the derived count");
-    const current = regenerateWebBudgetPopulation(engineRoot, false);
-    assert.deepEqual(current, { status: "current", converged: true, changed: [] });
-    assert.equal(webBudgetPopulationStep(current).status, "pass");
-    // No generator in the tree (a product-only tree): converged by absence.
-    rmSync(generator);
-    assert.deepEqual(regenerateWebBudgetPopulation(engineRoot, false), { status: "absent", converged: true, changed: [] });
-  } finally {
-    rmSync(repository, { recursive: true, force: true });
-  }
 });
 
 test("HarnessCommands: the service worker digest arm — check refuses a hand-edited digest by name, sync re-derives it, then check passes", () => {

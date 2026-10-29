@@ -319,7 +319,7 @@ describe("flaky-test memory — the web suite's consumption of the shared verdic
       failures: entry.failures.filter((identity) => !excluded.has(identity.split("::")[0] ?? identity)),
     }));
     if (excluded.size > 0) {
-      console.info(`flaky-test memory: ${String(excluded.size)} file(s) excluded from the supported population are not judged here (tests/test-shards.json)`);
+      console.info(`flaky-test memory: ${String(excluded.size)} file(s) excluded from the supported population are not judged here (each declares its own exclusion in its header)`);
     }
     const judgement = await judgeFlakyMemory({
       suite: "web", engineRoot: join(process.cwd(), "engine"), entries, ownPrefix: OWN_PREFIX, guardFile: GUARD_FILE,

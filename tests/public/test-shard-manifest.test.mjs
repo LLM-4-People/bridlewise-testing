@@ -2,21 +2,23 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import {
-  MANIFEST_SCHEMA,
   SHARD_REPORT_SCHEMA,
+  WEIGHTS_SCHEMA,
   assignShards,
+  declaredExclusion,
   listTestFiles,
   manifestHash,
-  measureManifest,
+  measureWeights,
   planShards,
-  readManifest,
+  readShardPopulation,
   requireGreenReport,
+  shardJobOf,
   treeFingerprint,
-  verifyManifest,
+  verifyPopulation,
   wrapShardReport,
 } from "../../scripts/test-shard-manifest.mjs";
 import { mergeShardReports } from "../../scripts/test-shard-merge.mjs";
@@ -39,14 +41,27 @@ test("the documented listing commands run bare, as their npm scripts say", () =>
   assert.match(verdict, /supported, \d+ excluded, \d+ live/u);
 });
 
-function manifestFor(files, excluded = []) {
-  return {
-    schemaVersion: MANIFEST_SCHEMA,
+/**
+ * A tree whose include binding selects `supported` and `excluded` (each
+ * excluded file declaring its own exclusion in its header), and a weights file
+ * at `weightsPath` weighing every supported file at 1 ms.
+ */
+function writeFixture(work, weightsPath, supported, excluded = []) {
+  for (const path of supported) {
+    mkdirSync(dirname(join(work, path)), { recursive: true });
+    writeFileSync(join(work, path), "export {};\n");
+  }
+  for (const { path, reason, evidence } of excluded) {
+    mkdirSync(dirname(join(work, path)), { recursive: true });
+    writeFileSync(join(work, path), `// @shard-exclude: ${reason} (evidence: ${evidence})\nexport {};\n`);
+  }
+  writeJson(weightsPath, {
+    schemaVersion: WEIGHTS_SCHEMA,
     measuredHeadSha: "480bfe3",
     measuredAt: "2026-10-20T00:00:00.000Z",
-    files: files.map((file) => ({ path: file, weightMs: 1 })),
-    excluded,
-  };
+    weightSource: "fixture",
+    weights: supported.map((path) => ({ path, weightMs: 1 })),
+  });
 }
 
 function shardReportFor(work, { head, manifestHashValue, shard, shardCount, entries, finishedAt, success = true, timing = true }) {
@@ -80,44 +95,39 @@ function shardReportFor(work, { head, manifestHashValue, shard, shardCount, entr
   return path;
 }
 
-test("the checked-in shard manifest is complete, well-formed and self-describing", () => {
-  // The tracked manifest is data the shard plan trusts. This was the only
-  // test that imported readManifest without ever calling it: the file could
-  // gain a malformed entry, a negative weight, or a weightSource claiming a
-  // population the file list does not have, and the suite stayed green. The
-  // prose count is part of the provenance, so it is checked like the data.
-  const manifestPath = join(process.cwd(), "tests/test-shards.json");
-  const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const manifest = readManifest(process.cwd(), manifestPath);
-  assert.ok(manifest.files.length > 500, `expected the supported suite, found ${manifest.files.length} files`);
-  assert.equal(manifest.excluded.length, 4);
+test("the derived population is complete and the weights file is well-formed: nothing is a list a branch edits", () => {
+  // The supported suite is derived (the include binding, each file's own
+  // exclusion), and the weights are a measurement. The tracked weights file is
+  // data the shard plan trusts, so its shape is checked like the data.
+  const weightsPath = join(process.cwd(), "tests/test-weights.json");
+  const raw = JSON.parse(readFileSync(weightsPath, "utf8"));
+  const population = readShardPopulation(process.cwd(), weightsPath);
+  assert.ok(population.files.length > 500, `expected the supported suite, found ${population.files.length} files`);
+  assert.deepEqual(population.excluded.map((entry) => entry.path), [
+    "tests/performance/regression.test.ts",
+    "tests/prevention/cutover-graph-receipt-owner.test.ts",
+    "tests/prevention/frozen-record-not-a-second-owner.test.ts",
+    "tests/unit/landlock-wsl-host.test.ts",
+  ]);
+  for (const entry of population.excluded) {
+    assert.match(entry.evidence, /^docs\/floor\/roadmap\.md#snapshot\b/u, `${entry.path}'s exclusion names no evidence`);
+  }
+  assert.equal(raw.schemaVersion, WEIGHTS_SCHEMA);
   assert.match(raw.measuredHeadSha, /^[0-9a-f]{40}$/u);
   assert.ok(Number.isFinite(Date.parse(raw.measuredAt)), "measuredAt must be a timestamp");
   assert.equal(typeof raw.weightSource, "string");
-  const declared = /(\d+) supported files/u.exec(raw.weightSource)?.[1];
-  assert.equal(Number(declared), manifest.files.length, "weightSource must name the manifest's population");
-  for (const file of manifest.files) {
-    // The producer floors a weight at 1 (`Math.max(1, Math.round(...))`) and
-    // `readManifest` refuses a non-positive entry. This self-check asserted
-    // `>= 0`, so a zero-weight fixture read as measured here while the owner
-    // refused it — the check was weaker than the thing it audits.
-    assert.ok(Number.isSafeInteger(file.weightMs) && file.weightMs >= 1, `${file.path} has no measured weight`);
-    assert.match(file.path, /\.test\.(?:ts|mjs)$/u, `${file.path} is not a test file`);
+  for (const entry of raw.weights) {
+    // The producer floors a weight at 1 (`Math.max(1, Math.round(...))`) and the owner refuses a non-positive entry.
+    assert.ok(Number.isSafeInteger(entry.weightMs) && entry.weightMs >= 1, `${entry.path} has no measured weight`);
+    assert.match(entry.path, /\.test\.(?:ts|mjs)$/u, `${entry.path} is not a test file`);
   }
 });
 
-test("the testing page defers its population to the manifest, or agrees with it", () => {
-  // docs/testing.md claimed "527 supported files (523 plus four)" while the
-  // tracked manifest held 528 and five separately measured weights. A hand
-  // count drifts; the page now names the generated `weightSource` and states
-  // no count. If a count is reintroduced, it must match the manifest.
+test("the testing page states no hand-kept population count", () => {
+  // A hand count drifts; the population is derived and the page says how, never how many.
   const page = readFileSync(join(process.cwd(), "docs/testing.md"), "utf8");
-  assert.match(page, /weightSource/u, "the page must name the manifest's generated population record");
-  const stated = /(\d+)\s+supported files/u.exec(page)?.[1];
-  if (stated !== undefined) {
-    const manifest = JSON.parse(readFileSync(join(process.cwd(), "tests/test-shards.json"), "utf8"));
-    assert.equal(Number(stated), manifest.files.length, "a stated supported-file count must match the manifest");
-  }
+  assert.match(page, /@shard-exclude/u, "the page must name the exclusion declaration the population is derived with");
+  assert.doesNotMatch(page, /\b\d+\s+supported files\b/u, "do not hand-maintain the supported count");
   assert.doesNotMatch(page, /\b\d+\s+measured on their own\b/u, "do not hand-maintain the separately measured population");
 });
 
@@ -202,11 +212,86 @@ test("a zero weight is refused by the owner, not read as a measured weight", () 
   // owner's own floor so the two cannot drift apart again.
   const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-weight-floor-"));
   try {
-    const path = join(work, "manifest.json");
-    const manifest = manifestFor(["tests/a.test.ts"]);
-    manifest.files[0].weightMs = 0;
-    writeJson(path, manifest);
-    assert.throws(() => readManifest(work, path), /must carry a positive integer weightMs/u);
+    const path = join(work, "weights.json");
+    writeFixture(work, path, ["tests/unit/a.test.ts"]);
+    const weights = JSON.parse(readFileSync(path, "utf8"));
+    weights.weights[0].weightMs = 0;
+    writeJson(path, weights);
+    assert.throws(() => readShardPopulation(work, path), /must carry a positive integer weightMs/u);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a test file declares its own exclusion in one well-formed header line; a malformed or repeated one is refused, never read as supported", () => {
+  const tag = "@shard" + "-exclude";
+  assert.deepEqual(
+    declaredExclusion(`// ${tag}: needs a WSL host (evidence: docs/floor/roadmap.md#snapshot)\nexport {};\n`, "tests/unit/x.test.ts"),
+    { path: "tests/unit/x.test.ts", reason: "needs a WSL host", evidence: "docs/floor/roadmap.md#snapshot" },
+  );
+  assert.equal(declaredExclusion("export {};\n", "tests/unit/x.test.ts"), null);
+  assert.throws(() => declaredExclusion(`// ${tag} needs a WSL host\n`, "tests/unit/x.test.ts"), /mentions @shard-exclude outside a well-formed/u);
+  assert.throws(() => declaredExclusion(`// ${tag}: no evidence named\n`, "tests/unit/x.test.ts"), /outside a well-formed/u);
+  assert.throws(
+    () => declaredExclusion(`// ${tag}: one (evidence: a)\n// ${tag}: two (evidence: b)\n`, "tests/unit/x.test.ts"),
+    /more than one @shard-exclude line/u,
+  );
+});
+
+test("the population is derived from the tree: a new file is supported and planned at the median weight, a deleted file's weight is ignored", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-population-"));
+  try {
+    const weightsPath = join(work, "weights.json");
+    writeFixture(work, weightsPath, ["tests/unit/a.test.ts", "tests/unit/b.test.ts", "tests/unit/c.test.ts"]);
+    const weights = JSON.parse(readFileSync(weightsPath, "utf8"));
+    weights.weights = [{ path: "tests/unit/a.test.ts", weightMs: 10 }, { path: "tests/unit/b.test.ts", weightMs: 30 }, { path: "tests/unit/gone.test.ts", weightMs: 99 }];
+    writeJson(weightsPath, weights);
+    const population = readShardPopulation(work, weightsPath);
+    assert.deepEqual(population.files, [
+      { path: "tests/unit/a.test.ts", weightMs: 10 },
+      { path: "tests/unit/b.test.ts", weightMs: 30 },
+      { path: "tests/unit/c.test.ts", weightMs: 10 },
+    ], "c is supported with no weight, planned at the median measured weight");
+    assert.deepEqual(population.unmeasured, ["tests/unit/c.test.ts"]);
+    assert.deepEqual(population.stale, ["tests/unit/gone.test.ts"]);
+    const plan = planShards({ root: work, weightsPath, shardCount: 2, headSha: "480bfe3", outDir: join(work, "plan") });
+    assert.deepEqual(plan.unmeasured, ["tests/unit/c.test.ts"], "the plan names what it planned unmeasured");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("shardJobOf names the job CI runs a file in — the plan's own assignment at the workflow's own count and names — and refuses an excluded or unselected file by name", () => {
+  const root = process.cwd();
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-job-"));
+  try {
+    const plan = planShards({ root, shardCount: 10, headSha: "480bfe3", outDir: join(work, "plan") });
+    // Every supported file, against the plan CI makes: the renderer and CI can never disagree.
+    for (const shard of plan.shards) {
+      for (const file of shard.files.slice(0, 3)) {
+        assert.equal(shardJobOf({ root, file }), `Full suite shards / Shard ${String(shard.index)}`, file);
+      }
+    }
+    assert.throws(() => shardJobOf({ root, file: "tests/unit/landlock-wsl-host.test.ts" }), /^Error: shard_file_excluded: tests\/unit\/landlock-wsl-host\.test\.ts runs in no shard: requires a WSL host/u);
+    assert.throws(() => shardJobOf({ root, file: "tests/public/floor-data.test.mjs" }), /^Error: shard_file_unselected: tests\/public\/floor-data\.test\.mjs/u);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("shardJobOf reads the count and names from the workflows, and refuses a tree that names no single shard job", () => {
+  const work = mkdtempSync(join(tmpdir(), "bridlewise-shard-job-naming-"));
+  try {
+    const weightsPath = join(work, "tests", "test-weights.json");
+    writeFixture(work, weightsPath, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
+    mkdirSync(join(work, ".github", "workflows"), { recursive: true });
+    const ci = (shards) => `jobs:\n  shards:\n    name: Suite\n    uses: ./.github/workflows/test-shards.yml\n    with:\n      shards: "${shards}"\n      runner: x\n`;
+    writeFileSync(join(work, ".github/workflows/ci.yml"), ci(2));
+    writeFileSync(join(work, ".github/workflows/test-shards.yml"), "jobs:\n  shard:\n    name: Part ${{ matrix.shard }} of the suite\n");
+    const jobs = ["tests/unit/a.test.ts", "tests/unit/b.test.ts"].map((file) => shardJobOf({ root: work, file }));
+    assert.deepEqual(jobs.toSorted(), ["Suite / Part 1 of the suite", "Suite / Part 2 of the suite"], "two files, two shards, the workflows' own names");
+    writeFileSync(join(work, ".github/workflows/ci.yml"), "jobs:\n  other:\n    runs-on: x\n");
+    assert.throws(() => shardJobOf({ root: work, file: "tests/unit/a.test.ts" }), /shard_job_unnamed: \.github\/workflows\/ci\.yml must call/u);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -223,18 +308,18 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     const manifest = join(work, "manifest.json");
     const live = join(work, "live.json");
     mkdirSync(join(work, "tests"), { recursive: true });
-    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"], [
-      { path: "tests/private.test.ts", reason: "not published", evidence: "roadmap" },
-    ]));
-    writeFileSync(join(work, "tests/a.test.ts"), "");
-    writeFileSync(join(work, "tests/b.test.ts"), "");
+    writeFixture(work, manifest, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"], [
+      { path: "tests/unit/private.test.ts", reason: "not published", evidence: "roadmap" },
+    ]);
+    writeFileSync(join(work, "tests/unit/a.test.ts"), "");
+    writeFileSync(join(work, "tests/unit/b.test.ts"), "");
     writeJson(live, {
       schemaVersion: "bridlewise-test-listing/v1",
       tree: "planted-tree",
       files: [
-        { file: join(work, "tests/a.test.ts"), projectName: "node" },
-        { file: join(work, "tests/b.test.ts"), projectName: "node" },
-        { file: join(work, "tests/private.test.ts"), projectName: "node" },
+        { file: join(work, "tests/unit/a.test.ts"), projectName: "node" },
+        { file: join(work, "tests/unit/b.test.ts"), projectName: "node" },
+        { file: join(work, "tests/unit/private.test.ts"), projectName: "node" },
       ],
     });
     // The fingerprint is injected: this fixture is not a git checkout. The
@@ -247,9 +332,9 @@ test("the manifest verifier accounts for every live file exactly once", () => {
       tree: "planted-tree",
       files: files.map((file) => ({ file: join(work, file), projectName: "node" })),
     });
-    const listed = ["tests/a.test.ts", "tests/b.test.ts", "tests/private.test.ts"];
-    const verdict = verifyManifest({
-      root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+    const listed = ["tests/unit/a.test.ts", "tests/unit/b.test.ts", "tests/unit/private.test.ts"];
+    const verdict = verifyPopulation({
+      root: work, weightsPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
       list: () => enumerate(listed),
     });
     assert.equal(verdict.fileCount, 2);
@@ -260,8 +345,8 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     // A LISTING FROM ANOTHER TREE IS REFUSED: the wrapper records the working
     // tree it selected from, and a different tree cannot be certified by it.
     assert.throws(
-      () => verifyManifest({
-        root: work, manifestPath: manifest, livePath: live, tree: "another-tree", fingerprint,
+      () => verifyPopulation({
+        root: work, weightsPath: manifest, livePath: live, tree: "another-tree", fingerprint,
         list: () => enumerate(listed),
       }),
       /--tree another-tree is not the working tree being verified \(planted-tree\)/u,
@@ -269,16 +354,16 @@ test("the manifest verifier accounts for every live file exactly once", () => {
     // The same listing with no explicit tree is still verified against the
     // computed tree: `--tree` is a cross-check, not the source of the check.
     assert.equal(
-      verifyManifest({ root: work, manifestPath: manifest, livePath: live, fingerprint, list: () => enumerate(listed) }).liveCount,
+      verifyPopulation({ root: work, weightsPath: manifest, livePath: live, fingerprint, list: () => enumerate(listed) }).liveCount,
       3,
     );
 
     // And the UNBOUND shape — a plain `vitest list` array — is refused:
     // it carries no tree identity, so it could have come from anywhere.
-    writeJson(live, [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }]);
+    writeJson(live, [{ file: join(work, "tests/unit/a.test.ts") }, { file: join(work, "tests/unit/b.test.ts") }]);
     assert.throws(
-      () => verifyManifest({
-        root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+      () => verifyPopulation({
+        root: work, weightsPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
         list: () => enumerate(listed),
       }),
       /not accepted/,
@@ -288,16 +373,16 @@ test("the manifest verifier accounts for every live file exactly once", () => {
       schemaVersion: "bridlewise-test-listing/v1",
       tree: "planted-tree",
       files: [
-        { file: join(work, "tests/a.test.ts") },
-        { file: join(work, "tests/unclassified.test.ts") },
+        { file: join(work, "tests/unit/a.test.ts") },
+        { file: join(work, "tests/unit/unclassified.test.ts") },
       ],
     });
     assert.throws(
-      () => verifyManifest({
-        root: work, manifestPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
-        list: () => enumerate(["tests/a.test.ts", "tests/unclassified.test.ts"]),
+      () => verifyPopulation({
+        root: work, weightsPath: manifest, livePath: live, tree: "planted-tree", fingerprint,
+        list: () => enumerate(["tests/unit/a.test.ts", "tests/unit/unclassified.test.ts"]),
       }),
-      /unclassified file/,
+      /the runner selects file\(s\) the include binding does not: tests\/unit\/unclassified\.test\.ts/,
     );
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -321,14 +406,14 @@ test("a stale listing cannot be verified by supplying the fingerprint it was wri
     mkdirSync(join(work, "tests"), { recursive: true });
     const manifest = join(work, "manifest.json");
     const live = join(work, "live.json");
-    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
-    writeFileSync(join(work, "tests/a.test.ts"), "");
-    writeFileSync(join(work, "tests/b.test.ts"), "");
+    writeFixture(work, manifest, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
+    writeFileSync(join(work, "tests/unit/a.test.ts"), "");
+    writeFileSync(join(work, "tests/unit/b.test.ts"), "");
     const oldTree = treeFingerprint(work);
     writeJson(live, {
       schemaVersion: "bridlewise-test-listing/v1",
       tree: oldTree,
-      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+      files: [{ file: join(work, "tests/unit/a.test.ts") }, { file: join(work, "tests/unit/b.test.ts") }],
     });
     // The tree moves after the listing was written.
     writeFileSync(join(work, "README.md"), "moved after the listing\n");
@@ -340,27 +425,27 @@ test("a stale listing cannot be verified by supplying the fingerprint it was wri
     const enumerateCurrent = () => ({
       schemaVersion: "bridlewise-test-listing/v1",
       tree: currentTree,
-      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+      files: [{ file: join(work, "tests/unit/a.test.ts") }, { file: join(work, "tests/unit/b.test.ts") }],
     });
     // The old listing with the old explicit fingerprint: refused by the
     // computed tree, even though the caller's value matches the document.
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: oldTree, list: enumerateCurrent }),
+      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, tree: oldTree, list: enumerateCurrent }),
       /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
     );
     // ...and without the flag, for the same reason.
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: enumerateCurrent }),
+      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: enumerateCurrent }),
       /bound to tree [0-9a-f]{64}, not the working tree being verified/u,
     );
     // A current listing verifies; `--tree` agrees with the computation.
     writeJson(live, {
       schemaVersion: "bridlewise-test-listing/v1",
       tree: currentTree,
-      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+      files: [{ file: join(work, "tests/unit/a.test.ts") }, { file: join(work, "tests/unit/b.test.ts") }],
     });
     assert.equal(
-      verifyManifest({ root: work, manifestPath: manifest, livePath: live, tree: currentTree, list: enumerateCurrent }).fileCount,
+      verifyPopulation({ root: work, weightsPath: manifest, livePath: live, tree: currentTree, list: enumerateCurrent }).fileCount,
       2,
     );
   } finally {
@@ -386,50 +471,50 @@ test("a forged listing cannot omit a file the fresh enumeration selects", () => 
     mkdirSync(join(work, "tests"), { recursive: true });
     const manifest = join(work, "manifest.json");
     const live = join(work, "live.json");
-    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
-    writeFileSync(join(work, "tests/a.test.ts"), "");
-    writeFileSync(join(work, "tests/b.test.ts"), "");
+    writeFixture(work, manifest, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
+    writeFileSync(join(work, "tests/unit/a.test.ts"), "");
+    writeFileSync(join(work, "tests/unit/b.test.ts"), "");
     // A real test file joins the tree, and is deliberately absent from the
     // checked-in manifest: that is exactly the population a stale listing
     // hides from the old verification.
-    writeFileSync(join(work, "tests/c.test.ts"), "");
+    writeFileSync(join(work, "tests/unit/c.test.ts"), "");
     const currentTree = treeFingerprint(work);
     // The forged document carries the CURRENT fingerprint (so the old tree
     // check passes) and a file list that stops at the manifest's two files.
     writeJson(live, {
       schemaVersion: "bridlewise-test-listing/v1",
       tree: currentTree,
-      files: [{ file: join(work, "tests/a.test.ts") }, { file: join(work, "tests/b.test.ts") }],
+      files: [{ file: join(work, "tests/unit/a.test.ts") }, { file: join(work, "tests/unit/b.test.ts") }],
     });
     const freshEnumeration = () => ({
       schemaVersion: "bridlewise-test-listing/v1",
       tree: currentTree,
       files: [
-        { file: join(work, "tests/a.test.ts") },
-        { file: join(work, "tests/b.test.ts") },
-        { file: join(work, "tests/c.test.ts") },
+        { file: join(work, "tests/unit/a.test.ts") },
+        { file: join(work, "tests/unit/b.test.ts") },
+        { file: join(work, "tests/unit/c.test.ts") },
       ],
     });
     // RED BEFORE THE FIX: the forged listing verified because nothing
     // re-derived the population.
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: freshEnumeration }),
-      (err) => err.message.includes("OMITS") && err.message.includes("tests/c.test.ts"),
+      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: freshEnumeration }),
+      (err) => err.message.includes("OMITS") && err.message.includes("tests/unit/c.test.ts"),
     );
     // The same subject cannot invent a file the enumeration did not select.
     writeJson(live, {
       schemaVersion: "bridlewise-test-listing/v1",
       tree: currentTree,
       files: [
-        { file: join(work, "tests/a.test.ts") },
-        { file: join(work, "tests/b.test.ts") },
-        { file: join(work, "tests/c.test.ts") },
-        { file: join(work, "tests/invented.test.ts") },
+        { file: join(work, "tests/unit/a.test.ts") },
+        { file: join(work, "tests/unit/b.test.ts") },
+        { file: join(work, "tests/unit/c.test.ts") },
+        { file: join(work, "tests/unit/invented.test.ts") },
       ],
     });
     assert.throws(
-      () => verifyManifest({ root: work, manifestPath: manifest, livePath: live, list: freshEnumeration }),
-      (err) => err.message.includes("names") && err.message.includes("tests/invented.test.ts"),
+      () => verifyPopulation({ root: work, weightsPath: manifest, livePath: live, list: freshEnumeration }),
+      (err) => err.message.includes("names") && err.message.includes("tests/unit/invented.test.ts"),
     );
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -444,21 +529,21 @@ test("a listing is bound to the working tree it selected from, and a tree that m
   const work = mkdtempSync(join(tmpdir(), "bridlewise-tree-binding-"));
   try {
     execFileSync("git", ["init", "-q"], { cwd: work, stdio: "pipe" });
-    mkdirSync(join(work, "tests"), { recursive: true });
-    writeFileSync(join(work, "tests/a.test.ts"), "");
+    mkdirSync(join(work, "tests", "unit"), { recursive: true });
+    writeFileSync(join(work, "tests/unit/a.test.ts"), "");
     const first = treeFingerprint(work);
     assert.match(first, /^[0-9a-f]{64}$/u);
 
     // A new file changes the identity: the population is content, not a path
     // list someone can restate.
-    writeFileSync(join(work, "tests/b.test.ts"), "");
+    writeFileSync(join(work, "tests/unit/b.test.ts"), "");
     const second = treeFingerprint(work);
     assert.notEqual(second, first);
 
     // A listing over a still tree records that identity.
     const listing = listTestFiles({
       root: work,
-      run: () => ({ status: 0, stdout: JSON.stringify([{ file: join(work, "tests/a.test.ts") }]), stderr: "" }),
+      run: () => ({ status: 0, stdout: JSON.stringify([{ file: join(work, "tests/unit/a.test.ts") }]), stderr: "" }),
     });
     assert.equal(listing.tree, second);
     assert.equal(listing.schemaVersion, "bridlewise-test-listing/v1");
@@ -469,8 +554,8 @@ test("a listing is bound to the working tree it selected from, and a tree that m
         listTestFiles({
           root: work,
           run: () => {
-            writeFileSync(join(work, "tests/c.test.ts"), "");
-            return { status: 0, stdout: JSON.stringify([{ file: join(work, "tests/a.test.ts") }]), stderr: "" };
+            writeFileSync(join(work, "tests/unit/c.test.ts"), "");
+            return { status: 0, stdout: JSON.stringify([{ file: join(work, "tests/unit/a.test.ts") }]), stderr: "" };
           },
         }),
       /working tree changed while the listing ran/,
@@ -486,10 +571,10 @@ test("a listing is bound to the working tree it selected from, and a tree that m
 
 test("shard assignment is deterministic, complete, disjoint, and weight-balanced", () => {
   const files = [
-    { path: "tests/a.test.ts", weightMs: 10 },
-    { path: "tests/b.test.ts", weightMs: 9 },
-    { path: "tests/c.test.ts", weightMs: 8 },
-    { path: "tests/d.test.ts", weightMs: 1 },
+    { path: "tests/unit/a.test.ts", weightMs: 10 },
+    { path: "tests/unit/b.test.ts", weightMs: 9 },
+    { path: "tests/unit/c.test.ts", weightMs: 8 },
+    { path: "tests/unit/d.test.ts", weightMs: 1 },
   ];
   const first = assignShards(files, 2);
   const second = assignShards([...files].reverse(), 2);
@@ -508,10 +593,10 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
     const planDir = join(work, "plan");
     const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
     mkdirSync(join(work, "tests"), { recursive: true });
-    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
-    writeFileSync(join(work, "tests/a.test.ts"), "");
-    writeFileSync(join(work, "tests/b.test.ts"), "");
-    const plan = planShards({ root: work, manifestPath: manifest, shardCount: 2, headSha: head, outDir: planDir });
+    writeFixture(work, manifest, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
+    writeFileSync(join(work, "tests/unit/a.test.ts"), "");
+    writeFileSync(join(work, "tests/unit/b.test.ts"), "");
+    const plan = planShards({ root: work, weightsPath: manifest, shardCount: 2, headSha: head, outDir: planDir });
     const reports = [];
     for (const shard of plan.shards) {
       const raw = join(work, `raw-${shard.index}.json`);
@@ -545,7 +630,7 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
     const receipt = mergeShardReports({
       root: work,
       manifestPath: join(planDir, "manifest.json"),
-      manifestSourcePath: manifest,
+      weightsPath: manifest,
       planPath: join(planDir, "plan.json"),
       shardPaths: reports,
       expectedShards: 2,
@@ -566,7 +651,7 @@ test("a plan and wrapped shard reports merge into a receipt bound to one commit"
       () => mergeShardReports({
         root: work,
         manifestPath: join(planDir, "manifest.json"),
-        manifestSourcePath: manifest,
+        weightsPath: manifest,
         planPath: join(planDir, "plan.json"),
         shardPaths: reports,
         expectedShards: 2,
@@ -593,16 +678,16 @@ test("a wrapped report with the wrong commit, manifest hash or assignment hash i
     const planDir = join(work, "plan");
     const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
     mkdirSync(join(work, "tests"), { recursive: true });
-    writeJson(manifest, manifestFor(["tests/a.test.ts"]));
-    writeFileSync(join(work, "tests/a.test.ts"), "");
-    const plan = planShards({ root: work, manifestPath: manifest, shardCount: 1, headSha: head, outDir: planDir });
+    writeFixture(work, manifest, ["tests/unit/a.test.ts"]);
+    writeFileSync(join(work, "tests/unit/a.test.ts"), "");
+    const plan = planShards({ root: work, weightsPath: manifest, shardCount: 1, headSha: head, outDir: planDir });
     const raw = join(work, "raw.json");
     const wrapped = join(work, "wrapped.json");
     writeJson(raw, {
       success: true, numTotalTests: 1, numPassedTests: 1, numFailedTests: 0, numFailedTestSuites: 0,
       numPendingTests: 0, numTodoTests: 0,
       testResults: [{
-        name: join(work, "tests/a.test.ts"),
+        name: join(work, "tests/unit/a.test.ts"),
         status: "passed",
         message: "",
         assertionResults: [{ status: "passed", failureMessages: [] }],
@@ -624,7 +709,7 @@ test("a wrapped report with the wrong commit, manifest hash or assignment hash i
       assert.throws(
         () => mergeShardReports({
           root: work, manifestPath: join(planDir, "manifest.json"),
-          manifestSourcePath: manifest, planPath: join(planDir, "plan.json"),
+          weightsPath: manifest, planPath: join(planDir, "plan.json"),
           shardPaths: [wrapped], expectedShards: 1, headSha: head, outPath: join(work, "receipt.json"),
         }),
         mutant.pattern,
@@ -641,25 +726,26 @@ test("the owner measures weights from green shard reports, including runner-root
   try {
     const manifest = join(work, "manifest.json");
     const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
-    const hash = manifestHash(["tests/a.test.ts", "tests/b.test.ts"]);
+    writeFixture(work, manifest, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
+    const hash = manifestHash(["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
     const runnerFile = (file) => `/home/runner/work/bridlewise-testing/bridlewise-testing/${file}`;
     const first = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 1, shardCount: 2,
-      entries: [[runnerFile("tests/a.test.ts"), 1000, 1234.6]],
+      entries: [[runnerFile("tests/unit/a.test.ts"), 1000, 1234.6]],
       finishedAt: "2026-10-20T00:00:02.000Z",
     });
     const second = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 2, shardCount: 2,
-      entries: [[runnerFile("tests/b.test.ts"), 2000, 2000.2]],
+      entries: [[runnerFile("tests/unit/b.test.ts"), 2000, 2000.2]],
       finishedAt: "2026-10-20T00:00:03.000Z",
     });
     const out = join(work, "measured.json");
-    const measured = measureManifest({
-      root: work, manifestPath: manifest, reportPaths: [first, second], outPath: out, runner: "ubuntu-24.04",
+    const measured = measureWeights({
+      root: work, weightsPath: manifest, reportPaths: [first, second], outPath: out, runner: "ubuntu-24.04",
     });
     const written = JSON.parse(readFileSync(out, "utf8"));
-    assert.deepEqual(written.files.map((file) => file.weightMs), [235, 1]);
+    assert.equal(written.schemaVersion, WEIGHTS_SCHEMA);
+    assert.deepEqual(written.weights, [{ path: "tests/unit/a.test.ts", weightMs: 235 }, { path: "tests/unit/b.test.ts", weightMs: 1 }]);
     assert.equal(written.measuredHeadSha, head);
     assert.equal(written.measuredAt, "2026-10-20T00:00:03.000Z");
     assert.match(written.weightSource, /endTime-startTime/);
@@ -676,41 +762,41 @@ test("the weight measurement refuses a partial, duplicated, non-green, or differ
   try {
     const manifest = join(work, "manifest.json");
     const head = "a1cce5b3f96dec7db1a2a1f1d4aa08bf35ea8718";
-    writeJson(manifest, manifestFor(["tests/a.test.ts", "tests/b.test.ts"]));
-    const hash = manifestHash(["tests/a.test.ts", "tests/b.test.ts"]);
-    const measure = (reportPaths) => measureManifest({ root: work, manifestPath: manifest, reportPaths });
+    writeFixture(work, manifest, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
+    const hash = manifestHash(["tests/unit/a.test.ts", "tests/unit/b.test.ts"]);
+    const measure = (reportPaths) => measureWeights({ root: work, weightsPath: manifest, reportPaths });
 
     const partial = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 1, shardCount: 1,
-      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+      entries: [["tests/unit/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
     });
     assert.throws(() => measure([partial]), /were not measured/);
 
     const duplicateOne = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 1, shardCount: 2,
-      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+      entries: [["tests/unit/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
     });
     const duplicateTwo = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 2, shardCount: 2,
-      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+      entries: [["tests/unit/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
     });
     assert.throws(() => measure([duplicateOne, duplicateTwo]), /measured more than once/);
 
     const nonGreen = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 1, shardCount: 1,
-      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z", success: false,
+      entries: [["tests/unit/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z", success: false,
     });
     assert.throws(() => measure([nonGreen]), /success=false/);
 
     const wrongManifest = shardReportFor(work, {
       head, manifestHashValue: "0".repeat(64), shard: 1, shardCount: 1,
-      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
+      entries: [["tests/unit/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z",
     });
-    assert.throws(() => measure([wrongManifest]), /manifest hash/);
+    assert.throws(() => measure([wrongManifest]), /population hash does not match/);
 
     const backwards = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 1, shardCount: 1,
-      entries: [["tests/a.test.ts", 10, 5]], finishedAt: "2026-10-20T00:00:02.000Z",
+      entries: [["tests/unit/a.test.ts", 10, 5]], finishedAt: "2026-10-20T00:00:02.000Z",
     });
     assert.throws(() => measure([backwards]), /endTime is before startTime/);
 
@@ -720,7 +806,7 @@ test("the weight measurement refuses a partial, duplicated, non-green, or differ
     // read it.
     const timingless = shardReportFor(work, {
       head, manifestHashValue: hash, shard: 1, shardCount: 1,
-      entries: [["tests/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z", timing: false,
+      entries: [["tests/unit/a.test.ts", 0, 10]], finishedAt: "2026-10-20T00:00:02.000Z", timing: false,
     });
     assert.throws(() => measure([timingless]), /no timing window/);
   } finally {

@@ -81,17 +81,16 @@ jobs:
       - name: Enumerate what the runner actually selects
         run: npm run test:list -- --out "$RUNNER_TEMP/live-manifest.json"
 
-      - name: Verify the checked-in manifest accounts for every live file
+      - name: Verify the derived population is the runner's selection
         run: |
           npm run test:verify-shards -- \
-            --manifest tests/test-shards.json \
             --live "$RUNNER_TEMP/live-manifest.json"
 
       - name: Plan deterministic weighted shards
         id: plan
         run: |
           node scripts/test-shard-manifest.mjs plan \
-            --manifest tests/test-shards.json \
+            --weights tests/test-weights.json \
             --shards "${{ inputs.shards }}" \
             --head "$GITHUB_SHA" \
             --out-dir "$RUNNER_TEMP/shard-plan" \
@@ -265,7 +264,7 @@ jobs:
           done
           node scripts/test-shard-merge.mjs \
             --manifest "$RUNNER_TEMP/shard-plan/manifest.json" \
-            --manifest-source tests/test-shards.json \
+            --weights tests/test-weights.json \
             --plan "$RUNNER_TEMP/shard-plan/plan.json" \
             --expected-shards "$SHARDS" \
             --head "$GITHUB_SHA" \
@@ -278,11 +277,13 @@ jobs:
         env:
           SHARDS: ${{ inputs.shards }}
         run: |
-          node - <<'NODE'
-          const fs = require("node:fs");
+          node --input-type=module - <<'NODE'
+          import fs from "node:fs";
+          import { readShardPopulation } from "./scripts/test-shard-manifest.mjs";
           const receipt = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/test-shard-receipt.json`, "utf8"));
           const plan = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/shard-plan/plan.json`, "utf8"));
-          const source = JSON.parse(fs.readFileSync("tests/test-shards.json", "utf8"));
+          // The exclusions each test file declares in its own header, read from this tree.
+          const source = readShardPopulation(process.cwd(), "tests/test-weights.json");
           const fail = (message) => {
             console.error(`receipt refused: ${message}`);
             process.exit(1);
