@@ -14,13 +14,13 @@ This repository is the development floor: the source of Bridlewise together with
 
 | Claim | Checked by | Proof |
 |---|---|---|
-| It tells you it is not ready for production: its readiness check answers harnessReady false | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
-| Calling harness with no subcommand is refused with a typed error, no\_harness\_subcommand, that lists every available verb | `testing.ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
-| A run executes once: reopening it never starts a second execution | `testing.ci` | [tests/prevention/run-executes-once.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/run-executes-once.test.ts) |
-| Commands the model starts cannot read outside the project (Linux, Landlock) | `testing.ci` | [tests/prevention/subprocess-confinement-owner.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/subprocess-confinement-owner.test.ts) |
-| Secrets the harness detects are redacted before the prompt reaches the provider | `testing.ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
-| Every change passes a secret scan before it lands in the public tree | `testing.secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
-| CodeQL analyses every change | `testing.codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
+| It tells you it is not ready for production: its readiness check answers harnessReady false | `ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| Calling harness with no subcommand is refused with a typed error, no\_harness\_subcommand, that lists every available verb | `ci` | [tests/public/cli.test.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/public/cli.test.mjs) |
+| A run executes once: reopening it never starts a second execution | `ci` | [tests/prevention/run-executes-once.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/run-executes-once.test.ts) |
+| Commands the model starts cannot read outside the project (Linux, Landlock) | `ci` | [tests/prevention/subprocess-confinement-owner.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/subprocess-confinement-owner.test.ts) |
+| Secrets the harness detects are redacted before the prompt reaches the provider | `ci` | [tests/prevention/redaction-reaches-provider.test.ts](https://github.com/LLM-4-People/bridlewise-testing/blob/main/tests/prevention/redaction-reaches-provider.test.ts) |
+| Every change passes a secret scan before it lands in the public tree | `secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
+| CodeQL analyses every change | `codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
 
 A claim whose check is red is struck out on the [live claims page](https://bridlewise.llm4people.dev/floor/claims/) until it passes again.
 

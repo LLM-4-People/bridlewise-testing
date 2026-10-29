@@ -244,3 +244,11 @@ export async function buildStatus({
     counts: counts ?? null,
   };
 }
+
+/**
+ * The check ids this status reports for workflows, derived from its own
+ * definition: the one vocabulary a claim in `docs/brand/claims.json` may bind
+ * (the register's validator refuses any other id, so no claim can wait on a
+ * check that is never reported).
+ */
+export const STATUS_CHECK_IDS = Object.freeze(REQUIRED.map((definition) => definition.id));

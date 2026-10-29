@@ -25,6 +25,11 @@ import { join } from "node:path";
 import { InputError } from "../../src/kernel/errors.ts";
 import { parseFrontMatter, readEntries } from "../../src/workflow/failure-owners.ts";
 import { DECISIONS_DIRECTORY } from "../verification/tracker-entries.ts";
+// @ts-expect-error -- the floor's status owner is plain Node ESM with no declaration file (as words.ts reads repository.mjs).
+import { STATUS_CHECK_IDS } from "../../../scripts/floor/status.mjs";
+
+/** The check ids a binding may name: the floor status's own (`scripts/floor/status.mjs`), never a second list. */
+const CHECK_IDS: readonly string[] = STATUS_CHECK_IDS;
 
 export { CLAIMS_PATH };
 export const CLAIMS_SCHEMA = "bridlewise-claims/v1";
@@ -73,7 +78,11 @@ export function claimViolations(document: unknown, exists: (path: string) => boo
     for (const key of Object.keys(claim)) if (!fields.includes(key)) problems.push(`${id}: ${key} is not a field of a ${kind} claim`);
     if (kind === "holds-when-green") {
       if (!Array.isArray(claim.checks) || claim.checks.length === 0) problems.push(`${id}: a holds-when-green claim binds at least one check`);
-      else for (const check of claim.checks) if (typeof check !== "string" || !CHECK_ID.test(check)) problems.push(`${id}: ${String(check)} is not a check id`);
+      else for (const check of claim.checks) {
+        if (typeof check !== "string" || !CHECK_ID.test(check)) problems.push(`${id}: ${String(check)} is not a check id`);
+        // A check the status never reports would retract the claim forever, green or not (#675).
+        else if (!CHECK_IDS.includes(check)) problems.push(`${id}: ${check} is not a check the floor status reports (${CHECK_IDS.join(", ")})`);
+      }
     }
     if (kind === "designed" && (typeof claim.decision !== "string" || !DECISION_ID.test(claim.decision))) problems.push(`${id}: decision must be a decision id`);
     if (kind === "designed" && typeof claim.decision === "string" && DECISION_ID.test(claim.decision)) {
