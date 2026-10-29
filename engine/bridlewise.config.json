@@ -1299,6 +1299,14 @@
       {
         "context": "Generated values and harness check",
         "integrationId": 15368
+      },
+      {
+        "context": "Rendered pages",
+        "integrationId": 15368
+      },
+      {
+        "context": "Commit records",
+        "integrationId": 15368
       }
     ],
     "mergeQueue": {

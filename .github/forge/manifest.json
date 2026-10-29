@@ -188,7 +188,7 @@
     },
     {
       "path": ".github/forge/org-ruleset/org.baseline.json",
-      "sha256": "0b06ca6a3b80ec02e683b7c3cb0d0114d76df28acf2afb688e8e7d0460a8c9f0"
+      "sha256": "3bc5a949c33658dd63e51e0a7d9137606ef17c19db53bf59c77d1004915e4fa3"
     },
     {
       "path": ".github/forge/ruleset/bridlewise-testing.trunk.json",
