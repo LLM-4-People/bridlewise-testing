@@ -31,7 +31,7 @@ import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
 import { applyProjection, projectionFailure, type ProjectionReceipt } from "../../src/workflow/forge/projector/apply.ts";
-import type { ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { configuredConfinement, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { githubProjectionStore } from "../../src/workflow/forge/projector/github-store.ts";
 import { PROJECTION_CLASSES, PROJECTION_INPUT_SCHEMA, type Projection, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
 import { computeProjection } from "../../src/workflow/forge/projector/projection.ts";
@@ -43,7 +43,7 @@ const REPOSITORY = "owner/repo";
 /** The publisher App's bot: the one author whose issues and milestones are the projector's (the client runs as it). */
 const PROJECTOR = `${FORGE_APPS.publisher.name}[bot]`;
 const SOURCE = "0123456789abcdef0123456789abcdef01234567";
-const CONFINEMENT: ProjectorConfinement = { harnessRoot: join(import.meta.dirname, "..", ".."), keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
+const CONFINEMENT: ProjectorConfinement = configuredConfinement(join(import.meta.dirname, "..", ".."), emptyKeepOutFacts(), 60);
 
 const item = (id: string, overrides: Partial<ProjectionInput["items"][number]> = {}): ProjectionInput["items"][number] => ({
   id, type: "Task", title: `The ${id} outcome`, state: "open", resolution: null, lane: "floor", milestone: null, parent: null, blockedBy: [], decisions: [], tests: [], evidence: null,

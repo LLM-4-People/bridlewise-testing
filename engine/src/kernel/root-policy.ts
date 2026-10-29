@@ -111,7 +111,7 @@ const ROOT_POLICY_VALUE = {
     documentSchemaVersion: 3 as number,
     contract: {
       sourcePath: "src/kernel/config-contracts.ts",
-      sourceSha256: "fe58cd1a5a4f7ac1f8c57addf32cb0be6c868fe359cda9b918bbb1266d1eba9f",
+      sourceSha256: "e65735c2b8093c8423ae6c9823d3b23a1def33340c7aa019e1d5f2c9a32602f9",
       generatedSchemaPath: "traceability/config-document-schema.json",
       validatorRevision: "config-document-validator/v3",
       schemaArtifactVersion: schemaId("config-document-schema", 2),
@@ -1364,10 +1364,10 @@ const ROOT_POLICY_VALUE = {
      * regenerates is a value someone can add or edit without evidence — the
      * exact shape this floor refuses.
      */
-    binaryStamp: "e297762aac11ddcd6b63451c8d327f1ace9bcf3bf937e12a5f2f7a140681c00c",
+    binaryStamp: "bd0d1a2cd5212e886ab509754f4701d8398949629a602b8969c34ab2fc305cac",
     bundleRelativePath: "dist/bundle.js",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
-    specSchemaArtifactSha256: "fd0ecade13d7b2690cb9585d6464a92459c2c3961a6a18ec5b978e4ab9e48790",
+    specSchemaArtifactSha256: "6227bdfcf60bc7dafd7e96ba7f3e8e8dabc661225c6e41004dd0046bd78960ce",
     /**
      * THE SOURCE HALF OF THE SPEC-SCHEMA PIN.
      *
@@ -1390,7 +1390,7 @@ const ROOT_POLICY_VALUE = {
      * decides admission is the reviewed source".
      */
     specSchemaSourcePath: "src/filesystem/self-protection/self-protection-contracts.ts",
-    specSchemaSourceSha256: "c29864150e2bef90c49a4db09f0907aea2b617927860a0814398ecf2224dabd2",
+    specSchemaSourceSha256: "cdc8f9ba54717f186988a35b067b81e0cfd35010b1ae7a529db08d4e40317f1b",
     /**
      * RELATIVE TO THE HARNESS ROOT — the tree that holds `dist/bundle.js` and
      * `guardian/build/…` above, never the repository root.

@@ -12,7 +12,7 @@ import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS, WEB_BUDGET_POPULATION } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, FRONT_DOOR_GENERATOR, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { frontDoorInput } from "./messaging.ts";
 import { DEPS_ADOPT_COMMANDS } from "./deps-adopt.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
@@ -153,8 +153,6 @@ export type HarnessCheckOutput = Readonly<{
   artifactManifest: CheckStepResult;
   /** Would `harness regenerate` rewrite a community health file or form (src/workflow/community/health-files.ts)? */
   communityFiles: CheckStepResult;
-  /** Would `harness regenerate` rewrite the web test budget's accumulation population (scripts/testing/measure-web-budget.ts --population)? */
-  webBudgetPopulation: CheckStepResult;
   /** Would `harness regenerate` rewrite the service worker's cache digest (scripts/service-worker-cache.ts)? */
   serviceWorkerDigest: CheckStepResult;
   /** Are the brand sources valid, and would `harness regenerate` rewrite a front door's block (engine/scripts/brand/cli.ts sync)? */
@@ -263,8 +261,6 @@ export type HarnessRegenerateOutput = Readonly<{
    * (src/workflow/community/health-files.ts), never edited by hand.
    */
   communityFiles: CommunityFilesArm;
-  /** The web test budget's accumulation population, from the live supported test files (scripts/testing/measure-web-budget.ts --population). */
-  webBudgetPopulation: DecisionIndexArm;
   /** The service worker's cache digest, from every public asset it caches (scripts/service-worker-cache.ts). */
   serviceWorkerDigest: DecisionIndexArm;
   /**
@@ -551,9 +547,6 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the community health files and forms...");
   steps.push(communityFilesStep(regenerateCommunityFiles(root, false)));
 
-  emitProgress(onProgress, "Checking the web test budget's population...");
-  steps.push(webBudgetPopulationStep(regenerateWebBudgetPopulation(root, false)));
-
   emitProgress(onProgress, "Checking the service worker's cache digest...");
   steps.push(serviceWorkerDigestStep(regenerateServiceWorkerDigest(root, false)));
   emitProgress(onProgress, "Checking the brand sources and the front doors...");
@@ -589,11 +582,10 @@ export async function harnessCheck(
     trackerBoard: steps[19]!,
     artifactManifest: steps[20]!,
     communityFiles: steps[21]!,
-    webBudgetPopulation: steps[22]!,
-    serviceWorkerDigest: steps[23]!,
-    frontDoors: steps[24]!,
-    bundle: steps[25]!,
-    candidateFormat: steps[26]!,
+    serviceWorkerDigest: steps[22]!,
+    frontDoors: steps[23]!,
+    bundle: steps[24]!,
+    candidateFormat: steps[25]!,
     allPassed,
   });
   return wrapResult("check", output);
@@ -981,8 +973,6 @@ export function harnessRegenerate(
   const frozenRecords = syncFrozenRecords(trackedTop(root), write);
   // The community health files and forms, from their sources (before the inventory digests them).
   const communityFiles = regenerateCommunityFiles(root, write);
-  // The web test budget's population, from the live supported test files (before the inventory digests the settings).
-  const webBudgetPopulation = regenerateWebBudgetPopulation(root, write);
   // The service worker's cache digest, after every arm that may change a public asset.
   const serviceWorkerDigest = regenerateServiceWorkerDigest(root, write);
   // The front doors, from the brand sources (validated whole), before the inventory digests the README.
@@ -991,7 +981,7 @@ export function harnessRegenerate(
   // rewrote (the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
   const artifactManifest = regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, webBudgetPopulation, serviceWorkerDigest, frontDoors, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, serviceWorkerDigest, frontDoors, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -1006,7 +996,7 @@ export function harnessRegenerate(
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && webBudgetPopulation.converged && serviceWorkerDigest.converged && frontDoors.converged &&
+        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && serviceWorkerDigest.converged && frontDoors.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
@@ -1268,17 +1258,6 @@ export function evidenceIgnoreStep(evidenceIgnore: DecisionIndexArm): CheckStepR
 }
 
 /** `harness check`'s community-files step: a stale generated health file or form FAILS the check, naming each path. */
-/**
- * The web test budget's population arm, as a subprocess like the README
- * consumer arm (a repository-root generator the runtime must not import):
- * the accumulation-phase `derivedAtTestFileCount` is the live supported
- * population, written on sync and judged on check, so no pull request types
- * it. A tree without the generator (a product-only tree) is converged by
- * absence.
- */
-export function regenerateWebBudgetPopulation(root: string, write: boolean): DecisionIndexArm {
-  return repositoryGeneratorArm(root, WEB_BUDGET_POPULATION.generator, () => ["--population", write ? "--write" : "--check"], "the web budget population generator", "web_budget_population_no_result");
-}
 
 /**
  * The service worker's cache digest arm, the same kind of arm: the digest
@@ -1318,17 +1297,6 @@ function repositoryGeneratorArm(root: string, relativeGenerator: string, args: (
   return deepFreeze({ status: report.status, converged: report.allCurrent, changed: report.changed });
 }
 
-/** `harness check`'s web-budget-population step: a population that differs from the live supported test files FAILS the check. */
-export function webBudgetPopulationStep(arm: DecisionIndexArm): CheckStepResult {
-  return deepFreeze({
-    step: "web-budget-population",
-    status: arm.converged ? "pass" : "fail",
-    message: arm.converged
-      ? `the web test budget's population is the live supported population${arm.status === "absent" ? " (this tree carries no web budget tool)" : ""}`
-      : "the web test budget's accumulation population differs from the live supported test files (run harness sync)",
-    details: arm,
-  });
-}
 
 /** What the front-door arm did: a generator arm, or `refused` with the sources' problems (an invalid source, a missing block). */
 export type FrontDoorsArm = Readonly<{
@@ -1470,8 +1438,7 @@ export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegene
   frozenRecords: null,
   // Converges by absence alone, but runs for real once the forge arm's community sources are present: it declares its own.
   communityFiles: communityFilesInput,
-  webBudgetPopulation: null,
-  // A repository-root generator, like the population: a copy without scripts/service-worker-cache.ts converges by absence.
+  // A repository-root generator: a copy without scripts/service-worker-cache.ts converges by absence.
   serviceWorkerDigest: null,
   // Its sources, the files it writes into, the addresses' owner and every file a claim cites (src/workflow/messaging.ts).
   frontDoors: frontDoorInput,

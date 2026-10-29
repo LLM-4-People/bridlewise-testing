@@ -21,14 +21,14 @@ import { LEDGER_MAIN_RUNS, mainHealth } from "../../src/workflow/forge/projector
 import { ISSUE_BODY_LIMIT, PROJECTION_INPUT_SCHEMA, type ProjectionInput } from "../../src/workflow/forge/projector/model.ts";
 import { escapeGithubText } from "../../../shared/markup.ts";
 import { computeProjection, projectionInput } from "../../src/workflow/forge/projector/projection.ts";
-import type { ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
+import { configuredConfinement, type ProjectorConfinement } from "../../src/workflow/forge/projector/confined.ts";
 import { emptyKeepOutFacts } from "../support/keep-out-facts.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 import { memoryStore } from "./projection-store.ts";
 
 /** Every projection here runs confined: this engine's guardian, an empty keep-out registry of the test's own. */
-const CONFINEMENT: ProjectorConfinement = { harnessRoot: join(import.meta.dirname, "..", ".."), keepOut: emptyKeepOutFacts(), cpuSeconds: 60, memoryBytes: 1_610_612_736 };
+const CONFINEMENT: ProjectorConfinement = configuredConfinement(join(import.meta.dirname, "..", ".."), emptyKeepOutFacts(), 60);
 const RED = "a".repeat(40);
 const GREEN = "b".repeat(40);
 const run = (workflow: string, commit: string, conclusion: "success" | "failure", failedTests: { path: string; message: string }[] = []): string =>
