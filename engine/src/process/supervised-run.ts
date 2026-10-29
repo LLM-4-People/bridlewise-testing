@@ -276,7 +276,9 @@ export async function runTestCommand(options: TestCommandOptions): Promise<Super
     const confinement = testConfinement(options.supervisor, options.checkout, scratch.bound);
     return await supervise({ ...options, env: testRunEnvironment(scratch, options.env) }, confinement);
   } finally {
-    closeTestRunScratch(scratch);
+    // Reported BESIDE the run's result (always on), never instead of it: a test cannot trade its verdict for a crash.
+    const unremoved = closeTestRunScratch(scratch);
+    if (unremoved !== null) process.emitWarning(unremoved, { code: "test_run_scratch_unremoved" });
   }
 }
 

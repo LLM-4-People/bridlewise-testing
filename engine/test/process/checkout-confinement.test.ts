@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, linkSync, mkdirSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, openSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer as createTcpServer, type AddressInfo } from "node:net";
 import { createServer as createUnixServer } from "node:net";
 import { join } from "node:path";
@@ -138,6 +138,55 @@ test("the result channel is a pipe the command can open BY ITS PATH (`/dev/fd/3`
   });
   assert.equal(run.exitCode, 0);
   assert.equal(Buffer.concat(reported).toString("utf8"), "by-path\nby-descriptor\n");
+});
+
+test("THE SCRATCH GOES WITH THE RUN, and a folder the test left unlistable (mode 000) neither keeps it nor replaces the run's result", async () => {
+  const { repository } = fixtureCheckouts();
+  const { stdout, exitCode } = await confined(repository, [
+    "echo \"scratch=$BRIDLEWISE_TEST_SCRATCH\"",
+    "mkdir -p \"$TMPDIR/locked/inner\" && echo x > \"$TMPDIR/locked/inner/file\" && chmod 000 \"$TMPDIR/locked/inner\" \"$TMPDIR/locked\"",
+    "exit 3",
+  ].join("\n"));
+  assert.equal(exitCode, 3, `the run's own result is what the door answers:\n${stdout}`);
+  const scratch = /^scratch=(.+)$/mu.exec(stdout)?.[1];
+  assert.ok(scratch !== undefined && scratch.length > 0, stdout);
+  assert.equal(existsSync(scratch), false, `the scratch root ${scratch} outlived its run`);
+});
+
+test("EACH ISOLATION HOLDS ON ITS OWN: a host SysV queue is out of reach (IPC namespace), an inherited descriptor is closed (close_range), /dev/shm is fresh, and an ABSOLUTE-path socket's folder is masked", async (t) => {
+  const { repository } = fixtureCheckouts();
+  // A SysV queue of the run that starts the confined command: another IPC namespace sees none of it.
+  const queue = execFileSync("ipcmk", ["-Q"], { encoding: "utf8" }).match(/(\d+)\s*$/u)?.[1];
+  assert.ok(queue !== undefined, "ipcmk made no queue");
+  t.after(() => { spawnSync("ipcrm", ["-q", queue]); });
+  // A file in this run's /dev/shm.
+  const shm = `/dev/shm/bridlewise-confinement-${String(process.pid)}`;
+  writeFileSync(shm, "host\n");
+  t.after(() => { unlinkSync(shm); });
+  // A socket bound by an ABSOLUTE path (short: through this process's cwd link) in a folder the run can see.
+  const socketDir = createRepositoryLocalTemporaryDirectory("confinement-abs-socket-");
+  const home = process.cwd();
+  process.chdir(socketDir);
+  const server = createUnixServer((socket) => { socket.end("reached\n"); });
+  t.after(() => { process.chdir(home); server.close(); });
+  await new Promise<void>((resolveListen) => server.listen(`/proc/${String(process.pid)}/cwd/abs.sock`, resolveListen));
+  const { stdout } = await confined(repository, [
+    `ipcrm -q ${queue} 2>/dev/null; echo host_queue_removed=$?`,
+    `[ ! -e ${shm} ]; echo shm_fresh=$?`,
+    `[ -z "$(ls -A ${JSON.stringify(socketDir)})" ]; echo abs_socket_folder_masked=$?`,
+  ].join("\n"));
+  refused(stdout, "host_queue_removed");
+  taken(stdout, "shm_fresh");
+  taken(stdout, "abs_socket_folder_masked");
+  // The native supervisor with a descriptor of its caller's beyond 0–3: the command sees none of it.
+  const scratch = createTempDir("confinement-fds-scratch-");
+  const extra = join(createTempDir("confinement-fds-"), "held");
+  writeFileSync(extra, "held\n");
+  const run = spawnSync(SUPERVISOR, ["--checkout", repository, "--scratch", scratch, "60000", "1000", "sh", "-c", "ls /proc/self/fd | sort -n | tr '\\n' ' '"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", openSync(extra, "r")] });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /^0 1 2 3? ?\d* ?$/u, `only the standard descriptors (and the listing's own) reached the command: ${run.stdout}`);
+  assert.ok(!/\b5\b/u.test(run.stdout), `the caller's descriptor 5 reached the command: ${run.stdout}`);
 });
 
 test("THE LOCK: the confined command can neither remount anything read-write nor detach a mount", async () => {

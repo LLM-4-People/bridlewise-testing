@@ -119,10 +119,6 @@
       "reason": "#563"
     },
     {
-      "key": "architecture-effect-boundary:src/filesystem/checkout-write-door.ts:pure:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
       "key": "architecture-effect-boundary:src/filesystem/database-files.ts:pure:filesystem-read",
       "reason": "#563"
     },
@@ -684,10 +680,6 @@
     },
     {
       "key": "architecture-effect-owner:src/filesystem/atomic-write.ts:node:fs:filesystem-read,filesystem-write",
-      "reason": "#563"
-    },
-    {
-      "key": "architecture-effect-owner:src/filesystem/checkout-write-door.ts:node:fs:filesystem-read,filesystem-write",
       "reason": "#563"
     },
     {
@@ -2095,10 +2087,6 @@
       "reason": "#563"
     },
     {
-      "key": "environment-configuration-source:filesystem/checkout-write-door.ts",
-      "reason": "#563"
-    },
-    {
       "key": "environment-configuration-source:filesystem/private-home.ts",
       "reason": "#563"
     },
@@ -3056,10 +3044,6 @@
     },
     {
       "key": "production-effect-api:filesystem/atomic-write.ts:unlinkSync",
-      "reason": "#563"
-    },
-    {
-      "key": "production-effect-api:filesystem/checkout-write-door.ts:mkdirSync",
       "reason": "#563"
     },
     {

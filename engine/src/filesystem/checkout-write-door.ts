@@ -101,7 +101,7 @@
  * primitive that must commit with a raw `rename` (the journaled multi-file
  * commit) asks the door first.
  */
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -568,9 +568,37 @@ export function testRunEnvironment(scratch: TestRunScratch, base: Readonly<NodeJ
   return { ...(base ?? process.env), ...scratch.environment };
 }
 
-/** Removes a scratch root {@link openTestRunScratch} made, whatever the run's outcome. */
-export function closeTestRunScratch(scratch: TestRunScratch): void {
-  removeOwnedTemporaryDirectory(scratch.root);
+/**
+ * Removes a scratch root {@link openTestRunScratch} made, whatever the run's
+ * outcome. A test may leave a folder it cannot list (mode 000) in its temp
+ * folder: the tree is made the owner's again — folders only, walked without
+ * following a link — and removed. Answers why it could not be removed, or
+ * `null`: a failed removal is reported by the caller BESIDE the run's result,
+ * never in place of it.
+ */
+export function closeTestRunScratch(scratch: TestRunScratch): string | null {
+  try {
+    removeOwnedTemporaryDirectory(scratch.root);
+    return null;
+  } catch (first) {
+    try {
+      reopenOwnFolders(scratch.root);
+      removeOwnedTemporaryDirectory(scratch.root);
+      return null;
+    } catch (second) {
+      return `the run's scratch root ${scratch.root} could not be removed (${(first as Error).message}; then ${(second as Error).message})`;
+    }
+  }
+}
+
+/** Every folder of `root` made listable and writable by its owner again, never following a link. */
+function reopenOwnFolders(root: string): void {
+  const found = lstatSync(root, { throwIfNoEntry: false });
+  if (found === undefined || !found.isDirectory()) return;
+  chmodSync(root, 0o700);
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.isDirectory()) reopenOwnFolders(join(root, entry.name));
+  }
 }
 
 /**
