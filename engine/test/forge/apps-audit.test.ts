@@ -19,11 +19,11 @@ import { runForgeCli } from "../../src/workflow/forge/cli.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { fakeGithub } from "./fake-github.ts";
 import { temporaryKeyHome } from "./forge-key-home.ts";
-import { SETTINGS } from "./forge-settings.ts";
+import { SETTINGS, TRUNK } from "./forge-settings.ts";
 
 const ORG = "LLM-4-People";
 /** The repositories the registry installs the agent and the verifier on, for the test section (trunk, notes, meta, and the proving ground). */
-const HOST_REPOSITORIES = ["bridlewise-testing", ".github", "bridlewise-coordination", "forge-proving-ground"].map((name) => `${ORG}/${name}`);
+const HOST_REPOSITORIES = [TRUNK, ".github", "bridlewise-coordination", "forge-proving-ground"].map((name) => `${ORG}/${name}`);
 
 function hostAudit(permissions: Readonly<Record<string, string>>, repositories: readonly string[]) {
   const fake = fakeGithub();
@@ -73,7 +73,7 @@ test("the audit token is metadata only: GitHub minting anything wider is refused
 
 test("an environment App signs only with the key its job is handed; a host App never signs through the environment's custody", async () => {
   const fake = fakeGithub();
-  const app = fake.installApp({ slug: "bridlewise-door", permissions: FORGE_APPS.door.permissions, repositories: [`${ORG}/bridlewise-testing`, `${ORG}/forge-proving-ground`] });
+  const app = fake.installApp({ slug: "bridlewise-door", permissions: FORGE_APPS.door.permissions, repositories: [`${ORG}/${TRUNK}`, `${ORG}/forge-proving-ground`] });
   const custody = FORGE_APPS.door.custody;
   assert.ok(custody.kind === "environment");
   const before = { key: process.env[custody.keySecret], id: process.env[custody.clientIdVariable] };

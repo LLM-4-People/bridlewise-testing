@@ -304,7 +304,7 @@ Latest run on `main`:
 
 ```bash
 gh run list \
-  --repo LLM-4-People/bridlewise \
+  --repo {{ site.product_repository }} \
   --workflow ci.yml \
   --limit 1 \
   --json conclusion,headSha,url
@@ -320,14 +320,14 @@ Read the jobs, not only the run:
 
 ```bash
 run_id=$(gh run list \
-  --repo LLM-4-People/bridlewise \
+  --repo {{ site.product_repository }} \
   --workflow ci.yml \
   --limit 1 \
   --json databaseId \
   --jq '.[0].databaseId')
 
 gh run view "$run_id" \
-  --repo LLM-4-People/bridlewise \
+  --repo {{ site.product_repository }} \
   --json jobs \
   --jq '.jobs[] | "\(.name): \(.conclusion)"'
 ```
@@ -350,7 +350,7 @@ List a prerelease and download its assets:
 
 ```bash
 tag=$(gh release list \
-  --repo LLM-4-People/bridlewise \
+  --repo {{ site.product_repository }} \
   --exclude-drafts \
   --limit 20 \
   --json tagName,isPrerelease \
@@ -363,7 +363,7 @@ fi
 
 work=$(mktemp -d)
 cd "$work"
-gh release download "$tag" --repo LLM-4-People/bridlewise
+gh release download "$tag" --repo {{ site.product_repository }}
 sha256sum -c SHA256SUMS
 ```
 
@@ -385,7 +385,7 @@ What it does not prove: who published the list, that the build is reproducible, 
 If the release publishes a build provenance attestation, verify one asset:
 
 ```bash
-gh attestation verify <downloaded-asset> --repo LLM-4-People/bridlewise
+gh attestation verify <downloaded-asset> --repo {{ site.product_repository }}
 ```
 
 An exit status of 0 binds the asset digest to the release workflow run and commit under GitHub's OIDC identity. It does not prove the source is correct or the build is reproducible.

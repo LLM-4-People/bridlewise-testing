@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/svelte";
 
+import { threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
 import CustodyRoom from "../../src/cockpit/rooms/CustodyRoom.svelte";
 import DiffSheet from "../../src/cockpit/rooms/DiffSheet.svelte";
 import {
@@ -310,9 +311,10 @@ describe("instant open, absence-first (<200ms law)", () => {
       state: () => new Promise(() => {}),
       history: () => new Promise(() => {}),
     });
-    const t0 = performance.now();
+    // CPU work, never wall time (NO-LOAD-BLOCK).
+    const t0 = threadCpuWorkMs();
     const { getByText } = render(CustodyRoom, { shell: makeShell() });
-    const openMs = performance.now() - t0;
+    const openMs = threadCpuWorkMs() - t0;
     expect(getByText("reading the current work")).toBeTruthy();
     expect(getByText("reading the saved history")).toBeTruthy();
     expect(openMs, `room open took ${openMs}ms`).toBeLessThan(200);

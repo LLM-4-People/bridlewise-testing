@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "bridlewise-forge-repository-identity/v1",
+  "generator": "harness sync (engine/src/workflow/forge/generated-files.ts, from repository-identity.ts); never edit by hand",
+  "owner": "LLM-4-People",
+  "name": "bridlewise-testing",
+  "fullName": "LLM-4-People/bridlewise-testing",
+  "webUrl": "https://github.com/LLM-4-People/bridlewise-testing",
+  "pagesUrl": "https://llm-4-people.github.io/bridlewise-testing/",
+  "pagesBasePath": "/bridlewise-testing",
+  "organisationRepositories": [
+    "bridlewise-testing",
+    ".github",
+    "bridlewise-evidence",
+    "bridlewise-coordination",
+    "bridlewise-archive",
+    "bridlewise",
+    "forge-proving-ground"
+  ],
+  "product": {
+    "name": "bridlewise",
+    "fullName": "LLM-4-People/bridlewise",
+    "webUrl": "https://github.com/LLM-4-People/bridlewise",
+    "pagesUrl": "https://llm-4-people.github.io/bridlewise/"
+  },
+  "preview": {
+    "name": "bridlewise",
+    "fullName": "LLM-4-People/bridlewise",
+    "webUrl": "https://github.com/LLM-4-People/bridlewise",
+    "pagesUrl": "https://llm-4-people.github.io/bridlewise/"
+  }
+}

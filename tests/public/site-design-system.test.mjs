@@ -17,6 +17,7 @@ import { parse } from "yaml";
 import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
 import { markInclude, markRules } from "../../scripts/floor/site-design.mjs";
+import { SITE_BASEURL } from "../../scripts/floor/repository.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
 import { declaredTokens, judgeSiteStyles, siteMarkupFiles, siteMarkupViolations, siteStyleViolations } from "../../scripts/floor/site-style.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
@@ -158,14 +159,14 @@ test("every page carries the two policies first: only files under the site's own
     const [name, ...values] = directive.split(" ");
     return [name, values];
   }));
-  const [originPolicy, pathPolicy] = sitePolicies("/bridlewise-testing");
+  const [originPolicy, pathPolicy] = sitePolicies(SITE_BASEURL);
   const origin = directives(originPolicy);
   const scoped = directives(pathPolicy);
   const LOADS = ["default-src", "script-src", "style-src", "font-src", "img-src", "connect-src", "form-action"];
   for (const name of LOADS) assert.deepEqual(origin.get(name), ["'self'"], `origin policy: ${name} is 'self' only`);
   // The Pages origin is shared by every site of the organisation, so every
   // source is also scoped to this site's base path (the browser enforces both).
-  for (const name of LOADS) assert.deepEqual(scoped.get(name), ["*:*/bridlewise-testing/"], `path policy: ${name} is the base path only`);
+  for (const name of LOADS) assert.deepEqual(scoped.get(name), [`*:*${SITE_BASEURL}/`], `path policy: ${name} is the base path only`);
   for (const policy of [origin, scoped]) for (const name of ["object-src", "base-uri"]) assert.deepEqual(policy.get(name), ["'none'"], `${name} is 'none'`);
   for (const policy of [originPolicy, pathPolicy]) assert.ok(!policy.includes("unsafe-inline") && !policy.includes("unsafe-eval"), "no inline script or style, no eval");
   assert.deepEqual(MARKDOWN_STYLE_ATTRIBUTES, ["text-align: left", "text-align: center", "text-align: right"]);

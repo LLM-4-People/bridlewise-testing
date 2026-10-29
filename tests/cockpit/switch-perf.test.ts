@@ -34,6 +34,7 @@
  */
 import { describe, expect, test } from "vitest";
 
+import { cpuWorkOf, threadCpuWorkMs } from "../../engine/src/shared/run-cpu.ts";
 import {
   buildRiver,
   filterRiver,
@@ -78,16 +79,10 @@ function buildOnce(): readonly ProjectCap[] {
   return buildRiver(projects, chatsByProject, order, new Set(), () => "loaded");
 }
 
-/** Best-of-N wall time — the honest CI shape (absorbs scheduler noise
- * without loosening the budget). */
+/** Best-of-N CPU WORK, never wall time (NO-LOAD-BLOCK): a busy host makes
+ * the derive wait for a core, which is not its cost. */
 function measureMs(fn: () => void, runs = 5): number {
-  let best = Infinity;
-  for (let i = 0; i < runs; i += 1) {
-    const t0 = performance.now();
-    fn();
-    best = Math.min(best, performance.now() - t0);
-  }
-  return best;
+  return cpuWorkOf(fn, runs);
 }
 
 describe("switch latency budgets (CI)", () => {
@@ -117,9 +112,11 @@ describe("switch latency budgets (CI)", () => {
   test("mutation: the stopwatch CAN fail — a slowed filter blows the budget", () => {
     const slowed = (q: string): void => {
       filterRiver(caps, q);
-      const until = performance.now() + FILTER_BUDGET_MS + 10;
-      while (performance.now() < until) {
-        /* the injected slowness a real regression would introduce */
+      // The injected slowness a real regression would introduce: CPU WORK,
+      // so the plant is the same work however loaded the host is.
+      const until = threadCpuWorkMs() + FILTER_BUDGET_MS + 10;
+      while (threadCpuWorkMs() < until) {
+        /* spin */
       }
     };
     const ms = measureMs(() => slowed("parser"), 1);

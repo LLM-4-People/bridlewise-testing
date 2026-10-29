@@ -122,7 +122,7 @@ function settled(result, code = "api-error") {
 }
 
 /**
- * The floor status of this repository (its coordinates from package.json):
+ * The floor status of this repository (its coordinates from the repository identity):
  * the required workflow runs and alert queues at the source commit, and the
  * `product` branch's tip. GitHub is read through the forge port with
  * `client` (the build's token), each list up to `maxPages` pages (the

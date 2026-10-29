@@ -52,7 +52,8 @@ import { appKeyState, pushHeldKey, storeAppKey, type StoredAppIdentity } from ".
 import { ForgeError, isForgeError } from "./codes.ts";
 import { anonymousCredential } from "./credentials.ts";
 import type { DiscussionCategory } from "../community/sources.ts";
-import { repositoriesOfKinds, trunkRepository, type ForgeSettings } from "./forge-config.ts";
+import { repositoriesOfKinds, type ForgeSettings } from "./forge-config.ts";
+import { repositoryIdentity } from "./repository-identity.ts";
 import { appManifest, appsPageOrigin } from "./generated-files.ts";
 import { FORGE_LOG_CATEGORY, githubClient } from "./github.ts";
 import type { MaintainerCli } from "./maintainer-cli.ts";
@@ -206,7 +207,8 @@ function verifyConversion(role: ForgeAppRole, settings: ForgeSettings, answer: R
 /** Serve the Apps page (see the module header). */
 export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage> {
   const { settings, keyHome, cli } = options;
-  const trunk = `${settings.organization}/${trunkRepository(settings).name}`;
+  const identity = repositoryIdentity(settings);
+  const trunk = identity.fullName;
   const web = settings.webUrl.replace(/\/$/u, "");
   const conversion = githubClient(options.endpoint, anonymousCredential("anonymous:app-manifest-conversion"));
   const pageToken = token();
@@ -289,7 +291,7 @@ export async function serveAppsPage(options: AppsPageOptions): Promise<AppsPage>
       session,
       error: lastError,
       installationsUrl: `${web}/organizations/${settings.organization}/settings/installations`,
-      discussionsUrl: `${web}/${trunk}/discussions/categories`,
+      discussionsUrl: `${identity.webUrl}/discussions/categories`,
       categories: options.discussionCategories.map((category) => ({ name: category.name, format: category.format, purpose: category.use })),
       legacyApps: settings.appsPage.legacyApps,
       apps: FORGE_APP_ROLES.map((role) => {
