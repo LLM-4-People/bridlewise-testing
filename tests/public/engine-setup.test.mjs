@@ -59,17 +59,88 @@ const INSTALL_SCRIPTS_ALLOWED = Object.freeze(new Map([
   [".github/workflows/test-shards.yml#shard", "builds the engine bundle with esbuild before its shard"],
 ]));
 
-/** A credential a job holds: a secret, the workflow token, or an App token it mints. */
-const CREDENTIAL = /\bsecrets\.|\bgithub\.token\b|create-github-app-token/u;
+/** Every string of a parsed value. */
+const stringsIn = (value) => (typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(stringsIn) : value !== null && typeof value === "object" ? Object.values(value).flatMap(stringsIn) : []);
+
+/** The `${{ … }}` expressions of a text. */
+function expressionsIn(text) {
+  const found = [];
+  for (let at = text.indexOf("${{"); at !== -1; at = text.indexOf("${{", at + 3)) {
+    const end = text.indexOf("}}", at + 3);
+    if (end === -1) break;
+    found.push(text.slice(at + 3, end));
+  }
+  return found;
+}
+
+/**
+ * The property paths an expression reads, PARSED (never grepped): each
+ * context root with its `.name` and `['name']` steps, lower-cased as GitHub
+ * compares them (`secrets['X']` and `SECRETS.x` are both `secrets.x`); a
+ * computed index ends the path with `*`.
+ */
+export function contextPaths(expression) {
+  const tokens = [];
+  for (let at = 0; at < expression.length;) {
+    const char = expression[at];
+    if (/\s/u.test(char)) at += 1;
+    else if (char === "'") {
+      let value = "";
+      let next = at + 1;
+      for (; next < expression.length; next += 1) {
+        if (expression[next] === "'" && expression[next + 1] === "'") { value += "'"; next += 1; } else if (expression[next] === "'") break;
+        else value += expression[next];
+      }
+      tokens.push({ kind: "string", value });
+      at = next + 1;
+    } else if (/[A-Za-z_]/u.test(char)) {
+      let next = at + 1;
+      while (next < expression.length && /[A-Za-z0-9_-]/u.test(expression[next])) next += 1;
+      tokens.push({ kind: "name", value: expression.slice(at, next) });
+      at = next;
+    } else {
+      tokens.push({ kind: "punctuation", value: char });
+      at += 1;
+    }
+  }
+  const paths = [];
+  tokens.forEach((token, index) => {
+    if (token.kind !== "name" || tokens[index - 1]?.value === ".") return;
+    const path = [token.value.toLowerCase()];
+    for (let next = index + 1; next < tokens.length;) {
+      if (tokens[next].value === "." && tokens[next + 1]?.kind === "name") { path.push(tokens[next + 1].value.toLowerCase()); next += 2; } else if (tokens[next].value === "[" && tokens[next + 1]?.kind === "string" && tokens[next + 2]?.value === "]") { path.push(tokens[next + 1].value.toLowerCase()); next += 3; } else if (tokens[next].value === "[") { path.push("*"); break; } else break;
+    }
+    paths.push(path);
+  });
+  return paths;
+}
+
+/** Whether a text names a credential in an expression: any `secrets` read, or `github.token`. */
+const namesCredential = (text) => expressionsIn(text).some((expression) => contextPaths(expression).some((path) => path[0] === "secrets" || (path[0] === "github" && (path[1] === "token" || path[1] === "*"))));
+
+/**
+ * Whether a job (with its workflow's `env`) holds a credential: it names a
+ * secret or the workflow token anywhere, mints an App token, or checks out
+ * without `persist-credentials: false` (which writes the workflow token into
+ * `.git/config`, where any later process, an install script among them, reads it).
+ */
+function holdsCredential(body, workflowEnv) {
+  if ([...stringsIn(body), ...stringsIn(workflowEnv ?? {})].some(namesCredential)) return true;
+  return (Array.isArray(body?.steps) ? body.steps : []).some((step) => {
+    const uses = String(step?.uses ?? "").toLowerCase();
+    if (uses.startsWith("actions/create-github-app-token@")) return true;
+    return uses.startsWith("actions/checkout@") && String(step?.with?.["persist-credentials"] ?? "true") !== "false";
+  });
+}
 
 /** Every engine-setup call: `{ key, ignoreScripts, credential }` (`workflow#job`, or the action file that calls it). */
 function engineSetupCalls(texts) {
   return Object.entries(texts).flatMap(([path, text]) => {
     const document = parse(text);
-    const units = document?.jobs !== undefined ? Object.entries(document.jobs).map(([job, body]) => [`${path}#${job}`, body, body?.steps]) : [[path, document, document?.runs?.steps]];
-    return units.flatMap(([key, body, steps]) => (Array.isArray(steps) ? steps : [])
+    const units = document?.jobs !== undefined ? Object.entries(document.jobs).map(([job, body]) => [`${path}#${job}`, body, body?.steps, document.env]) : [[path, document, document?.runs?.steps, undefined]];
+    return units.flatMap(([key, body, steps, workflowEnv]) => (Array.isArray(steps) ? steps : [])
       .filter((step) => step?.uses === "./.github/actions/engine-setup")
-      .map((step) => ({ key, ignoreScripts: String(step.with?.["ignore-scripts"]), credential: CREDENTIAL.test(JSON.stringify(body)) })));
+      .map((step) => ({ key, ignoreScripts: String(step.with?.["ignore-scripts"]), credential: holdsCredential(body, workflowEnv) })));
   });
 }
 
@@ -200,7 +271,22 @@ test("only the declared jobs run the engine's install scripts, and none of them 
   const listed = new Map([...INSTALL_SCRIPTS_ALLOWED, [`${audit}#audit`, "planted"]]);
   assert.match(installScriptViolations(flip(audit, "audit"), listed).join(), /forge-apps-audit\.yml#audit holds a credential, so it may never run install scripts/u);
   const ci = ".github/workflows/ci.yml";
-  const secret = { ...texts, [ci]: texts[ci].replace("  generated:\n", "  generated:\n    env:\n      PLANTED: ${{ secrets.PLANTED }}\n") };
-  assert.match(installScriptViolations(secret).join(), /ci\.yml#generated holds a credential/u);
+  // A listed job given a credential, in every spelling the reviewer planted and more: each is refused.
+  const plants = {
+    "a dotted secret": texts[ci].replace("  generated:\n", "  generated:\n    env:\n      PLANTED: ${{ secrets.PLANTED }}\n"),
+    "a bracketed secret": texts[ci].replace("  generated:\n", "  generated:\n    env:\n      PLANTED: ${{ secrets['PLANTED'] }}\n"),
+    "a secret in another case, inside a call": texts[ci].replace("  generated:\n", "  generated:\n    env:\n      PLANTED: ${{ format('{0}', SECRETS.planted) }}\n"),
+    "the workflow token, bracketed": texts[ci].replace("  generated:\n", "  generated:\n    env:\n      PLANTED: ${{ github['token'] }}\n"),
+    "a workflow-level secret": texts[ci].replace("\njobs:\n", "\nenv:\n  PLANTED: ${{ secrets.PLANTED }}\n\njobs:\n"),
+    "a checkout that persists credentials": texts[ci].replace("          persist-credentials: false\n          ref: ${{ github.sha }}\n          fetch-depth: 1\n", "          ref: ${{ github.sha }}\n          fetch-depth: 1\n"),
+  };
+  for (const [what, text] of Object.entries(plants)) {
+    assert.notEqual(text, texts[ci], `${what}: the plant applied`);
+    assert.match(installScriptViolations({ ...texts, [ci]: text }).join(), /ci\.yml#(?:gate|generated|engine-suite) holds a credential/u, what);
+  }
+  // Near misses: a context that only shares a name, and the token's NAME in prose.
+  assert.deepEqual(contextPaths("github.token_name || env.secrets"), [["github", "token_name"], ["env", "secrets"]]);
+  assert.deepEqual(contextPaths("secrets['X'] && github['token'] && github[matrix.k]"), [["secrets", "x"], ["github", "token"], ["github", "*"], ["matrix", "k"]]);
+  assert.deepEqual(installScriptViolations({ ...texts, [ci]: texts[ci].replace("  generated:\n", "  generated:\n    env:\n      NOTE: no github.token here\n      KIND: ${{ github.event_name }}\n      SAME: ${{ github['event_name'] }}\n") }), []);
   assert.match(installScriptViolations(texts, new Map([...INSTALL_SCRIPTS_ALLOWED, [`${ci}#rendered`, "planted"]])).join(), /ci\.yml#rendered is in INSTALL_SCRIPTS_ALLOWED \(planted\) but runs no install scripts/u);
 });
