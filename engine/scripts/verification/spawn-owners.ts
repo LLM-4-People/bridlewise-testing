@@ -14,11 +14,15 @@
  * repository's own, cooperative code on the one door, and it reads syntax: a
  * module determined to start a process can always find a form no syntax
  * check follows. The boundary against hostile code is the kernel's: #634's
- * confinement of every test and command run. So the scan names every form it
- * reads ({@link SpawnForm}). The forms it cannot read reliably — a computed
- * module specifier, `process.binding`, the `vm` module, an eval'd worker,
- * the `cluster` module — are REFUSED outside {@link UNREADABLE_LOADERS}, each
- * declared with its reason, never let through.
+ * confinement of every test and command run. Out of its scope by design: a
+ * loader hook (`module.register`), which changes what any import means, is
+ * #634's to contain. The scan names every form it reads ({@link SpawnForm}).
+ * The forms it cannot read reliably — a computed module specifier, a
+ * `binding`/`_linkedBinding` call on `process` however it is reached, the
+ * `vm` module, an eval'd worker or one whose options are not an inline object
+ * literal, the `cluster` module — are REFUSED outside
+ * {@link UNREADABLE_LOADERS}, each declared with its reason, never let
+ * through.
  *
  * `engine/test/prevention/spawn-owners.test.ts` refuses a form outside its
  * list, and an entry whose file no longer holds the form, so the lists stay
@@ -114,6 +118,7 @@ export const SPAWN_FORMS = Object.freeze([
   "process-binding",
   "vm-module",
   "eval-worker",
+  "opaque-worker-options",
   "cluster-module",
   "unparsable",
 ] as const);
@@ -196,6 +201,22 @@ function boundLoaders(program: unknown): ReadonlySet<string> {
   return names;
 }
 
+/** Whether `node` reaches `process`: the identifier, or a member named `process` on anything (`globalThis.process`). */
+function reachesProcess(node: unknown): boolean {
+  if (!isNode(node)) return false;
+  if (node.type === "Identifier") return node["name"] === "process";
+  if (node.type === "MemberExpression" || node.type === "OptionalMemberExpression") return memberName(node) === "process";
+  if (node.type === "TSNonNullExpression" || node.type === "TSAsExpression" || node.type === "ParenthesizedExpression") return reachesProcess(node["expression"]);
+  return false;
+}
+
+/** Whether a `new Worker(…)` spells its arguments through the one worker spawn: `...bootstrappedWorker(…)`. */
+function isBootstrappedSpread(argument: unknown): boolean {
+  if (!isNode(argument) || argument.type !== "SpreadElement") return false;
+  const spread = argument["argument"];
+  return isNode(spread) && spread.type === "CallExpression" && isIdentifier(spread["callee"], "bootstrappedWorker");
+}
+
 function isWorkerConstructor(callee: unknown): boolean {
   return isIdentifier(callee, "Worker") || (isNode(callee) && callee.type === "MemberExpression" && memberName(callee) === "Worker");
 }
@@ -265,9 +286,19 @@ export function spawnFormsIn(source: string, path: string, disabled?: SpawnForm)
         else if (VM.has(specifier)) hit("vm-module");
         else if (CLUSTER.has(specifier)) hit("cluster-module");
       }
-      if (isNode(callee) && callee.type === "MemberExpression" && memberName(callee) === "binding" && isIdentifier(callee["object"], "process")) hit("process-binding");
+      if (isNode(callee) && (callee.type === "MemberExpression" || callee.type === "OptionalMemberExpression") &&
+        ["binding", "_linkedBinding"].includes(memberName(callee) ?? "") && reachesProcess(callee["object"])) hit("process-binding");
     }
-    if (node.type === "NewExpression" && isWorkerConstructor(node["callee"]) && holdsEvalTrue((node["arguments"] as readonly unknown[] | undefined)?.[1])) hit("eval-worker");
+    if (node.type === "NewExpression" && isWorkerConstructor(node["callee"])) {
+      const args = (node["arguments"] as readonly unknown[] | undefined) ?? [];
+      if (holdsEvalTrue(args[1])) hit("eval-worker");
+      // The one worker spawn's spread is read through its owner (worker-bootstrap.ts); any other options that are
+      // not an inline object literal (a variable, a spread, a call) cannot be read for `eval: true`.
+      const opaque = isBootstrappedSpread(args[0])
+        ? args.length > 1
+        : args.some((argument) => isNode(argument) && argument.type === "SpreadElement") || (args[1] !== undefined && !(isNode(args[1]) && args[1].type === "ObjectExpression"));
+      if (opaque) hit("opaque-worker-options");
+    }
     for (const [key, value] of Object.entries(node)) {
       if (key === "loc" || key === "start" || key === "end" || key === "extra" || key === "comments" || key.endsWith("Comments")) continue;
       if (typeof value === "object" && value !== null) pending.push(value);

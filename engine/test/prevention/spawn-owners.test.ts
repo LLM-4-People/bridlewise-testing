@@ -51,9 +51,10 @@ const PLANTED: Readonly<Record<SpawnForm, readonly string[]>> = {
   ],
   "computed-import": [`const name = "node:" + "child_process"; await import(name);`, "const n = 'child_process'; await import(`node:${n}`);"],
   "computed-require": [`const name = "child_" + "process"; require(name);`, `import { createRequire } from "node:module"; const r = createRequire(import.meta.url); const n = "x"; r(n);`, `process.getBuiltinModule(["child", "process"].join("_"));`],
-  "process-binding": [`process.binding("spawn_sync");`, `process["binding"]("spawn_sync");`],
+  "process-binding": [`process.binding("spawn_sync");`, `process["binding"]("spawn_sync");`, `globalThis.process.binding("spawn_sync");`, `process._linkedBinding("spawn_sync");`, `global.process?._linkedBinding("x");`],
   "vm-module": [`import { runInNewContext } from "node:vm";`, `const vm = require("vm");`, `const vm = await import("node:vm");`],
   "eval-worker": [`import { Worker } from "node:worker_threads"; new Worker("require('child_process')", { eval: true });`, `import * as wt from "node:worker_threads"; new wt.Worker(code, { "eval": true });`],
+  "opaque-worker-options": [`import { Worker } from "node:worker_threads"; const o = { eval: true }; new Worker("x", o);`, `import { Worker } from "node:worker_threads"; new Worker(...args);`, `import { Worker } from "node:worker_threads"; new Worker("x", options());`],
   "cluster-module": [`import cluster from "node:cluster"; cluster.fork();`, `const cluster = require("cluster");`],
   "unparsable": [`<<<< this is not a module >>>> ) ( }`],
 };
@@ -80,6 +81,8 @@ test("what is not a spawn is not seen as one", () => {
     `const name = "child_process";`,
     `const m = await import("./sibling.ts"); const n = require("node:fs");`,
     `import { Worker } from "node:worker_threads"; new Worker(new URL("./w.ts", import.meta.url), { workerData: {} });`,
+    `import { Worker } from "node:worker_threads"; new Worker(...bootstrappedWorker(entry, "worker", { workerData }));`,
+    `const view = { binding: () => 1 }; view.binding();`,
   ];
   for (const source of quiet) assert.deepEqual([...spawnFormsIn(source, "probe.ts")], [], source);
 });
