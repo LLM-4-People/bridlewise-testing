@@ -568,3 +568,28 @@ test("A SCOPED RUN'S MEMORY FILE THAT IS ABSENT OR NOT A BYTE COUNT IS REFUSED T
   assert.throws(() => requiredCgroupBytes("/sys/fs/cgroup/x/memory.peak", "memory.peak", undefined), (error: unknown) => (error as { code?: unknown }).code === "run_memory_unreadable" && (error as Error).message.includes("(memory.peak needs Linux 5.19 or later)"));
   assert.throws(() => requiredCgroupBytes("/sys/fs/cgroup/x/memory.max", "memory.max", "max"), (error: unknown) => (error as { code?: unknown }).code === "run_memory_unreadable" && (error as Error).message.includes("holds memory.max max"));
 });
+
+test("A WORKER ALREADY IN A LEAF ITS LAUNCHER MADE (`worker-<n>` beside run/) is measured by that leaf: entering its own is a no-op that answers it, so the leaf it names is the one the runner reads", () => {
+  const lockPath = join(createTempDir("instrument-lock-launched-leaf-"), "instrument.lock");
+  const script = join(createTempDir("instrument-lock-launched-leaf-script-"), "launched.mjs");
+  const worker = [
+    `const { enterOwnWorkerLeaf } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    "console.log(enterOwnWorkerLeaf());",
+  ].join("\n");
+  writeFileSync(script, [
+    `const { admitInstrumentRun, runScopeLeafMemory } = await import(${JSON.stringify(LOCK_OWNER)});`,
+    `const { spawnSync } = await import("node:child_process");`,
+    `const lock = admitInstrumentRun(process.argv[2], "a run whose launcher makes the worker leaf", { memoryMaxPercent: 37, cpuWeight: 42 }, { cpuLimitSeconds: 77, cpuKillGraceSeconds: 3, hangBackstopMs: 600_000 });`,
+    // The launcher: a shell that makes worker-7 beside run/, moves itself in, then becomes the worker.
+    `const launched = spawnSync("sh", ["-c", 's=$(dirname /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)); mkdir "$s/worker-7" && echo $$ > "$s/worker-7/cgroup.procs" && exec "$0" --experimental-strip-types --input-type=module -e "$1"', process.execPath, ${JSON.stringify(worker)}], { encoding: "utf8" });`,
+    "const leaves = runScopeLeafMemory();",
+    "lock.release();",
+    "process.stdout.write(JSON.stringify({ answered: launched.stdout.trim(), error: launched.stderr.trim(), workers: [...leaves.workerPeakBytes.keys()] }));",
+  ].join("\n"));
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", script, lockPath], { cwd: ENGINE, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, ran.stderr);
+  const seen = JSON.parse(ran.stdout) as { answered: string; error: string; workers: number[] };
+  assert.equal(seen.error, "");
+  assert.match(seen.answered, /\/bridlewise-run-[0-9a-f-]+\.scope\/worker-7$/u, "the worker answers the leaf its launcher made");
+  assert.deepEqual(seen.workers, [7], "no second leaf was made: the runner reads the one the worker names");
+});

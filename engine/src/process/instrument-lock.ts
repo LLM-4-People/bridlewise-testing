@@ -295,6 +295,9 @@ function splitRunScope(unit: string, caps: PerRunCaps): void {
 export function enterOwnWorkerLeaf(): string | undefined {
   const scope = runScopeCgroup();
   if (scope === undefined) return undefined;
+  // Already in a worker leaf (a confined worker whose launcher made it, `--cgroup-parent <scope>`): that leaf measures it.
+  const own = ownCgroupPath()!;
+  if (WORKER_LEAF.test(own.slice(own.lastIndexOf("/") + 1))) return own;
   const leaf = `${scope}/worker-${String(process.pid)}`;
   try {
     mkdirSync(`/sys/fs/cgroup${leaf}`);

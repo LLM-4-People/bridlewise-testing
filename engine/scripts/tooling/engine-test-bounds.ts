@@ -132,7 +132,8 @@ export async function installEngineTestBounds(bounds: EngineTestBounds): Promise
       if (!("diagnostic" in context)) return;
       context.diagnostic(`cpu-work ${String(reading.cpuMs)} ms; wall ${String(reading.wallMs)} ms (recorded, not judged)`);
       // Which leaf measures this file: the runner reads its peak from the scope.
-      if (workerLeaf !== undefined) context.diagnostic(`${WORKER_LEAF_DIAGNOSTIC} ${String(process.pid)}`);
+      // The leaf's own number (its name, `worker-<n>`), which is this process's pid only when this process made it.
+      if (workerLeaf !== undefined) context.diagnostic(`${WORKER_LEAF_DIAGNOSTIC} ${workerLeaf.slice(workerLeaf.lastIndexOf("-") + 1)}`);
     },
   );
 }
