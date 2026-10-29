@@ -9,6 +9,7 @@ The `engine/test/support/` folder of the development surface.
 - `authority-graph-test-catalog.ts` — the `authority-graph-test-catalog` module.
 - `current-slice-projection-fixture.ts` — the `current-slice-projection-fixture` module.
 - `factories.ts` — the `factories` module.
+- `flake-shim-config-loaded-first.ts` — a reproduction shim (`harness flake reproduce --preload`, FLAKE-REPRO) for FLAKY-CONFIG-PLATFORM-WARN-ONCE: it loads the configuration module before the test runs, as an earlier test file in the same process does.
 - `host-requirement.ts` — a HOST REQUIREMENT said by name (`requireHost`, `requireLinuxHost`): a hermetic test that needs Linux, the built guardian, a user systemd or a linked fixture asserts it, never returns green without it.
 - `flake-shim-stall-after-response.ts` — a REPRODUCTION SHIM (`--preload`): one event-loop stall of 7.5 s right after the loopback server's first answer inside the matrix-executor test "tokens accumulate from run usage" (the test is known through a wrapped `node:test`), recreating the lost reference run deterministically; never imported by a test.
 - `flake-shim-hold-requests.ts` — a REPRODUCTION SHIM (`harness flake reproduce --preload`): every HTTP server of the process holds a JSON-RPC answer it receives for 50 ms, recreating the late ping answer of the transport test's H-1 case; never imported by a test.
