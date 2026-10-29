@@ -153,3 +153,60 @@
 .floor-pill[data-state="not-run"] {
   color: var(--warn);
 }
+
+/* The claims page (engine/scripts/brand/render.ts): every claim with its verdict.
+   A retracted claim is struck through until its check passes again. DESIGN owns this layer. */
+.floor-claims {
+  max-width: var(--page-max);
+}
+
+.floor-claims-table td {
+  vertical-align: top;
+}
+
+.floor-claims .floor-facts {
+  font-family: var(--face-mono);
+  font-size: var(--f-data-size);
+  color: var(--ink-2);
+}
+
+.floor-claims .floor-gap {
+  color: var(--warn);
+}
+
+.floor-claim {
+  font-weight: 600;
+  width: 38%;
+}
+
+.floor-claims-table tr[data-verdict="retracted"] .floor-claim {
+  text-decoration: line-through;
+  text-decoration-color: var(--alarm);
+}
+
+.floor-state {
+  padding: 1px var(--sp-2);
+  border: var(--hairline-w) solid currentColor;
+  border-radius: var(--radius-card);
+}
+
+.floor-state[data-status="holds"],
+.floor-state[data-status="pass"] {
+  color: var(--ok);
+}
+
+.floor-state[data-status="retracted"],
+.floor-state[data-status="fail"] {
+  color: var(--alarm);
+}
+
+.floor-state[data-status="designed"],
+.floor-state[data-status="not-run"],
+.floor-state[data-status="unchecked"],
+.floor-state[data-status="unknown"] {
+  color: var(--warn);
+}
+
+.floor-state[data-status="not-claimed"] {
+  color: var(--ink-2);
+}

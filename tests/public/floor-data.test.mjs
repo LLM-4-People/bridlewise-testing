@@ -73,7 +73,9 @@ test("the one site's source is this tree's docs/, with no second repository", as
     assert.doesNotMatch(layout, /page\.floor_assets|floor_notice|testing_url|testing_hub_url/u, "one shell, one design layer, no mirror banner");
     // The front door leads with the product; the contributor hub and the floor are pages of the same site.
     assert.match(readFileSync(join(out, "index.md"), "utf8"), /permalink: \/\n/u);
-    assert.match(readFileSync(join(out, "index.md"), "utf8"), /Every run, recorded/u);
+    // Its words are the messaging source's (docs/brand/messaging.json, written by harness sync), never typed here.
+    const messaging = JSON.parse(readFileSync(join(ROOT, "docs/brand/messaging.json"), "utf8"));
+    assert.ok(readFileSync(join(out, "index.md"), "utf8").includes(`<h1>${messaging.promise}</h1>`));
     assert.match(readFileSync(join(out, "contribute.md"), "utf8"), /permalink: \/contribute\//u);
     assert.ok(readFileSync(join(out, "floor/index.md"), "utf8").includes("The development floor"));
     assert.ok(readFileSync(join(out, "assets/floor/floor.css"), "utf8").includes("floor-table-wrap"));

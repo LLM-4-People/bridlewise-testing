@@ -18,6 +18,7 @@ This README is integration notes, not a site page. `published: false` keeps it o
 | `floor/help.md` | `/floor/help/` | Contribution lanes and review checklist |
 | `floor/roadmap.md` | `/floor/roadmap/` | Milestones, workstreams, exit criteria, and generated status blocks |
 | `floor/promotion.md` | `/floor/promotion/` | Projection and gate contract |
+| `floor/claims.md` | `/floor/claims/` | Every public claim, judged at the published commit (body written at publish by `engine/scripts/brand/cli.ts build`) |
 | `floor/atlas.md` | `/floor/atlas/` | Generated test atlas and filter UI |
 | `floor/evidence.md` | `/floor/evidence/` | Rerunnable checks and non-proofs |
 | `floor/status.md` | `/floor/status/` | Generated status console and fallback |
