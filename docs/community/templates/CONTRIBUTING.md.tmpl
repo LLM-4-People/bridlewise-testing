@@ -129,6 +129,21 @@ bar](docs/process/AGENTS.md#evidence).
 4. It lands as a merge commit once the required checks and the review are
    green; the issues it resolves close when it lands.
 
+## Talking to the bots
+
+On an issue or a pull request, a comment whose first line is a command goes to
+the harness. {{feature:issueops}}
+
+{{commandTable}}
+
+- The command starts the comment: a quoted, indented or mid-text command is
+  never run, so quoting someone does not repeat what they typed.
+- Who may run a command comes from your permission on the repository, through
+  the [role table](GOVERNANCE.md#roles), never from how GitHub labels you.
+- A bot never changes an issue's state itself. A triage command adds a record
+  through a pull request, reviewed and landed like any other.
+- Type `/help` on any issue or pull request for this table as the bot knows it.
+
 ## AI-assisted contributions
 
 AI-assisted work is welcome. You remain responsible for the result. Disclose
