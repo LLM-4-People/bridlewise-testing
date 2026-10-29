@@ -41,14 +41,13 @@ jobs:
       - name: Install web dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Install the tracked hooks
         run: npm run bootstrap:hooks
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
 
       - name: Verify the derived shard population is the runner's selection
         run: |
@@ -134,11 +133,10 @@ jobs:
       - name: Install web dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Run every generator, then harness check
         working-directory: engine
@@ -206,13 +204,13 @@ jobs:
             package-lock.json
             engine/package-lock.json
 
-      - name: Install web and engine dependencies
-        run: |
-          npm ci --no-audit --no-fund
-          npm --prefix engine ci --no-audit --no-fund
+      - name: Install web dependencies
+        run: npm ci --no-audit --no-fund
 
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Require the pinned compiler from the runner image
         run: |
@@ -293,8 +291,10 @@ jobs:
       - name: Install web dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Require the pinned compiler from the runner image
         run: |
@@ -308,7 +308,6 @@ jobs:
       - name: Install hooks and build the confinement supervisor
         run: |
           npm run bootstrap:hooks
-          chmod 600 engine/bridlewise.config.json
           npm --prefix engine run build:bundle
           make -C engine/guardian all
 

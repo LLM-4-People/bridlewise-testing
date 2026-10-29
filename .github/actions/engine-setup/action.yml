@@ -1,0 +1,40 @@
+name: Engine setup
+description: >-
+  The one engine setup every job needs in a checkout: the engine's
+  dependencies, installed from its lockfile, and the engine configuration's
+  self-protection mode (0600; the engine refuses any other). Every job that
+  runs the engine calls it, directly or through site-build-setup, so a change
+  to the setup cannot drift between jobs (a test refuses an engine install or
+  a configuration chmod anywhere else).
+inputs:
+  root:
+    description: The checkout to set up (relative to the workspace, or absolute).
+    required: false
+    default: "."
+  ignore-scripts:
+    description: >-
+      "true" installs without running the packages' lifecycle scripts (a job
+      that only reads through the engine); "false" runs them (a job that
+      builds or tests the engine). Nothing else is accepted.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install the engine
+      shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+        IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+      run: |
+        case "$IGNORE_SCRIPTS" in
+          true) scripts=(--ignore-scripts) ;;
+          false) scripts=() ;;
+          *) echo "::error title=engine-setup::ignore-scripts must be true or false, not '$IGNORE_SCRIPTS'"; exit 1 ;;
+        esac
+        npm --prefix "$ROOT/engine" ci --no-audit --no-fund "${scripts[@]}"
+
+    - name: Enforce the self-protection config mode
+      shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+      run: chmod 600 "$ROOT/engine/bridlewise.config.json"

@@ -47,11 +47,10 @@ jobs:
           cache: npm
           cache-dependency-path: engine/package-lock.json
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Mint the publisher token
         id: token
@@ -86,11 +85,10 @@ jobs:
           cache: npm
           cache-dependency-path: engine/package-lock.json
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Mint the publisher token
         id: token
@@ -123,11 +121,10 @@ jobs:
           cache: npm
           cache-dependency-path: engine/package-lock.json
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Mint the publisher token
         id: token
@@ -160,11 +157,10 @@ jobs:
           cache: npm
           cache-dependency-path: engine/package-lock.json
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Mint the publisher token
         id: token
