@@ -82,7 +82,16 @@ const PULL_REQUEST_ONLY = new Map([
  * check PENDING on the pull requests it skips, so they can never land. On
  * `push` (main's post-land run) only the path and excluded-branch filters
  * would skip a main commit; `branches: [main]` names the branch it guards.
+ *
+ * One `types` list is no filter: one on `pull_request` that holds every one of
+ * GitHub's default types ({@link DEFAULT_PULL_REQUEST_TYPES}) skips no event
+ * the unfiltered trigger runs on, and only ADDS events (a label change that
+ * re-judges a check). Any narrower list still skips a gating event and is
+ * refused. The added events bring their own hazard, {@link requiredSkipViolations}.
  */
+/** The `pull_request` activity types GitHub runs a workflow on when none are named. */
+const DEFAULT_PULL_REQUEST_TYPES = Object.freeze(["opened", "synchronize", "reopened"]);
+
 const GATE_FILTERS = new Map([
   ["pull_request", ["branches", "branches-ignore", "types", "paths", "paths-ignore"]],
   ["merge_group", ["branches", "branches-ignore", "types", "paths", "paths-ignore"]],
@@ -118,7 +127,7 @@ function readWorkflow({ path, text }) {
   const at = (node) => `${path}:${String(node?.range === undefined ? 1 : lines.linePos(node.range[0]).line)}`;
   const resolved = (node) => (isAlias(node) ? node.resolve(document) : node);
   for (const error of [...document.errors, ...document.warnings]) unreadable.push(`${path}: unreadable YAML: ${error.message.split("\n")[0]}`);
-  if (unreadable.length > 0) return { events: new Set(), filters: [], blocks: [], unreadable };
+  if (unreadable.length > 0) return { events: new Set(), filters: [], blocks: [], unreadable, extraTypes: [], jobs: [] };
   visit(document, {
     Pair(_key, pair) {
       if (isPair(pair) && isScalar(pair.key) && pair.key.value === "<<") {
@@ -127,10 +136,12 @@ function readWorkflow({ path, text }) {
     },
   });
   const root = resolved(document.contents);
-  if (!isMap(root)) return { events: new Set(), filters: [], blocks: [], unreadable: [...unreadable, `${path}: unreadable: the document is not a mapping`] };
+  if (!isMap(root)) return { events: new Set(), filters: [], blocks: [], unreadable: [...unreadable, `${path}: unreadable: the document is not a mapping`], extraTypes: [], jobs: [] };
 
   const events = new Set();
   const filters = [];
+  /** The `pull_request` types a full types list adds beyond GitHub's defaults. */
+  const extraTypes = [];
   const on = resolved(root.get("on", true));
   if (isScalar(on) && typeof on.value === "string") events.add(on.value);
   else if (isSeq(on) && on.items.map(resolved).every((item) => isScalar(item) && typeof item.value === "string")) for (const item of on.items) events.add(resolved(item).value);
@@ -142,7 +153,16 @@ function readWorkflow({ path, text }) {
       if (isMap(settings) && GATE_FILTERS.has(event)) {
         for (const filter of GATE_FILTERS.get(event)) {
           const node = settings.get(filter, true);
-          if (node !== undefined) filters.push({ event, filter, at: at(node) });
+          if (node === undefined) continue;
+          if (event === "pull_request" && filter === "types") {
+            const list = resolved(node);
+            const types = isSeq(list) && list.items.map(resolved).every((item) => isScalar(item) && typeof item.value === "string") ? list.items.map((item) => String(resolved(item).value)) : null;
+            if (types !== null && DEFAULT_PULL_REQUEST_TYPES.every((type) => types.includes(type))) {
+              extraTypes.push(...types.filter((type) => !DEFAULT_PULL_REQUEST_TYPES.includes(type)));
+              continue;
+            }
+          }
+          filters.push({ event, filter, at: at(node) });
         }
       }
     }
@@ -170,7 +190,17 @@ function readWorkflow({ path, text }) {
     const job = resolved(pair.value);
     if (isMap(job)) readBlock(job.get("concurrency", true), `job ${String(pair.key?.value)}`);
   }
-  return { events, filters, blocks, unreadable };
+  // Each job's key, display name, condition and line (what a required check is named by, and what can skip it).
+  const jobsNode = resolved(root.get("jobs", true));
+  const jobList = isMap(jobsNode)
+    ? jobsNode.items.filter((pair) => isScalar(pair.key) && isMap(resolved(pair.value))).map((pair) => {
+      const job = resolved(pair.value);
+      const name = resolved(job.get("name", true));
+      const condition = resolved(job.get("if", true));
+      return { key: String(pair.key.value), name: isScalar(name) ? String(name.value) : String(pair.key.value), condition: isScalar(condition) ? String(condition.value) : null, at: at(pair.key) };
+    })
+    : [];
+  return { events, filters, blocks, unreadable, extraTypes, jobs: jobList };
 }
 
 /** The concurrency violations of one workflow, each naming its file and line. */
@@ -218,6 +248,50 @@ function mergeQueueViolations(workflow) {
     violations.push(`${workflow.path}: runs on pull_request but not on merge_group, so the merge queue never reports its checks`);
   }
   return violations;
+}
+
+/**
+ * The checks the forge requires: the required-status-check contexts of every
+ * ruleset it applies, read from the one declaration it applies them from (the
+ * generated `.github/forge` objects of kind `org-ruleset` or `ruleset`).
+ */
+function declaredRequiredChecks(root = ROOT) {
+  const contexts = new Set();
+  const walkForge = (directory) => {
+    for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
+      const path = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) walkForge(path);
+      else if (entry.name.endsWith(".json")) {
+        const object = JSON.parse(readFileSync(join(root, path), "utf8"));
+        if (object.kind !== "org-ruleset" && object.kind !== "ruleset") continue;
+        for (const rule of object.desired?.rules ?? []) {
+          if (rule.type !== "required_status_checks") continue;
+          for (const check of rule.parameters?.required_status_checks ?? []) contexts.add(check.context);
+        }
+      }
+    }
+  };
+  walkForge(".github/forge");
+  return contexts;
+}
+
+/**
+ * A REQUIRED job that can skip itself on the events a full `types` list adds.
+ * A skipped job still reports a check run, the newer one at the same head,
+ * and GitHub counts a skipped run as passing for a required check: a label
+ * event would turn the job's earlier failure into a pass. So in a workflow
+ * whose `pull_request` trigger adds types, a job the forge requires (by its
+ * display name, or its key when it has none) never carries an `if:` that
+ * reads the event's action or label, or names an added type.
+ */
+function requiredSkipViolations(workflow, required = declaredRequiredChecks()) {
+  const { extraTypes, jobs, unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  if (extraTypes.length === 0) return [];
+  const skipsOnExtra = (condition) => condition !== null && (/github\.event\.(?:action|label)\b/u.test(condition) || extraTypes.some((type) => condition.includes(`'${type}'`)));
+  return jobs
+    .filter((job) => (required.has(job.name) || required.has(job.key)) && skipsOnExtra(job.condition))
+    .map((job) => `${job.at}: the required job "${job.name}" can skip itself on the added pull_request types (${extraTypes.join(", ")}); a skipped run is the newer one at the head and counts as passing, so a label event would turn its failure into a pass`);
 }
 
 /** The CodeQL steps that upload results to code scanning: `analyze` (unless told otherwise) and `upload-sarif` (always). */
@@ -619,6 +693,9 @@ test("every live workflow that gates a pull request also runs in the merge queue
   const workflows = liveWorkflows();
   assert.ok(workflows.some((entry) => readWorkflow(entry).events.has("merge_group")), "no workflow runs on merge_group");
   assert.deepEqual(workflows.flatMap(mergeQueueViolations), []);
+  const required = declaredRequiredChecks();
+  assert.ok(required.size > 0, "the forge's declaration names no required check; the reader no longer reads it");
+  assert.deepEqual(workflows.flatMap((entry) => requiredSkipViolations(entry, required)), []);
   const paths = new Set(workflows.map((entry) => entry.path));
   for (const [path] of PULL_REQUEST_ONLY) {
     assert.ok(paths.has(path), `the exemption ${path} names no workflow`);
@@ -734,7 +811,17 @@ test("a gating workflow never filters its pull_request or merge_group trigger, n
     assert.equal(found.length, 1, `${shape}: ${JSON.stringify(found)}`);
     assert.match(found[0], /gate\.yml:\d+: a gating workflow filters/u, shape);
   }
+  const narrower = {
+    "types missing synchronize": "on:\n  pull_request:\n    types: [opened, reopened, labeled]\n  merge_group:\njobs: {}\n",
+    "types missing reopened": "on:\n  pull_request:\n    types: [opened, synchronize, labeled, unlabeled]\n  merge_group:\njobs: {}\n",
+  };
+  for (const [shape, text] of Object.entries(narrower)) {
+    const found = mergeQueueViolations({ path: ".github/workflows/gate.yml", text });
+    assert.equal(found.length, 1, `${shape}: ${JSON.stringify(found)}`);
+    assert.match(found[0], /filters `pull_request` by `types`/u, shape);
+  }
   const nearMisses = {
+    "every default type, plus labeled and unlabeled": "on:\n  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:\njobs: {}\n",
     "unfiltered gate, main push named": "on:\n  push:\n    branches: [main]\n  pull_request:\n  merge_group:\njobs: {}\n",
     "an empty settings map": "on: {pull_request: {}, merge_group: {}}\njobs: {}\n",
     "a path-filtered workflow outside the queue": "on:\n  push:\n    paths: ['docs/**']\njobs: {}\n",
@@ -742,6 +829,23 @@ test("a gating workflow never filters its pull_request or merge_group trigger, n
   for (const [shape, text] of Object.entries(nearMisses)) {
     assert.deepEqual(mergeQueueViolations({ path: ".github/workflows/near.yml", text }), [], shape);
   }
+});
+
+test("a required job never skips itself on the pull_request types a workflow adds; a job the forge does not require may", () => {
+  const required = new Set(["Required job"]);
+  const trigger = "on:\n  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:\n";
+  const skipping = `${trigger}jobs:\n  gate:\n    name: Required job\n    if: github.event.action != 'labeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
+  const found = requiredSkipViolations({ path: ".github/workflows/skip.yml", text: skipping }, required);
+  assert.equal(found.length, 1, JSON.stringify(found));
+  assert.match(found[0], /skip\.yml:\d+: the required job "Required job" can skip itself/u);
+  const byLabel = `${trigger}jobs:\n  gate:\n    name: Required job\n    if: github.event.label.name == 'visual-change'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
+  assert.equal(requiredSkipViolations({ path: ".github/workflows/skip.yml", text: byLabel }, required).length, 1, "a condition on the label is one on the added event too");
+  const notRequired = `${trigger}jobs:\n  build:\n    name: Build the site\n    if: github.event.action != 'labeled' && github.event.action != 'unlabeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
+  assert.deepEqual(requiredSkipViolations({ path: ".github/workflows/near.yml", text: notRequired }, required), [], "a job the forge does not require may skip on a label event");
+  const noSkip = `${trigger}jobs:\n  gate:\n    name: Required job\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n`;
+  assert.deepEqual(requiredSkipViolations({ path: ".github/workflows/near.yml", text: noSkip }, required), [], "a required job that never skips runs on the label event too");
+  const unfiltered = "on:\n  pull_request:\n  merge_group:\njobs:\n  gate:\n    name: Required job\n    if: github.event.action != 'labeled'\n    runs-on: ubuntu-24.04\n    steps: [{run: 'true'}]\n";
+  assert.deepEqual(requiredSkipViolations({ path: ".github/workflows/near.yml", text: unfiltered }, required), [], "with no added types, no label event reaches the job");
 });
 
 test("planted cancelling groups are refused at workflow and job level, in any YAML spelling", () => {
