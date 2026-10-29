@@ -4,19 +4,10 @@ import { ROOT_POLICY } from "./root-policy.ts";
 /** Neutral path authority shared by runtime-neutral verification cores and scripts. */
 export const VERIFICATION_PATHS = deepFreeze({
   testInventory: "traceability/s1-test-inventory.json",
-} as const);
-
-/**
- * THE GENERATED README CONSUMER BLOCKS: every README.md carrying `begin`
- * holds one block, up to `end`, that `generator` (repository-relative)
- * projects from the import graph. `harness sync` writes them, `harness check`
- * reports their drift, and every such README is a generated output
- * (`generatedOutputPaths`, src/workflow/hash-binding-registry.ts).
- */
-export const README_CONSUMER_BLOCK = deepFreeze({
-  generator: "tests/helpers/readme-consumers.ts",
-  begin: "<!-- consumers:generated -->",
-  end: "<!-- /consumers:generated -->",
+  // The architecture judge's ratchet baseline (repository-relative): a FIXED path in code, never a
+  // policy-editable one (scripts/verification/ratchet-baselines.ts); a declared generator input, so the
+  // generators' engine-only copies carry it (`GENERATOR_INPUTS_BEYOND_ENGINE`).
+  architectureJudgeBaseline: "tests/prevention/architecture-judge-baseline.json",
 } as const);
 
 /**
@@ -47,6 +38,19 @@ export const DECISION_INDEX = deepFreeze({
 } as const);
 
 /**
+ * THE FRONT DOORS: the README's and the site home's opening blocks, generated
+ * from the messaging source and the claims register (`docs/brand/`) by
+ * `generator` (relative to the engine), which validates both sources whole
+ * first — every cited proof path exists, every decision named is a record —
+ * so a broken source fails `harness check`, a required check, rather than the
+ * Pages build on main. Its messaging source is a required input
+ * (`messaging_source_missing` when absent).
+ */
+export const FRONT_DOOR_GENERATOR = deepFreeze({
+  generator: "scripts/brand/cli.ts",
+} as const);
+
+/**
  * THE WEB TEST BUDGET'S POPULATION: `generator` (repository-relative) writes
  * the accumulation-phase `derivedAtTestFileCount` from the live supported
  * population on every `harness sync`, and `harness check` judges it, so no
@@ -54,6 +58,18 @@ export const DECISION_INDEX = deepFreeze({
  */
 export const WEB_BUDGET_POPULATION = deepFreeze({
   generator: "scripts/testing/measure-web-budget.ts",
+} as const);
+
+/**
+ * THE SERVICE WORKER'S CACHE DIGEST: `generator` (repository-relative) writes
+ * the digest line of `path` from every public asset the worker caches, on
+ * every `harness sync`, and `harness check` judges it. A hand edit of the line,
+ * or a changed asset left undigested, fails the check, whichever generator
+ * changed the asset.
+ */
+export const SERVICE_WORKER_DIGEST = deepFreeze({
+  generator: "scripts/service-worker-cache.ts",
+  path: "public/sw.js",
 } as const);
 
 /**
@@ -103,7 +119,7 @@ export const TRACKER_BOARD = deepFreeze({
 } as const);
 
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
-export const GENERATED_BLOCKS = deepFreeze([README_CONSUMER_BLOCK, DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
+export const GENERATED_BLOCKS = deepFreeze([DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
 
 /** A generated block's markers. */
 export type GeneratedBlockMarkers = Readonly<{ begin: string; end: string }>;

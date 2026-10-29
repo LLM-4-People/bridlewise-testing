@@ -73,6 +73,13 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
   const source = createRepositoryWorkingCopy("candidate-cli-source-");
   const scratch = createRepositoryLocalTemporaryDirectory("candidate-cli-target-");
   try {
+    // The source's build outputs, built by the one builder from the source's own tree: the copy carries
+    // only what the host checkout happens to hold, and a fresh checkout holds no bundle (the copy-back
+    // arms below then all answered `candidate_output_missing`, red on a clean checkout of main).
+    const built = spawnSync(process.execPath, [join(source.engineRoot, "scripts", "build-bundle.ts")], {
+      cwd: source.engineRoot, encoding: "utf8", timeout: 600_000, maxBuffer: 1 << 26,
+    });
+    assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
     // A. Parents that do not exist yet. The source stages a modification
     // HEAD does not hold first: `create` records it as protected.
     const readme = join(source.engineRoot, "README.md");
@@ -85,9 +92,13 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     for (const subcommand of ["sync", "diff"]) {
       assert.equal(cli(source.engineRoot, [subcommand, "--target", join(scratch, "never-created")]).json["error"], "candidate_target_missing", subcommand);
     }
-    // The candidate carries the source's git identity in its OWN config.
-    const identityOf = (root: string, scope: readonly string[]) => spawnSync("git", ["config", ...scope, "--get", "user.email"], { cwd: root, encoding: "utf8" }).stdout.trim();
-    assert.equal(identityOf(target, ["--local"]), identityOf(source.root, []), "the candidate did not take the source's git identity");
+    // A candidate is an agent's checkout: its OWN config carries the project's agent identity (the one declared
+    // source, never the source's or the host's) and the agent-checkout marker the commit-msg hook reads.
+    const configOf = (root: string, key: string) => spawnSync("git", ["config", "--local", "--get", key], { cwd: root, encoding: "utf8" }).stdout.trim();
+    const { agent, agentCheckoutKey } = ROOT_POLICY.workflow.commitIdentity;
+    assert.equal(configOf(target, "user.name"), agent.name, "the candidate does not commit as the agent identity");
+    assert.equal(configOf(target, "user.email"), agent.email, "the candidate does not commit as the agent identity");
+    assert.equal(configOf(target, agentCheckoutKey), "true", "the candidate is not marked an agent's checkout");
 
     // A2. A slip that drops the protected staged blob refuses every later
     // command until the one repair (the engine CLI's `harness index repair`)
@@ -151,9 +162,8 @@ test("candidate CLI: create makes missing parents; refresh keeps regenerated out
     assert.equal(incomplete.json["error"], "candidate_output_missing");
     assert.equal(ownedFingerprint(source.root), before, "a refused copy-back wrote the source");
 
-    // The build outputs, as a setup would have built them.
+    // The build outputs, as a setup would have built them (every one: the source built them above).
     for (const path of buildOutputPaths()) {
-      if (!existsSync(join(source.root, path))) continue;
       mkdirSync(dirname(join(target, path)), { recursive: true });
       copyFileSync(join(source.root, path), join(target, path));
     }

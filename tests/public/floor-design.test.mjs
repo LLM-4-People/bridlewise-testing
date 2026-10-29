@@ -17,7 +17,10 @@ test("the roadmap uses the site's ordinary components, not a private vocabulary"
   assert.match(roadmap, /^\| Workstream \| State \| Owner \| Evidence \|$/mu);
   const css = readFileSync(join(ROOT, "docs/assets/floor/floor.css"), "utf8");
   assert.doesNotMatch(css, /\\.roadmap-/u);
-  assert.match(css, /--floor-space-4/u);
+  // The floor's components read the one owner's spacing scale; the site
+  // design guard refuses a local scale (tests/public/site-design-system.test.mjs).
+  assert.match(css, /var\(--sp-4\)/u);
+  assert.doesNotMatch(css, /--floor-space-/u);
 });
 
 test("the coverage guard names a missing rule and an unused rule", () => {

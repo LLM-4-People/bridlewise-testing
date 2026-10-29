@@ -39,11 +39,12 @@ const LOCK_OWNER = pathToFileURL(join(ENGINE, "src", "process", "instrument-lock
 const SUPERVISOR_OWNER = pathToFileURL(join(ENGINE, "src", "process", "supervised-run.ts")).href;
 
 /** A node child running `body` as a module (it may import the owners by URL); its stdout lines arrive through `lines`. */
-function child(body: string, args: readonly string[] = []): Readonly<{ process: ChildProcess; lines: string[]; next: (match: RegExp, withinMs: number) => Promise<string> }> {
+function child(body: string, args: readonly string[] = []): Readonly<{ process: ChildProcess; lines: string[]; next: (match: RegExp) => Promise<string> }> {
   const proc = spawn(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", body, ...args], { stdio: ["ignore", "pipe", "pipe"], env: process.env });
   const lines: string[] = [];
   const waiters: (() => void)[] = [];
   let buffered = "";
+  let ended = false;
   const take = (chunk: Buffer): void => {
     buffered += chunk.toString("utf8");
     const parts = buffered.split("\n");
@@ -53,16 +54,20 @@ function child(body: string, args: readonly string[] = []): Readonly<{ process: 
   };
   proc.stdout!.on("data", take);
   proc.stderr!.on("data", take);
-  const next = (match: RegExp, withinMs: number): Promise<string> => new Promise((resolveLine, rejectLine) => {
-    const timer = setTimeout(() => rejectLine(new Error(`no line matched ${String(match)} within ${String(withinMs)} ms; saw: ${lines.join(" | ")}`)), withinMs);
+  proc.once("close", () => {
+    ended = true;
+    for (const wake of waiters.splice(0)) wake();
+  });
+  // BOUNDED BY THE CHILD'S LIFE, never by a wall clock (NO-LOAD-BLOCK): a
+  // line that never comes from a child still running is a hang, ended and
+  // named by the test's hang backstop; a child that ENDED without it is a
+  // refusal at once.
+  const next = (match: RegExp): Promise<string> => new Promise((resolveLine, rejectLine) => {
     const look = (): void => {
       const found = lines.find((line) => match.test(line));
-      if (found !== undefined) {
-        clearTimeout(timer);
-        resolveLine(found);
-      } else {
-        waiters.push(look);
-      }
+      if (found !== undefined) resolveLine(found);
+      else if (ended) rejectLine(new Error(`the child ended without a line matching ${String(match)}; saw: ${lines.join(" | ")}`));
+      else waiters.push(look);
     };
     look();
   });
@@ -111,10 +116,10 @@ test("two heavy runs are ADMITTED AT ONCE, side by side — neither waits — ea
   const lockPath = join(createTempDir("instrument-lock-concurrent-"), "instrument.lock");
   const first = child(admitterBody("the first run"), [lockPath]);
   t.after(() => { first.process.kill("SIGKILL"); });
-  await first.next(/^ADMITTED owns=true$/u, 15_000);
+  await first.next(/^ADMITTED owns=true$/u);
   const second = child(admitterBody("the second run"), [lockPath]);
   t.after(() => { second.process.kill("SIGKILL"); });
-  await second.next(/^ADMITTED owns=true$/u, 15_000);
+  await second.next(/^ADMITTED owns=true$/u);
   const live = admittedRuns(lockPath);
   assert.equal(live.length, 2, live.join(" | "));
   assert.ok(live.some((line) => /^the first run \(pid \d+, since /u.test(line)) && live.some((line) => /^the second run \(pid /u.test(line)), live.join(" | "));
@@ -138,7 +143,7 @@ test("a run INSIDE an admitted run borrows it — whatever the label holds (a ba
     ].join("\n");
     const run = child(nestedBody, [lockPath]);
     t.after(() => { run.process.kill("SIGKILL"); });
-    const answer = await run.next(/^(NESTED|NO ANSWER)/u, 20_000);
+    const answer = await run.next(/^(NESTED|NO ANSWER)/u);
     assert.equal(answer, "NESTED owns=false", `label ${JSON.stringify(label.slice(0, 40))}: the nested run borrowed`);
     await exited(run.process);
     assert.deepEqual(admittedRuns(lockPath), [], "the admitted run released its record");
@@ -218,18 +223,18 @@ test("a door killed outright never drops its record under its command: the super
   ].join("\n");
   const door = child(doorBody, [lockPath]);
   t.after(() => { door.process.kill("SIGKILL"); });
-  await door.next(/^RUNNING$/u, 15_000);
+  await door.next(/^RUNNING$/u);
   const sleeper = allProcessIds().find((pid) => { const argv = commandLineOf(pid); return argv?.[0] === "sleep" && argv[1] === marker; });
   assert.ok(sleeper !== undefined, "the door's command runs");
   assert.match(admittedRuns(lockPath)[0] ?? "", /^the door \(pid \d+, since [^,]+, with 1 adopted process\(es\)\)$/u, "the supervisor is adopted into the record");
   door.process.kill("SIGKILL");
   await exited(door.process);
   assert.equal(admittedRuns(lockPath).length, 1, "the record is live while the adopted supervisor lives");
+  // Waited for by the record itself, with NO wall deadline (NO-LOAD-BLOCK):
+  // a record that is never cleared is a hang, ended and named by the backstop.
   const cleared = await new Promise<string>((resolveCleared) => {
-    const deadline = Date.now() + 20_000;
     const poll = (): void => {
       if (admittedRuns(lockPath).length === 0) resolveCleared(isProcessAlive(sleeper) ? "cleared while the command still ran" : "cleared after the command was gone");
-      else if (Date.now() > deadline) resolveCleared("never cleared");
       else setTimeout(poll, 50);
     };
     poll();

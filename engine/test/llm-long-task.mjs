@@ -40,4 +40,4 @@ const total = Date.now() - t0;
 const ok = results.filter(r => r.ok).length;
 log(`DONE N=${N} ok=${ok}/${N} totalTokens=${totalTokens} dt=${Math.round(total/1000)}s`);
 if (outDir) writeFileSync(`${outDir}/result`, JSON.stringify({ ok: ok === N, totalCalls: N, okCalls: ok, totalTokens, totalMs: total, results }));
-process.exit(ok === N ? 0 : 1);
+process.exitCode = ok === N ? 0 : 1;

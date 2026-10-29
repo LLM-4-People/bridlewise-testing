@@ -739,11 +739,6 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   /** A phase in `cwd`, fail-fast, through the commands port; ledger gates are judged by `judge`. */
   async function runPhase(cwd: string, phase: CheckoutPhase, judge: LedgerJudge): Promise<readonly WorkspaceGateResult[]> {
     const steps = await runCheckoutPhase(config, phase, (name, command) => {
-      // A read-only workspace (a verifier's) runs no heavy setup instrument: it runs single files, and its first run warms
-      // the module cache.
-      if (command.holdsInstrumentLock === true && judge.record.lease.kind === "read-only") {
-        return Promise.resolve(builtinGate(name, "skip", "a read-only workspace does not run a heavy setup instrument: its first run warms the cache"));
-      }
       progress(`${phase}: ${name}`);
       return judgedByLedger(cwd, name, command, judge);
     });
@@ -880,7 +875,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    */
   function branchChange(cwd: string, forkPoint: string, head: string): Readonly<{ changed: readonly string[]; exempt: ReadonlySet<string> }> {
     const changed = git.diffNameOnly({ cwd, refA: forkPoint, refB: head, threeDot: false, timeoutMs: timeouts.inspectMs });
-    return { changed, exempt: generationOnlyPaths(cwd, forkPoint, head, changed, generatedOutputPaths(cwd)) };
+    return { changed, exempt: generationOnlyPaths(cwd, forkPoint, head, changed, generatedOutputPaths()) };
   }
 
   function leaseIdentity(workspaceId: string, writeSet: readonly string[]): string | null {
@@ -1089,7 +1084,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const worktreePath = join(workspaceRoot, workspaceId);
     assertWorkspaceRootPlacement();
     const invokingBranch = git.symbolicBranch(checkoutRoot, timeouts.inspectMs);
-    const generated = generatedOutputPaths(checkoutRoot);
+    const generated = generatedOutputPaths();
 
     let targetBranch: string | null = null;
     let forgeState: WorkspaceForgeState | null = null;
@@ -1192,6 +1187,9 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       } else {
         git.worktreeAdd({ repoRoot: checkoutRoot, worktreePath, branch, baseSha: overlay?.commit ?? baseSha, timeoutMs: timeouts.worktreeMs });
       }
+      // An agent's checkout commits as the project's agent identity, from the one declared source, and says it is
+      // an agent's: the commit-msg hook then refuses any other identity here (scripts/verification/sign-off.ts).
+      git.agentCheckoutIdentity({ repoRoot: checkoutRoot, worktreePath, identity: ROOT_POLICY.workflow.commitIdentity.agent, markerKey: ROOT_POLICY.workflow.commitIdentity.agentCheckoutKey, timeoutMs: timeouts.worktreeMs });
       applyCheckoutFiles(worktreePath, checkoutRoot, options.engineRelative, config);
       const setup = await runPhase(worktreePath, "setup", { record, targetTip: null });
       if (setup.some((gate) => gate.status === "fail")) throw new WorkspaceGateFailedError(workspaceId, "setup", setup, "workspace_setup_failed");
@@ -1424,7 +1422,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         saveTransition(record, "active", "worktree has uncommitted changes at merge");
         throw new InputError(`workspace ${workspaceId} worktree is dirty at merge`, "workspace_merge_precondition_failed");
       }
-      const generated = generatedOutputPaths(worktreePath);
+      const generated = generatedOutputPaths();
       const targetTip = git.revParse(checkoutRoot, `refs/heads/${target}`, timeouts.inspectMs);
       // The fork point with the target: what `git merge` brings is its diff to the head.
       const forkPoint = git.mergeBase(checkoutRoot, targetTip, head, timeouts.inspectMs);
@@ -1798,7 +1796,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     if (forkPoint !== trunk) {
       const staleness = git.revListCount(worktreePath, forkPoint, trunk, timeouts.inspectMs);
       const merged = git.diffNameOnly({ cwd: worktreePath, refA: forkPoint, refB: trunk, threeDot: false, timeoutMs: timeouts.inspectMs });
-      const mergedExempt = generationOnlyPaths(worktreePath, forkPoint, trunk, merged, generatedOutputPaths(worktreePath));
+      const mergedExempt = generationOnlyPaths(worktreePath, forkPoint, trunk, merged, generatedOutputPaths());
       const mergedConflicts = computeMergedSinceConflicts(authored, merged.filter((path) => !mergedExempt.has(path)));
       if (mergedConflicts.length > 0) refuse(record, "dynamic-overlap", mergedConflicts, "a path landed on the trunk since the fork point; rebase, publish and re-validate");
       if (staleness > config.baseStalenessCommits) {

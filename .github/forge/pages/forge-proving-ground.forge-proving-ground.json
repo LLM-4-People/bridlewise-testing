@@ -1,0 +1,14 @@
+{
+  "kind": "pages",
+  "scope": {
+    "kind": "repo",
+    "repository": "forge-proving-ground"
+  },
+  "key": "forge-proving-ground",
+  "unavailableOnPlan": [],
+  "desired": {
+    "build_type": "workflow",
+    "cname": null,
+    "https_enforced": true
+  }
+}

@@ -8,12 +8,6 @@ and `#include` directives.
 
 - `parser.ts` — the C/C++ parser on tree-sitter's real grammars.
 
-## Where it lives and what consumes it
-
-<!-- consumers:generated -->
+## Where it lives
 
 The folder lives at `engine/src/quality/languages/c-cpp/`.
-
-- `parser.ts` is consumed by `engine/src/quality/languages/index.ts`.
-
-<!-- /consumers:generated -->

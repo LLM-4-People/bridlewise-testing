@@ -120,8 +120,12 @@ function deployWiringViolations(text) {
     const steps = Array.isArray(job?.steps) ? job.steps : [];
     const deployAt = steps.findIndex((step) => String(step?.uses ?? "").startsWith("actions/deploy-pages@"));
     if (deployAt === -1) continue;
-    const orderAt = steps.findIndex((step) => /node scripts\/floor\/deploy-order\.mjs --sha "\$GITHUB_SHA"/u.test(String(step?.run ?? "")));
+    const orderAt = steps.findIndex((step) => /node scripts\/floor\/deploy-order\.mjs --sha "\$SITE_SHA"/u.test(String(step?.run ?? "")));
     if (orderAt === -1 || orderAt > deployAt) found.push(`${name}: the deploy runs without the order check before it`);
+    // The order is judged for the commit the site was BUILT from (a rebuild's is not GITHUB_SHA, main's tip when the event fired).
+    else if (String(steps[orderAt].env?.SITE_SHA ?? "") !== String(workflow.jobs.build?.env?.SITE_SHA ?? "") || String(workflow.jobs.build?.env?.SITE_SHA ?? "") === "") {
+      found.push(`${name}: the order check judges another commit than the one the site was built from`);
+    }
     else if (String(steps[deployAt].if ?? "").replace(/\s+/gu, " ") !== `steps.${String(steps[orderAt].id)}.outputs.deploy == 'true'`) found.push(`${name}: the deploy does not wait for the order check's answer`);
     if (job?.concurrency?.queue !== "max" || job?.concurrency?.["cancel-in-progress"] !== false) found.push(`${name}: deploys are not serialised in one queue`);
     // An override reaches the check only through a job the override environment approves.
@@ -141,11 +145,15 @@ test("the Pages workflow deploys only on the order check's answer", async () => 
   const condition = "        if: steps.order.outputs.deploy == 'true'\n";
   assert.ok(text.includes(condition));
   assert.match(deployWiringViolations(text.replace(condition, "")).join(), /does not wait/u);
-  const check = /      - name: Check the deploy order\n[\s\S]*?run: node scripts\/floor\/deploy-order\.mjs --sha "\$GITHUB_SHA"[^\n]*\n\n/u;
+  const check = /      - name: Check the deploy order\n[\s\S]*?run: node scripts\/floor\/deploy-order\.mjs --sha "\$SITE_SHA"[^\n]*\n\n/u;
   assert.match(text, check);
   assert.match(deployWiringViolations(text.replace(check, "")).join(), /without the order check/u);
   assert.match(deployWiringViolations(text.replace("      queue: max\n", "")).join(), /not serialised/u);
-  assert.match(deployWiringViolations(text.replace("    needs: [build, approve-override]\n", "    needs: build\n")).join(), /without the pages-override approval/u);
+  assert.match(deployWiringViolations(text.replace("    needs: [rebuild-gate, build, approve-override]\n", "    needs: [rebuild-gate, build]\n")).join(), /without the pages-override approval/u);
+  // The order check judging main's tip instead of the built commit (a rebuild's commit is not GITHUB_SHA).
+  const siteSha = "          SITE_SHA: ${{ github.event_name == 'workflow_run' && needs.rebuild-gate.outputs.sha || github.sha }}\n        run: node scripts/floor/deploy-order.mjs";
+  assert.ok(text.includes(siteSha));
+  assert.match(deployWiringViolations(text.replace(siteSha, "          SITE_SHA: ${{ github.sha }}\n        run: node scripts/floor/deploy-order.mjs")).join(), /another commit than the one the site was built from/u);
   assert.match(deployWiringViolations(text.replace("      name: pages-override\n", "      name: github-pages\n")).join(), /without the pages-override approval/u);
   // Near miss: the same wiring in flow style is the same document.
   assert.deepEqual(deployWiringViolations(text.replace(condition, "        if: \"steps.order.outputs.deploy == 'true'\"\n")), []);

@@ -127,9 +127,10 @@ test("PC-8: every tree-reader git call runs the configured executable under its 
   const fake = join(hung, "git");
   writeFileSync(fake, "#!/bin/sh\nsleep 30\n");
   chmodSync(fake, 0o755);
-  const started = Date.now();
+  // The refusal names the CEILING: that is the path that ended the hung git
+  // (left alone it would end itself after 30 s, with no such refusal), never
+  // a wall clock (NO-LOAD-BLOCK).
   assert.throws(() => commitTreeReader({ root, executable: fake, timeoutMs: 300 }, "HEAD"), (error: unknown) => (error as { code?: string; message?: string }).code === "tree_reader_git_failed" && /ceiling/u.test((error as Error).message));
-  assert.ok(Date.now() - started < 20_000, "the ceiling ended the hung git");
 });
 
 test("the one raw-diff reader: both sides' modes and ids, the status and the path; a deletion keeps its source mode; a non-UTF-8 path and a malformed record are refused", () => {

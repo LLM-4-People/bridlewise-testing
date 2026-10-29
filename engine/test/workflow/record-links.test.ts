@@ -116,7 +116,7 @@ function frozenRepository(prefix: string): Readonly<{ repo: string; git: (...arg
   writeFileSync(join(repo, "live.md"), "live\n");
   assert.equal(syncFrozenRecords(repo, true).status, "regenerated");
   git("add", "-A");
-  git("commit", "-q", "-m", "history");
+  git("commit", "-s", "-q", "-m", "history");
   return { repo, git, frozenRoot };
 }
 
@@ -189,7 +189,7 @@ test("A HAND EDIT of the manifest that re-pins or drops a frozen record is refus
   assert.deepEqual(acceptFrozenRecords(repo, [`${frozenRoot}gone.md`, `${frozenRoot}x.md`], "corrected by its author"), { status: "current", converged: true, changed: [], altered: [] });
   // Committed, the next change is judged against the new HEAD; and a rewritten earlier acceptance is refused.
   git("add", "-A");
-  git("commit", "-q", "-m", "accepted");
+  git("commit", "-s", "-q", "-m", "accepted");
   const accepted = JSON.parse(readFileSync(manifestPath, "utf8")) as { acceptances: { reason: string }[] };
   accepted.acceptances[0]!.reason = "a reason rewritten later";
   writeFileSync(manifestPath, `${JSON.stringify(accepted, null, 2)}\n`);
@@ -246,16 +246,16 @@ test("A MERGE carries frozen records with their pinned manifest and passes; one 
   writeFileSync(join(repo, frozenRoot, "closed-round.md"), "a closed round's record\n");
   syncFrozenRecords(repo, true);
   git("add", "-A");
-  git("commit", "-q", "-m", "records");
+  git("commit", "-s", "-q", "-m", "records");
   git("checkout", "-q", "-b", "unpinned", "main");
   writeFileSync(join(repo, frozenRoot, "unpinned.md"), "slipped in\n");
   git("add", "-A");
-  git("commit", "-q", "-m", "unpinned");
+  git("commit", "-s", "-q", "-m", "unpinned");
   git("checkout", "-q", "main");
-  git("merge", "-q", "--no-ff", "--no-commit", "round");
+  git("merge", "--signoff", "-q", "--no-ff", "--no-commit", "round");
   assert.deepEqual(syncFrozenRecords(repo, false), { status: "current", converged: true, changed: [], altered: [] }, "a reviewed addition merges");
-  git("commit", "-q", "-m", "merge round");
-  git("merge", "-q", "--no-ff", "--no-commit", "unpinned");
+  git("commit", "-s", "-q", "-m", "merge round");
+  git("merge", "--signoff", "-q", "--no-ff", "--no-commit", "unpinned");
   assert.deepEqual(syncFrozenRecords(repo, false).changed, [`${frozenRoot}unpinned.md`], "an unpinned addition is named at the merge");
 });
 

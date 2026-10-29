@@ -6,12 +6,12 @@ import { parse as parseTypeScriptSource } from "@babel/parser";
 import { z } from "zod";
 
 import { hasSecondName } from "../../src/filesystem/link-containment.ts";
-import { buildCandidateManifest, candidateTestIdentity } from "./candidate-manifest.ts";
+import { buildCandidateManifest, candidateTestIdentity } from "../verification/candidate-manifest.ts";
 import { configuredExecutionAuthority, loadTestResultFromExecution } from "./test-execution.ts";
 import { candidateFormatErrorViolations } from "../verification/candidate-format.ts";
 import { loadTestInventory } from "../test-inventory.ts";
 import { validateTestReceipt } from "./test-receipt.ts";
-import { readExternalCommandSources, verifyArchitectureSources } from "../verification/architecture.ts";
+import { analyzeArchitectureSource, architectureSourcePaths, readExternalCommandSources, repositoryArchitectureManifest, verifyArchitectureSources } from "../verification/architecture.ts";
 import { verifyArtifactAdmission } from "../tooling/verification/artifact-admission.ts";
 import {
   inspectSafeRepositoryRootBoundary,
@@ -40,7 +40,9 @@ import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../src/kern
 import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { reportBestEffortFailure } from "../../src/shared/debug/debug-system.ts";
-import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_MANIFEST, architectureManifestOf } from "../../src/architecture-manifest.ts";
+import { ARCHITECTURE_DIRECTORY_DEFAULTS, ARCHITECTURE_MODULES } from "../../src/architecture-modules.ts";
+import { ARCHITECTURE_MODULES_PATH } from "../../src/workflow/architecture-module-entries.ts";
 import { DATA_CLASSIFICATION, FORENSIC_CLASSIFICATIONS } from "../../src/privacy/classification-catalog.ts";
 import { configDocumentPath, getConfigDocumentSchema, inspectConfigDocument } from "../../src/kernel/config.ts";
 import {
@@ -67,6 +69,7 @@ import {
   type RequirementsRegistry,
 } from "../../src/kernel/requirements.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
 import { CONFIG_FILE_BASENAME, STATE_DIRECTORY_NAME, cryptoDomain, schemaId, statePath } from "../../src/kernel/product-identity.ts";
 // The extension set has exactly one owner and the manifest is not it — the
 // manifest used to republish this array as a field, which was a second door
@@ -183,10 +186,6 @@ const SCAN_FILE_SUFFIX_EXCLUSIONS = ROOT_POLICY.configuration.repositoryScanFile
 const HISTORICAL_RESEARCH_EVIDENCE_ALLOWLIST = new Set<string>(
   ROOT_POLICY.productBoundary.historicalResearchEvidenceAllowlist,
 );
-const EXPECTED_SOURCE_FILES = Object.freeze(ARCHITECTURE_MANIFEST.modules.flatMap((module) =>
-  /^src\/[^/]+\.ts$/u.test(module.path) ? [module.path.slice("src/".length)] : []
-).toSorted());
-const EXPECTED_RUNTIME_SOURCE_FILES = registeredRuntimeProductionSourceFiles();
 const TRUSTED_BOOTSTRAP_PATH = registeredArchitectureModulePath("bootstrap-permissions");
 const REQUIREMENTS_REGISTRY_REFERENCE_SCHEMA = z.strictObject({
   path: z.literal(ROOT_POLICY.requirements.registryFile),
@@ -568,9 +567,10 @@ function cacheS1Verification(manifestHash: string, result: S1Verification): void
 
 function verifyArchitecture(root: string, paths: readonly string[], violations: string[], contents: ManifestFileContents): void {
   const sources = paths
+    // The census's own rules (`architectureSourcePaths`): an experiment-excluded path is not a module.
     .filter((path) => ARCHITECTURE_MANIFEST.sourceRoots.some((prefix) => path.startsWith(prefix)) &&
       ARCHITECTURE_SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension)) &&
-      !isTransientSourcePath(path))
+      !isTransientSourcePath(path) && !shouldExcludeExperiment(path))
     .map((path) => {
       const source = cachedReadFileText(root, path, contents);
       if (source === undefined) {
@@ -581,9 +581,10 @@ function verifyArchitecture(root: string, paths: readonly string[], violations: 
     })
     .filter((entry): entry is { path: string; source: string } => entry !== undefined);
   const externalCommandSources = readExternalCommandSources(root, ARCHITECTURE_MANIFEST, violations);
+  // The manifest of exactly the sources judged: the census is the candidate's own source list.
   violations.push(...verifyArchitectureSources(
     sources,
-    ARCHITECTURE_MANIFEST,
+    architectureManifestOf(sources.map((entry) => entry.path)),
     externalCommandSources,
   ).violations);
 }
@@ -995,11 +996,7 @@ function verifyConfigurationSurface(root: string, paths: readonly string[], viol
 }
 
 function verifySourceManifest(paths: readonly string[], violations: string[]): void {
-  const actual = paths.filter((path) => /^src\/[^/]+\.ts$/u.test(path))
-    .map((path) => path.slice("src/".length)).toSorted();
-  if (!sameOrderedValues(actual, [...EXPECTED_SOURCE_FILES].toSorted())) {
-    violations.push("s1-production-source-manifest");
-  }
+  // Every source under the source roots is a module (the census): only the forbidden names are refused here.
   for (const forbidden of ["core.ts", "store.ts", "state-boundary.ts", "text-validation.ts", "agent.ts", "model.ts", "workspace.ts"]) {
     if (paths.includes(`src/${forbidden}`)) violations.push(`forbidden-production-source:${forbidden}`);
   }
@@ -1044,6 +1041,8 @@ function verifyStandaloneProductBoundary(
 
   for (const path of paths) {
     if (isHistoricalResearchEvidencePath(path)) continue;
+    // The test inventory is a cache a test run writes (ignored, never committed, #221): not the tree's content.
+    if (path === VERIFICATION_PATHS.testInventory) continue;
     if (containsExternalApplicationReference(path)) {
       violations.push(`standalone-product-boundary-reference:${path}`);
     }
@@ -1088,8 +1087,8 @@ function verifyStandaloneProductBoundary(
 }
 
 function allowedEffectIdentifiersForPath(path: string): ReadonlySet<string> {
-  const module = ARCHITECTURE_MANIFEST.modules.find((entry) => entry.path === path);
-  if (module === undefined) return new Set();
+  // A module's effects are a decision: a module with none recorded has none.
+  const module = { effects: ARCHITECTURE_MODULES.find((entry) => entry.path === path)?.effects ?? [] };
   const allowed = new Set<string>();
   if (module.effects.includes("filesystem-write")) {
     for (const api of FILESYSTEM_WRITE_APIS) allowed.add(api);
@@ -1113,12 +1112,17 @@ function allowedEffectIdentifiersForPath(path: string): ReadonlySet<string> {
 }
 
 function architectureRegistryProductBoundaryProjection(path: string, source: string): string {
-  if (path !== "src/architecture-manifest.ts") return source;
+  if (path !== ARCHITECTURE_MODULES_PATH) return source;
   let projected = source;
-  const allowedReferences = ARCHITECTURE_MANIFEST.modules
-    .map((module) => module.path)
-    .filter((modulePath) => isHistoricalResearchEvidencePath(modulePath) &&
-      containsExternalApplicationReference(modulePath));
+  // The decisions name registered historical research sources by path (a module line), by folder (a folder
+  // default), and by the values a research module's own line carries (its id, owner, responsibilities):
+  // each is the registry's own reference to a registered research source, never product content.
+  const stringsOf = (value: unknown): readonly string[] =>
+    typeof value === "string" ? [value] : Array.isArray(value) ? value.flatMap(stringsOf) : isPlainObject(value) ? Object.values(value).flatMap(stringsOf) : [];
+  const researchModules = ARCHITECTURE_MODULES.filter((module) => isHistoricalResearchEvidencePath(module.path));
+  const researchFolders = ARCHITECTURE_DIRECTORY_DEFAULTS.filter((entry) => isHistoricalResearchEvidencePath(entry.directory));
+  const allowedReferences = [...new Set([...researchModules.flatMap(stringsOf), ...researchFolders.flatMap(stringsOf)])]
+    .filter((reference) => containsExternalApplicationReference(reference));
   for (const reference of allowedReferences) {
     projected = projected.replaceAll(
       JSON.stringify(reference),
@@ -1982,7 +1986,8 @@ function verifyPackageCompositionRoots(
   if (isPlainObject(packageDocument.exports) && typeof packageDocument.exports["."] === "string") {
     commandPaths.add(packageDocument.exports["."].replace(/^\.\//u, ""));
   }
-  const compositionRoots = new Set(Object.values(ARCHITECTURE_MANIFEST.compositionRoots).flat());
+  // A composition root is a decision: the modules whose decision declares the role.
+  const compositionRoots = new Set(ARCHITECTURE_MODULES.filter((module) => module.compositionRoot === true).map((module) => module.path));
   for (const path of commandPaths) {
     if (!compositionRoots.has(path)) violations.push(`architecture-package-command-root-unregistered:${path}`);
   }
@@ -2009,7 +2014,7 @@ function verifyProductionGraph(root: string, violations: string[]): void {
     }
   }
   const reached = [...visited].map((path) => relative(join(root, "src"), path).split(sep).join("/")).toSorted();
-  if (!sameOrderedValues(reached, [...EXPECTED_RUNTIME_SOURCE_FILES].toSorted())) {
+  if (!sameOrderedValues(reached, [...registeredRuntimeProductionSourceFiles(root)].toSorted())) {
     violations.push("production-graph-incomplete-or-extra");
   }
 }
@@ -2038,8 +2043,13 @@ function inspectSpecifier(
   pending.push(target);
 }
 
+/** The top-level `src/*.ts` modules of the tree at `root` (from the census), `src/`-relative. */
+function topLevelSourceFiles(root: string): readonly string[] {
+  return architectureSourcePaths(root).filter((path) => /^src\/[^/]+\.ts$/u.test(path)).map((path) => path.slice("src/".length));
+}
+
 function verifyStaticConfigurationSources(root: string, violations: string[]): void {
-  for (const name of EXPECTED_SOURCE_FILES) {
+  for (const name of topLevelSourceFiles(root)) {
     const path = join(root, "src", name);
     let source: string;
     try {
@@ -2058,7 +2068,7 @@ function verifyStaticConfigurationSources(root: string, violations: string[]): v
 }
 
 function verifyNoProductionEffects(root: string, violations: string[]): void {
-  for (const name of EXPECTED_SOURCE_FILES) {
+  for (const name of topLevelSourceFiles(root)) {
     const path = join(root, "src", name);
     let source: string;
     try {
@@ -2259,9 +2269,16 @@ function sameRecord(left: Record<string, string> | undefined, right: Record<stri
   return left !== undefined && right !== undefined && canonicalHash(left) === canonicalHash(right);
 }
 
-function registeredRuntimeProductionSourceFiles(): readonly string[] {
-  const moduleByPath = new Map(ARCHITECTURE_MANIFEST.modules.map((module) => [module.path, module]));
-  const pending = [...ARCHITECTURE_MANIFEST.compositionRoots.runtime];
+/**
+ * The src/ modules the runtime composition roots reach through the registered
+ * modules, each module's imports derived from its source by the architecture
+ * analyzer (babel) — the independent oracle of the lexical walk in
+ * {@link verifyProductionGraph}.
+ */
+function registeredRuntimeProductionSourceFiles(root: string): readonly string[] {
+  const manifest = repositoryArchitectureManifest(root);
+  const moduleByPath = new Map(manifest.modules.map((module) => [module.path, module]));
+  const pending = [...manifest.compositionRoots.runtime];
   const reached = new Set<string>();
   while (pending.length > 0) {
     const path = pending.pop()!;
@@ -2269,7 +2286,16 @@ function registeredRuntimeProductionSourceFiles(): readonly string[] {
     const module = moduleByPath.get(path);
     if (module === undefined) throw new Error(`Runtime composition root dependency is unregistered: ${path}`);
     reached.add(path);
-    for (const dependency of module.dependencies) {
+    // An unreadable or unparsable module is reached and expands no further: the
+    // lexical walk names the first (`production-import-unreadable`), the
+    // architecture verifier the second (`architecture-source-parse`).
+    let dependencies: readonly string[];
+    try {
+      dependencies = analyzeArchitectureSource(path, readFileSync(join(root, path), "utf8")).dependencies;
+    } catch {
+      continue;
+    }
+    for (const dependency of dependencies) {
       if (moduleByPath.has(dependency)) pending.push(dependency);
     }
   }
@@ -2279,8 +2305,9 @@ function registeredRuntimeProductionSourceFiles(): readonly string[] {
     .toSorted());
 }
 
+/** The path of the module whose decision gives it `id` (a module named by id here has its id recorded). */
 function registeredArchitectureModulePath(id: string): string {
-  const matches = ARCHITECTURE_MANIFEST.modules.filter((module) => module.id === id);
+  const matches = ARCHITECTURE_MODULES.filter((module) => module.id === id);
   if (matches.length !== 1) throw new Error(`Architecture module registration is invalid: ${id}`);
   return matches[0]!.path;
 }
@@ -2293,10 +2320,368 @@ function parseArguments(argv: readonly string[]): Readonly<{ root: string; attem
   return { root: argv[1], attemptId: argv[3] };
 }
 
+/**
+ * EVERY FINDING KIND OF THE STRUCTURAL JUDGE, CLASSIFIED BY NAME — no prefix,
+ * no catch-all. A kind is GATED by the architecture-judge ratchet
+ * (scripts/verification/ratchet-baselines.ts) when a source edit can create it
+ * and a generator, a decision line or a code fix resolves it; it is NOT GATED
+ * here when another check owns it, and the table names that check. A kind in
+ * neither list (a new one) is refused (`s1_finding_unclassified`) until it is
+ * classified, so nothing escapes either way.
+ */
+const GATED_FINDING_KINDS: ReadonlySet<string> = new Set([
+  "architecture-adapter-construction",
+  "architecture-composition-root-boundary",
+  "architecture-composition-root-drift",
+  "architecture-composition-root-duplicate",
+  "architecture-composition-root-list-invalid",
+  "architecture-composition-root-missing",
+  "architecture-composition-root-realm",
+  "architecture-duplicate-authority",
+  "architecture-effect-boundary",
+  "architecture-effect-owner",
+  "architecture-effect-unmodeled",
+  "architecture-external-command-effects-invalid",
+  "architecture-external-command-id-duplicate",
+  "architecture-external-command-invalid",
+  "architecture-external-command-list-invalid",
+  "architecture-external-command-module-conflict",
+  "architecture-external-command-publication-population-drift",
+  "architecture-external-command-source-not-published",
+  "architecture-external-command-source-unreadable",
+  "architecture-finding-duplicate",
+  "architecture-finding-incomplete",
+  "architecture-import-cycle",
+  "architecture-independent-export-disagreement",
+  "architecture-independent-import-disagreement",
+  "architecture-independent-type-reference-disagreement",
+  "architecture-lexical-module-unmodeled",
+  "architecture-local",
+  "architecture-local-errors-authority",
+  "architecture-module-registration-drift",
+  "architecture-open-blocking-finding",
+  "architecture-owner-duplicate",
+  "architecture-package-command-root-unregistered",
+  "architecture-physical-layout-status-drift",
+  "architecture-pinned-process-internal-import-denied",
+  "architecture-realm-direction",
+  "architecture-reverse-layer",
+  "architecture-source-node-limit",
+  "architecture-source-parse",
+  "architecture-source-too-large",
+  "architecture-source-unreadable",
+  "architecture-unregistered-command-root",
+  "architecture-unregistered-dependency",
+  "environment-acquisition-unmodeled",
+  "environment-configuration-source",
+  "evidence-graph-authority-file-unreadable",
+  "evidence-graph-competing-authority",
+  "evidence-graph-root-source",
+  "evidence-graph-root-source-unreadable",
+  "evidence-graph-taxonomy-invalid",
+  "governed-export-unmodeled",
+  "governed-sink-unmodeled",
+  "governed-static-analysis-depth",
+  "governed-static-analysis-parse",
+  "module-acquisition-unmodeled",
+  "nonliteral-module-load",
+  "process-member-unmodeled",
+  "process-member-write-unmodeled",
+  "production-dependency-denied",
+  "production-effect-api",
+  "production-effect-builtin",
+  "production-effect-sink-unmodeled",
+  "production-graph-incomplete-or-extra",
+  "production-import-unreadable",
+  "production-open-call-surface",
+  "production-relative-import-denied",
+  "standalone-product-boundary-file-unreadable",
+  "standalone-product-boundary-reference",
+  "standalone-product-boundary-root-source",
+  "standalone-product-boundary-root-source-unreadable",
+  "standalone-runtime-sink-unmodeled",
+]);
+
+/** S1 over a receipted run (`--root . --attempt <id>`): no required job runs it yet (#599). */
+const S1_RECEIPTED_RUN = "S1 over a receipted run (scripts/tooling/s1-verification.ts --attempt; runs in no required job yet, #599)";
+
+/** `harness check`'s config-schema-artifact step: the generated configuration schema against its contract source. */
+const CONFIG_SCHEMA_STEP = "harness check: the config-schema-artifact step";
+
+/** `harness check`'s artifact step: the artifact record against the tree it inventories (scripts/tooling/artifact-manifest.ts). */
+const ARTIFACT_MANIFEST_STEP = "harness check: the artifact-manifest step (scripts/tooling/artifact-manifest.ts --check)";
+
+/**
+ * The kinds this door does NOT gate, each with the check that owns it: a test
+ * run's evidence (each reads the ignored test-run inventory, so the same tree
+ * answers differently with and without a run), S1's own hand pins (the
+ * requirements registry's schema artifact, the contract identity, which no
+ * generator re-derives, so an ordinary requirements edit would trip them), and
+ * the judgements of the artifact inventory and of the package manifests, the
+ * artifact record's own admission and the configuration contract's artifact,
+ * which `harness check` judges itself, and every other judgement S1 makes over
+ * a receipted run. The table lists every kind S1's verifiers emit, by name.
+ */
+const NOT_GATED_FINDING_OWNERS: Readonly<Record<string, string>> = Object.freeze({
+  "artifact-admission-derivation-refused": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-inventory-drift": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-manifest-missing-or-invalid": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-policy-drift": ARTIFACT_MANIFEST_STEP,
+  "artifact-admission-record-population-drift": ARTIFACT_MANIFEST_STEP,
+  "artifact-bytes-missing": S1_RECEIPTED_RUN,
+  "artifact-classification-drift": S1_RECEIPTED_RUN,
+  "artifact-content-format-drift": S1_RECEIPTED_RUN,
+  "artifact-identity-drift": S1_RECEIPTED_RUN,
+  "artifact-independent-review-pending": S1_RECEIPTED_RUN,
+  "artifact-independent-review-status-drift": S1_RECEIPTED_RUN,
+  "artifact-integrity-drift": S1_RECEIPTED_RUN,
+  "artifact-license-unresolved": S1_RECEIPTED_RUN,
+  "artifact-original-byte-reconstruction-drift": S1_RECEIPTED_RUN,
+  "artifact-path-forbidden": S1_RECEIPTED_RUN,
+  "artifact-provenance-link-missing": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-authority-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-expanded-root-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-identity-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-projection-count-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-replacement-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-sidecar-drift": S1_RECEIPTED_RUN,
+  "artifact-rejected-binary-fixture-source-binding-drift": S1_RECEIPTED_RUN,
+  "artifact-rejection-identity-drift": S1_RECEIPTED_RUN,
+  "artifact-rejection-replacement-missing": S1_RECEIPTED_RUN,
+  "artifact-search-projection-drift": S1_RECEIPTED_RUN,
+  "artifact-search-projection-unreadable": S1_RECEIPTED_RUN,
+  "artifact-secret-or-binary-admission": S1_RECEIPTED_RUN,
+  "artifact-source-locator-forbidden": S1_RECEIPTED_RUN,
+  "artifact-text-authority-drift": S1_RECEIPTED_RUN,
+  "audit-matrix-applicability": S1_RECEIPTED_RUN,
+  "audit-matrix-cross-surface-evidence": S1_RECEIPTED_RUN,
+  "audit-matrix-evidence-missing": S1_RECEIPTED_RUN,
+  "audit-matrix-independent-evidence-missing": S1_RECEIPTED_RUN,
+  "audit-matrix-independent-outcome-before-evidence-admission": S1_RECEIPTED_RUN,
+  "audit-matrix-order-or-coverage": S1_RECEIPTED_RUN,
+  "audit-matrix-outcome-before-evidence-admission": S1_RECEIPTED_RUN,
+  "candidate-manifest-or-test-receipt-unavailable": S1_RECEIPTED_RUN,
+  "command-effect-blocked-registration-has-contract": S1_RECEIPTED_RUN,
+  "command-effect-closure-limit": S1_RECEIPTED_RUN,
+  "command-effect-closure-source-missing": S1_RECEIPTED_RUN,
+  "command-effect-composition-root-missing": S1_RECEIPTED_RUN,
+  "command-effect-contract-id-duplicate": S1_RECEIPTED_RUN,
+  "command-effect-contract-incomplete": S1_RECEIPTED_RUN,
+  "command-effect-contract-missing": S1_RECEIPTED_RUN,
+  "command-effect-external-effects-drift": S1_RECEIPTED_RUN,
+  "command-effect-external-path-invalid": S1_RECEIPTED_RUN,
+  "command-effect-external-qualified-forbidden": S1_RECEIPTED_RUN,
+  "command-effect-import-guard-missing": S1_RECEIPTED_RUN,
+  "command-effect-local-import-missing": S1_RECEIPTED_RUN,
+  "command-effect-node-limit": S1_RECEIPTED_RUN,
+  "command-effect-parse": S1_RECEIPTED_RUN,
+  "command-effect-python-executable-invalid": S1_RECEIPTED_RUN,
+  "command-effect-python-parse": S1_RECEIPTED_RUN,
+  "command-effect-python-result-invalid": S1_RECEIPTED_RUN,
+  "command-effect-registration-missing": S1_RECEIPTED_RUN,
+  "command-effect-registration-path-invalid": S1_RECEIPTED_RUN,
+  "command-effect-registration-source-missing": S1_RECEIPTED_RUN,
+  "command-effect-source-path-invalid": S1_RECEIPTED_RUN,
+  "command-effect-source-size": S1_RECEIPTED_RUN,
+  "command-effect-unmodeled": S1_RECEIPTED_RUN,
+  "config-contract-artifact-drift": CONFIG_SCHEMA_STEP,
+  "config-contract-artifact-invalid": CONFIG_SCHEMA_STEP,
+  "config-contract-artifact-unreadable": CONFIG_SCHEMA_STEP,
+  "config-contract-lexical-policy-projection": CONFIG_SCHEMA_STEP,
+  "config-contract-root-policy-projection": CONFIG_SCHEMA_STEP,
+  "config-contract-root-policy-unreadable": CONFIG_SCHEMA_STEP,
+  "config-contract-source-hash": CONFIG_SCHEMA_STEP,
+  "config-contract-source-unreadable": CONFIG_SCHEMA_STEP,
+  "config-document-refused": S1_RECEIPTED_RUN,
+  "content-addressed-evidence-byte-drift": S1_RECEIPTED_RUN,
+  "content-addressed-evidence-missing-or-invalid": S1_RECEIPTED_RUN,
+  "epoch-historical-completeness-overclaimed": S1_RECEIPTED_RUN,
+  "epoch-kind-must-remain-mixed-changing-worktree": S1_RECEIPTED_RUN,
+  "extension-copied-policy-denied": S1_RECEIPTED_RUN,
+  "extension-direct-entrypoint-denied": S1_RECEIPTED_RUN,
+  "extension-manifest-invalid": S1_RECEIPTED_RUN,
+  "extension-policy-hash-mismatch": S1_RECEIPTED_RUN,
+  "extension-policy-inheritance-incomplete": S1_RECEIPTED_RUN,
+  "extension-registration-invalid": S1_RECEIPTED_RUN,
+  "extension-waiver-unavailable": S1_RECEIPTED_RUN,
+  "false-central-prevention-class": S1_RECEIPTED_RUN,
+  "false-central-prevention-empty-scope": S1_RECEIPTED_RUN,
+  "false-central-prevention-status": S1_RECEIPTED_RUN,
+  "forbidden-lock-package": S1_RECEIPTED_RUN,
+  "forbidden-production-source": S1_RECEIPTED_RUN,
+  "handoff-continuity-occurrence-bundle-schema-version-invalid": S1_RECEIPTED_RUN,
+  "handoff-continuity-occurrence-locator-duplicate": S1_RECEIPTED_RUN,
+  "handoff-continuity-occurrence-ordinal-gap": S1_RECEIPTED_RUN,
+  "historical-source-schema-coupling": S1_RECEIPTED_RUN,
+  "historical-source-schema-marker": S1_RECEIPTED_RUN,
+  "historical-source-schema-root-source": S1_RECEIPTED_RUN,
+  "incident-omitted": S1_RECEIPTED_RUN,
+  "incident-unsubstantiated": S1_RECEIPTED_RUN,
+  "json-missing-or-invalid": S1_RECEIPTED_RUN,
+  "lock-dependency-missing": S1_RECEIPTED_RUN,
+  "lock-identity-or-version": S1_RECEIPTED_RUN,
+  "lock-package-evidence-invalid": S1_RECEIPTED_RUN,
+  "lock-package-unreachable": S1_RECEIPTED_RUN,
+  "lock-packages-invalid": S1_RECEIPTED_RUN,
+  "lock-root-package-mismatch": S1_RECEIPTED_RUN,
+  "manifest-directory-unreadable": S1_RECEIPTED_RUN,
+  "manifest-entry-unreadable": S1_RECEIPTED_RUN,
+  "manifest-exclusion-invalid": S1_RECEIPTED_RUN,
+  "model-vigilance-only-disposition": S1_RECEIPTED_RUN,
+  "model-vigilance-role-authoritative": S1_RECEIPTED_RUN,
+  "package-alternate-entrypoint": S1_RECEIPTED_RUN,
+  "package-development-dependencies": S1_RECEIPTED_RUN,
+  "package-development-range-policy": S1_RECEIPTED_RUN,
+  "package-export-surface": S1_RECEIPTED_RUN,
+  "package-identity-or-engine": S1_RECEIPTED_RUN,
+  "package-runtime-dependencies": S1_RECEIPTED_RUN,
+  "package-runtime-range-policy": S1_RECEIPTED_RUN,
+  "package-script-surface": S1_RECEIPTED_RUN,
+  "pinned-config-root-invalid": S1_RECEIPTED_RUN,
+  "repository-hardlink": S1_RECEIPTED_RUN,
+  "repository-root-boundary": S1_RECEIPTED_RUN,
+  "repository-root-or-source-tree-unsafe": S1_RECEIPTED_RUN,
+  "repository-special-entry": S1_RECEIPTED_RUN,
+  "repository-symlink": S1_RECEIPTED_RUN,
+  "requirements-registry-duplicate-trace-link": S1_RECEIPTED_RUN,
+  "requirements-registry-file-hash-drift": S1_RECEIPTED_RUN,
+  "requirements-registry-manifest-missing": S1_RECEIPTED_RUN,
+  "requirements-registry-missing-or-invalid": S1_RECEIPTED_RUN,
+  "requirements-registry-schema-artifact-drift": S1_RECEIPTED_RUN,
+  "requirements-registry-schema-artifact-missing": S1_RECEIPTED_RUN,
+  "requirements-registry-unknown-trace-link": S1_RECEIPTED_RUN,
+  "requirements-source-artifact-drift": S1_RECEIPTED_RUN,
+  "requirements-source-artifact-manifest-missing": S1_RECEIPTED_RUN,
+  "requirements-source-artifact-missing-or-unreadable": S1_RECEIPTED_RUN,
+  "review-schema-version-invalid": S1_RECEIPTED_RUN,
+  "root-policy-trace-id-mismatch": S1_RECEIPTED_RUN,
+  "root-policy-trace-id-projection-invalid": S1_RECEIPTED_RUN,
+  "row-boundary-invalid": S1_RECEIPTED_RUN,
+  "row-class-invalid": S1_RECEIPTED_RUN,
+  "row-class-rationale-duplicate": S1_RECEIPTED_RUN,
+  "row-class-rationale-mismatch": S1_RECEIPTED_RUN,
+  "row-classification-false-or-drifted": S1_RECEIPTED_RUN,
+  "row-closed-with-open-prevention-or-evidence": S1_RECEIPTED_RUN,
+  "row-duplicate": S1_RECEIPTED_RUN,
+  "row-prevention-status-invalid": S1_RECEIPTED_RUN,
+  "row-regression-distinct-scenarios-below-three": S1_RECEIPTED_RUN,
+  "row-regression-repetitions-below-three": S1_RECEIPTED_RUN,
+  "row-review-state-invalid": S1_RECEIPTED_RUN,
+  "row-self-approved": S1_RECEIPTED_RUN,
+  "row-source-incident-mismatch": S1_RECEIPTED_RUN,
+  "row-source-unknown": S1_RECEIPTED_RUN,
+  "row-unreviewed-has-reviewer": S1_RECEIPTED_RUN,
+  "s2-behavior-identity": S1_RECEIPTED_RUN,
+  "s2-behavior-test-missing": S1_RECEIPTED_RUN,
+  "s2-contract-artifact-dialect": S1_RECEIPTED_RUN,
+  "s2-contract-artifact-drift": S1_RECEIPTED_RUN,
+  "s2-contract-artifact-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-contract-identity-mismatch": S1_RECEIPTED_RUN,
+  "s2-fixture-empty-or-invalid": S1_RECEIPTED_RUN,
+  "s2-fixture-hash-mismatch": S1_RECEIPTED_RUN,
+  "s2-fixture-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-fixture-not-distinct": S1_RECEIPTED_RUN,
+  "s2-fixture-path-invalid": S1_RECEIPTED_RUN,
+  "s2-fixture-surface-incomplete-or-duplicate": S1_RECEIPTED_RUN,
+  "s2-official-fragment-invalid": S1_RECEIPTED_RUN,
+  "s2-official-fragment-line-boundary": S1_RECEIPTED_RUN,
+  "s2-official-fragment-manifest-drift": S1_RECEIPTED_RUN,
+  "s2-official-fragment-manifest-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-official-fragment-missing": S1_RECEIPTED_RUN,
+  "s2-official-fragment-source-mismatch": S1_RECEIPTED_RUN,
+  "s2-official-fragment-surface-drift": S1_RECEIPTED_RUN,
+  "s2-product-specific-source": S1_RECEIPTED_RUN,
+  "s2-research-source-evidence-mismatch": S1_RECEIPTED_RUN,
+  "s2-research-source-manifest-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s2-test-inventory-unavailable": S1_RECEIPTED_RUN,
+  "s2-traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "s2.4-authority-or-capability-regression": S1_RECEIPTED_RUN,
+  "s2.4-behavior-order-or-identity": S1_RECEIPTED_RUN,
+  "s2.4-registry-identity-mismatch": S1_RECEIPTED_RUN,
+  "s2.4-scenario-coverage-invalid": S1_RECEIPTED_RUN,
+  "s2.4-test-inventory-link-missing": S1_RECEIPTED_RUN,
+  "s2.4-test-inventory-unavailable": S1_RECEIPTED_RUN,
+  "s2.4-traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "s3.1-authority-or-capability-regression": S1_RECEIPTED_RUN,
+  "s3.1-behavior-order-or-scenario-identity": S1_RECEIPTED_RUN,
+  "s3.1-config-surface-expanded": S1_RECEIPTED_RUN,
+  "s3.1-contract-identity-mismatch": S1_RECEIPTED_RUN,
+  "s3.1-forbidden-key-property": S1_RECEIPTED_RUN,
+  "s3.1-forensic-schema-artifact-drift": S1_RECEIPTED_RUN,
+  "s3.1-forensic-schema-artifact-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s3.1-forensic-schema-dialect": S1_RECEIPTED_RUN,
+  "s3.1-product-specific-source": S1_RECEIPTED_RUN,
+  "s3.1-reference-fragment-identity": S1_RECEIPTED_RUN,
+  "s3.1-source-evidence-surface-drift": S1_RECEIPTED_RUN,
+  "s3.1-source-manifest-drift": S1_RECEIPTED_RUN,
+  "s3.1-source-manifest-missing-or-invalid": S1_RECEIPTED_RUN,
+  "s3.1-test-inventory-link-missing": S1_RECEIPTED_RUN,
+  "s3.1-test-inventory-unavailable": S1_RECEIPTED_RUN,
+  "s3.1-traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "single-pinned-config-document": S1_RECEIPTED_RUN,
+  "source-duplicate": S1_RECEIPTED_RUN,
+  "source-fact-drift": S1_RECEIPTED_RUN,
+  "source-incident-link-omitted": S1_RECEIPTED_RUN,
+  "source-omitted": S1_RECEIPTED_RUN,
+  "source-unreferenced": S1_RECEIPTED_RUN,
+  "source-unsubstantiated": S1_RECEIPTED_RUN,
+  "test-execution-operation-root-source": S1_RECEIPTED_RUN,
+  "test-execution-operation-root-source-unreadable": S1_RECEIPTED_RUN,
+  "test-inventory-invalid-or-incomplete": S1_RECEIPTED_RUN,
+  "traceability-applicability-projection-drift": S1_RECEIPTED_RUN,
+  "traceability-applicability-projection-invalid": S1_RECEIPTED_RUN,
+  "traceability-behavior-identity": S1_RECEIPTED_RUN,
+  "traceability-behavior-values-or-links": S1_RECEIPTED_RUN,
+  "traceability-capability-state": S1_RECEIPTED_RUN,
+  "traceability-derived-order-or-value": S1_RECEIPTED_RUN,
+  "traceability-link-missing": S1_RECEIPTED_RUN,
+  "traceability-link-unknown": S1_RECEIPTED_RUN,
+  "traceability-requirements-order-or-value": S1_RECEIPTED_RUN,
+  "traceability-scenario-duplicate": S1_RECEIPTED_RUN,
+  "traceability-scenario-total": S1_RECEIPTED_RUN,
+  "traceability-scenarios": S1_RECEIPTED_RUN,
+  "traceability-schema-or-value-invalid": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-effect-surface": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-environment-source": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-import-surface": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-module-surface": S1_RECEIPTED_RUN,
+  "trusted-bootstrap-script-missing": S1_RECEIPTED_RUN,
+  "unavailable-source-claim-limit-weak": S1_RECEIPTED_RUN,
+  "unavailable-source-disposition-invalid": S1_RECEIPTED_RUN,
+  "universal-policy-parallel-authority": S1_RECEIPTED_RUN,
+  "universal-policy-root-source": S1_RECEIPTED_RUN,
+  "universal-policy-root-source-unreadable": S1_RECEIPTED_RUN,
+  "universal-policy-unregistered-entrypoint": S1_RECEIPTED_RUN,
+});
+
+/**
+ * The structure door's answer: the gated findings, the others SHOWN under the
+ * check that owns them, and the findings of a kind nobody classified.
+ */
+export function structureAnswer(violations: readonly string[]): Readonly<{ structural: readonly string[]; shown: Readonly<Record<string, readonly string[]>>; unclassified: readonly string[] }> {
+  const kind = (violation: string): string => violation.split(":")[0]!;
+  const shown: Record<string, string[]> = {};
+  const structural: string[] = [];
+  const unclassified: string[] = [];
+  for (const violation of violations) {
+    const owner = NOT_GATED_FINDING_OWNERS[kind(violation)];
+    if (GATED_FINDING_KINDS.has(kind(violation))) structural.push(violation);
+    else if (owner !== undefined) (shown[owner] ??= []).push(violation);
+    else unclassified.push(violation);
+  }
+  return { structural, shown, unclassified };
+}
+
 if (isEntryPoint(import.meta.url)) {
   bootstrapProcess({ role: "cli" });
-  try {
-    const input = parseArguments(process.argv.slice(2));
+  // `--root . --structure`: the structural judge alone (no receipt), its findings split by structureAnswer — the
+  // architecture-judge ratchet's instrument (scripts/verification/ratchet-baselines.ts), asked as a subprocess
+  // so the shipped ratchet never imports this testing-floor module.
+  const argv = process.argv.slice(2);
+  if (argv.length === 3 && argv[0] === "--root" && argv[1] === "." && argv[2] === "--structure") {
+    process.stdout.write(`${canonicalJson(structureAnswer(verifyS1Structure(".").violations))}\n`);
+  } else try {
+    const input = parseArguments(argv);
     const receipt = loadTestResultFromExecution(configuredExecutionAuthority().receipt, input.attemptId);
     const result = verifyS1Repository(input.root, receipt);
     process.stdout.write(`${canonicalJson(result)}\n`);

@@ -14,6 +14,9 @@ import { createWorkingCopy } from "../../src/git/working-copy.ts";
 import { verifyS1Structure } from "../../scripts/tooling/s1-verification.ts";
 import { analyzeArchitectureSource } from "../../scripts/verification/architecture.ts";
 import { createRepositoryLocalTemporaryDirectory, removeRepositoryLocalTemporaryDirectory, TEST_REPOSITORY_ROOT as REPOSITORY_ROOT } from "./repository-local-temporary.ts";
+import { repositoryArchitectureManifest } from "../../scripts/verification/architecture.ts";
+/** The tree's architecture manifest: its census, classified by the committed decisions (never a committed module list). */
+const REPOSITORY_MANIFEST = repositoryArchitectureManifest(join(import.meta.dirname, "..", ".."));
 
 const CONFIG_DOCUMENT_SCHEMA = getConfigDocumentSchema();
 
@@ -254,9 +257,7 @@ export function registeredOpenArchitectureDiagnostics(): readonly string[] {
 }
 
 export function isMovingProjectionDiagnostic(diagnostic: string): boolean {
-  return diagnostic.startsWith("architecture-public-api-drift:") ||
-    diagnostic.startsWith("architecture-dependency-drift:") ||
-    diagnostic === "architecture-module-registration-drift" ||
+  return diagnostic === "architecture-module-registration-drift" ||
     diagnostic === "production-graph-incomplete-or-extra" ||
     diagnostic.startsWith("artifact-") ||
     diagnostic.startsWith("s2-behavior-test-missing:") ||
@@ -336,13 +337,13 @@ export function assertArchitectureBaselineClean(): void {
   // The candidate manifest reads git through the one repository-git
   // executor it imports: that module owns the git-invocation fact and the
   // `git` effect, and the candidate manifest depends on it.
-  const gitOwner = "scripts/tooling/repository-git.ts";
+  const gitOwner = "scripts/verification/repository-git.ts";
   const gitOwnerFacts = analyzeArchitectureSource(gitOwner, readFileSync(join(REPOSITORY_ROOT, gitOwner), "utf8"));
   assert.ok(gitOwnerFacts.directEffectFacts.some((fact) =>
     fact.ownerLabel === "git-invocation" && fact.effects.includes("git")));
-  assert.ok(ARCHITECTURE_MANIFEST.modules.find((module) => module.path === gitOwner)!.effects.includes("git"));
-  assert.ok(ARCHITECTURE_MANIFEST.modules.find((module) =>
-    module.path === "scripts/tooling/candidate-manifest.ts")!.dependencies.includes(gitOwner));
+  assert.ok(REPOSITORY_MANIFEST.modules.find((module) => module.path === gitOwner)!.effects.includes("git"));
+  const candidateManifest = "scripts/verification/candidate-manifest.ts";
+  assert.ok(analyzeArchitectureSource(candidateManifest, readFileSync(join(REPOSITORY_ROOT, candidateManifest), "utf8")).dependencies.includes(gitOwner));
   // The architecture-manifest changes fixed ALL architecture-effect-owner /
   // architecture-effect-unmodeled / architecture-reverse-layer /
   // architecture-realm-direction / architecture-open-blocking-finding
@@ -411,7 +412,7 @@ export function mountedRootBoundaryEvidence(
   };
 }
 
-export function repositoryArchitectureSources(manifest: ArchitectureManifest = ARCHITECTURE_MANIFEST) {
+export function repositoryArchitectureSources(manifest: ArchitectureManifest = REPOSITORY_MANIFEST) {
   return manifest.modules.map((module) => ({
     path: module.path,
     source: readFileSync(join(REPOSITORY_ROOT, module.path), "utf8"),

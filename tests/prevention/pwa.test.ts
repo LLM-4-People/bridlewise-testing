@@ -13,12 +13,22 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { runInNewContext } from "node:vm";
-import { readFileSync, existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { cpSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { read } from "../helpers/source-scan.ts";
 
 import { modulePathMatching } from "../helpers/module-resolver.ts";
+// @ts-expect-error -- a .mjs module has no declaration file in the TS program (as in floor-site-links.test.ts).
+import { markColors, markOutputs } from "../../scripts/generate-pwa-icons.mjs";
+import { assetsDigest, cachedFiles, committedServiceWorker, precachedUrls, serviceWorkerDigestPlugin, uncoveredPrecache, withAssetsDigest } from "../../scripts/service-worker-cache.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 const root = resolve(import.meta.dirname, "../..");
+// The worker's own cache names: its generation and the generated icons digest (scripts/generate-pwa-icons.mjs).
+const SW_SOURCE = readFileSync(resolve(root, "public/sw.js"), "utf8");
+const CACHE_VERSION = `${/const CACHE_GENERATION = "([^"]+)";/u.exec(SW_SOURCE)![1]!}-${/const ASSETS_DIGEST = "([0-9a-f]{12})";/u.exec(SW_SOURCE)![1]!}`;
+const STATIC_CACHE = `harness-static-${CACHE_VERSION}`;
+const RUNTIME_CACHE = `harness-runtime-${CACHE_VERSION}`;
 function exists(rel: string): boolean {
   return existsSync(resolve(root, rel));
 }
@@ -105,8 +115,84 @@ describe("PWA — service worker (public/sw.js)", () => {
     expect(sw).toContain("/stream");
   });
 
-  it("versioned cache name (so updates invalidate old caches)", () => {
-    expect(sw).toMatch(/CACHE_VERSION/);
+  it("versioned cache name: a generation plus the digest of every cached asset, never a hand bump", () => {
+    expect(sw).toMatch(/const CACHE_VERSION = `\$\{CACHE_GENERATION\}-\$\{ASSETS_DIGEST\}`;/);
+    // The committed line is the one owner's output for today's public assets (icons, fonts, manifest).
+    expect(sw, "public/sw.js's digest is stale: run node scripts/service-worker-cache.ts --write").toBe(committedServiceWorker(root));
+    const assets = cachedFiles(resolve(root, "public"));
+    expect([...assets.keys()]).toContain("icons/icon.svg");
+    expect([...assets.keys()]).toContain("manifest.json");
+    expect([...assets.keys()].some((name) => name === "sw.js" || name.endsWith("README.md")), "the worker and the READMEs are not cached assets").toBe(false);
+    // Any changed asset is a new digest.
+    const changed = new Map(assets);
+    changed.set("icons/icon.svg", Buffer.from("<svg/>"));
+    expect(assetsDigest(changed)).not.toBe(assetsDigest(assets));
+    expect(() => withAssetsDigest("const x = 1;", "abc")).toThrow(/carries no/);
+  });
+
+  it("a hand-edited digest is stale to the generator harness sync and harness check run, and --write re-derives it", () => {
+    // The real generator, as the sync arm runs it (SERVICE_WORKER_DIGEST, engine/src/workflow/harness-commands.ts),
+    // on a copy of the tree whose worker carries a hand-typed digest.
+    const copy = createTempDir("sw-hand-edit-");
+    cpSync(resolve(root, "public"), resolve(copy, "public"), { recursive: true });
+    const handTyped = sw.replace(/const ASSETS_DIGEST = "[0-9a-f]{12}";/u, 'const ASSETS_DIGEST = "000000000000";');
+    expect(handTyped, "the plant landed").not.toBe(sw);
+    writeFileSync(resolve(copy, "public/sw.js"), handTyped);
+    const generator = (mode: string): { status: number; report: unknown } => {
+      const run = spawnSync(process.execPath, [resolve(root, "scripts/service-worker-cache.ts"), mode, `--root=${copy}`], { encoding: "utf8" });
+      return { status: run.status ?? -1, report: JSON.parse(run.stdout.trim().split("\n").pop() ?? "{}") };
+    };
+    expect(generator("--check")).toEqual({ status: 1, report: { allCurrent: false, status: "stale", changed: ["public/sw.js"] } });
+    expect(readFileSync(resolve(copy, "public/sw.js"), "utf8"), "a check wrote the worker").toBe(handTyped);
+    expect(generator("--write")).toEqual({ status: 0, report: { allCurrent: true, status: "regenerated", changed: ["public/sw.js"] } });
+    expect(readFileSync(resolve(copy, "public/sw.js"), "utf8")).toBe(sw);
+    expect(generator("--check")).toEqual({ status: 0, report: { allCurrent: true, status: "current", changed: [] } });
+  });
+
+  it("the digest covers exactly what the worker precaches: a file it misses is refused, a file added to the list joins it", () => {
+    const assets = cachedFiles(resolve(root, "public"));
+    const urls = precachedUrls(sw);
+    expect(urls, "the worker precaches the app shell, the manifest and the icons").toEqual(expect.arrayContaining(["/", "/manifest.json", "/icons/icon.svg"]));
+    expect(uncoveredPrecache(sw, assets), "every precached URL but the navigation root is a digest input").toEqual([]);
+    // Plant 1: a precached file left out of the digest's inputs (the NOT_CACHED mutation) is named, and the owner refuses it.
+    const missing = new Map(assets);
+    missing.delete("icons/icon.svg");
+    expect(uncoveredPrecache(sw, missing)).toEqual(["/icons/icon.svg"]);
+    const copy = createTempDir("sw-precache-");
+    cpSync(resolve(root, "public"), resolve(copy, "public"), { recursive: true });
+    const before = committedServiceWorker(copy);
+    // Plant 2: a URL added to the precache list with no file behind it is refused by name, never digested around.
+    const listed = sw.replace('"/manifest.json",', '"/manifest.json", "/icons/icon-1024.png",');
+    expect(listed, "the plant landed").not.toBe(sw);
+    writeFileSync(resolve(copy, "public/sw.js"), listed);
+    expect(() => committedServiceWorker(copy)).toThrow(/precaches \/icons\/icon-1024\.png, which the cached-assets digest does not cover/u);
+    // Once the file exists it is a digest input, so adding it is a new cache.
+    writeFileSync(resolve(copy, "public/icons/icon-1024.png"), "png");
+    const added = committedServiceWorker(copy);
+    expect(added).not.toBe(listed);
+    expect(/const ASSETS_DIGEST = "([0-9a-f]{12})";/u.exec(added)![1]).not.toBe(/const ASSETS_DIGEST = "([0-9a-f]{12})";/u.exec(before)![1]);
+    // One changed byte of a precached icon is a new digest.
+    const icon = readFileSync(resolve(copy, "public/icons/icon.svg"));
+    icon.writeUInt8(icon.readUInt8(icon.length - 1) ^ 1, icon.length - 1);
+    writeFileSync(resolve(copy, "public/icons/icon.svg"), icon);
+    expect(committedServiceWorker(copy)).not.toBe(added);
+    expect(() => precachedUrls("const x = 1;")).toThrow(/carries no/u);
+    expect(() => precachedUrls("const PRECACHE_URLS = [];")).toThrow(/names no URL/u);
+  });
+
+  it("the build sets the BUILT worker's digest from every emitted file, bundles included", () => {
+    const dist = createTempDir("sw-digest-");
+    cpSync(resolve(root, "public"), dist, { recursive: true });
+    mkdirSync(resolve(dist, "assets"), { recursive: true });
+    writeFileSync(resolve(dist, "sw.js"), sw);
+    writeFileSync(resolve(dist, "assets/index-abc12345.js"), "console.log(1)");
+    const plugin = serviceWorkerDigestPlugin();
+    plugin.writeBundle({ dir: dist });
+    const first = readFileSync(resolve(dist, "sw.js"), "utf8");
+    expect(first).toContain(`const ASSETS_DIGEST = "${assetsDigest(cachedFiles(dist))}";`);
+    writeFileSync(resolve(dist, "assets/index-abc12345.js"), "console.log(2)");
+    plugin.writeBundle({ dir: dist });
+    expect(readFileSync(resolve(dist, "sw.js"), "utf8"), "a changed bundle is a new cache").not.toBe(first);
   });
 });
 
@@ -165,10 +251,10 @@ describe("PWA request and cache ownership", () => {
 
   it("retires only owned obsolete versions, including their private API bodies", async () => {
     const w = worker();
-    for (const name of ["harness-static-v3", "harness-runtime-v3", "harness-static-v5", "harness-runtime-v5", "another-app", "harness-runtime-other"]) await w.caches.open(name);
+    for (const name of ["harness-static-v3", "harness-runtime-v3", "harness-static-v5-aaaaaaaaaaaa", STATIC_CACHE, RUNTIME_CACHE, "another-app", "harness-runtime-other"]) await w.caches.open(name);
     await w.dispatch("activate");
-    expect([...w.stores.keys()]).toEqual(["harness-static-v5", "harness-runtime-v5", "another-app", "harness-runtime-other"]);
-    expect(w.caches.delete.mock.calls.map(call => call[0]).sort()).toEqual(["harness-runtime-v3", "harness-static-v3"]);
+    expect([...w.stores.keys()]).toEqual([STATIC_CACHE, RUNTIME_CACHE, "another-app", "harness-runtime-other"]);
+    expect(w.caches.delete.mock.calls.map(call => call[0]).sort()).toEqual(["harness-runtime-v3", "harness-static-v3", "harness-static-v5-aaaaaaaaaaaa"]);
     expect(w.claim).toHaveBeenCalledTimes(1);
   });
 
@@ -190,7 +276,7 @@ describe("PWA request and cache ownership", () => {
 
   it("navigation prefers fresh HTML and falls back to the actual precached shell on a new offline URL", async () => {
     const w = worker();
-    await (await w.caches.open("harness-static-v5")).put("/", new Response("public app shell"));
+    await (await w.caches.open(STATIC_CACHE)).put("/", new Response("public app shell"));
     const navigation = (path: string) => {
       const request = new Request("https://example.test" + path);
       Object.defineProperty(request, "mode", { value: "navigate" }); return request;
@@ -214,7 +300,7 @@ describe("PWA request and cache ownership", () => {
     const failure = new Error("QuotaExceededError: storage full");
     rejectWrite(failure);
     await Promise.all(w.writes);
-    expect(w.warnings).toHaveBeenCalledExactlyOnceWith("Public asset cache write failed", navigation ? "harness-runtime-v5" : "harness-static-v5", failure);
+    expect(w.warnings).toHaveBeenCalledExactlyOnceWith("Public asset cache write failed", navigation ? RUNTIME_CACHE : STATIC_CACHE, failure);
     expect(w.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -223,12 +309,12 @@ describe("PWA request and cache ownership", () => {
     const navigation = (path: string) => { const request = new Request("https://example.test" + path); Object.defineProperty(request, "mode", { value: "navigate" }); return request; };
     for (let index = 0; index < 100; index++) await w.dispatch("fetch", navigation("/?conversation=" + index));
     await Promise.all(w.writes);
-    expect([...w.stores.get("harness-runtime-v5")!.keys()]).toEqual(["https://example.test/"]);
+    expect([...w.stores.get(RUNTIME_CACHE)!.keys()]).toEqual(["https://example.test/"]);
     for (const headers of [{"content-type":"text/html","cache-control":"private"},{"content-type":"text/html","cache-control":"no-store"},{"content-type":"text/html","content-disposition":"attachment"},{"content-type":"application/json"}]) {
       w.fetch.mockResolvedValueOnce(new Response("private value", { headers }));
       expect(await (await w.dispatch("fetch", navigation("/?account=other")))!.text()).toBe("private value");
       await Promise.all(w.writes);
-      expect(await w.stores.get("harness-runtime-v5")!.get("https://example.test/")!.clone().text()).toBe("fresh public asset");
+      expect(await w.stores.get(RUNTIME_CACHE)!.get("https://example.test/")!.clone().text()).toBe("fresh public asset");
     }
     expect(await w.dispatch("fetch", navigation("/download/private.html"))).toBeNull();
   });
@@ -270,10 +356,32 @@ describe("PWA — icon generator (no-dep build tool)", () => {
     // Writes go through the shared atomic writer (the checkout write door),
     // never a raw fs write of a tracked file.
     expect(src).toMatch(/from\s*["']\.\.\/engine\/src\/filesystem\/atomic-write\.ts["']/);
-    expect(src).not.toMatch(/writeFileSync|from\s*["']node:fs["']/);
+    // It may READ (the token owner, the committed icons for --check) but
+    // never write through node:fs.
+    expect(src).not.toMatch(/writeFileSync|appendFileSync|createWriteStream|copyFileSync|renameSync|\bfs\.write/);
     // No external image dep (sharp/canvas/jimp) — hand-encoded PNG.
     expect(src).not.toMatch(/from\s*["']sharp["']/);
     expect(src).not.toMatch(/from\s*["']canvas["']/);
     expect(src).toContain("IHDR");
+  });
+
+  it("the committed icons are exactly the generator's output (the one mark, in the token owner's colours)", () => {
+    const outputs = markOutputs() as Map<string, Buffer>;
+    expect([...outputs.keys()].map((p) => p.slice(root.length + 1)).sort()).toEqual([
+      "docs/assets/mark.svg",
+      "public/icons/icon-192.png",
+      "public/icons/icon-512.png",
+      "public/icons/icon.svg",
+    ]);
+    for (const [path, bytes] of outputs) {
+      expect(readFileSync(path).equals(bytes), `${path} drifted: run node scripts/generate-pwa-icons.mjs`).toBe(true);
+    }
+    // The colours come from the token owner: a planted palette change reaches the mark,
+    // and a missing token is a loud refusal, never a default.
+    const tokens = read("src/cockpit/tokens.css");
+    expect((markColors as (css: string) => Record<string, string>)(tokens.replace(/--beam:\s*#8fd3ff;/, "--beam: #123456;"))["--beam"]).toBe("#123456");
+    expect(() => markColors(tokens.replace(/--beam:\s*#8fd3ff;/, ""))).toThrow(/--beam/);
+    // The retired indigo disc is gone from every icon.
+    expect(readFileSync(resolve(root, "public/icons/icon.svg"), "utf8")).not.toMatch(/#7c8cf8|#9ba5fa|#0d0f14/i);
   });
 });

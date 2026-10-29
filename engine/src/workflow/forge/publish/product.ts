@@ -29,7 +29,7 @@ import { canonicalJson, deepFreeze } from "../../../kernel/integrity.ts";
 import { schemaId } from "../../../kernel/product-identity.ts";
 import { gitOutput, type GitRepository } from "../../../git/tree-reader.ts";
 import { ForgeError } from "../codes.ts";
-import type { ForgeClient } from "../port.ts";
+import type { ForgeClient, ForgeCredential } from "../port.ts";
 import { promotionTrailersOf } from "../../promotion/trailers.ts";
 import { PromotionError } from "../../promotion/codes.ts";
 import { remakeCommit } from "../../workspace-forge.ts";
@@ -40,10 +40,11 @@ import { answer, type PromotionAnswer } from "../../promotion/codes.ts";
 import { configuredForge, configuredForgeClient } from "../configured-forge.ts";
 import { environmentCredential } from "../credentials.ts";
 import { FORGE_APPS } from "../app-registry.ts";
-import { trunkRepository } from "../forge-config.ts";
+import { repositoryIdentity } from "../repository-identity.ts";
 
 /** The environment variable the publish job hands the publisher App's installation token in (module-private until the workflow generator imports it). */
-const PUBLISHER_TOKEN_VARIABLE = "BRIDLEWISE_PUBLISHER_TOKEN";
+/** The environment variable a publisher job hands the publisher App's installation token in (every publisher action reads it). */
+export const PUBLISHER_TOKEN_VARIABLE = "BRIDLEWISE_PUBLISHER_TOKEN";
 
 const PROJECTION_RECEIPT_SCHEMA = schemaId("product-projection", 1);
 
@@ -120,12 +121,21 @@ export async function publishProduct(input: Readonly<{ client: ForgeClient; repo
 /** Where the product is published: the forge client (as the publisher App) and the trunk repository (`owner/name`). */
 export type ProductForge = Readonly<{ client: ForgeClient; repository: string }>;
 
+/**
+ * The publisher App's credential: the installation token the publish job
+ * hands in `variable` (by default {@link PUBLISHER_TOKEN_VARIABLE}), read at
+ * call time; a missing one is `forge_token_unavailable`.
+ */
+export function publisherCredential(variable: string = PUBLISHER_TOKEN_VARIABLE): ForgeCredential {
+  return environmentCredential(`app:${FORGE_APPS.publisher.name}`, variable);
+}
+
 /** The configured forge, as the publisher App (its token from {@link PUBLISHER_TOKEN_VARIABLE}): the trunk repository the configuration names. */
 export function configuredProductForge(): ProductForge {
   const settings = configuredForge();
   return deepFreeze({
-    client: configuredForgeClient(environmentCredential(`app:${FORGE_APPS.publisher.name}`, PUBLISHER_TOKEN_VARIABLE)),
-    repository: `${settings.organization}/${trunkRepository(settings).name}`,
+    client: configuredForgeClient(publisherCredential()),
+    repository: repositoryIdentity(settings).fullName,
   });
 }
 

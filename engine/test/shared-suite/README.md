@@ -33,6 +33,7 @@ The `engine/test/shared-suite/` folder of the development surface.
 - `debug/`
 - `dedup-compression/`
 - `stats-seeded.test.ts` — the one seeded random source (`seededRandom`/`seededShuffle` in src/shared/stats.ts): a seed reproduces the evaluation executor's former sequence and order (golden values), and a shuffle is a permutation that leaves its input alone.
+- `thread-cpu-work.test.ts` — the CPU work of one piece of code (`engine/src/shared/run-cpu.ts`): measured over several scheduler ticks, this thread's work only (a worker burning CPU is not counted), and a typed refusal when unreadable.
 
 ## Where it lives and what consumes it
 

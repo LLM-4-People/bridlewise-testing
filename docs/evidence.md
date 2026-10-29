@@ -38,7 +38,7 @@ The CI jobs are **Typecheck, public tests, build** and **Full suite shards**. **
 
 ```bash
 gh run list \
-  --repo LLM-4-People/bridlewise \
+  --repo {{ site.product_repository }} \
   --workflow ci.yml \
   --limit 1 \
   --json conclusion,headSha,url
@@ -54,14 +54,14 @@ Read the jobs, not only the run:
 
 ```bash
 run_id=$(gh run list \
-  --repo LLM-4-People/bridlewise \
+  --repo {{ site.product_repository }} \
   --workflow ci.yml \
   --limit 1 \
   --json databaseId \
   --jq '.[0].databaseId')
 
 gh run view "$run_id" \
-  --repo LLM-4-People/bridlewise \
+  --repo {{ site.product_repository }} \
   --json jobs \
   --jq '.jobs[] | "\(.name): \(.conclusion)"'
 ```
@@ -144,7 +144,7 @@ The CodeQL workflow analyzes JavaScript and TypeScript and uploads results to co
 
 ```bash
 gh api \
-  'repos/LLM-4-People/bridlewise/code-scanning/alerts?state=open&per_page=100' \
+  'repos/{{ site.product_repository }}/code-scanning/alerts?state=open&per_page=100' \
   --jq '[.[] | select(.rule.id | test("ID$") | not)] | length'
 ```
 
@@ -156,7 +156,7 @@ This command requires an authenticated `gh` session with access to code scanning
 
 ```bash
 gh api \
-  'repos/LLM-4-People/bridlewise/dependabot/alerts?state=open&per_page=100' \
+  'repos/{{ site.product_repository }}/dependabot/alerts?state=open&per_page=100' \
   --jq 'length'
 ```
 
@@ -202,7 +202,7 @@ Download the cockpit archive, engine bundle, both SPDX SBOMs, and the promotion 
 
 ```bash
 gh attestation verify bridlewise-v0.0.3-preview-source.tar.gz \
-  --repo LLM-4-People/bridlewise
+  --repo {{ site.product_repository }}
 ```
 
 The attestation binds the asset digest to the release workflow run and commit under GitHub's OIDC identity. It does not prove the source is correct or the build is reproducible. On 2026-10-20 the command exited `0` for all seven published assets.

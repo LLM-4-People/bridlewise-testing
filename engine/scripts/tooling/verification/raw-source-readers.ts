@@ -447,7 +447,8 @@ export type LegitimateRawReader =
   | "web:scripts/check-secrets.mjs"
   | "web:scripts/floor/site-pages.mjs"
   | "web:tests/prevention/agent-docs-liveness.test.ts"
-  | "web:tests/prevention/declared-pattern-liveness.test.ts";
+  | "web:tests/prevention/declared-pattern-liveness.test.ts"
+  | "web:tests/cockpit/brand-mark-owner.test.ts";
 
 /**
  * The readers that must have bytes, each with the reason WRITTEN DOWN.
@@ -486,6 +487,15 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       + "load — not repository source. Class coverage is a property of the literal "
       + "class attributes and CSS selectors as emitted, so the comparison needs those "
       + "bytes; a parsed source view cannot answer it.",
+  },
+  "web:tests/cockpit/brand-mark-owner.test.ts": {
+    why:
+      "The subject is a hand copy of the brand mark's geometry in ANY tracked "
+      + "file: SVG, Markdown, HTML and CSS as well as program text. Those are "
+      + "documents, not program source, and a program-text view lexes them "
+      + "wrongly (the `//` of a URL in Markdown opens a comment and blinds the "
+      + "rest of the line). A copy left inside a comment is still a copy, so "
+      + "counting it is the safe direction; the raw bytes are the input.",
   },
   "web:tests/prevention/agent-docs-liveness.test.ts": {
     why:
@@ -622,7 +632,6 @@ export type UnmigratedScanner =
   | "integration:src/filesystem/immutable-receipt.ts"
   | "integration:src/intelligence/file-slice.ts"
   | "integration:src/intelligence/quick-view.ts"
-  | "integration:src/workflow/module-registrar.ts"
   | "integration:src/workflow/test-result-collector.ts"
   | "integration:test/architecture/dead-package-scanner.test.ts"
   | "integration:test/architecture/no-math-random-ids.test.ts"
@@ -705,7 +714,6 @@ export const UNMIGRATED_SCANNERS: Record<UnmigratedScanner, MigrationDebt> = {
   "integration:src/filesystem/immutable-receipt.ts": TASK_102,
   "integration:src/intelligence/file-slice.ts": TASK_102,
   "integration:src/intelligence/quick-view.ts": TASK_102,
-  "integration:src/workflow/module-registrar.ts": TASK_102,
   "integration:src/workflow/test-result-collector.ts": TASK_102,
   "integration:test/architecture/dead-package-scanner.test.ts": TASK_102,
   "integration:test/architecture/no-math-random-ids.test.ts": TASK_102,

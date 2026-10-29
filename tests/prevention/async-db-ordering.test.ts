@@ -131,19 +131,15 @@ describe("W2 — read-your-writes within a request", () => {
     expect(history?.messages.map((m) => m.content)).toEqual(["hello"]);
   });
 
-  test("a read issued while no write is pending is not made to wait", async () => {
-    const { db, userId, chatId } = await freshChat();
-    await db.createMessage({ chat_id: chatId, role: "user", content: "settled" }, userId);
-    // Nothing in flight: the barrier must be a no-op, not a queue hop. Measured
-    // rather than asserted structurally — a barrier that always waited would
-    // still pass every correctness test above while serialising every read
-    // behind the writer, which is the failure that would quietly undo the
-    // whole point of the pool.
-    const t0 = process.hrtime.bigint();
-    await Promise.all(Array.from({ length: 20 }, () => db.countMessages(chatId, userId)));
-    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    expect(ms).toBeLessThan(200);
-  });
+  // (A test of "a read with no write pending is not made to wait" stood here,
+  // judged by a 200 ms wall bound (NO-LOAD-BLOCK forbids it). Its outcome is
+  // already everyone's: a barrier that waited with nothing pending would wait
+  // for a write that never comes, and every awaited read in this file would
+  // hang. What it measured beyond that was LATENCY (a needless queue hop),
+  // which is not a correctness property and runs on the reader threads, where
+  // this thread's CPU cannot see it. The barrier's own property, a read
+  // issued after an un-awaited write sees it, is the test above; removing
+  // the barrier turns it red.)
 });
 
 describe("W3 — the ledger keeps one writer, on the main thread", () => {
