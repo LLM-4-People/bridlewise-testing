@@ -10,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -92,4 +92,17 @@ test("THE RUN'S CGROUP in a capped scope (`harness slot run`, #564's per-run cap
   assert.doesNotMatch(run.stdout, /^limit-written=/mu, said);
   assert.match(run.stdout, /^worker=0::\/worker-1$/mu, said);
   assert.match(run.stdout, /^supervisor=outside$/mu, said);
+});
+
+test("the live door's child loads no module named by an inherited NODE_OPTIONS (round 3, must-fix 2)", () => {
+  // The probe marks every process but the door's own (which loads it too, being started with that NODE_OPTIONS):
+  // the live child, and the process node:test starts for each file.
+  const folder = createTempDir("door-canary-node-options-");
+  const marker = join(folder, "loaded-in-the-live-child");
+  const probe = join(folder, "probe.mjs");
+  writeFileSync(probe, `import { writeFileSync } from "node:fs"; if (!process.argv.some((arg) => arg.endsWith("test-guards.ts"))) writeFileSync(${JSON.stringify(marker)}, String(process.pid));\n`);
+  const run = spawnSync(process.execPath, ["--experimental-strip-types", join(ENGINE, "scripts", "tooling", "test-guards.ts"), "--test-name-pattern=^no test has this name$", "live/long-task-runner.test.ts"],
+    { cwd: ENGINE, encoding: "utf8", env: { ...RUNNER_ENV, NODE_OPTIONS: `--import=${probe}` } });
+  assert.equal(run.status, 0, `${run.stdout.slice(-800)}${run.stderr.slice(-800)}`);
+  assert.equal(existsSync(marker), false, "the live child loaded the module an inherited NODE_OPTIONS named");
 });

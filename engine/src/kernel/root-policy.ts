@@ -2463,6 +2463,10 @@ const ROOT_POLICY_VALUE = {
       // script is a test file (`recognizableSourcePatterns`), or an option
       // (a preload, a loader, eval code) names one.
       nodeTestRunnerFlag: "--test",
+      // The ONLY node options a LIVE run (unconfined: engine/live/) takes from its caller (review of #634, round 3,
+      // must-fix 2): an allow list, never a deny list, because node keeps adding options that load code
+      // (`--env-file` with NODE_OPTIONS in it, `--experimental-config-file`). Each only selects tests.
+      liveRunFlags: ["--test-name-pattern", "--test-skip-pattern", "--test-only"],
       // The node options whose VALUE is code node runs (a preload, a loader,
       // eval text, a test reporter or global-setup module): only these can
       // name a test file. Any other valued option (`--watch-path

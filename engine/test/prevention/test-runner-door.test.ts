@@ -47,7 +47,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
-import { doorNodeArgs, doorRun, unreviewedLiveFiles } from "../../scripts/tooling/test-guards.ts";
+import { doorNodeArgs, doorRun, unreviewedLiveFiles, withoutNodeOptions } from "../../scripts/tooling/test-guards.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { createRepoWithCommit, withGitAdapter } from "../support/git-fixtures.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
@@ -286,11 +286,25 @@ test("the LIVE door runs only the live suite, unconfined: a run mixing a hermeti
   const mixed = door("live/provider-smoke.test.ts", "test/process/confinement-canary.test.ts");
   assert.equal(mixed.status, 1);
   assert.ok(String(mixed.stderr).includes("test_live_suite_mixed"), String(mixed.stderr));
-  for (const flag of ["--import=test/process/confinement-canary.test.ts", "--require=test/process/confinement-canary.test.ts", "--test-reporter=test/process/confinement-canary.test.ts"]) {
+  // Every flag outside the live allow list, each a route round 3 named: a module named directly, an env file whose
+  // NODE_OPTIONS names one, a config file that imports one.
+  const envFile = join(createTempDir("live-door-env-"), "canary.env");
+  writeFileSync(envFile, "NODE_OPTIONS=--import=./test/process/confinement-canary.test.ts\n");
+  for (const flag of ["--import=test/process/confinement-canary.test.ts", "--require=test/process/confinement-canary.test.ts", "--test-reporter=test/process/confinement-canary.test.ts",
+    `--env-file=${envFile}`, `--env-file-if-exists=${envFile}`, `--experimental-config-file=${envFile}`, "--experimental-test-coverage"]) {
     const loaded = door(flag, "live/provider-smoke.test.ts");
     assert.equal(loaded.status, 1, flag);
-    assert.ok(String(loaded.stderr).includes("test_live_suite_code_flag"), `${flag}: ${String(loaded.stderr)}`);
+    assert.ok(String(loaded.stderr).includes("test_live_suite_flag"), `${flag}: ${String(loaded.stderr)}`);
   }
+});
+
+test("the LIVE child is started without its caller's NODE_OPTIONS: an inherited --import never loads a module unconfined (round 3, must-fix 2)", () => {
+  const environment = withoutNodeOptions({ NODE_OPTIONS: "--import=./probe.mjs", PATH: "/usr/bin" });
+  assert.deepEqual(environment, { PATH: "/usr/bin" });
+  // And the live run is launched with it: read from the door's own source (the run itself is unconfined, so no
+  // confined test can watch it start).
+  const source = readSourceView(join(ROOT, "scripts", "tooling", "test-guards.ts")).code();
+  assert.ok(source.includes("superviseCommand({ ...command, env: withoutNodeOptions(process.env) })"), "the live run no longer drops NODE_OPTIONS");
 });
 
 test("the live door runs only the reviewed live set: an untracked copy, an edited file and a hard link are each refused, the committed file admitted (planted; review of #634, #14)", () => {

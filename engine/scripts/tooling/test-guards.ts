@@ -60,7 +60,7 @@ const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** The run's key-home preload (`node --import`): armed INSIDE the run, in its own scratch; each file inherits it. */
 /** The node flags that load a module (the checkout write door's one list). */
-const NODE_CODE_OPTIONS: ReadonlySet<string> = new Set(ROOT_POLICY.verification.checkoutWriteDoor.nodeCodeOptions);
+const LIVE_RUN_FLAGS: ReadonlySet<string> = new Set(ROOT_POLICY.verification.checkoutWriteDoor.liveRunFlags);
 
 const KEY_HOME_PRELOAD = fileURLToPath(new URL("../../test/support/arm-test-key-home.ts", import.meta.url));
 
@@ -155,11 +155,12 @@ export async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  // A live run is unconfined: a flag that loads a module of the caller's choosing (`--import=<a hermetic test>`)
-  // would run code outside the live suite unconfined beside it. Refused by name, whatever module it names.
-  const codeFlags = door.flags.filter((flag) => NODE_CODE_OPTIONS.has(flag.split("=", 1)[0]!));
-  if (suite === "live" && codeFlags.length > 0) {
-    process.stderr.write(`[test-guards] REFUSED (test_live_suite_code_flag: a live run is unconfined and loads no module the caller names: ${codeFlags.join(" ")})\n`);
+  // A live run is unconfined: any flag that could load a module of the caller's choosing (`--import=<a hermetic test>`,
+  // `--env-file` holding NODE_OPTIONS, `--experimental-config-file`) would run code outside the live suite unconfined
+  // beside it. So a live run takes only the flags that select tests (an allow list), and every other is refused.
+  const unlisted = door.flags.filter((flag) => !LIVE_RUN_FLAGS.has(flag.split("=", 1)[0]!));
+  if (suite === "live" && unlisted.length > 0) {
+    process.stderr.write(`[test-guards] REFUSED (test_live_suite_flag: a live run is unconfined and takes only ${[...LIVE_RUN_FLAGS].join(", ")}: ${unlisted.join(" ")})\n`);
     process.exitCode = 1;
     return;
   }
@@ -204,8 +205,9 @@ export async function main(): Promise<void> {
   };
   // Through the one test-execution door, confined — except the LIVE suite, unconfined by design (real host facts:
   // decision TEST-CONFINEMENT-SELF-BIND), the one declared exception.
+  // The live child gets no NODE_OPTIONS of its caller's: an inherited `--import=` would load a module unconfined.
   const run = suite === "live"
-    ? await superviseCommand(command)
+    ? await superviseCommand({ ...command, env: withoutNodeOptions(process.env) })
     : await runTestCommand({ ...command, checkout: repositoryToplevel(ENGINE_ROOT, "directory") ?? ENGINE_ROOT });
   lock.release();
   if (run.ending !== "exited") {
@@ -239,4 +241,9 @@ export function unreviewedLiveFiles(repository: GitRepository, files: readonly s
     const present = gitOutput(repository, ["hash-object", "--", path]).stdout.toString("utf8").trim();
     return present === committed ? [] : [`${named}: differs from its committed content`];
   });
+}
+
+/** `environment` without NODE_OPTIONS: what an unconfined live run's node is started with (round 3, must-fix 2). */
+export function withoutNodeOptions(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => name !== "NODE_OPTIONS"));
 }
