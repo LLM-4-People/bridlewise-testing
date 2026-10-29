@@ -52,6 +52,7 @@ jobs:
       - name: Check out the exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
 
@@ -67,11 +68,10 @@ jobs:
       - name: Install web dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "true"
 
       - name: Require the exact commit and a clean tracked tree
         run: |
@@ -116,6 +116,7 @@ jobs:
       - name: Check out the exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
 
@@ -131,8 +132,10 @@ jobs:
       - name: Install web dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Install engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "false"
 
       - name: Require the pinned compiler from the runner image
         run: |
@@ -146,7 +149,6 @@ jobs:
       - name: Install hooks and build the confinement supervisor
         run: |
           npm run bootstrap:hooks
-          chmod 600 engine/bridlewise.config.json
           npm --prefix engine run build:bundle
           make -C engine/guardian all
 
@@ -233,6 +235,7 @@ jobs:
       - name: Check out the exact commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
 

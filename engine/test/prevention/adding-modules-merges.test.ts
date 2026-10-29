@@ -66,14 +66,14 @@ function branchFrom(name: string): Branch {
 }
 
 /** Add the branch's module and test in src/workflow/ and test/workflow/, regenerate, answer what changed. */
-function addAndRegenerate(branch: Branch): readonly string[] {
+async function addAndRegenerate(branch: Branch): Promise<readonly string[]> {
   const symbol = branch.name.replaceAll("-", "");
   writeFileSync(join(branch.root, branch.added[0]!), `/** A module added on its own branch. */\nexport function ${symbol}(): number {\n  return 1;\n}\n`);
   writeFileSync(join(branch.root, branch.added[1]!), `import assert from "node:assert/strict";\nimport test from "node:test";\n\nimport { ${symbol} } from "../../src/workflow/${branch.name}.ts";\n\ntest("${branch.name} answers one", () => {\n  assert.equal(${symbol}(), 1);\n});\n`);
   // The copy's own index holds the new sources, as a commit would (a new test source must be in the index),
   // staged through the one staging door.
   stageInCopy(branch.root, branch.added);
-  const regenerated = harnessRegenerate(branch.engineRoot, { write: true });
+  const regenerated = await harnessRegenerate(branch.engineRoot, { write: true });
   assert.equal(regenerated.status, "pass", `the regenerate of ${branch.name} converges: ${JSON.stringify(regenerated.result).slice(0, 2000)}`);
   return changed(branch.before, snapshot(branch.root));
 }
@@ -93,14 +93,14 @@ function mergeConflicts(scratch: string, base: string, ours: string, theirs: str
   return merged.status;
 }
 
-test("two branches that add different modules in one folder change only their own files: their merge cannot conflict", () => {
+test("two branches that add different modules in one folder change only their own files: their merge cannot conflict", async () => {
   const one = branchFrom("zz-added-on-one-branch");
   const other = branchFrom("zz-added-on-another");
   try {
-    const oneChanges = addAndRegenerate(one);
+    const oneChanges = await addAndRegenerate(one);
     // The base of every file the first branch changed, read while the second copy is still the base.
     const base = new Map(oneChanges.map((path) => [path, textAt(other.root, path)]));
-    const otherChanges = addAndRegenerate(other);
+    const otherChanges = await addAndRegenerate(other);
     const scratch = mkdtempSync(join(one.root, ".merge-"));
     const conflicting = oneChanges
       .filter((path) => otherChanges.includes(path))

@@ -50,11 +50,10 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install the engine (the gate reads GitHub through the forge port)
-        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "true"
 
       - name: Decide
         id: gate
@@ -314,11 +313,10 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install the engine (the check reads GitHub through the forge port)
-        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "true"
 
       # Builds finish out of commit order; a site built from an older commit
       # never replaces a newer one (scripts/floor/deploy-order.mjs).

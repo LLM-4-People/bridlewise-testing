@@ -43,7 +43,7 @@ import { deepFreeze } from "../../../kernel/integrity.ts";
 import { identityOverlapIndex, resolveLocation } from "../../../filesystem/path-identity.ts";
 import { admitInstrumentRun, instrumentLockPath, type PerRunCaps } from "../../../process/instrument-lock.ts";
 import { readTestExecutionConfig } from "../../test-result-collector.ts";
-import { SUBPROCESS_BOUNDS } from "../../workflow-config.ts";
+import { configuredSubprocessBounds } from "../../workflow-config.ts";
 import { runConfinedNode } from "../../../filesystem/self-protection/confined-run.ts";
 import type { KeepOutFacts } from "../../../filesystem/self-protection/keep-out.ts";
 import { keyHomeLocation, openStoreRegistry } from "../../../filesystem/self-protection/key-home.ts";
@@ -176,7 +176,7 @@ export function confinedCall(module: ConfinedModule, input: string, confinement:
   const program = linkProgram(module, input);
   // The one runner door: admitted at once under the per-run caps (or borrowing the run this process is inside); the program is born in its scope.
   // A run cut at its memory cap is the admission owner's own refusal at release (`run_memory_cap_exceeded`, read from the scope's memory.events).
-  const hold = admitInstrumentRun(confinement.run.lockPath, `projection: ${module.exportName}`, confinement.run.perRun, SUBPROCESS_BOUNDS);
+  const hold = admitInstrumentRun(confinement.run.lockPath, `projection: ${module.exportName}`, confinement.run.perRun, configuredSubprocessBounds());
   let result: ReturnType<typeof runConfinedNode>;
   try {
     try {
