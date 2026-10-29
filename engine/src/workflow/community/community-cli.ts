@@ -41,7 +41,7 @@ import { categoryDrift, liveCategories } from "./categories.ts";
 import { contributorsOf, landedCommits, releaseCredit } from "./credit.ts";
 import { handleCommentEvent, type CommunityExecutor, type RecordLanding } from "./executor.ts";
 import { applyInteractionLimit, INTERACTION_EXPIRIES, INTERACTION_LIMITS, readModeration, spamSignal, type Interaction, type InteractionExpiry, type InteractionLimit } from "./moderation.ts";
-import { landIntakeRecord, type RoadmapRegeneration } from "./record.ts";
+import { landIntakeRecord } from "./record.ts";
 import { readIntake } from "./sources.ts";
 import { thankLandedRange, welcomeIssue, welcomeOpenPullRequests } from "./welcome.ts";
 
@@ -84,7 +84,7 @@ function publisherExecutor(repositoryRoot: string): CommunityExecutor {
  * `intake/<id>` and published by the one publisher of commits through GH-3's
  * GitHub adapter of the Git Data port, as the publisher App.
  */
-function recordLanding(executor: CommunityExecutor, remote: string, roadmap: RoadmapRegeneration): RecordLanding {
+function recordLanding(executor: CommunityExecutor, remote: string): RecordLanding {
   return async (record, command, dates) => {
     const document = loadPinnedConfigSnapshot().document;
     const trunk = document.workspaceGit?.defaultBranch;
@@ -93,7 +93,6 @@ function recordLanding(executor: CommunityExecutor, remote: string, roadmap: Roa
     const remoteUrl = remoteUrlOf(repository, remote);
     const pull = await landIntakeRecord({
       forge: githubWorkspaceForge(executor.client, { owner: executor.owner, name: executor.repository }),
-      roadmap,
       repository,
       git: configuredWorktreeGitPort(document),
       target: { remote, remoteUrl, trunk },
@@ -105,7 +104,7 @@ function recordLanding(executor: CommunityExecutor, remote: string, roadmap: Roa
 }
 
 /** Run one `harness community` verb (see the header). */
-export async function runCommunityCli(root: string, argv: readonly string[], roadmap: RoadmapRegeneration): Promise<CommandAnswer> {
+export async function runCommunityCli(root: string, argv: readonly string[]): Promise<CommandAnswer> {
   const [verb, ...rest] = argv;
   let values: Readonly<Record<string, string | boolean | undefined>>;
   try {
@@ -139,7 +138,7 @@ export async function runCommunityCli(root: string, argv: readonly string[], roa
     case "comment": {
       if (event === undefined || remote === undefined) usage("comment needs --event and --remote");
       const executor = publisherExecutor(repositoryRoot);
-      const outcome = await handleCommentEvent(executor, readJson(event, "the comment event"), recordLanding(executor, remote, roadmap));
+      const outcome = await handleCommentEvent(executor, readJson(event, "the comment event"), recordLanding(executor, remote));
       return { result: wrapResult("community", deepFreeze({ verb, outcome })) };
     }
     case "issue": {

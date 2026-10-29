@@ -6,7 +6,7 @@
  * re-run) — against GH-3's fake forge over a real bare repository.
  */
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -17,8 +17,9 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { ROADMAP_PAGE, TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
 import { readTrackerItems } from "../../src/workflow/failure-owners.ts";
 import type { IntakeRecord } from "../../src/workflow/community/issue-ops.ts";
-import { regenerateRoadmapPage } from "../../src/workflow/harness-commands.ts";
+import { regenerateRoadmapPage } from "../../src/workflow/roadmap-page.ts";
 import { intakeItemText, itemPath, landIntakeRecord, recordBranch, writeIntakeRecord } from "../../src/workflow/community/record.ts";
+import { createTempDir } from "../support/temp-dir.ts";
 import { forgeAt, initTempRepo, rawGit } from "../workspaces/workspace-test-support.ts";
 
 const REPOSITORY = dirname(fileURLToPath(new URL("../../", import.meta.url)));
@@ -42,29 +43,29 @@ function trackerRepository(prefix: string): Readonly<{ root: string; bare: strin
   return { root, bare };
 }
 
-test("the record writer regenerates every generated view of the tracker: the roadmap page too, through the arm harness sync runs", () => {
-  const { root } = trackerRepository("community-record-roadmap");
-  // A stand-in roadmap generator at the arm's own path (the protocol only; the real rendering is proved beside its owner):
-  // the page does not exist yet, so the run that the record makes writes it, and only a --write run may.
-  const generator = join(root, ROADMAP_PAGE.generator);
-  mkdirSync(join(generator, ".."), { recursive: true });
+test("the record writer's output carries a fresh roadmap: the real generator, run through the arm harness sync runs, shows the new record", () => {
+  // A small world with the real roadmap generator (linked, so it resolves its imports from this tree) and the
+  // real page's generated markers: one milestone, the board, an evidence page without non-proofs.
+  const root = createTempDir("community-record-roadmap-");
+  rawGit(root, ["init", "-q", "-b", "main"]);
+  mkdirSync(join(root, TRACKER_BOARD.items), { recursive: true });
+  cpSync(join(REPOSITORY, TRACKER_BOARD.items, "M1.md"), join(root, TRACKER_BOARD.items, "M1.md"));
+  cpSync(join(REPOSITORY, TRACKER_BOARD.path), join(root, TRACKER_BOARD.path));
+  mkdirSync(join(root, ROADMAP_PAGE.generator, ".."), { recursive: true });
+  symlinkSync(join(REPOSITORY, ROADMAP_PAGE.generator), join(root, ROADMAP_PAGE.generator));
   mkdirSync(join(root, ROADMAP_PAGE.path, ".."), { recursive: true });
-  writeFileSync(generator, [
-    'import { existsSync, writeFileSync } from "node:fs";',
-    'import { join } from "node:path";',
-    'const root = process.argv.find((a) => a.startsWith("--root="))?.slice("--root=".length);',
-    `const file = join(root, ${JSON.stringify(ROADMAP_PAGE.path)});`,
-    'let out;',
-    'if (existsSync(file)) out = { allCurrent: true, status: "current", changed: [] };',
-    'else if (process.argv.includes("--write")) { writeFileSync(file, "rendered\\n"); out = { allCurrent: true, status: "regenerated", changed: ["open work"] }; }',
-    'else out = { allCurrent: false, status: "stale", changed: ["open work"] };',
-    'process.stdout.write(JSON.stringify(out) + "\\n");',
-    "process.exitCode = out.allCurrent ? 0 : 1;",
-    "",
-  ].join("\n"));
-  const written = writeIntakeRecord(root, ACCEPTED, DATES, regenerateRoadmapPage);
+  const markers = readFileSync(join(REPOSITORY, ROADMAP_PAGE.path), "utf8").split("\n").filter((line) => line.startsWith("<!-- BEGIN GENERATED: roadmap") || line.startsWith("<!-- END GENERATED: roadmap"));
+  assert.equal(markers.length, 8, "the real page's four generated blocks");
+  writeFileSync(join(root, ROADMAP_PAGE.path), `# Roadmap\n\n${markers.join("\n\n")}\n`);
+  writeFileSync(join(root, "docs/floor/evidence.md"), "# Evidence\n");
+  assert.equal(regenerateRoadmapPage(root, true).converged, true, "the world's page starts current");
+  assert.doesNotMatch(readFileSync(join(root, ROADMAP_PAGE.path), "utf8"), /ISSUE-40/u);
+
+  // Outside the milestone plan, so the page's open task board names it.
+  const written = writeIntakeRecord(root, { ...ACCEPTED, milestone: null }, DATES);
   assert.deepEqual(written, [itemPath("ISSUE-40"), TRACKER_BOARD.path, ROADMAP_PAGE.path]);
-  assert.equal(readFileSync(join(root, ROADMAP_PAGE.path), "utf8"), "rendered\n", "the record writer ran the roadmap arm with --write");
+  assert.match(readFileSync(join(root, ROADMAP_PAGE.path), "utf8"), /items\/ISSUE-40\.md/u, "the roadmap shows the new record");
+  assert.deepEqual(regenerateRoadmapPage(root, false), { status: "current", converged: true, changed: [] }, "the record left the roadmap fresh: harness check would pass");
 });
 
 test("the item is the tracker's format: the reader accepts it, the reported text is fenced, the board is regenerated", () => {
@@ -73,18 +74,18 @@ test("the item is the tracker's format: the reader accepts it, the reported text
   assert.match(text, /^---\nschema: bridlewise-tracker-item\/v1\npublished: false\nid: ISSUE-40\ntype: Flake\n/u);
   assert.doesNotMatch(text, /^resolution:|^closed:/mu, "an open record names neither");
   assert.match(text, /\n---\n\nReported in #40 through the Flake report form; the report is the issue's own text\.\n$/u);
-  const written = writeIntakeRecord(root, ACCEPTED, DATES, regenerateRoadmapPage);
+  const written = writeIntakeRecord(root, ACCEPTED, DATES);
   assert.deepEqual(written, [itemPath("ISSUE-40"), TRACKER_BOARD.path]);
   const item = readTrackerItems(root).find((candidate) => candidate.id === "ISSUE-40");
   assert.equal(item?.gh, "issue-40");
   assert.equal(item?.lane, "floor");
   // The board renders the item escaped (the tracker's one escaping renderer).
   assert.ok(readFileSync(join(root, TRACKER_BOARD.path), "utf8").includes("**Flaky record\\-links test 3 fails** — Reported in \\#40"));
-  assert.throws(() => writeIntakeRecord(root, ACCEPTED, DATES, regenerateRoadmapPage), (error: unknown) => error instanceof HarnessError && error.code === "community_record_exists");
+  assert.throws(() => writeIntakeRecord(root, ACCEPTED, DATES), (error: unknown) => error instanceof HarnessError && error.code === "community_record_exists");
 
   const declined = intakeItemText({ ...ACCEPTED, id: "ISSUE-41", type: "Intake", state: "closed", resolution: "not-planned", severity: null, milestone: null, gh: "issue-41" }, DATES);
   assert.ok(declined.includes("\nresolution: not-planned\n") && declined.includes("\nclosed: 2026-10-22\n"), "a closed record names how and when");
-  assert.throws(() => writeIntakeRecord(root, { ...ACCEPTED, id: "ISSUE-42", gh: "issue-42", parent: "NO-SUCH-ITEM" }, DATES, regenerateRoadmapPage), (error: unknown) => error instanceof HarnessError && error.code === "tracker_item_invalid");
+  assert.throws(() => writeIntakeRecord(root, { ...ACCEPTED, id: "ISSUE-42", gh: "issue-42", parent: "NO-SUCH-ITEM" }, DATES), (error: unknown) => error instanceof HarnessError && error.code === "tracker_item_invalid");
 });
 
 test("landing publishes a signed twin on intake/<id> and opens one ready pull request; a re-run finds it", async () => {
@@ -92,7 +93,6 @@ test("landing publishes a signed twin on intake/<id> and opens one ready pull re
   const forge = forgeAt(bare);
   const landing = {
     forge,
-    roadmap: regenerateRoadmapPage,
     repository: { root, executable: resolveGitExecutable(), timeoutMs: 30_000 },
     git: configuredWorktreeGitPort({}),
     target: { remote: "origin", remoteUrl: bare, trunk: "main" },

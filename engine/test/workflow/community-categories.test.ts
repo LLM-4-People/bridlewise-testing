@@ -11,7 +11,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { categoryDrift, liveCategories, type LiveCategory } from "../../src/workflow/community/categories.ts";
-import { regenerateRoadmapPage } from "../../src/workflow/harness-commands.ts";
 import { runCommunityCli } from "../../src/workflow/community/community-cli.ts";
 import { readIntake } from "../../src/workflow/community/sources.ts";
 import { HarnessError } from "../../src/kernel/errors.ts";
@@ -57,6 +56,6 @@ test("the live categories are one GraphQL read on the forge port, and the verb r
   const client = githubClient(fake.endpoint(), memoryCredential("user:maintainer", fake.userToken("maintainer")));
   assert.deepEqual(await liveCategories(client, "o", "r"), [{ slug: "q-a", name: "Q&A", answerable: true, description: "" }]);
   for (const argv of [[], ["categories", "extra"], ["labels"]]) {
-    await assert.rejects(runCommunityCli(REPOSITORY, argv, regenerateRoadmapPage), (error: unknown) => error instanceof HarnessError && error.code === "community_usage", JSON.stringify(argv));
+    await assert.rejects(runCommunityCli(REPOSITORY, argv), (error: unknown) => error instanceof HarnessError && error.code === "community_usage", JSON.stringify(argv));
   }
 });

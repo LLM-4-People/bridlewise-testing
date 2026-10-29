@@ -16,7 +16,6 @@ import {
   webBudgetPopulationStep,
   regenerateServiceWorkerDigest,
   serviceWorkerDigestStep,
-  regenerateRoadmapPage,
   roadmapPageStep,
   harnessNewModule,
   runArchitectureCheck,
@@ -33,6 +32,7 @@ import {
   trackerBoardStep,
   frozenRecordsStep,
 } from "../../src/workflow/harness-commands.ts";
+import { regenerateRoadmapPage } from "../../src/workflow/roadmap-page.ts";
 import { ARCHITECTURE_MANIFEST } from "../../src/architecture-manifest.ts";
 import { ARCHITECTURE_MODULES_PATH, architectureModulesText } from "../../src/workflow/architecture-module-entries.ts";
 import { HARNESS_COMMAND_SCHEMA_VERSION, parseHarnessCommandResult, resultHasFail, type HarnessCommandResult } from "../../src/workflow/command-result.ts";

@@ -79,19 +79,19 @@ const PAGE_DIRECTORY = dirname(ROADMAP_PATH);
 
 export const ROADMAP_BLOCKS = {
   milestones: {
-    begin: "<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap milestones, from the Milestone tracker items (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap milestones -->",
   },
   summary: {
-    begin: "<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap summary -->",
   },
   plan: {
-    begin: "<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from the tracker items (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap workstreams and exit criteria, from the tracker items (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap workstreams and exit criteria -->",
   },
   open: {
-    begin: "<!-- BEGIN GENERATED: roadmap open work, from the tracker items and docs/floor/evidence.md (npm run docs:roadmap; scripts/floor/roadmap-status.ts) -->",
+    begin: "<!-- BEGIN GENERATED: roadmap open work, from the tracker items and docs/floor/evidence.md (harness sync; scripts/floor/roadmap-status.ts) -->",
     end: "<!-- END GENERATED: roadmap open work -->",
   },
 } as const;
