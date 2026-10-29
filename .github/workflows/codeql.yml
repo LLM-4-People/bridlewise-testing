@@ -48,3 +48,9 @@ jobs:
         uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: "/language:${{ matrix.language }}"
+          # A merge group's verdict is this job's own: the analysis ran and completed. Its results are never
+          # uploaded: GitHub's code scanning merge protection does not apply to merge queue groups (only to pull
+          # requests, whose uploads gate alerts), and the queue may delete the group's temporary branch before an
+          # upload lands ("ref ... not found", a configuration error that dropped #736). Pushes, pull requests,
+          # schedules and dispatches upload as before.
+          upload: ${{ github.event_name == 'merge_group' && 'never' || 'always' }}

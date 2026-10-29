@@ -220,6 +220,44 @@ function mergeQueueViolations(workflow) {
   return violations;
 }
 
+/** The CodeQL steps that upload results to code scanning: `analyze` (unless told otherwise) and `upload-sarif` (always). */
+const CODEQL_ANALYZE = /^github\/codeql-action\/analyze@/u;
+const CODEQL_UPLOAD_SARIF = /^github\/codeql-action\/upload-sarif@/u;
+/** The one spelling of an analysis that uploads everywhere but in a merge group. */
+const UPLOAD_EXCEPT_MERGE_GROUP = "${{ github.event_name == 'merge_group' && 'never' || 'always' }}";
+/** A step condition that keeps a step out of merge groups. */
+const NOT_IN_MERGE_GROUP = /github\.event_name\s*!=\s*'merge_group'/u;
+
+/**
+ * A workflow that runs in the merge queue never uploads code scanning results
+ * from a merge group: GitHub's code scanning merge protection does not apply to
+ * merge queue groups, and the queue may delete the group's temporary branch
+ * before an upload lands, which fails the required check with "ref ... not
+ * found" (a configuration error; #736 was dropped from the queue by it). A
+ * CodeQL `analyze` step sets `upload` to {@link UPLOAD_EXCEPT_MERGE_GROUP}, and
+ * an `upload-sarif` step carries a condition that excludes merge groups.
+ */
+function codeScanningUploadViolations(workflow) {
+  const { events, unreadable } = readWorkflow(workflow);
+  if (unreadable.length > 0) return unreadable;
+  if (!events.has("merge_group")) return [];
+  const root = parseDocument(workflow.text).toJS({ maxAliasCount: 100 }) ?? {};
+  const violations = [];
+  for (const [jobName, job] of Object.entries(root.jobs ?? {})) {
+    for (const [index, step] of (Array.isArray(job?.steps) ? job.steps : []).entries()) {
+      const uses = typeof step?.uses === "string" ? step.uses : "";
+      const at = `${workflow.path}: jobs.${jobName}.steps[${String(index)}]`;
+      if (CODEQL_ANALYZE.test(uses) && step.with?.upload !== UPLOAD_EXCEPT_MERGE_GROUP) {
+        violations.push(`${at}: a CodeQL analysis in a merge-queue workflow uploads from merge groups (upload is ${JSON.stringify(step.with?.upload ?? "always")}; set it to ${UPLOAD_EXCEPT_MERGE_GROUP})`);
+      }
+      if (CODEQL_UPLOAD_SARIF.test(uses) && !NOT_IN_MERGE_GROUP.test(String(step.if ?? ""))) {
+        violations.push(`${at}: a SARIF upload in a merge-queue workflow runs in merge groups (its condition must exclude github.event_name 'merge_group')`);
+      }
+    }
+  }
+  return violations;
+}
+
 /**
  * The triggers whose runs execute in the BASE repository's context, with its
  * write token or secrets, while their event can name a fork's code: what
@@ -586,6 +624,29 @@ test("every live workflow that gates a pull request also runs in the merge queue
     assert.ok(paths.has(path), `the exemption ${path} names no workflow`);
     const { events } = readWorkflow(workflows.find((entry) => entry.path === path));
     assert.ok(events.has("pull_request") && !events.has("merge_group"), `the exemption ${path} is stale`);
+  }
+});
+
+test("no merge-queue workflow uploads code scanning results from a merge group: the live CodeQL workflow, and planted shapes", () => {
+  for (const workflow of liveWorkflows()) assert.deepEqual(codeScanningUploadViolations(workflow), [], workflow.path);
+  assert.ok(liveWorkflows().some((workflow) => /github\/codeql-action\/analyze@/u.test(workflow.text)), "the CodeQL analysis is still a live workflow");
+  const analyze = (withBlock) => `on:\n  pull_request:\n  merge_group:\njobs:\n  analyze:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee\n${withBlock}`;
+  const refused = {
+    "upload left at its default": analyze(""),
+    "upload always": analyze("        with:\n          upload: always\n"),
+    "upload on another condition": analyze("        with:\n          upload: ${{ github.event_name == 'push' && 'always' || 'never' }}\n"),
+    "a SARIF upload in merge groups": "on: [pull_request, merge_group]\njobs:\n  scan:\n    runs-on: x\n    steps:\n      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee\n",
+  };
+  for (const [shape, text] of Object.entries(refused)) {
+    assert.equal(codeScanningUploadViolations({ path: `planted/${shape}.yml`, text }).length, 1, shape);
+  }
+  const passing = {
+    "upload except in merge groups": analyze(`        with:\n          upload: ${UPLOAD_EXCEPT_MERGE_GROUP}\n`),
+    "a SARIF upload kept out of merge groups": "on: [pull_request, merge_group]\njobs:\n  scan:\n    runs-on: x\n    steps:\n      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee\n        if: github.event_name != 'merge_group'\n",
+    "no merge queue at all": "on: [push]\njobs:\n  analyze:\n    runs-on: x\n    steps:\n      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee\n",
+  };
+  for (const [shape, text] of Object.entries(passing)) {
+    assert.deepEqual(codeScanningUploadViolations({ path: `planted/${shape}.yml`, text }), [], shape);
   }
 });
 
