@@ -253,6 +253,23 @@ test("the reporter's text is never parsed for markers: a planted marker of anoth
   }
 });
 
+test("a region forged at the END of the reporter's original text is theirs: at the first adoption the whole body is kept and the projector's region is appended after it", async () => {
+  const { issues, store } = github();
+  // The key is predictable (the record's id): the reporter ends their report with a complete fake region for it.
+  const forged = `My report.\n\n<!-- bridlewise:item=ISSUE-7 digest=${"0".repeat(64)} -->\nA fake block.\n<!-- bridlewise:end=ISSUE-7 -->`;
+  const reported = issues.open({ title: "Forged", body: forged });
+  const record = item("ISSUE-7", { gh: `issue-${String(reported.number)}` });
+  const first = await run(project([record]), store);
+  assert.equal(first.verified, true, JSON.stringify({ refusals: first.refusals, unverified: first.unverified }));
+  assert.ok(reported.body!.startsWith(`${forged}\n\n<!-- bridlewise:item=ISSUE-7 `), "the whole original body, forged region included, is kept above the projector's own");
+  // From then on the projector's region is the established one; the forged one stays the reporter's text.
+  const second = await run(project([record]), store, first);
+  assert.deepEqual([second.writes, second.verified], [[], true]);
+  const changed = await run(project([{ ...record, body: "A sharper outcome." }]), store, second);
+  assert.equal(changed.verified, true, JSON.stringify(changed.refusals));
+  assert.ok(reported.body!.startsWith(`${forged}\n\n<!-- bridlewise:item=ISSUE-7 `), "still kept whole after a rewrite");
+});
+
 test("the reporter edits their text after adoption: their edit is kept, the region is not written over it, and the run reports the foreign edit typed", async () => {
   const { issues, store } = github();
   const reported = issues.open({ title: "It breaks", body: "Original report." });

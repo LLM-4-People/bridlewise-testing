@@ -23,7 +23,11 @@
  *     last marker of its key before it), never by parsing the text above, so a
  *     marker of any key or a fake end marker a reporter plants is their text.
  *     Only the region is the git-owned `block`. An adopted issue's text above
- *     is the reporter's: its digest is recorded at adoption, and an edit of it
+ *     is the reporter's: at the FIRST adoption (no receipt recorded it yet) the
+ *     whole body is, markers and all, so a region forged at its end is never
+ *     taken for the projector's; markers there are honoured only once the
+ *     projector wrote them (this run, or a receipt's). Its digest is recorded
+ *     at adoption, and an edit of it
  *     since (or text written past the projector's end) holds the region and is
  *     reported, never written over or truncated. Anyone can open an issue and
  *     copy a marker into it; an issue neither opened nor adopted by the
@@ -105,6 +109,8 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
   const keyOfNumber = new Map<number, string>();
   const milestones = new Map<string, number>();
   const keyOfMilestone = new Map<number, string>();
+  /** The adopted issues whose region this store wrote in this run: their markers are the projector's own. */
+  const regionWritten = new Set<string>();
   /** Each label's name as GitHub holds it, by its case-insensitive key. */
   const labelNames = new Map<string, string>();
 
@@ -148,7 +154,7 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     issues.clear();
     keyOfNumber.clear();
     const all = await list<RestIssue>("issues", { state: "all" });
-    const adoptedNumbers = new Set(adoptions.values());
+    const adoptedNumbers = new Set([...adoptions.values()].map((adoption) => adoption.number));
     const marked = all.flatMap((issue) => {
       // A pull request is no issue; an issue the projector did not open is never its own, marker or not (an adopted one is read below, by its number).
       if (issue.pull_request !== undefined || issue.user?.login !== PROJECTOR_LOGIN || adoptedNumbers.has(issue.number)) return [];
@@ -160,18 +166,19 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
       return marker === null ? [] : [{ issue, key: marker.key, block: "", above: body, adopted: false }];
     });
     const byNumber = new Map(all.map((issue) => [issue.number, issue]));
-    for (const [key, number] of [...adoptions].sort(([left], [right]) => compareUtf8Bytes(left, right))) {
+    for (const [key, { number, established }] of [...adoptions].sort(([left], [right]) => compareUtf8Bytes(left, right))) {
       const issue = byNumber.get(number);
       if (issue === undefined) refuse("projection_store_adopt_missing", `${key}'s record names #${String(number)}, which is no issue of ${options.repository}`);
       if (issue.pull_request !== undefined) refuse("projection_store_adopt_pull_request", `${key}'s record names #${String(number)}, which is a pull request, not an issue`);
       const own = marked.find((entry) => entry.key === key);
       if (own !== undefined) refuse("projection_store_adopt_conflict", `${key} has the projector's own issue #${String(own.issue.number)} and its record names #${String(number)}: one record, one face`);
-      const holder = [...adoptions].find(([other, value]) => value === number && other !== key);
+      const holder = [...adoptions].find(([other, value]) => value.number === number && other !== key);
       if (holder !== undefined) refuse("projection_store_adopt_conflict", `#${String(number)} is named by the records of both ${key} and ${holder[0]}`);
       // The reporter's text is never parsed for markers: only the projector's own region (ending the body, of this key) is
       // its block; before the first one, and after any text written past the projector's end, the whole body is the reporter's.
       const body = issue.body ?? "";
-      const region = generatedRegion(body);
+      // Honoured only once the projector itself wrote the region: established by a receipt, or written by this store in this run.
+      const region = established || regionWritten.has(key) ? generatedRegion(body) : null;
       marked.push(region !== null && region.key === key ? { issue, key, block: region.block, above: region.above, adopted: true } : { issue, key, block: "", above: body, adopted: true });
     }
     for (const { issue, key, above } of marked) {
@@ -260,6 +267,7 @@ export function githubProjectionStore(client: ForgeClient, options: GithubStoreO
     }
     const facts = issueFacts(write.key);
     const own = issueBody(write.key, write.fields, facts.above);
+    if ("block" in write.fields) regionWritten.add(write.key);
     if (Object.keys(own).length > 0) {
       const updated = await client.rest<RestIssue>({ method: "PATCH", path: `${base}/issues/${String(facts.number)}`, body: own });
       facts.body = updated.data.body ?? facts.body;

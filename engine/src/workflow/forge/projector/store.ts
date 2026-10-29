@@ -46,11 +46,15 @@ export type ProjectionWrite = Readonly<{
 
 /**
  * The issues D adopts: each item key → the GitHub issue number its record
- * names (model.ts `ProjectedObject.adopt`). The store reads each as that
- * item's live issue, whoever opened it; a number that names no issue, or a
- * pull request, is refused typed.
+ * names (model.ts `ProjectedObject.adopt`), and whether the projector has
+ * ESTABLISHED its region there (the previous receipt recorded the reporter's
+ * text). The store reads each as that item's live issue, whoever opened it;
+ * a number that names no issue, or a pull request, is refused typed. Until
+ * the region is established, the WHOLE body is the reporter's text: a region
+ * a reporter forged at the end of their own text is never taken for the
+ * projector's.
  */
-export type Adoptions = ReadonlyMap<string, number>;
+export type Adoptions = ReadonlyMap<string, Readonly<{ number: number; established: boolean }>>;
 
 export type ProjectionStore = Readonly<{
   /** Every live object of `classes` (conditional reads: an unchanged answer costs no rate limit). The GitHub store paces its content-creating writes by GitHub's own answer (`retry-after`, the secondary-limit reset), never a fixed sleep. */
