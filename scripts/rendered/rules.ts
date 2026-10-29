@@ -573,6 +573,65 @@ function judgeJudgeable(args: { input: Record<string, never>; surface: Surface; 
   return [...(args.record?.unjudgeable ?? [])];
 }
 
+/** The page fits its viewport: nothing scrolls sideways (judged on the page's own document). */
+function judgeNoSidewaysScroll(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  if (!args.top) return [];
+  const wide = document.documentElement.scrollWidth;
+  return wide > window.innerWidth ? [`the page scrolls sideways (${wide}px wide in a ${window.innerWidth}px viewport)`] : [];
+}
+
+/** The page's own layout shifts stay within the budget (judge.ts counts them, never its own viewport and media changes). */
+function judgeLayoutShift(args: { input: { budget: number; ownPalette: readonly string[] }; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  if (!args.top) return [];
+  // The demos on the palette burn-down list render their record by script
+  // after load; they are rebuilt under #161, and judged here when they are.
+  if ([...document.styleSheets].some((sheet) => args.input.ownPalette.some((name) => (sheet.href ?? "").endsWith(`/${name}`)))) return [];
+  const shift = (globalThis as unknown as { __renderedShift?: { value: number } }).__renderedShift;
+  if (shift === undefined) return ["the page was not instrumented for layout shift"];
+  return shift.value > args.input.budget ? [`the layout shifts by ${shift.value.toFixed(3)} (budget ${args.input.budget})`] : [];
+}
+
+/** One main landmark and one top heading (the page's own document). */
+function judgeLandmarks(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }): string[] {
+  if (!args.top) return [];
+  const findings: string[] = [];
+  const mains = document.querySelectorAll("main").length;
+  const h1s = document.querySelectorAll("h1").length;
+  if (mains !== 1) findings.push(`${mains} <main> landmarks, not one`);
+  if (h1s !== 1) findings.push(`${h1s} <h1> headings, not one`);
+  return findings;
+}
+
+/** Every image says what it shows (an empty alt marks a decorative one), in any frame or open shadow root. */
+function judgeAltText(args: { input: Record<string, never>; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+  const missing = kit.elements(document).filter((el) => el.tagName === "IMG" && !el.hasAttribute("alt")).map((img) => img.getAttribute("src") ?? "an image");
+  return missing.length === 0 ? [] : [`${missing.length} image(s) without alt text (${missing.slice(0, 3).join(", ")})`];
+}
+
+/**
+ * Wherever text renders in one of the token owner's stacks, the face that
+ * stack names first actually loaded: no text is set in a fallback face.
+ */
+function judgeFacesLoaded(args: { input: { stacks: Readonly<Record<string, string>> }; surface: Surface; top: boolean; record: Recorded | null }, kit: Kit): string[] {
+  const normal = (family: string): string => family.split(",").map((f) => f.trim().replace(/^["']|["']$/gu, "")).filter((f) => f.length > 0).join(", ");
+  const findings: string[] = [];
+  const elements = kit.elements(document);
+  for (const [token, ownerStack] of Object.entries(args.input.stacks)) {
+    const stack = normal(ownerStack);
+    const used = elements.some((el) => normal(getComputedStyle(el).fontFamily) === stack
+      && [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0)
+      && el.getClientRects().length > 0);
+    if (!used) continue;
+    const first = stack.split(", ")[0]!;
+    const loaded = [...document.fonts].some((face) => normal(face.family) === first && face.status === "loaded");
+    if (!loaded) findings.push(`${first} (${token}) did not load: text in that stack is set in a fallback face`);
+  }
+  return findings;
+}
+
+/** The budget the page's own layout shifts may sum to (Core Web Vitals' "good" bound). */
+export const LAYOUT_SHIFT_BUDGET = 0.1;
+
 /** A request that leaves the page's origin, or the site's base path on it (data:, blob: and about: URLs are the page's own). */
 function judgeOrigin(url: string, resourceType: string, origin: string, base: string): string | null {
   if (/^(?:data|blob|about):/u.test(url)) return null;
@@ -654,6 +713,7 @@ export const JUDGE_LIMITS: readonly Readonly<{ id: string; limit: string; why: s
   { id: "real-time-loops", limit: "work driven by the browser's own task queues in wall time — a MessageChannel or postMessage loop, a chain on network or idle callbacks the clock does not fake — is judged only as far as it got by each judgement", why: "the page clock fakes timers, intervals and animation frames, not the task queues; running those forward needs the browser's virtual time, which cannot be handed back to real time (the capture walk needs real time between views)" },
   { id: "infinite-animations", limit: "an infinite CSS or Web animation is judged where it stands at each judgement, not at every point of its cycle, except its colours: every colour its keyframes name is judged against the tokens", why: "it has no end to finish to; its keyframes are the only place its colours can all be read" },
   { id: "finite-animations-mid-run", limit: "a finite animation is judged where it stands at each judgement and at its end (each is finished before the last judgement), and every colour its keyframes name is judged against the tokens; a value between two keyframes is not judged", why: "a judgement samples the timeline; seeking every keyframe of every animation is not done" },
+  { id: "load-shifts", limit: "a layout shift the page makes while it loads, before it is ready (its requests done, its fonts settled) and a frame is drawn, is not counted: a web font's swap, an image without set dimensions arriving late, and a stylesheet applied after the first paint (async CSS) are each one, and each is a shift a reader can see", why: "when a load's shifts land depends on the host: a late font swapped inside the count on a loaded host and before it on an idle one (#632), so the count opens where every host agrees; judging these three needs controlled delays (a load-stress pass), not the host's" },
   { id: "forced-states-churn", limit: "an element a page adds while the states are being forced, after the forcing pass's last look for new elements (or in a shadow root or frame it adds), is judged without them", why: "a page that keeps replacing its nodes would otherwise keep the pass going; reading the tree again would drop the states already forced, so the pass reads it once and looks twice more in the scopes it read" },
   { id: "forced-states-together", limit: "hover, active and focus are forced on every element at once (focus only where an element can take it), not one element at a time", why: "one forced pass shows any rule those states turn on; combinations that cannot occur together may also be judged" },
   { id: "hostile-pages", limit: "a page written to hide from the judgement — one that takes a removed frame's setters, or stops the Content-Security-Policy violation event before the judge's listener — can evade it", why: "the judge's threat model is our own pages making mistakes; it records in the page, where such a page can interfere" },
@@ -735,6 +795,51 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
     surfaces: ["cockpit", "site"],
     input: () => ({}),
     judge: judgeJudgeable as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "no-sideways-scroll",
+    holds: "The page fits every viewport it is judged at: nothing scrolls sideways.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's views are not yet judged for sideways scroll; its owner adds \"cockpit\" here when they are" },
+    input: () => ({}),
+    judge: judgeNoSidewaysScroll as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "layout-shift",
+    holds: `The page's own layout shifts (its load and its future; never the judge's viewport and media changes) sum to no more than ${String(LAYOUT_SHIFT_BUDGET)}; a demo on the palette burn-down list is exempt until #161.`,
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's views stream content by design; its owner sets a budget and adds \"cockpit\" here" },
+    input: () => ({ budget: LAYOUT_SHIFT_BUDGET, ownPalette: [...PALETTE_BURN_DOWN.keys()] }),
+    judge: judgeLayoutShift as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "landmarks",
+    holds: "The page has exactly one <main> landmark and one <h1>.",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit is one application view, not a document; its owner decides its landmark rule" },
+    input: () => ({}),
+    judge: judgeLandmarks as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "alt-text",
+    holds: "Every image carries alt text (empty for a decorative one).",
+    surfaces: ["site"],
+    pending: { cockpit: "the cockpit's views are not yet judged for alt text; its owner adds \"cockpit\" here when they are" },
+    input: () => ({}),
+    judge: judgeAltText as PageRule["judge"],
+  },
+  {
+    kind: "page",
+    id: "faces-loaded",
+    holds: "Wherever text renders in one of the token owner's stacks, the face that stack names first actually loaded: no text is set in a fallback.",
+    surfaces: ["site"],
+    pending: { cockpit: "the capture walk's fixture views are not yet judged for loaded faces; its owner adds \"cockpit\" here when they are" },
+    input: () => ({ stacks: faceStacks() }),
+    judge: judgeFacesLoaded as PageRule["judge"],
   },
   {
     kind: "request",
