@@ -50,9 +50,10 @@ import {
   resetAllRegistrations,
   resolveMemoryConfig,
 } from "../../server/kernel/canonical.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
 import { consumersOf, modulePath, modulePathMatching } from "../helpers/module-resolver.ts";
 import { moduleSpecifiers, read, stripCommentsOnly } from "../helpers/source-scan.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
 
 const HARNESS_CONFIG_SRC = readFileSync(modulePath("harness-config.ts"), "utf8");
 // The owner's code, comments stripped — the discovery idioms below read this,
@@ -151,7 +152,7 @@ describe("memory rows keep their readers — a served row with no reader is a vi
   beforeEach(() => {
     let doc: Record<string, unknown> = {};
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("memory-config-reader-config-")),
       readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
       writeDocument: (next) => {
         doc = next;

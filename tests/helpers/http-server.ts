@@ -36,9 +36,9 @@ import { isPublicPath } from "../../server/routes/registry.ts";
 import { DbClient, type DbClientConfig } from "../../server/db/client.ts";
 import { AsyncDbClient } from "../../server/db/async-client.ts";
 import { readConfigRaw } from "../../server/kernel/harness-config.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
 import { installCustomizationConfigStore } from "../../server/kernel/canonical.ts";
 import { hasCustomizationConfigStore } from "../../engine/src/shared/exposure/index.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
 
 /** A live HTTP test server + its backing DB + tmpdir. Call `stop()` in `afterAll`. */
 export interface HttpTestServer {
@@ -116,7 +116,7 @@ export async function startHttpTestServer(
       // the write lock keyed on it stays vacuous here (nothing writes the
       // file) — the declaration exists so the store contract cannot lie
       // about which file a host persists to.
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("http-server-config-")),
       readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
       writeDocument: (next) => {
         doc = next;

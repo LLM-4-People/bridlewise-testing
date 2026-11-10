@@ -14,10 +14,21 @@ import { createHash } from "node:crypto";
 import { executeToolCall, listExecutableTools, type ToolExecutionContext } from "../../server/tools/tool-executor.ts";
 import { getToolManifest, invalidateToolManifestCache } from "../../server/tools/tools-bridge.ts";
 import { installCustomizationConfigStore, setCustomizationValue } from "../../engine/src/shared/exposure/index.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
 import { registerAllExposure } from "../../engine/src/shared/exposure/registrations/index.ts";
 import { editorState } from "../../engine/src/shared/exposure/registrations/editor.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
+import { harnessView, harnessViewConfig } from "../helpers/isolated-config.ts";
+import { readConfigRaw } from "../../server/kernel/harness-config.ts";
+import { resetServerConfig } from "../../server/kernel/config.ts";
+
+// The tool executor's confined runs keep their scratch under the HARNESS ROOT (server/safety/landlock-runner.ts
+// `harnessScratchRoot`, beside the config). Run against the live harness, the first one created `engine/.bridlewise`
+// on a fresh checkout, which changed the engine folder's identity under every concurrent reader of the real config
+// (FLAKY-CONFIG-PARENT-CHURN). This suite runs in a HARNESS VIEW instead: the real harness's entries linked, its own
+// state folder, so its scratch lands there (tests/helpers/isolated-config.ts).
+process.env["HARNESS_CONFIG_PATH"] = harnessViewConfig(harnessView("tool-executor-unified-"), readConfigRaw());
+resetServerConfig();
 
 let projectRoot = "";
 let ctx: ToolExecutionContext;
@@ -142,7 +153,7 @@ describe("unified executor — the edit tool", () => {
     // document keeps the real config file untouched.
     let doc: Record<string, unknown> = {};
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("tool-executor-unified-config-")),
       readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
       writeDocument: (next) => { doc = next; },
     });

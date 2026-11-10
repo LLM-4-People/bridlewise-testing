@@ -10,11 +10,13 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, linkSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, lstatSync, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { directoryEntriesHash, harnessFolderChanges, harnessFolderIdentity } from "../../src/kernel/config.ts";
+import { directoryEntriesHash, directorySnapshot, directorySnapshotChanged, harnessFolderChanges, harnessFolderIdentity, readConfigDescriptor } from "../../src/kernel/config.ts";
+import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
+import { sameDirectoryIdentity, sameIdentity } from "../../src/shared/identity.ts";
 import { repositoryRefChanges, repositoryRefIdentity } from "../../src/git/repository-ownership.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 import { STATE_DIRECTORY_NAME } from "../../src/kernel/product-identity.ts";
@@ -51,6 +53,71 @@ test("work INSIDE an excluded entry leaves the root snapshot unchanged; replacin
   const now = new Date();
   utimesSync(join(root, "held.json"), now, new Date(now.getTime() + 5_000));
   assert.notEqual(directoryEntriesHash(root), replaced);
+});
+
+test("the parent check is IDENTITY: a sibling the surface excludes, made mid-read, is the same directory and no change (FLAKY-CONFIG-PARENT-CHURN)", () => {
+  const root = createTempDir("config-parent-sibling-");
+  writeFileSync(join(root, "held.json"), "{}\n");
+  mkdirSync(join(root, "src"));
+  const before = directorySnapshot(root);
+  // What a concurrent test did on a fresh checkout: the state directory made beside the config, and work inside it.
+  mkdirSync(join(root, STATE_DIRECTORY_NAME), { mode: 0o700 });
+  mkdirSync(join(root, STATE_DIRECTORY_NAME, "state"), { recursive: true });
+  mkdirSync(join(root, "node_modules"));
+  const after = directorySnapshot(root);
+  assert.equal(sameIdentity(before.identity, after.identity), false, "the folder's times and link count moved (the old check's refusal)");
+  assert.equal(sameDirectoryIdentity(before.identity, after.identity), true, "it is the same directory");
+  assert.equal(directorySnapshotChanged(before, after), false, "a sibling the surface excludes, made mid-read, is no change of the configuration");
+  // An excluded sibling that was there and is REPLACED is a change.
+  renameSync(join(root, STATE_DIRECTORY_NAME), join(root, "old-state"));
+  mkdirSync(join(root, STATE_DIRECTORY_NAME), { mode: 0o700 });
+  assert.equal(directorySnapshotChanged(after, directorySnapshot(root)), true, "a replaced state directory is another entry");
+  // A sibling the surface HOLDS is still a change of the configuration surface.
+  writeFileSync(join(root, "src", "new.ts"), "export {};\n");
+  assert.equal(directorySnapshotChanged(after, directorySnapshot(root)), true);
+});
+
+test("the read itself: a state directory made beside the document AFTER the parent snapshot and BEFORE the read is read through, not refused (the race that dropped #737)", () => {
+  const folder = createTempDir("config-read-sibling-");
+  const document = join(folder, "held.json");
+  assert.equal(atomicWriteFile(document, "{}\n", { createMode: 0o600 }).success, true);
+  // The pinned loader's order, made deterministic at the seam between its two steps: the parent snapshot first ...
+  const expectedParent = lstatSync(folder, { bigint: true });
+  // ... a concurrent test's first write makes the state directory beside the document (what CI hit by chance) ...
+  mkdirSync(join(folder, STATE_DIRECTORY_NAME), { mode: 0o700 });
+  mkdirSync(join(folder, STATE_DIRECTORY_NAME, "state"));
+  // ... then the read, which holds the parent by its identity and answers.
+  const read = readConfigDescriptor(document, expectedParent);
+  assert.equal(read.bytes.toString("utf8"), "{}\n");
+  // A parent swapped in the same window is still refused.
+  const parent = createTempDir("config-read-swap-");
+  const engine = join(parent, "engine");
+  mkdirSync(engine);
+  assert.equal(atomicWriteFile(join(engine, "held.json"), "{}\n", { createMode: 0o600 }).success, true);
+  const before = lstatSync(engine, { bigint: true });
+  const impostor = join(parent, "impostor");
+  mkdirSync(impostor);
+  assert.equal(atomicWriteFile(join(impostor, "held.json"), "{}\n", { createMode: 0o600 }).success, true);
+  renameSync(engine, join(parent, "engine-old"));
+  renameSync(impostor, engine);
+  assert.throws(() => readConfigDescriptor(join(engine, "held.json"), before), (error: unknown) => (error as { code?: unknown }).code === "config_parent_changed");
+});
+
+test("the parent check is IDENTITY: a swapped directory (a different one renamed into place) is refused as another directory", () => {
+  const parent = createTempDir("config-parent-swap-");
+  const engine = join(parent, "engine");
+  mkdirSync(engine);
+  writeFileSync(join(engine, "held.json"), "{}\n");
+  const before = directorySnapshot(engine);
+  // The same name, the same entries, another directory.
+  const impostor = join(parent, "impostor");
+  mkdirSync(impostor);
+  writeFileSync(join(impostor, "held.json"), "{}\n");
+  renameSync(engine, join(parent, "engine-old"));
+  renameSync(impostor, engine);
+  const after = directorySnapshot(engine);
+  assert.equal(sameDirectoryIdentity(before.identity, after.identity), false, "another inode at the same path is another directory");
+  assert.equal(directorySnapshotChanged(before, after), true);
 });
 
 test("the live harness folder's identity names every place a test changed — a file made at the root, one made, re-linked or removed below it — and nothing for work inside the state folder (R3-1)", () => {

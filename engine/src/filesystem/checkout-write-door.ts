@@ -435,6 +435,18 @@ function inWritableDirectory(root: string, relativePath: string): boolean {
 }
 
 /**
+ * The checkout under test that holds `path` (its root, as `path` is spelled
+ * there), or `undefined` when this process is not under test or `path` lies
+ * outside every protected checkout — whatever the folder, state folders
+ * included. The config write lock asks it: a test's config store must name a
+ * config in the test's own fixture, never one inside the checkout it tests.
+ */
+export function checkoutUnderTestHolding(path: string): string | undefined {
+  if (armed.size === 0) return undefined;
+  return protectedRootHolding(writeLocationOf(path));
+}
+
+/**
  * Refuses (throws `generator_live_checkout_under_test`) when this process is
  * under test and `path` is a file a protected checkout owns. A no-op otherwise.
  */

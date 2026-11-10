@@ -20,7 +20,7 @@ import { hasTraversalSegment, readLinuxMountPoints } from "../filesystem/linux-p
 import { ROOT_POLICY } from "./root-policy.ts";
 import { engineRoot } from "./engine-root.ts";
 import { getConfigDocumentSchema, type ConfigDocument } from "./config-contracts.ts";
-import { sameIdentity } from "../shared/identity.ts";
+import { sameDirectoryIdentity, sameIdentity } from "../shared/identity.ts";
 import { CONFIG_MODE_REQUIRE_ENV_VAR } from "../shared/source-scan.ts";
 
 export { getConfigDocumentSchema } from "./config-contracts.ts";
@@ -101,6 +101,7 @@ export type ConfigSnapshot = Readonly<{
 
 type DirectorySnapshot = Readonly<{
   identity: BigIntStats;
+  entries: readonly DirectoryEntryIdentity[];
   entriesHash: string;
 }>;
 
@@ -138,9 +139,7 @@ export function loadPinnedConfigSnapshot(): ConfigSnapshot {
     const rootAfter = inspectDirectory(root, rootDescriptor);
     const manifestAfter = inspectRepositoryConfigSurface(root, rootAfter.identity.dev);
 
-    if (!sameIdentity(rootBefore.identity, rootAfter.identity) ||
-      rootBefore.entriesHash !== rootAfter.entriesHash ||
-      manifestBefore !== manifestAfter) {
+    if (directorySnapshotChanged(rootBefore, rootAfter) || manifestBefore !== manifestAfter) {
       throw new SecurityError("Repository root changed during configuration bootstrap", "config_parent_changed");
     }
     if (!sameIdentity(first.stats, second.stats) || first.sourceHash !== second.sourceHash) {
@@ -378,7 +377,13 @@ function assertPinnedRepositoryRoot(candidate: string): string {
   return canonical;
 }
 
-function readConfigDescriptor(
+/**
+ * The configuration document at `path`, read twice-checked under the parent
+ * snapshot `expectedParent` the caller took before it (the pinned loader's
+ * root snapshot): the parent must still be the SAME directory, its identity,
+ * whatever was made beside the document since.
+ */
+export function readConfigDescriptor(
   path: string,
   expectedParent: BigIntStats,
 ): Readonly<{ bytes: Buffer; sourceHash: string; stats: BigIntStats }> {
@@ -387,7 +392,8 @@ function readConfigDescriptor(
   let descriptor: number | undefined;
   try {
     const parentBefore = inspectDirectory(parentPath, parentDescriptor);
-    if (!sameIdentity(parentBefore.identity, expectedParent)) {
+    // The parent is the SAME directory (its device and inode, type and owner): a swap or replacement refuses; a new sibling does not.
+    if (!sameDirectoryIdentity(parentBefore.identity, expectedParent)) {
       throw new SecurityError("Configuration parent identity changed", "config_parent_changed");
     }
     const before = inspectConfigFile(path, expectedParent.dev);
@@ -405,8 +411,7 @@ function readConfigDescriptor(
     const after = inspectConfigFile(path, expectedParent.dev);
     const parentAfter = inspectDirectory(parentPath, parentDescriptor);
     if (!sameIdentity(openedBefore, openedAfter) || !sameIdentity(before, after) ||
-      !sameIdentity(parentBefore.identity, parentAfter.identity) ||
-      parentBefore.entriesHash !== parentAfter.entriesHash || bytes.length !== Number(after.size)) {
+      directorySnapshotChanged(parentBefore, parentAfter) || bytes.length !== Number(after.size)) {
       throw new SecurityError("Configuration changed while it was read", "config_identity_changed");
     }
     return { bytes, sourceHash: sha256(bytes), stats: after };
@@ -479,17 +484,55 @@ function inspectDirectory(path: string, descriptor: number): DirectorySnapshot {
   const descriptorStats = fstatSync(descriptor, { bigint: true });
   const pathStats = lstatSync(path, { bigint: true, throwIfNoEntry: false });
   if (!pathStats || pathStats.isSymbolicLink() || !pathStats.isDirectory() ||
-    !sameIdentity(pathStats, descriptorStats)) {
+    !sameDirectoryIdentity(pathStats, descriptorStats)) {
     throw new SecurityError("Directory identity changed", "config_parent_changed");
   }
-  return { identity: descriptorStats, entriesHash: directoryEntriesHash(path) };
+  const entries = directoryEntries(path);
+  return { identity: descriptorStats, entries, entriesHash: canonicalHash(entries) };
 }
 
-/** The hash of a directory's entries, each held by {@link directoryEntryIdentity}: what a configuration bootstrap compares before and after its reads. */
-export function directoryEntriesHash(path: string): string {
-  return canonicalHash(readdirSync(path, { withFileTypes: true })
+/** The snapshot a configuration bootstrap takes of the directory at `path`: what {@link directorySnapshotChanged} compares. */
+export function directorySnapshot(path: string): DirectorySnapshot {
+  const descriptor = openDirectory(path, "config_parent_open_denied");
+  try {
+    return inspectDirectory(path, descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+/**
+ * Whether the directory a bootstrap holds CHANGED between two snapshots. It
+ * is the same directory (device, inode, type, owner: {@link sameDirectoryIdentity};
+ * a swapped or replaced one is another), every entry the configuration
+ * surface holds is the same entry with the same times, and an entry the
+ * surface EXCLUDES (the state directory, `node_modules`) that is on both
+ * sides is the same entry. An excluded entry made or removed between them
+ * is no change: a test making `engine/.bridlewise` on a fresh checkout is
+ * not a change of the configuration, and refused every concurrent read
+ * (FLAKY-CONFIG-PARENT-CHURN).
+ */
+export function directorySnapshotChanged(before: DirectorySnapshot, after: DirectorySnapshot): boolean {
+  if (!sameDirectoryIdentity(before.identity, after.identity)) return true;
+  const held = (entries: readonly DirectoryEntryIdentity[]) => canonicalHash(entries.filter((entry) => !REPOSITORY_SCAN_EXCLUSIONS.has(entry.name)));
+  if (held(before.entries) !== held(after.entries)) return true;
+  const afterByName = new Map(after.entries.map((entry) => [entry.name, entry]));
+  return before.entries.some((entry) => {
+    const other = REPOSITORY_SCAN_EXCLUSIONS.has(entry.name) ? afterByName.get(entry.name) : undefined;
+    return other !== undefined && canonicalHash(entry) !== canonicalHash(other);
+  });
+}
+
+/** A directory's entries, each held by {@link directoryEntryIdentity}, sorted by name. */
+function directoryEntries(path: string): readonly DirectoryEntryIdentity[] {
+  return readdirSync(path, { withFileTypes: true })
     .map((entry) => directoryEntryIdentity(path, entry))
-    .toSorted((left, right) => left.name.localeCompare(right.name)));
+    .toSorted((left, right) => left.name.localeCompare(right.name));
+}
+
+/** The hash of a directory's entries, each held by {@link directoryEntryIdentity}: the record of the root a snapshot keeps. */
+export function directoryEntriesHash(path: string): string {
+  return canonicalHash(directoryEntries(path));
 }
 
 /**

@@ -11,6 +11,7 @@ The `engine/test/config/` folder of the development surface.
 - `config-root-snapshot.test.ts` — what a configuration bootstrap holds the root by: work inside an excluded entry (the state directory) leaves the snapshot unchanged; replacing or re-moding it, or touching a held entry, changes it.
 - `config-schema-diagnostics.test.ts` — the `config-schema-diagnostics.test` module.
 - `config-sections.test.ts` — the `config-sections.test` module.
+- `customization-store-under-test.test.ts` — under test, a store whose config lies inside the checkout under test is refused at its write, whatever spelled it (the engine factory, a spread, a computed key or path), before it is read or written.
 - `git-enums-dry.test.ts` — the `git-enums-dry.test` module.
 
 ## Where it lives and what consumes it

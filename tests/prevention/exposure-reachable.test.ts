@@ -16,7 +16,6 @@ import {
   installCustomizationConfigStore,
   getConfigDocumentSchema,
 } from "../../server/kernel/canonical.ts";
-import { serverConfig } from "../../server/kernel/config.ts";
 // The array door's own declaration — the config leaf the settings block
 // serves. The census reads the block's export (never a restated path), so the
 // door and the census cannot drift: a leaf the block stops serving stops
@@ -25,13 +24,15 @@ import { DIAGNOSTIC_MODES_CONFIG_PATH } from "../../server/blocks/settings.ts";
 // The search-engine vocabulary's owner — the same source the memory
 // registration derives its choices from, so the arm never restates the list.
 import { MEMORY_SEARCH_ENGINE_KINDS } from "../../engine/src/memory/memory-types.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
+import { fixtureConfigPath } from "../../engine/test/support/fixture-config-store.ts";
 
 const CONFIG_DOCUMENT_SCHEMA = getConfigDocumentSchema();
 
 beforeEach(() => {
   let doc: Record<string, unknown> = {};
   installCustomizationConfigStore({
-    configFilePath: serverConfig.harnessConfigPath,
+    configFilePath: fixtureConfigPath(createTempDir("exposure-reachable-config-")),
     readDocument: () => JSON.parse(JSON.stringify(doc)) as Record<string, unknown>,
     writeDocument: (next) => {
       doc = next;
@@ -409,7 +410,7 @@ describe("exposure is declared and reachable", () => {
     // The budget signals read the config document: install a store carrying
     // distinctive budget values and the signals must serve them back.
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("exposure-reachable-config-")),
       readDocument: () => ({
         performance: { budgets: { regressionBudgetPercent: 12, overheadBudgetPercent: 4 } },
       }),
@@ -629,7 +630,7 @@ describe("exposure is declared and reachable", () => {
     // The pinned-fact signal reads the config document: install a store
     // carrying a distinctive executable and the signal must serve it back.
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("exposure-reachable-config-")),
       readDocument: () => ({
         workspaceGit: { gitExecutablePath: "/opt/pinned-git-under-test/bin/git" },
       }),
@@ -896,7 +897,7 @@ describe("exposure is declared and reachable", () => {
       },
     };
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("exposure-reachable-config-")),
       readDocument: () => JSON.parse(JSON.stringify(planted)) as Record<string, unknown>,
       writeDocument: () => {},
     });
@@ -1130,7 +1131,7 @@ describe("exposure is declared and reachable", () => {
     };
     const planted = { webUi: { performance: plantedPerformance } };
     installCustomizationConfigStore({
-      configFilePath: serverConfig.harnessConfigPath,
+      configFilePath: fixtureConfigPath(createTempDir("exposure-reachable-config-")),
       readDocument: () => JSON.parse(JSON.stringify(planted)) as Record<string, unknown>,
       writeDocument: () => {},
     });
@@ -1361,7 +1362,7 @@ describe("exposure is declared and reachable", () => {
     // them back — the read path is live, not a constant face.
     const plant = (testExecution: Record<string, unknown>) =>
       installCustomizationConfigStore({
-        configFilePath: serverConfig.harnessConfigPath,
+        configFilePath: fixtureConfigPath(createTempDir("exposure-reachable-config-")),
         readDocument: () => JSON.parse(JSON.stringify({ testExecution })) as Record<string, unknown>,
         writeDocument: () => {},
       });
