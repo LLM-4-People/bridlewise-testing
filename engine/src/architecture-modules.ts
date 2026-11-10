@@ -401,6 +401,7 @@ export const ARCHITECTURE_MODULES: readonly ArchitectureModuleEntry[] = [
   { path: "src/workflow/community/community-cli.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/community/record.ts", executionBoundary: "effect-adapter", effects: ["filesystem-read"] },
   { path: "src/workflow/community/replies.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },
+  { path: "src/workflow/deps-cli.ts", layer: "interface", executionBoundary: "composition-root", compositionRoot: true, effects: ["child-process","filesystem-read","filesystem-write","git"] },
   { path: "src/workflow/harness-commands.ts", id: "workflow-harness-commands", layer: "interface", executionBoundary: "composition-root", compositionRoot: true, ports: {"requires":["test-result-collection","module-registration","auto-generation","resource-locking"],"provides":["harness-commands"]}, effects: ["child-process","filesystem-read","filesystem-write","git","process-status"], responsibilities: ["built-in-harness-workflow-commands-replacing-multi-step-scripts"] },
   { path: "src/workflow/hash-binding-registry.ts", id: "hash-binding-registry", realm: "shared", layer: "domain", executionBoundary: "effect-adapter", ports: {"requires":[],"provides":["hash-binding-registry"]}, effects: ["filesystem-read","filesystem-write"], responsibilities: ["central-hash-binding-verification-and-repair"] },
   { path: "src/workflow/messaging.ts", executionBoundary: "read-adapter", effects: ["filesystem-read"] },

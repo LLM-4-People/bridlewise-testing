@@ -59,6 +59,7 @@ import { superviseCommand, type SupervisedCommand } from "../process/supervised-
 import { debugLog } from "../shared/debug/debug-system.ts";
 import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, commandRetryPolicy } from "./workflow-config.ts";
 import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
+import { DEPS_ADOPT_COMMANDS } from "./deps-adopt.ts";
 
 /**
  * Why a command failed: ERRORED — the environment ended it (its ceiling, a
@@ -389,13 +390,15 @@ export function checkoutCommandRunner(checkoutRoot: string, runner: CheckoutComm
 
 /**
  * The registry commands nothing runs: declared in `commands`, named by no
- * workspace phase and by none of `consumers` (the other consumers' command
- * names — a promotion profile's phases and transforms). Dead config. Judged by
- * `harness check` over the checkout, where the profiles are visible (the
- * configuration schema alone cannot see them).
+ * workspace phase, by no command the harness's own code runs (the
+ * dependency adoption's, `DEPS_ADOPT_COMMANDS`) and by none of `consumers`
+ * (the other consumers' command names — a promotion profile's phases and
+ * transforms). Dead config. Judged by `harness check` over the checkout and
+ * by the promotion-boundary guard, both through this one function, where
+ * the profiles are visible (the configuration schema alone cannot see them).
  */
 export function unconsumedCommands(isolation: IsolationPhases, consumers: Iterable<string>): readonly string[] {
-  const run = new Set(commandsRun(isolation.commands, [...Object.values(isolation.phases).flat(), ...consumers]));
+  const run = new Set(commandsRun(isolation.commands, [...Object.values(isolation.phases).flat(), ...DEPS_ADOPT_COMMANDS, ...consumers]));
   return Object.freeze(Object.keys(isolation.commands).filter((name) => !run.has(name)).sort());
 }
 

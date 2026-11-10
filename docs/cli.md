@@ -123,6 +123,7 @@ These verbs are for maintainers of the development floor. They assume the privat
 | Verb | Purpose |
 |---|---|
 | `harness workspace create/validate/merge` | Create an isolated worktree, run the gates, and land it |
+| `harness deps adopt <pr>` | Re-apply a Dependabot bump as the agent: derived from the pull request's files (plain registry versions only), Dependabot known by its account id, the lockfile resolved without running package code and nothing installed on the host, committed with sign-off through the hooks; Dependabot's pull request is closed once the agent's is open |
 | `harness promote` | Inspect or apply the development-floor promotion profile |
 | `harness release` | Ask the product's release train whether a release departs (`plan`), write its notes (`notes`), or assemble its assets (`assemble`) |
 | `harness deletions` | Declare a deliberate deletion so the commit guard can judge it |
