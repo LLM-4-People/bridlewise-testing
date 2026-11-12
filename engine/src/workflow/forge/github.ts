@@ -429,7 +429,7 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     try {
       const asked = prepareOutboundRequest({
         url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
-        protocolHeaders: githubHeaders(CONTENT_TYPE_OCTET_STREAM, await credential.authorization(lifetime.signal)),
+        protocolHeaders: githubHeaders(request.apiAccept ?? CONTENT_TYPE_OCTET_STREAM, await credential.authorization(lifetime.signal)),
       });
       let response: Response;
       try {
@@ -491,9 +491,10 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
    * that was not verified.
    */
   async function downloadToFile(request: ForgeDownloadToFileRequest): Promise<ForgeDownloadAnswer> {
+    const { destination, ...downloadRequest } = request;
     let answer: ForgeDownloadAnswer | undefined;
-    const written = await atomicWriteStream(request.destination, async (append) => {
-      answer = await download({ path: request.path, query: request.query, sha256: request.sha256, signal: request.signal, sink: append });
+    const written = await atomicWriteStream(destination, async (append) => {
+      answer = await download({ ...downloadRequest, sink: append });
     }, { durable: true });
     if (!written.success) throw written.error;
     return answer!;

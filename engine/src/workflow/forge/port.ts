@@ -141,8 +141,9 @@ export type ForgeUploadRequest = Readonly<{
 }>;
 
 /**
- * A raw-body download of a release asset (`GET …/releases/assets/{id}` as
- * `application/octet-stream`). The bytes stream to `sink`, bounded by
+ * A raw-body download, with API negotiation separate from its binary body.
+ * Release assets default to `application/octet-stream`; Actions archives
+ * negotiate the API response with {@link GITHUB_JSON_MEDIA_TYPE}. The bytes stream to `sink`, bounded by
  * `forge.request.assets.maxBytes` and held to `sha256` (the caller's own
  * checksum, from SHA256SUMS). A mismatch is `forge_asset_integrity` after
  * the sink has seen the bytes, and the caller discards what it wrote.
@@ -150,18 +151,16 @@ export type ForgeUploadRequest = Readonly<{
 export type ForgeDownloadRequest = Readonly<{
   path: string;
   query?: ForgeQuery | undefined;
+  /** Initial API request only; a signed storage hop always accepts binary bytes. Defaults to application/octet-stream. */
+  apiAccept?: ForgeRequest["accept"];
   sha256: string;
   sink: (chunk: Uint8Array) => void | Promise<void>;
   signal?: AbortSignal | undefined;
 }>;
 
 /** A download to a file: the asset at `destination`, published only once verified (no partial file, ever). */
-export type ForgeDownloadToFileRequest = Readonly<{
-  path: string;
-  query?: ForgeQuery | undefined;
-  sha256: string;
+export type ForgeDownloadToFileRequest = Omit<ForgeDownloadRequest, "sink"> & Readonly<{
   destination: string;
-  signal?: AbortSignal | undefined;
 }>;
 
 /** What a download read: its size and its (verified) SHA-256. */
