@@ -20,14 +20,15 @@
  */
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { CONTENT_TYPE_OCTET_STREAM } from "../../src/kernel/contracts.ts";
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import { githubClient } from "../../src/workflow/forge/github.ts";
-import type { ForgeAssetBody, ForgeEndpoint } from "../../src/workflow/forge/port.ts";
+import { GITHUB_API_VERSION, GITHUB_JSON_MEDIA_TYPE, type ForgeAssetBody, type ForgeEndpoint } from "../../src/workflow/forge/port.ts";
 import { address, connectionsClosed, connectionsSettled, holdRequestBodies, mockDoorClock } from "../support/loopback-upstream.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { FAKE_ASSETS_ORIGIN, FAKE_UPLOADS_ORIGIN, fakeGithub, type FakeGithub } from "./fake-github.ts";
@@ -112,6 +113,7 @@ test("a download follows GitHub's redirect to the asset host without the credent
   const answer = await client(fake).download({ path: `/repos/o/r/releases/assets/${String(id)}`, sha256: hex(bytes), sink: (chunk) => { received.push(chunk); } });
   assert.deepEqual(answer, { bytes: 150_000, sha256: hex(bytes) });
   assert.ok(Buffer.concat(received).equals(Buffer.from(bytes)), "the sink saw exactly the asset's bytes");
+  assert.equal(fake.requests.find((request) => request.path === `/repos/o/r/releases/assets/${String(id)}`)!.headers.get("accept"), CONTENT_TYPE_OCTET_STREAM, "release downloads retain binary API negotiation by default");
   const signed = fake.requests.filter((request) => request.host === ASSETS_HOST);
   assert.equal(signed.length, 1);
   assert.equal(signed[0]!.headers.get("authorization"), null, "the signed URL never sees the API credential");
@@ -121,6 +123,96 @@ test("a download follows GitHub's redirect to the asset host without the credent
   let seen = 0;
   await assert.rejects(client(fake, { maxBytes: 100_000 }).download({ path: `/repos/o/r/releases/assets/${String(id)}`, sha256: hex(bytes), sink: (chunk) => { seen += chunk.byteLength; } }), (error: unknown) => isForgeError(error, "forge_asset_too_large"));
   assert.ok(seen <= 100_000, `the sink saw ${String(seen)} bytes, past the bound`);
+});
+
+/** An Actions-like API: JSON negotiation returns a signed ZIP URL, never JSON archive bytes. */
+function artifactDownload(fake: FakeGithub, bytes: Uint8Array) {
+  const path = "/repos/o/r/actions/artifacts/1/zip";
+  const signedPath = "/artifact.zip";
+  let location = `${address(FAKE_ASSETS_ORIGIN)}${signedPath}`;
+  fake.route("GET", /^\/repos\/o\/r\/actions\/artifacts\/1\/zip$/u, (request) =>
+    request.headers.get("accept") === GITHUB_JSON_MEDIA_TYPE
+      ? { status: 302, headers: { location } }
+      : { status: 415, body: { message: "JSON API negotiation is required." } });
+  fake.onAssetHost(() => ({ status: 200, raw: bytes }));
+  return { path, redirect: (target: string) => { location = target; } };
+}
+
+test("downloads can negotiate a JSON API response while verifying and publishing the signed archive's binary bytes", async () => {
+  for (const toFile of [false, true]) {
+    const fake = fakeGithub();
+    const bytes = new Uint8Array(randomBytes(4_097));
+    const { path } = artifactDownload(fake, bytes);
+    const received: Uint8Array[] = [];
+    const destination = join(createTempDir("forge-artifact-download"), "summary.zip");
+    const request = { path, apiAccept: GITHUB_JSON_MEDIA_TYPE, sha256: hex(bytes) };
+    const answer = toFile
+      ? await client(fake).downloadToFile({ ...request, destination })
+      : await client(fake).download({ ...request, sink: (chunk) => { received.push(chunk); } });
+    assert.deepEqual(answer, { bytes: bytes.byteLength, sha256: hex(bytes) });
+    assert.ok((toFile ? readFileSync(destination) : Buffer.concat(received)).equals(Buffer.from(bytes)), "the verified ZIP bytes are unchanged");
+    const api = fake.requests.find((request) => request.path === path)!;
+    assert.equal(api.headers.get("accept"), GITHUB_JSON_MEDIA_TYPE);
+    assert.equal(api.headers.get("x-github-api-version"), GITHUB_API_VERSION);
+    assert.notEqual(api.headers.get("authorization"), null);
+    const signed = fake.requests.filter((request) => request.host === ASSETS_HOST);
+    assert.equal(signed.length, 1);
+    assert.equal(signed[0]!.headers.get("accept"), CONTENT_TYPE_OCTET_STREAM);
+    assert.equal(signed[0]!.headers.get("authorization"), null, "API negotiation does not forward the credential to storage");
+  }
+});
+
+test("JSON-negotiated downloads retain checksum, byte-limit and atomic destination refusals", async () => {
+  for (const toFile of [false, true]) {
+    const fake = fakeGithub();
+    const bytes = new Uint8Array(randomBytes(513));
+    const { path } = artifactDownload(fake, bytes);
+    const directory = createTempDir("forge-artifact-refusal");
+    const destination = join(directory, "summary.zip");
+    const prior = Buffer.from("previous verified file");
+    writeFileSync(destination, prior);
+    let seen = 0;
+    const download = (sha256: string, maxBytes = fake.endpoint().assets.maxBytes) => {
+      const request = { path, apiAccept: GITHUB_JSON_MEDIA_TYPE, sha256 };
+      const forge = client(fake, { maxBytes });
+      return toFile
+        ? forge.downloadToFile({ ...request, destination })
+        : forge.download({ ...request, sink: (chunk) => { seen += chunk.byteLength; } });
+    };
+    await assert.rejects(download(hex(new Uint8Array([9]))), (error: unknown) => isForgeError(error, "forge_asset_integrity"));
+    seen = 0;
+    await assert.rejects(download(hex(bytes), bytes.byteLength - 1), (error: unknown) => isForgeError(error, "forge_asset_too_large"));
+    assert.ok(seen < bytes.byteLength, "the sink never receives a byte beyond the limit");
+    assert.ok(readFileSync(destination).equals(prior), "refusals preserve the previous destination");
+    assert.deepEqual(readdirSync(directory), ["summary.zip"], "refusals leave no temporary sibling");
+  }
+});
+
+test("JSON API negotiation preserves exact signed origins and the single-hop redirect boundary", async () => {
+  for (const toFile of [false, true]) {
+    const fake = fakeGithub();
+    const bytes = new Uint8Array([1, 2, 3]);
+    const artifact = artifactDownload(fake, bytes);
+    const destination = join(createTempDir("forge-artifact-redirect"), "summary.zip");
+    const download = () => {
+      const request = { path: artifact.path, apiAccept: GITHUB_JSON_MEDIA_TYPE, sha256: hex(bytes) };
+      return toFile
+        ? client(fake).downloadToFile({ ...request, destination })
+        : client(fake).download({ ...request, sink: () => {} });
+    };
+    for (const target of [`${address("https://elsewhere.example")}/asset`, `${address(FAKE_ASSETS_ORIGIN)}-evil/asset`]) {
+      artifact.redirect(target);
+      const before = fake.requests.length;
+      await assert.rejects(download(), (error: unknown) => isForgeError(error, "forge_asset_redirect_refused"));
+      assert.equal(fake.requests.length, before + 1, "only the API was asked; the refused origin was never reached");
+    }
+    artifact.redirect(`${address(FAKE_ASSETS_ORIGIN)}/artifact.zip`);
+    fake.onAssetHost(() => ({ status: 302, headers: { location: `${address(FAKE_ASSETS_ORIGIN)}/second-hop` } }));
+    await assert.rejects(download(), (error: unknown) => isForgeError(error, "forge_asset_redirect_refused"));
+    assert.ok(!fake.requests.some((request) => request.path === "/second-hop"));
+    assert.ok(fake.requests.filter((request) => request.host === ASSETS_HOST).every((request) => request.headers.get("authorization") === null));
+    assert.equal(existsSync(destination), false, "redirect refusals never publish a file");
+  }
 });
 
 test("a download is redirected once, only to an asset origin: another origin, a look-alike and a chain from the asset host are refused, and nothing is asked there", async () => {
