@@ -76,7 +76,7 @@ import {
   type MetricConsumer,
   type MetricEntry,
 } from "../../src/shared/measurement-registry.ts";
-import { functionBodies, functionBody } from "../../src/shared/source-structure.ts";
+import { exportedBindings, functionBodies, functionBody } from "../../src/shared/source-structure.ts";
 import { SOURCE_EXTS, walk } from "./source-walk.ts";
 import { sourceViewOf, stripCommentsOnly } from "./source-view.ts";
 
@@ -853,30 +853,37 @@ function resolveImport(importer: string, specifier: string, sources: ReadonlyMap
   return null;
 }
 
-/** A measurement producer is an exported function that reads a raw clock/
- *  counter/file fact and advertises a measurement in its name or signature. */
-function isMeasurementProducer(name: string, signature: string, body: string): boolean {
+/** A measurement producer reads a raw clock/counter/file fact and advertises
+ * a measurement in its name or declared result type, never merely an input. */
+function isMeasurementProducer(name: string, returnTypes: readonly string[], body: string): boolean {
   const raw = /loadavg\(|cpuUsage\(|hrtime|performance\.now\(|statSync\(|readFileSync\(|createHash\(|endTime|startTime|collectDuration|durationMs/u;
   const nameSignal = /(Ms|Cpu|Load|Hash|Bytes|Count|Duration|Occupancy|Weight|Latency|Time|Cost|Measurement|Metric|Reading|Summary|Measured)/u;
   const typeSignal = /number|Ms\b|Cpu|Load|Hash|Bytes|Count|Duration|Occupancy|Weight|Latency|Time|Reading|Summary|RunCpu|Warmth/iu;
-  return raw.test(body) && (nameSignal.test(name) || typeSignal.test(signature));
+  // Numeric inputs (a permission mode, offset or limit) do not make the
+  // returned boolean/void an observed quantity. Ask the shared parser for
+  // the result annotation, without confusing callback parameters with it.
+  return raw.test(body) && (nameSignal.test(name) || returnTypes.some((type) => typeSignal.test(type)));
 }
 
 /**
- * Every exported function declaration in a module, with the body the parser
- * found and the declaration text before it.
+ * Every exported function declaration in a module, with the body and declared
+ * result type found by the shared parser.
  *
  * The discovery regex reads the comments-only, length-preserving view so a
  * commented-out `export function` is not a producer and the match offsets are
  * the source's own; `functionBodies` then supplies the PARSE span, so a
  * return type spelled `Readonly<{ … }>` can never be mistaken for the body.
  */
-function exportedFunctions(source: string, modulePath: string): readonly { name: string; signature: string; body: string }[] {
+function exportedFunctions(source: string, modulePath: string): readonly { name: string; returnTypes: readonly string[]; body: string }[] {
   const view = sourceViewOf(source, modulePath).codeWithStringsAndTemplates();
-  const found: { name: string; signature: string; body: string }[] = [];
+  const bindings = exportedBindings(source, modulePath);
+  const found: { name: string; returnTypes: readonly string[]; body: string }[] = [];
+  const seen = new Set<string>();
   const pattern = /export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)\s*(?:<[^>]*>)?\s*\(/gu;
   for (const match of view.matchAll(pattern)) {
     const name = match[1]!;
+    if (seen.has(name)) continue;
+    seen.add(name);
     let scopes;
     try {
       scopes = functionBodies(source, name, `${modulePath} ${name}`);
@@ -888,7 +895,7 @@ function exportedFunctions(source: string, modulePath: string): readonly { name:
       continue;
     }
     for (const scope of scopes) {
-      found.push({ name, signature: source.slice(match.index, scope.offset), body: scope.body });
+      found.push({ name, returnTypes: bindings.get(name)?.returnTypes ?? [], body: scope.body });
     }
   }
   return found;
@@ -934,7 +941,7 @@ function checkProducerUniverse(
       inspected.add(imported);
       const moduleText = world.sources.get(imported)!;
       for (const fn of exportedFunctions(moduleText, imported)) {
-        if (!isMeasurementProducer(fn.name, fn.signature, fn.body)) continue;
+        if (!isMeasurementProducer(fn.name, fn.returnTypes, fn.body)) continue;
         const id = `${imported}::${fn.name}`;
         discovered.push(id);
         if (!registered.has(id) && !Object.hasOwn(NON_MEASUREMENT_PRODUCERS, id)) {

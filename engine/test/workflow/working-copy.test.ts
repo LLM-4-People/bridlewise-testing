@@ -157,7 +157,7 @@ function supervisedRunner(retries: CommandRetryPolicy = { retries: 0, backoffMs:
   return { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
 }
 
-test("checkout setup: links, the config mode, then the declared commands in order; after the first failure the rest are skipped", async () => {
+test("checkout setup: links, config and tracked file modes, then the declared commands in order; after the first failure the rest are skipped", async () => {
   const source = plantDirtySource();
   mkdirSync(join(source, "corpus"), { recursive: true });
   const target = join(createTempDir("working-copy-target-"), "copy");
@@ -178,9 +178,9 @@ test("checkout setup: links, the config mode, then the declared commands in orde
     phases: { setup: ["marker", "broken", "never"], validate: [], regenerate: [], merge: [] },
   }, checkoutCommandRunner(target, supervisedRunner()));
   assert.deepEqual(steps.map((step) => [step.step, step.status]), [
-    ["link corpus", "pass"], ["config-mode", "pass"], ["marker", "pass"], ["broken", "fail"], ["never", "skip"],
+    ["link corpus", "pass"], ["config-mode", "pass"], ["file-modes", "pass"], ["marker", "pass"], ["broken", "fail"], ["never", "skip"],
   ]);
-  assert.match(steps[3]!.message, /exited 3/u);
+  assert.match(steps.find((step) => step.step === "broken")!.message, /exited 3/u);
   assert.equal(readlinkSync(join(target, "corpus")), join(source, "corpus"));
   assert.equal(statSync(join(target, "engine", ROOT_POLICY.configuration.basename)).mode & 0o777,
     Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
@@ -370,6 +370,8 @@ test("checkout setup re-run: only the commands whose declared inputs changed run
   assert.deepEqual((await rerunChangedSetup(isolation, ["engine/guardian/src/guardian.c", "package-lock.json"], run)).map((step) => step.step), ["deps", "native"]);
   assert.deepEqual(await rerunChangedSetup(isolation, ["engine/guardian-other.c"], run), [], "a directory input is a path prefix, not a string prefix");
   assert.equal(readFileSync(join(target, "ran"), "utf8"), "deps\nnative\n");
+  const rootInput = { ...isolation, commands: { root: { cwd: ".", argv: writer("root"), timeoutMs: 60_000, inputs: ["."] } }, phases: { ...isolation.phases, setup: ["root"] } };
+  assert.deepEqual((await rerunChangedSetup(rootInput, ["lib/a.ts"], run)).map((step) => step.step), ["root"], "the configuration's repository-root sentinel covers every changed key");
 });
 
 test("checkout setup re-run: a command OWED (failed, or skipped after a failure, at its last attempt) runs again whatever its inputs say, until it succeeds (PROMO2FIX-N8)", async () => {

@@ -10,7 +10,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { HarnessError } from "../kernel/errors.ts";
 import { canonicalHash, deepFreeze } from "../kernel/integrity.ts";
-import { readLinuxMountPoints } from "./linux-path.ts";
+import { fileDescriptorPath, readLinuxMountPoints } from "./linux-path.ts";
 import { relativePathViolationKinds } from "./path-boundary.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { handleError } from "../shared/debug/debug-system.ts";
@@ -212,7 +212,7 @@ export function openPinnedAbsoluteFile(path: string, maximumBytes: number): Pinn
   let descriptor: number | undefined;
   try {
     const leafName = components.at(-1)!;
-    const leafPath = join(PROC_FILE_DESCRIPTOR_ROOT, String(chain.descriptors.at(-1)!), leafName);
+    const leafPath = join(pinnedDescriptorPath(chain.descriptors.at(-1)!), leafName);
     const before = lstatSync(leafPath, { bigint: true, throwIfNoEntry: false });
     if (!before || before.isSymbolicLink() || !before.isFile() || before.size > BigInt(maximumBytes)) {
       throw pinnedPathError("pinned_absolute_file_unsafe", path);
@@ -266,7 +266,7 @@ export function openPinnedDirectoryChild(
 }
 
 export function pinnedDescriptorPath(descriptor: number): string {
-  return join(PROC_FILE_DESCRIPTOR_ROOT, String(descriptor));
+  return fileDescriptorPath(PROC_FILE_DESCRIPTOR_ROOT, descriptor);
 }
 
 export function pinnedDescriptorChildPath(descriptor: number, segment: string): string {
@@ -371,7 +371,7 @@ function openPinnedChain(
     const rootComponents = root.split("/").filter(Boolean);
     for (const [componentIndex, component] of rootComponents.entries()) {
       const isRepositoryRoot = componentIndex === rootComponents.length - 1;
-      currentDescriptorPath = join(PROC_FILE_DESCRIPTOR_ROOT, String(descriptors.at(-1)!), component);
+      currentDescriptorPath = join(pinnedDescriptorPath(descriptors.at(-1)!), component);
       lexicalPath = join(lexicalPath, component);
       if (enforceRepositoryBoundary && rootBoundaryPolicy === "reject-root-mountpoints" &&
         mountPoints.has(lexicalPath)) {
@@ -389,7 +389,7 @@ function openPinnedChain(
     }
     rootDescriptorIndex = descriptors.length - 1;
     for (const component of ancestors) {
-      currentDescriptorPath = join(PROC_FILE_DESCRIPTOR_ROOT, String(descriptors.at(-1)!), component);
+      currentDescriptorPath = join(pinnedDescriptorPath(descriptors.at(-1)!), component);
       lexicalPath = join(lexicalPath, component);
       if (enforceRepositoryBoundary && mountPoints.has(lexicalPath)) {
         throw pinnedPathError("safe_path_boundary", path);
@@ -407,8 +407,8 @@ function openPinnedChain(
       identities,
       lexicalPaths,
       leafDescriptorPath: leafIsHeldRoot
-        ? join(PROC_FILE_DESCRIPTOR_ROOT, String(descriptors[rootDescriptorIndex]!))
-        : join(PROC_FILE_DESCRIPTOR_ROOT, String(descriptors.at(-1)!), leafName!),
+        ? pinnedDescriptorPath(descriptors[rootDescriptorIndex]!)
+        : join(pinnedDescriptorPath(descriptors.at(-1)!), leafName!),
       leafLexicalPath: leafIsHeldRoot ? root : join(lexicalPaths.at(-1)!, leafName!),
       leafIsHeldRoot,
       rootDescriptorIndex,

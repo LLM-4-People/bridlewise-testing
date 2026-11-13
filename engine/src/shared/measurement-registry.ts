@@ -293,15 +293,9 @@ export const NON_MEASUREMENT_GATES: Readonly<Record<string, string>> = Object.fr
  */
 export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Object.freeze({
   "scripts/test-shard-manifest.mjs::measureWeights": "assembles the weights file from measuredFileDurationMs (the registered producer) over a green run's reports; it subtracts no timestamp itself",
-  "engine/scripts/tooling/compile-cache.ts::pruneCompileCache": "prunes the V8 compile cache to its byte bound and reports what it removed; a maintenance count, not a judged signal",
   "engine/scripts/tooling/compile-cache.ts::pruneCompileCacheAtEnablement": "runs that prune at most once per interval when the cache is enabled and says what it did; a maintenance line, not a judged signal",
-  "engine/scripts/tooling/compile-cache.ts::scanCacheDirectory": "counts cache entries so the prune can bound itself; a maintenance count, not a measurement",
   "engine/scripts/tooling/test-run-lock.ts::testFileCountOfArgs": "parses the runner's argument vector into a test-file count; an input parse, not a measurement",
-  "engine/src/filesystem/file-mode.ts::settleDescriptorMode": "reads a file's permission bits to decide whether to change them; a mode comparison, not a measured quantity",
-  "engine/src/filesystem/file-mode.ts::settleFileMode": "opens a file to settle its permission bits through settleDescriptorMode; a mode comparison, not a measured quantity",
-  "engine/src/kernel/integrity.ts::sha256": "a content identity hash; not a duration, load or cost the floor judges",
   "engine/src/kernel/integrity.ts::sha256Bytes": "a content identity hash over a buffer; identity, not a measurement",
-  "engine/src/kernel/integrity.ts::gitBlobId": "git's blob identity for content; an object id, not a measurement",
   "engine/src/workflow/test-result-collector.ts::loadPriorTestFileDurations": "reads the engine suite's scheduling cache written by another runner; this floor neither judges nor records it",
   "engine/src/workflow/test-result-collector.ts::writeTestFileDurations": "writes the engine suite's scheduling cache; a scheduling input, not a recorded signal",
   "engine/src/shared/flake-reproduction.ts::readFlakeReproductions": "reads recorded flake reproductions; the file contents are evidence, not a quantity this module computes",
@@ -309,15 +303,10 @@ export const NON_MEASUREMENT_PRODUCERS: Readonly<Record<string, string>> = Objec
   "tests/performance/lib/perf-harness.ts::seedChatMessagesViaDb": "seeds the performance fixture's chat rows; fixture setup, not a measurement",
   "engine/src/workflow/hash-binding-registry.ts::computeBindingHash": "content hash of a binding fixture; identity, not a measured quantity",
   "engine/src/workflow/hash-binding-registry.ts::fixtureDigestBindings": "digests the fixture bindings for the guard's own comparison; identity, not a measurement",
-  "engine/src/workflow/hash-binding-registry.ts::repairBinding": "repairs a stored binding fixture; no measurement",
   "src/state/chat-messages.ts::toolCallDurationMs": "the UI's tool-call elapsed time for display; not judged, recorded or quoted by the floor",
   "src/state/chat-messages.ts::healStrandedToolCallsFromLedger": "repairs chat state from the ledger using wall-clock stamps; a state repair, not a recorded measurement",
   "src/state/chat-messages.ts::settleHydratedRunningToolCalls": "settles hydrated running tool calls; a state repair, not a measurement",
   "engine/src/process/process-facts.ts::startWallTimeMsOf": "reads a process start stamp for the instrument lock's identity; identity, not a duration",
-  "engine/src/process/process-facts.ts::processIdentity": "assembles the process's identity for the instrument lock; identity, not a measurement",
-  "engine/src/process/process-facts.ts::processGroupMembers": "samples a process group's members (identity, parent, CPU) for the work-bounded supervisor's stop decision on ONE tool run (supervised-run.ts runCpuBounded); never recorded, quoted or compared across runs by the floor",
-  "server/observability/metrics-recorder.ts::recordLlmCall": "records one LLM call into the metrics collector; a recording hook, not a computed quantity",
-  "server/observability/metrics-recorder.ts::recordToolCall": "records one tool call into the metrics collector; a recording hook, not a computed quantity",
 });
 
 /**

@@ -1,6 +1,13 @@
+import { join } from "node:path";
+
 import { SecurityError } from "../kernel/errors.ts";
 import { mountInfoDocument } from "../process/process-facts.ts";
 import { handleError } from "../shared/debug/debug-system.ts";
+
+/** A held descriptor's path beneath the caller's declared proc-fd root. */
+export function fileDescriptorPath(procFileDescriptorRoot: string, descriptor: number): string {
+  return join(procFileDescriptorRoot, String(descriptor));
+}
 
 export function hasTraversalSegment(path: string): boolean {
   return path.split(/[\\/]/u).some((component) => component === "..");
