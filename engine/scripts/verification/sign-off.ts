@@ -73,7 +73,8 @@ import { bootstrapProcess, isEntryPoint } from "../../src/runtime/cli-debug.ts";
 import { gitText as git, messageTrailers } from "./commit-trailers.ts";
 import { configuredForgeClient } from "../../src/workflow/forge/configured-forge.ts";
 import { environmentCredential } from "../../src/workflow/forge/credentials.ts";
-import { commitSignedByGitHub } from "../../src/workflow/forge/repository-reads.ts";
+import { commitVerification, type GitHubCommitVerification } from "../../src/workflow/forge/repository-reads.ts";
+import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 
 /** The trailer key of a sign-off (compared without regard to case). */
 export const SIGN_OFF_TRAILER = "Signed-off-by";
@@ -152,11 +153,11 @@ function isIdentityTrailer(trailer: Trailer): boolean {
 
 /** The commit a judgement reads: its two idents and every trailer of its message. */
 /**
- * One commit's records. `signedByGitHub` is GitHub's own verdict on its
- * signature (valid, and made by GitHub), set only by the range reader from
- * GitHub's API; absent means not verified.
+ * One commit's records. `githubVerification` is GitHub's signature and author
+ * verdict, bound by the range reader to this exact `sha`; absent means no
+ * GitHub exception. Pending hook messages have neither.
  */
-export type JudgedCommit = Readonly<{ author: Identity; committer: Identity; trailers: readonly Trailer[]; message: string; signedByGitHub?: boolean }>;
+export type JudgedCommit = Readonly<{ author: Identity; committer: Identity; trailers: readonly Trailer[]; message: string; sha?: string; githubVerification?: GitHubCommitVerification | undefined }>;
 
 /** GitHub's committer on a commit it creates and signs through its API (the root policy's one spelling). */
 const WEB_FLOW_COMMITTER: Identity = ROOT_POLICY.workflow.commitIdentity.webFlowCommitter;
@@ -178,20 +179,31 @@ export function commitRecordProblems(recorded: JudgedCommit, agentMarked = false
   const people = named.flatMap((entry) => entry.identity === null ? [] : [{ role: `${entry.trailer.key} trailer`, identity: entry.identity }]);
   const signOffs = named.flatMap((entry) => entry.identity !== null && entry.trailer.key.toLowerCase() === SIGN_OFF_TRAILER.toLowerCase() ? [entry.identity] : []);
   // A commit GitHub created and signed through its API has GitHub as its committer, who signs nothing off: its
-  // AUTHOR's sign-off is the DCO, exactly when GitHub's own verification says GitHub signed it. The committer field
-  // alone is a claim anyone can write, so a forged GitHub committer on an unsigned commit still needs its sign-off.
-  const webFlow = sameIdentity(commit.committer, WEB_FLOW_COMMITTER) && recorded.signedByGitHub === true;
-  const signer = webFlow ? { role: "author", identity: commit.author } : { role: "committer", identity: commit.committer };
+  // Author/contributor DCO is considered only with GitHub's exact-commit
+  // signature and author proof. The committer field alone proves nothing.
+  const verification = recorded.githubVerification;
+  const verifiedAuthor = verification?.signedByGitHub === true && verification.oid === recorded.sha &&
+    verification.author !== null && sameIdentity(commit.author, ident(verification.author));
+  const webFlow = sameIdentity(commit.committer, WEB_FLOW_COMMITTER) && verifiedAuthor;
+  // GitHub chooses an App's author when it signs a publication. Only its own
+  // account association, for a declared publishing App, admits that identity;
+  // a claimed bot name, a personal author or a verifier App grants nothing.
+  const appAuthor = webFlow && Object.values(FORGE_APPS).some((app) => app.permissions["contents"] === "write" &&
+    verification.author?.login === `${app.name}[bot]` && verification.author.name === verification.author.login);
+  const signer = appAuthor ? { role: "project contributor", identity: AGENT_IDENTITY }
+    : webFlow ? { role: "author", identity: commit.author } : { role: "committer", identity: commit.committer };
   const dco = signOffs.some((signOff) => sameIdentity(signOff, signer.identity)) ? [] :
     [`it has no "${SIGN_OFF_TRAILER}" trailer naming its ${signer.role} ${shown(signer.identity)} (${signOffs.length === 0 ? "it carries none" : `it carries ${signOffs.map(shown).join(", ")}`}); commit with -s (a merge: git merge --signoff, or git commit -s after resolving)`];
-  // GitHub's verified web-flow committer is GitHub, not a person: the author is the identity judged, and it must be
-  // the project's agent identity (an App-published commit is the project's, never a person's through GitHub's door).
-  const webFlowAuthor = webFlow && !sameIdentity(commit.author, AGENT_IDENTITY)
+  // A verified publishing App represents the contributor; every other author
+  // still has to be the project identity. GitHub cannot launder a person.
+  const webFlowAuthor = webFlow && !appAuthor && !sameIdentity(commit.author, AGENT_IDENTITY)
     ? [`it is a GitHub-signed web-flow commit and its author is ${shown(commit.author)}, not the project's agent identity ${AGENT_SPELLED}`]
     : [];
-  const identities = [{ role: "author", identity: commit.author }, ...(webFlow ? [] : [{ role: "committer", identity: commit.committer }]), ...people];
+  const attribution = appAuthor && !named.some(({ trailer, identity }) => trailer.key.toLowerCase() === "co-authored-by" && identity !== null && sameIdentity(identity, AGENT_IDENTITY))
+    ? ["it is an App publication without the project's Co-authored-by trailer"] : [];
+  const identities = [...(appAuthor ? [] : [{ role: "author", identity: commit.author }]), ...(webFlow ? [] : [{ role: "committer", identity: commit.committer }]), ...people];
   const agent = agentMarked || identities.some(({ identity }) => sameIdentity(identity, AGENT_IDENTITY) || domainOf(identity.email) === domainOf(AGENT_IDENTITY.email));
-  if (!agent) return [...unreadable, ...dco, ...webFlowAuthor];
+  if (!agent) return [...unreadable, ...dco, ...webFlowAuthor, ...attribution];
   const agentProblems = identities.filter(({ identity }) => !sameIdentity(identity, AGENT_IDENTITY))
     .map(({ role, identity }) => `it is an agent commit and its ${role} is ${shown(identity)}, not the project's agent identity ${AGENT_SPELLED}`);
   // A -by trailer with no address still names a person (`Co-authored-by: A Name`): on an agent commit, refused.
@@ -200,7 +212,7 @@ export function commitRecordProblems(recorded: JudgedCommit, agentMarked = false
   // The whole recorded message, normalised: an address anywhere in it that is not the agent's.
   const foreign = [...new Set(addressesIn(commit.message).filter((address) => address !== AGENT_IDENTITY.email.toLowerCase()))]
     .map((address) => `it is an agent commit and its message names ${redacted(address)}, an address that is not the project's agent identity's`);
-  return [...unreadable, ...dco, ...webFlowAuthor, ...agentProblems, ...nameOnly, ...foreign];
+  return [...unreadable, ...dco, ...webFlowAuthor, ...attribution, ...agentProblems, ...nameOnly, ...foreign];
 }
 
 /** Is `root` a checkout the harness made for an agent (its {@link AGENT_CHECKOUT_KEY} is true, read as the hook's git reads it)? */
@@ -261,7 +273,7 @@ export function messageSignOffProblem(
  * group's, verified first: `mergeGroup.ref` is a GitHub queue ref and
  * `mergeGroup.remote` holds it at the range's head.
  */
-export type RangeContext = Readonly<{ agentPullRequest?: boolean; mergeGroup?: Readonly<{ ref: string; remote: string }>; signedByGitHub?: ReadonlySet<string> }>;
+export type RangeContext = Readonly<{ agentPullRequest?: boolean; mergeGroup?: Readonly<{ ref: string; remote: string }>; githubVerifications?: ReadonlyMap<string, GitHubCommitVerification> }>;
 
 /** GitHub's merge-queue namespace: refs only the queue writes. */
 const MERGE_QUEUE_REF_PREFIX = "refs/heads/gh-readonly-queue/";
@@ -277,13 +289,14 @@ function verifiedMergeGroupHead(root: string, group: Readonly<{ ref: string; rem
 
 /**
  * The commits of `range` whose recorded committer is GitHub's web-flow identity, by full sha: the only ones
- * whose signature GitHub is asked about (`read`, GitHub's own verdict), and the set of those it says it signed.
+ * whose signature and author GitHub is asked about (`read`, GitHub's own verdict).
+ * The map keeps the exact oid and author association; a boolean loses both.
  */
-export async function signedByGitHubCommits(root: string, range: string, read: (sha: string) => Promise<boolean>): Promise<ReadonlySet<string>> {
+export async function githubCommitVerifications(root: string, range: string, read: (sha: string) => Promise<GitHubCommitVerification>): Promise<ReadonlyMap<string, GitHubCommitVerification>> {
   const shas = git(root, ["log", "--format=%H%x00%cn%x00%ce", range, "--"]).split("\n").filter((line) => line.length > 0)
     .map((line) => line.split("\0")).filter(([, name = "", email = ""]) => sameIdentity({ name: normalised(name).trim(), email: normalised(email).trim() }, WEB_FLOW_COMMITTER)).map(([sha = ""]) => sha);
   const verdicts = await Promise.all(shas.map(async (sha) => [sha, await read(sha)] as const));
-  return new Set(verdicts.filter(([, signed]) => signed).map(([sha]) => sha));
+  return new Map(verdicts);
 }
 
 /** Every commit of `range` (`<base>..<head>`) whose records are wrong, each named with its refusals. */
@@ -308,7 +321,8 @@ export function unsignedCommits(root: string, range: string, context: RangeConte
     const [authorName = "", authorEmail = "", name = "", email = "", ...rest] = git(root, ["log", "-1", "--format=%an%x00%ae%x00%cn%x00%ce%x00%B", sha, "--"]).split("\0");
     const message = rest.join("\0");
     const full = git(root, ["rev-parse", "--verify", `${sha}^{commit}`]).trim();
-    const judged = commitRecordProblems({ author: { name: authorName, email: authorEmail }, committer: { name, email }, trailers: messageTrailers(root, message), message, signedByGitHub: context.signedByGitHub?.has(full) === true }, context.agentPullRequest === true);
+    const verification = context.githubVerifications?.get(full);
+    const judged = commitRecordProblems({ author: { name: authorName, email: authorEmail }, committer: { name, email }, trailers: messageTrailers(root, message), message, sha: full, ...(verification === undefined ? {} : { githubVerification: verification }) }, context.agentPullRequest === true);
     problems.push(...judged.map((problem) => `${sha.slice(0, 12)}: ${problem}`));
   }
   return problems;
@@ -332,15 +346,15 @@ if (isEntryPoint(import.meta.url)) {
   }
   // Without a repository to ask, no commit is taken as GitHub-signed: a web-flow commit then needs its committer's
   // sign-off, which GitHub never writes, so it is refused — stricter, never a pass.
-  const signedByGitHub = githubRepository === undefined ? new Set<string>() : await signedByGitHubCommits(process.cwd(), range, (() => {
+  const githubVerifications = githubRepository === undefined ? new Map<string, GitHubCommitVerification>() : await githubCommitVerifications(process.cwd(), range, (() => {
     const client = configuredForgeClient(environmentCredential("sign-off:GH_TOKEN", "GH_TOKEN"));
-    return (sha: string) => commitSignedByGitHub(client, githubRepository, sha);
+    return (sha: string) => commitVerification(client, githubRepository, sha);
   })());
   // A pull request a declared agent account opened brings agent commits only, whatever their marks say.
   const unsigned = unsignedCommits(process.cwd(), range, {
     agentPullRequest: login !== undefined && isAgentAccount(login),
     ...(groupRef === undefined || remote === undefined ? {} : { mergeGroup: { ref: groupRef, remote } }),
-    signedByGitHub,
+    githubVerifications,
   });
   if (unsigned.length === 0) {
     process.stdout.write(`sign-off: every commit of ${range} carries its committer's sign-off, every identity trailer is readable, and every agent commit is the project identity\n`);
