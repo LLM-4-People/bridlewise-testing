@@ -10,6 +10,7 @@ import test from "node:test";
 import { COMMAND_ENVIRONMENT, ENVIRONMENT_ALLOWLIST_ENTRY, MINIMAL_CHILD_ENVIRONMENT, projectEnvironment } from "../../src/process/environment-projection.ts";
 import { MCP_CONFIG_SCHEMA } from "../../src/shared/exposure/module-config-sections.ts";
 import { createExecuteCommandTool } from "../../src/tools/built-in-tools.ts";
+import { checkoutCommandEnvironment } from "../../src/workflow/checkout-setup.ts";
 import { mkOwnedTempDir } from "../support/temp-dir.ts";
 
 test("environment projection: exact names and PREFIX* pass, everything else is dropped, a bare * is refused", () => {
@@ -21,7 +22,10 @@ test("environment projection: exact names and PREFIX* pass, everything else is d
 
 test("environment projection: the engine command tool's child never sees a key this process holds", async () => {
   const planted = "SECC_PLANTED_API_KEY";
+  const manager = { XDG_RUNTIME_DIR: "/scratch/fixture-manager", DBUS_SESSION_BUS_ADDRESS: "unix:path=/scratch/fixture-manager/bus" };
+  const saved = Object.fromEntries(Object.keys(manager).map((name) => [name, process.env[name]]));
   process.env[planted] = "sk-planted-value";
+  Object.assign(process.env, manager);
   try {
     const tool = createExecuteCommandTool({ allowedCommands: ["node"], timeoutMs: 10_000 });
     const result = await tool.execute(
@@ -30,9 +34,26 @@ test("environment projection: the engine command tool's child never sees a key t
     );
     const names = JSON.parse((JSON.parse(result.content) as { stdout: string }).stdout) as string[];
     assert.ok(!names.includes(planted), `the planted key reached the child: ${names.join(",")}`);
+    for (const name of Object.keys(manager)) assert.ok(!names.includes(name), `${name} is checkout-management context, never a model command's inheritance`);
     assert.ok(names.every((name) => COMMAND_ENVIRONMENT.includes(name)), `only the projection: ${names.join(",")}`);
   } finally {
     delete process.env[planted];
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test("environment projection: checkout qualification retains the existing user-manager routing, with no credentials or lock-token authority", () => {
+  const manager = { XDG_RUNTIME_DIR: "/run/user/4242", DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/4242/bus" };
+  const base = { PATH: "/opt/node/bin:/usr/bin", HOME: "/scratch/home", TMPDIR: "/scratch/tmp" };
+  const secrets = { OPENAI_API_KEY: "planted-provider-secret", GITHUB_TOKEN: "planted-forge-secret", HARNESS_WEB_DB_KEY: "planted-db-secret", HARNESS_INSTRUMENT_LOCK_TOKEN: "planted-lock-token", GIT_DIR: "/planted/wrong-repository" };
+  for (const context of [{}, { XDG_RUNTIME_DIR: manager.XDG_RUNTIME_DIR }, { DBUS_SESSION_BUS_ADDRESS: manager.DBUS_SESSION_BUS_ADDRESS }, manager]) {
+    const environment = { ...base, ...secrets, ...context };
+    const projected = checkoutCommandEnvironment(environment, "qualification-fixture");
+    assert.deepEqual(projected, { ...base, ...context, HARNESS_RUN_INVOCATION: "qualification-fixture" });
+    assert.deepEqual(projectEnvironment(environment, COMMAND_ENVIRONMENT), { PATH: base.PATH, HOME: base.HOME }, "model commands keep their narrower environment");
   }
 });
 
