@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, chmodSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import test from "node:test";
 
@@ -23,15 +23,84 @@ import {
 } from "../../src/git/git-port.ts";
 import { createGitAdapter, resolveGitExecutable, withGitRuntime } from "../../src/git/git-adapter.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
+import { HarnessError } from "../../src/kernel/errors.ts";
 import {
   IDENTITY,
   TEST_CONFIG,
   makeGitContext,
   mkGitTempDir,
   withGitAdapter,
+  createRepoWithCommit,
 } from "../support/git-fixtures.ts";
 
 const makeContext = makeGitContext;
+
+function withInspectionProgram(body: string, operation: (git: ReturnType<typeof createGitAdapter>, root: string) => void): void {
+  const root = mkGitTempDir("inspection-program");
+  const executable = join(root, "git-fixture");
+  writeFileSync(executable, `#!${process.execPath}\n${body}\n`, { mode: 0o755 });
+  withGitRuntime(executable, 268_435_456, (runtime) => operation(createGitAdapter(runtime, { config: TEST_CONFIG }), root));
+}
+
+test("inspectRepository identifies genuine absence with a pinned diagnostic locale", () => {
+  withGitAdapter((git, _runtime, root) => {
+    assert.throws(() => git.inspectRepository(root, { ...makeContext(root, "inspect"), environment: { LC_ALL: "unavailable-test-locale" } }), (error) => error instanceof HarnessError && error.code === "git_repository_absent");
+  });
+});
+
+test("inspectRepository never calls a damaged repository config absence and preserves index bytes", () => {
+  withGitAdapter((git, _runtime, root) => {
+    const repo = createRepoWithCommit(git, root, "bad-config");
+    const index = readFileSync(join(repo, ".git", "index"));
+    writeFileSync(join(repo, ".git", "config"), "[unfinished\n");
+    assert.throws(() => git.inspectRepository(repo, makeContext(repo, "inspect")), (error) => error instanceof HarnessError && error.code === "git_inspect_failed");
+    assert.deepEqual(readFileSync(join(repo, ".git", "index")), index);
+  });
+});
+
+test("inspectRepository retains near-miss diagnostics, status and timeout refusals", () => {
+  const absent = "fatal: not a git repository (or any of the parent directories): .git\n";
+  for (const [diagnostic, status] of [[absent, 1], [`warning: preceding diagnostic\n${absent}`, 128], [`${absent}unexpected suffix\n`, 128], ["fatal: detected dubious ownership in repository\n", 128], ["fatal: bad config line 1\n", 128], ["fatal: invalid gitfile format\n", 128]] as const) {
+    withInspectionProgram(`process.stderr.write(${JSON.stringify(diagnostic)}); process.exitCode = ${status};`, (git, root) => {
+      assert.throws(() => git.inspectRepository(root, makeContext(root, "inspect")), (error) => error instanceof HarnessError && error.code === "git_inspect_failed");
+    });
+  }
+  withInspectionProgram(`process.stdout.write("unexpected output"); process.stderr.write(${JSON.stringify(absent)}); process.exitCode = 128;`, (git, root) => {
+    assert.throws(() => git.inspectRepository(root, makeContext(root, "inspect")), (error) => error instanceof HarnessError && error.code === "git_inspect_failed");
+  });
+  withInspectionProgram("for (;;) {}", (git, root) => {
+    assert.throws(() => git.inspectRepository(root, makeContext(root, "inspect", 25)), (error) => error instanceof HarnessError && error.code === "pinned_process_timed_out");
+  });
+});
+
+test("inspectRepository pins locale before deciding absence and retains possible bare remnants", () => {
+  const absent = "fatal: not a git repository (or any of the parent directories): .git\n";
+  withInspectionProgram(`if (process.env.LC_ALL !== "C") process.stdout.write("locale not pinned"); process.stderr.write(${JSON.stringify(absent)}); process.exitCode = 128;`, (git, root) => {
+    const context = { ...makeContext(root, "inspect"), environment: { LC_ALL: "unavailable-test-locale" } };
+    assert.throws(() => git.inspectRepository(root, context), (error) => error instanceof HarnessError && error.code === "git_repository_absent");
+  });
+  for (const marker of ["HEAD", "objects", "refs"]) {
+    withInspectionProgram(`process.stderr.write(${JSON.stringify(absent)}); process.exitCode = 128;`, (git, root) => {
+      const dir = join(root, "possible-bare");
+      mkdirSync(dir);
+      writeFileSync(join(dir, marker), "potential repository remnant");
+      assert.throws(() => git.inspectRepository(dir, makeContext(dir, "inspect")), (error) => error instanceof HarnessError && error.code === "git_inspect_failed");
+    });
+  }
+});
+
+test("inspectRepository does not turn an unreadable metadata witness into absence", () => {
+  const absent = "fatal: not a git repository (or any of the parent directories): .git\n";
+  withInspectionProgram(`require("node:fs").chmodSync(process.cwd(), 0); process.stderr.write(${JSON.stringify(absent)}); process.exitCode = 128;`, (git, root) => {
+    const target = join(root, "unreadable");
+    mkdirSync(target);
+    try {
+      assert.throws(() => git.inspectRepository(target, makeContext(target, "inspect")), { code: "EACCES" });
+    } finally {
+      chmodSync(target, 0o700);
+    }
+  });
+});
 
 // ========================
 // Git port schema and validation tests

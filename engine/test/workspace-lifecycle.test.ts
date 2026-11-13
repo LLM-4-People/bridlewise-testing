@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, rmSync, readFileSync, renameSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -7,6 +7,7 @@ import {
   type GitPort,
 } from "../src/git/git-port.ts";
 import { createWorkspaceLifecycle } from "../src/git/workspace-lifecycle.ts";
+import { HarnessError, SecurityError } from "../src/kernel/errors.ts";
 import {
   IDENTITY,
   TEST_CONFIG,
@@ -82,6 +83,61 @@ test("onboarding.detect rejects non-absolute path", () => {
       () => lifecycle.onboarding.detect("relative", makeContext("/", "inspect")),
       /absolute/u,
     );
+  });
+});
+
+for (const damage of ["missing-gitdir", "malformed-gitfile", "empty-gitdir", "dangling-git-link", "ancestor-gitdir"] as const) {
+  test(`onboarding refuses ${damage} without offering initialization or changing work`, () => {
+    withLifecycle((lifecycle, _git, root) => {
+      const dir = join(root, damage);
+      mkdirSync(dir);
+      const marker = join(dir, ".git");
+      if (damage === "empty-gitdir" || damage === "ancestor-gitdir") mkdirSync(marker);
+      else if (damage === "dangling-git-link") symlinkSync(join(root, "missing-metadata"), marker);
+      else writeFileSync(marker, damage === "missing-gitdir" ? "gitdir: ../missing-metadata\n" : "invalid gitfile\n");
+      const target = damage === "ancestor-gitdir" ? join(dir, "child") : dir;
+      if (target !== dir) mkdirSync(target);
+      const work = join(target, "unfinished.txt");
+      writeFileSync(work, "unfinished work\n");
+      const before = readFileSync(work);
+      const inspectFailed = (error: unknown): boolean => error instanceof HarnessError && error.code === "git_inspect_failed";
+      assert.throws(() => lifecycle.onboarding.detect(target, makeContext(target, "inspect")), inspectFailed);
+      for (const plan of ["init-empty", "import-and-init"] as const) {
+        assert.throws(() => lifecycle.onboarding.execute({ path: target, plan, identity: IDENTITY }, makeContext(target, "init")), inspectFailed);
+      }
+      assert.deepEqual(readFileSync(work), before);
+      if (damage === "missing-gitdir") assert.equal(readFileSync(marker, "utf8"), "gitdir: ../missing-metadata\n");
+      if (target !== dir) assert.equal(existsSync(join(target, ".git")), false);
+    });
+  });
+}
+
+test("onboarding preserves security, timeout and unexpected inspection refusals", () => {
+  withLifecycle((_lifecycle, git, root) => {
+    for (const failure of [new SecurityError("denied", "security_denied"), new HarnessError("timeout", "pinned_process_timed_out"), new HarnessError("unknown inspection failure", "git_inspect_failed"), new Error("unexpected")]) {
+      const refusing = createWorkspaceLifecycle({ ...git, inspectRepository: () => { throw failure; }, init: () => assert.fail("refused inspection must never initialize") }, TEST_CONFIG);
+      assert.throws(() => refusing.onboarding.detect(root, makeContext(root, "inspect")), (error) => error === failure);
+      assert.throws(() => refusing.onboarding.execute({ path: root, plan: "init-empty", identity: IDENTITY }, makeContext(root, "init")), (error) => error === failure);
+    }
+  });
+});
+
+test("onboarding distinguishes nested directories from linked roots and preserves the index", () => {
+  withLifecycle((lifecycle, git, root) => {
+    const repo = createRepo(git, root, "nested-owner");
+    const child = join(repo, "child");
+    mkdirSync(child);
+    const index = readFileSync(join(repo, ".git", "index"));
+    assert.equal(lifecycle.onboarding.detect(child, makeContext(child, "inspect")), "nested");
+    const alias = join(root, "repository-alias");
+    symlinkSync(repo, alias);
+    assert.equal(lifecycle.onboarding.detect(alias, makeContext(alias, "inspect")), "repository");
+    const metadata = join(root, "detached-metadata");
+    renameSync(join(repo, ".git"), metadata);
+    writeFileSync(join(repo, ".git"), `gitdir: ${metadata}\n`);
+    assert.equal(lifecycle.onboarding.detect(repo, makeContext(repo, "inspect")), "linked-worktree");
+    assert.equal(lifecycle.onboarding.detect(child, makeContext(child, "inspect")), "nested");
+    assert.deepEqual(readFileSync(join(metadata, "index")), index);
   });
 });
 
