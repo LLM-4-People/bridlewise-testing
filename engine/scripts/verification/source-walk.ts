@@ -82,7 +82,8 @@ export function gitTrackedPaths(repositoryRoot: string): ReadonlySet<string> {
 }
 
 /**
- * What a caller may narrow. `exts` chooses the extensions; `ignore` names
+ * What a caller may narrow. `exts` chooses the extensions, or `"all"` to
+ * include every format and extensionless file; `ignore` names
  * directory entries the caller deliberately does not look at; `exclude` is a
  * declared predicate over absolute paths (e.g. {@link experimentExclusion}).
  * Every narrowing is written at the call site, and the index-coverage oracle
@@ -90,7 +91,7 @@ export function gitTrackedPaths(repositoryRoot: string): ReadonlySet<string> {
  * against the narrowed index — never silently smaller than it.
  */
 export type WalkOptions = Readonly<{
-  exts?: readonly string[];
+  exts?: readonly string[] | "all";
   ignore?: readonly string[];
   exclude?: (absolutePath: string) => boolean;
 }>;
@@ -169,7 +170,7 @@ export class ScanUniverseError extends Error {
  */
 function assertIndexCoverage(
   root: string,
-  exts: readonly string[],
+  exts: readonly string[] | "all",
   ignore: ReadonlySet<string>,
   scoped: boolean,
   exclude: ((absolutePath: string) => boolean) | undefined,
@@ -188,6 +189,7 @@ function assertIndexCoverage(
 
   const expected: string[] = [];
   const omittedByDefault: string[] = [];
+  const extensionDescription = exts === "all" ? "all" : exts.join("|");
   for (const tracked of gitTrackedPaths(repositoryRoot)) {
     let underRoot: string;
     if (prefix === "") underRoot = tracked;
@@ -196,7 +198,7 @@ function assertIndexCoverage(
     if (scoped && underRoot.split("/").some((segment) => ignore.has(segment))) continue;
     if (exclude?.(join(repositoryRoot, tracked)) === true) continue;
     const extension = extname(underRoot);
-    if (!exts.includes(extension)) {
+    if (exts !== "all" && !exts.includes(extension)) {
       if (
         !extensionsChosen &&
         SOURCE_EXTS.includes(extension)
@@ -228,7 +230,7 @@ function assertIndexCoverage(
     const rest =
       omittedByDefault.length > 10 ? ` … and ${omittedByDefault.length - 10} more` : "";
     throw new ScanUniverseError(
-      `walk(): this call took the DEFAULT extensions (${exts.join("|")}) and the git index holds ` +
+      `walk(): this call took the DEFAULT extensions (${extensionDescription}) and the git index holds ` +
       `${omittedByDefault.length} tracked executable source file(s) under ` +
       `"${prefix === "" ? "." : prefix}" that they exclude: ${shown}${rest}. The default is a ` +
       `claim about what source looks like in general, not about this root, and a guard reading ` +
@@ -250,7 +252,7 @@ function assertIndexCoverage(
   const rest = missing.length > 10 ? ` … and ${missing.length - 10} more` : "";
   throw new ScanUniverseError(
     `walk(): the git index holds ${expected.length} tracked file(s) under ` +
-    `"${prefix === "" ? "." : prefix}" with extension ${exts.join("|")}, and this walk returned ` +
+    `"${prefix === "" ? "." : prefix}" with extension ${extensionDescription}, and this walk returned ` +
     `${found.length}; ${missing.length} tracked file(s) were never visited: ${shown}${rest}. ` +
     `The index is a second instrument written by git, so a walk that returns less than it holds ` +
     `has lost part of its universe — an entry whose stat failed (a directory counts as ONE entry ` +
@@ -267,7 +269,8 @@ function assertIndexCoverage(
  * Recursively collect every `.ts` + `.svelte` file under a root, returning
  * joined paths (relative when the root is relative). The default extensions
  * cover the common prevention-test scan (mixed Svelte + TS sources); pass
- * `exts` to narrow (e.g. `.ts` only). What the repository does not own
+ * `exts` to narrow (e.g. `.ts` only), or `exts: "all"` to scan every format.
+ * What the repository does not own
  * (dependencies, build output, state) is pruned by its versioned ignore rules.
  *
  * ── A MISSING ROOT IS A REFUSAL, NEVER AN EMPTY ANSWER ────────────────────
@@ -440,8 +443,8 @@ export function walk(
       continue;
     }
     if (isDir) {
-      out.push(...walk(full, { ...opts, exts: [...exts], ...(scoped ? { ignore: [...ignore] } : {}) }, visited, owned));
-    } else if (exts.includes(extname(full))) {
+      out.push(...walk(full, { ...opts, exts, ...(scoped ? { ignore: [...ignore] } : {}) }, visited, owned));
+    } else if (exts === "all" || exts.includes(extname(full))) {
       out.push(full);
     }
   }

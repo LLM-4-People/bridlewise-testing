@@ -4,11 +4,13 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import test from "node:test";
 
 import { commitRecordProblems, committerIdentity, githubCommitVerifications, isAgentAccount, isAgentCheckout, messageSignOffProblem, unsignedCommits } from "../../scripts/verification/sign-off.ts";
+import { walk } from "../../scripts/verification/source-walk.ts";
+import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 import { createTempDir } from "../support/temp-dir.ts";
@@ -377,14 +379,16 @@ const PERSONAL = { name: "A Person", email: "person@example.invalid" } as const;
 const signedBy = (...identities: readonly { name: string; email: string }[]): string =>
   `feat: a change\n\n${identities.map((identity) => `Signed-off-by: ${identity.name} <${identity.email}>`).join("\n")}\n`;
 
-/** Scan the actual source image, including hidden and untracked regular files. */
+/** Scan the owned source image in every format, including hidden and untracked regular files. */
 function identitySpellings(base: string, roots: readonly string[]): readonly string[] {
   return roots.flatMap((root) => {
-    const files = readdirSync(join(base, root), { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile());
+    const files = walk(join(base, root), { exts: "all" }).filter((path) => lstatSync(path).isFile());
     assert.ok(files.length > 0, `identity scan root ${root} has no files`);
-    return files.flatMap((entry) => {
-      const path = join(entry.parentPath, entry.name);
-      return readFileSync(path).includes(Buffer.from(AGENT.email)) ? [relative(base, path).split(sep).join("/")] : [];
+    return files.flatMap((path) => {
+      const view = readSourceView(path);
+      const spelled = view.codeWithStringsAndTemplates().includes(AGENT.email) ||
+        view.prose().some(({ text }) => text.includes(AGENT.email));
+      return spelled ? [relative(base, path).split(sep).join("/")] : [];
     });
   }).toSorted();
 }
@@ -402,9 +406,14 @@ test("the identity census needs no Git metadata, catches hidden and untracked co
   writeFileSync(join(root, "visible.ts"), `export const identity = ${JSON.stringify(AGENT.email)};\n`);
   writeFileSync(join(root, ".private", "hidden.json"), JSON.stringify({ identity: AGENT.email }));
   writeFileSync(join(root, "untracked"), AGENT.email);
+  writeFileSync(join(root, "template.ts"), `export const identity = \`${AGENT.email}\`;\n`);
+  writeFileSync(join(root, "comment.ts"), `// ${AGENT.email}\n`);
+  writeFileSync(join(root, "block.ts"), `/* ${AGENT.email} */\n`);
+  writeFileSync(join(root, "workflow.yml"), `identity: '${AGENT.email}'\n`);
+  writeFileSync(join(root, "future.unknown"), AGENT.email);
   writeFileSync(join(root, "ordinary.ts"), "export const ordinary = true;\n");
-  assert.deepEqual(identitySpellings(root, ["."]), [".private/hidden.json", "untracked", "visible.ts"]);
-  assert.throws(() => identitySpellings(root, ["missing"]), { code: "ENOENT" });
+  assert.deepEqual(identitySpellings(root, ["."]), [".private/hidden.json", "block.ts", "comment.ts", "future.unknown", "template.ts", "untracked", "visible.ts", "workflow.yml"]);
+  assert.throws(() => identitySpellings(root, ["missing"]), /scan root does not exist/u);
   mkdirSync(join(root, "empty"));
   assert.throws(() => identitySpellings(root, ["empty"]), /has no files/u);
 });
@@ -453,7 +462,7 @@ test("CI: a pull request a declared agent account opened brings agent commits on
 
 test("the commit-records workflow checks out the base and only fetches the branch's commits — a spelling pin, not a boundary (a pull_request run uses the branch's copy; the boundary is the door App, #67)", () => {
   const workflows = join(import.meta.dirname, "..", "..", "..", ".github", "workflows");
-  const dco = readFileSync(join(workflows, "commit-records.yml"), "utf8");
+  const dco = readSourceView(join(workflows, "commit-records.yml")).codeWithStringsAndTemplates();
   assert.match(dco, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \}\}/u, "the checkout is the base, never the branch");
   assert.match(dco, /git fetch --no-tags "\$SERVER\/\$REPOSITORY" "refs\/pull\/\$PR_NUMBER\/head"/u, "the branch's commits are fetched as objects");
   assert.match(dco, /--pull-request-author "\$PR_AUTHOR"/u, "the pull request's author decides an agent pull request");
@@ -463,5 +472,5 @@ test("the commit-records workflow checks out the base and only fetches the branc
   assert.match(dco, /--range "\$GROUP_BASE\.\.\$GROUP_HEAD" --merge-group "\$GROUP_REF" --remote "\$SERVER\/\$REPOSITORY"/u, "a merge group is verified by its queue ref");
   assert.match(dco, /A `pull_request` run uses the BRANCH's copy/u, "the header states what it does not guarantee");
   // One owner: CI carries no second DCO job a trimmed branch could edit.
-  assert.doesNotMatch(readFileSync(join(workflows, "ci.yml"), "utf8"), /sign-off\.ts/u);
+  assert.doesNotMatch(readSourceView(join(workflows, "ci.yml")).codeWithStringsAndTemplates(), /sign-off\.ts/u);
 });
