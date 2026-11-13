@@ -29,8 +29,8 @@ Every command prints one JSON result (`{"result":{…}}`: the record, the
 validation report, the merge or land receipt) and its progress on stderr. The
 flow is stated once, in `workspace-manager.ts`'s header; the refusals and the
 land are in
-[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land)
-and [§1c](../../../docs/process/MERGE-GUIDE.md#1c-feature--main-on-the-forge-ws-land).
+[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--configured-forge-trunk-the-workspace-merge--refusals-and-the-land)
+and [§1c](../../../docs/process/MERGE-GUIDE.md#1c-feature--configured-forge-trunk-on-the-forge-ws-land).
 
 - **Renewal and preservation**: `extend` can explicitly renew an expired
   active or validating feature workspace. Under the existing admission lock it

@@ -99,7 +99,7 @@ supervised command runner) and the same `harness sync` fixed point.
 
 New work happens in a WORKSPACE (`npm run ws`, `engine/src/workflow/`:
 [README](../../src/workflow/README.md); the flow:
-[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land)):
+[MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--configured-forge-trunk-the-workspace-merge--refusals-and-the-land)):
 its commits are its record, `ws snapshot` a recovery point, and the land a
 gated fast-forward. With it, A5 deleted the tools it replaces (D-11):
 
