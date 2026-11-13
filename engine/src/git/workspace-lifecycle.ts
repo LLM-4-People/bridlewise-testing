@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync, realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
-import { InputError, SecurityError } from "../kernel/errors.ts";
+import { HarnessError, InputError, SecurityError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
 import {
   type GitCheckoutResult,
@@ -197,10 +197,15 @@ export function createWorkspaceLifecycle(
     try {
       const info = git.inspectRepository(path, context);
       if (info.bare) return "bare";
-      if (info.gitDir !== resolve(path, ".git")) return "linked-worktree";
-      if (info.workTree !== null && info.workTree !== path) return "nested";
+      const directory = realpathSync(path);
+      if (info.workTree !== null && info.workTree !== directory) return "nested";
+      if (info.gitDir !== resolve(directory, ".git")) return "linked-worktree";
       return "repository";
-    } catch {
+    } catch (error) {
+      // Only the adapter's proven absence permits init/import recommendations.
+      // Broken metadata, security refusals, timeouts and unknown errors remain
+      // refusals, including when execute repeats detection before an effect.
+      if (!(error instanceof HarnessError) || error.code !== "git_repository_absent") throw error;
       const entries = readdirSync(path);
       if (entries.length === 0) return "empty";
       return "nonempty-unversioned";

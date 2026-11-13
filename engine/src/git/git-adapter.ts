@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 
 import { HarnessError, InputError, SecurityError } from "../kernel/errors.ts";
 import { deepFreeze } from "../kernel/integrity.ts";
@@ -94,6 +94,29 @@ import { DEFAULT_MAXIMUM_ERROR_BYTES, DEFAULT_MAXIMUM_OUTPUT_BYTES } from "./git
 const ALLOWED_SIGNALS: readonly NodeJS.Signals[] = [];
 const EXIT_OK: readonly number[] = [0];
 const EXIT_OK_OR_CHANGED_OR_UNBORN: readonly number[] = [0, 1, 128];
+
+// Git's discovery CLI has no distinct absence exit status. Match the whole
+// C-locale diagnostic, never status 128 alone (also config/ownership failures).
+const REPOSITORY_ABSENT_DIAGNOSTIC = "fatal: not a git repository (or any of the parent directories): .git\n";
+
+/**
+ * A negative witness only, not another implementation of Git discovery.
+ * Git may ignore a damaged .git directory while searching its parents. Any
+ * gitfile/link/directory or possible bare-repository remnants keep that failure
+ * ambiguous. lstat notices dangling links; failed reads propagate. We do not
+ * parse pointers, decide which metadata is valid, or repair anything.
+ *
+ * These are observations for onboarding, not an atomic authorization to init:
+ * another process can still change a directory after this check.
+ */
+function repositoryMetadataAbsent(path: string): boolean {
+  for (let directory = realpathSync(path); ; directory = dirname(directory)) {
+    for (const name of [".git", "HEAD", "objects", "refs"]) {
+      if (lstatSync(resolve(directory, name), { throwIfNoEntry: false }) !== undefined) return false;
+    }
+    if (dirname(directory) === directory) return true;
+  }
+}
 
 // Default git inspect timeout (milliseconds). Used when
 // `defaultOperationContext` is invoked without an explicit `timeoutMs`
@@ -878,10 +901,17 @@ export function createGitAdapter(
         throw new InputError("Inspect path must be absolute", "git_inspect_path_invalid");
       }
       const isBareResult = runGit(
-        { ...context, workingDirectory: path, operation: "inspect" },
+        { ...context, workingDirectory: path, operation: "inspect", environment: { ...context.environment, LC_ALL: "C" } },
         ["rev-parse", "--is-bare-repository"],
-        EXIT_OK,
+        EXIT_OK_OR_CHANGED_OR_UNBORN,
       );
+      if (isBareResult.status !== 0) {
+        const absent = isBareResult.status === 128
+          && isBareResult.stdout.length === 0
+          && stderrString(isBareResult) === REPOSITORY_ABSENT_DIAGNOSTIC
+          && repositoryMetadataAbsent(path);
+        throw gitError("inspect", isBareResult, "Git repository inspection failed", absent ? "git_repository_absent" : "git_inspect_failed");
+      }
       const bare = stdoutString(isBareResult).trim() === "true";
       const gitDirResult = runGit(
         { ...context, workingDirectory: path, operation: "inspect" },
@@ -1105,8 +1135,8 @@ export function createGitAdapter(
     operation: string,
     result: PinnedProcessResult,
     message: string,
+    code = `git_${operation}_failed`,
   ): HarnessError {
-    const code = `git_${operation}_failed`;
     const safeDetails = deepFreeze({
       operation,
       exitCode: result.status ?? -1,
