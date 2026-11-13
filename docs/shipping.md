@@ -25,8 +25,7 @@ The build output is not committed. The source archive is the release artifact; `
 
 ```bash
 npm ci
-npm --prefix engine ci
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 npm run typecheck
 npm --prefix engine run typecheck
 npm run check:secrets
@@ -111,8 +110,7 @@ sequence, masks and manifest are unit-tested in
 
 ```bash
 npm ci
-npm --prefix engine ci
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 node scripts/sd.mjs start
 ```
 

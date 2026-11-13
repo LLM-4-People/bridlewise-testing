@@ -3,7 +3,7 @@
   "features": [
     {
       "id": "web-signoff",
-      "text": "Commits made in GitHub's web editor are signed off by GitHub.",
+      "text": "GitHub's web editor requires a DCO sign-off, but the current Commit records judge does not accept those commits. Use the local commit workflow above.",
       "status": {
         "live": "the repository setting web_commit_signoff_required is true (set 2026-10-21)"
       }

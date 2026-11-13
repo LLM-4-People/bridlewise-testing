@@ -8,7 +8,7 @@
       "installZsh": false
     }
   },
-  "postCreateCommand": "npm ci && npm --prefix engine ci && npm run bootstrap:hooks && chmod 600 engine/bridlewise.config.json",
+  "postCreateCommand": "npm ci && npm run setup:engine && npm run bootstrap:hooks",
   "forwardPorts": [5173, 5174],
   "portsAttributes": {
     "5173": { "label": "Cockpit", "onAutoForward": "openPreview" },

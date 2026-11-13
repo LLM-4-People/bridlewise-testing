@@ -42,19 +42,17 @@ your GitHub plan's included quota; it is not a free hosted deployment.
 From the repository root:
 
 ```bash
-git clone {{ site.repository_url }}.git
+git clone {{ site.repository_url }}.git bridlewise
 cd bridlewise
 
 npm ci
-(cd engine && npm ci)
-
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 ```
 
-Three details matter here:
+Two details matter here:
 
-1. **Both packages install separately.** The engine has its own `package.json` and lockfile. A root-only install leaves the engine incomplete.
-3. **The config must be `0600`.** Git does not preserve exact non-executable Unix modes, so a fresh checkout can materialize `engine/bridlewise.config.json` as `0644` or `0664`. Self-protection is enabled in the checked-in config, and the runtime fails closed with `config_mode_insecure` until the mode is fixed.
+1. **Both packages install separately.** The engine has its own `package.json` and lockfile. A root-only install leaves the engine incomplete. `npm run setup:engine` installs the engine lockfile and calls the shared permission bootstrap; an install failure stops before that bootstrap.
+2. **The config must be `0600`.** Git does not preserve exact non-executable Unix modes, so a fresh checkout can materialize `engine/bridlewise.config.json` as `0644` or `0664`. Self-protection is enabled in the checked-in config, and the runtime fails closed with `config_mode_insecure` until the mode is fixed.
 
 If you prefer to inspect before running, the config is a strict, typed document. It contains no secrets; secrets live behind handles outside the repository.
 
@@ -158,14 +156,14 @@ node scripts/sd.mjs start
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| `config_mode_insecure` at boot | `engine/bridlewise.config.json` is not mode `0600` | `chmod 600 engine/bridlewise.config.json`, then start again. Do not disable self-protection to get past it. |
+| `config_mode_insecure` at boot | `engine/bridlewise.config.json` is not mode `0600` | `node --experimental-strip-types engine/scripts/tooling/bootstrap-permissions.ts`, then start again. Do not disable self-protection to get past it. |
 | Port `5173` or `5174` already in use | Another dev server, or a stale process from a previous lifecycle | `node scripts/sd.mjs status`; stop what this lifecycle owns. Do not kill an unrelated process. |
-| "The server is not answering" in the boot column | API not running, wrong port, or health never became ready | `node scripts/sd.mjs status`; read the tail of `.dev/boot.stderr.log` if present; restart. |
+| "The server is not answering" in the boot column | API not running, wrong port, or health never became ready | `node scripts/sd.mjs status`; inspect the boot-refusal stderr tail printed by the lifecycle; restart. |
 | UI loads but no models | No provider saved for this account | Settings → Model providers; add a provider and a model, then set a default. |
 | `provider_key_missing` | Provider saved without a key | Edit the provider and add its key. |
 | `provider_not_configured` | No provider, no model chosen, or the model is not served | Add the model to a provider or choose a model that provider serves. |
-| `SelfProtectionUnavailableError` | Landlock is unavailable, or the guardian binary is missing | Use a Linux kernel with Landlock; build the guardian with `cd engine/guardian && make all`; check `node engine/src/cli.ts preflight` from `engine/`. WSL2 may not expose the needed ABI. |
-| Engine complains the bundled payload is missing | Production mode expects `engine/dist/bundle.js` | From `engine/`, run `npm run build:bundle`; after source changes, `node src/cli.ts harness sync --with-bundle`. |
+| `SelfProtectionUnavailableError` | Landlock is unavailable, or the guardian binary is missing | Use a Linux kernel with Landlock. From the repository root, build the guardian with `cd engine/guardian && make all`; check `cd engine && node src/cli.ts preflight`. WSL2 may not expose the needed ABI. |
+| Engine complains the bundled payload is missing | Production mode expects the generated engine bundle | From the repository root, run `cd engine && npm run build:bundle`; after source changes, `cd engine && node src/cli.ts harness sync --with-bundle`. |
 | Stale UI after a code change | Old Vite process or browser tab | `node scripts/sd.mjs restart`; reload the tab. Confirm the served tree with `status`. |
 | Registration refused as closed | A first account already exists | Sign in as the administrator. Open registration is closed by design after setup. |
 | Sign-in fails and you have no other account | The local database is the account store; there is no hosted recovery | Restore the disposable environment from your own backup. Do not treat the harness database as your only copy. |

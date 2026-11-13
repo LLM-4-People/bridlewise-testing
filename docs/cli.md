@@ -14,8 +14,7 @@ permalink: /cli/
 
 ```bash
 npm ci
-npm --prefix engine ci
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 ```
 
 The launcher is `bin/bridlewise.mjs`. It runs the TypeScript CLI directly on Node 24's type stripping, so there is no build step for the CLI itself.
@@ -205,13 +204,13 @@ The bundle covers the web database and the key material that opens it. It does n
 
 ## Configuration
 
-`engine/bridlewise.config.json` is the single source of truth. Self-protection is on in the shipped config, so the file must be mode `0600`:
+`engine/bridlewise.config.json` is the single source of truth. Self-protection is on in the shipped config, so the file must be mode `0600`. To repair only its permissions after dependencies are installed:
 
 ```bash
-chmod 600 engine/bridlewise.config.json
+node --experimental-strip-types engine/scripts/tooling/bootstrap-permissions.ts
 ```
 
-A fresh checkout commonly gets `0644` or `0664`; the CLI refuses it with `config_mode_insecure`. Do not weaken the check by editing the config. Set `HARNESS_CONFIG_PATH` to point at another pinned document when you need an isolated run.
+A fresh checkout commonly gets `0644` or `0664`; the CLI refuses it with `config_mode_insecure`. Do not weaken the check by editing the config. For an isolated run, use a disposable checkout and its own pinned `engine/bridlewise.config.json`; the runtime refuses alternate configuration documents.
 
 ### How harness steps are bounded
 
@@ -239,7 +238,7 @@ The kernel's per-process CPU limit (RLIMIT_CPU) is derived from these values, ne
 
 ## Troubleshooting
 
-- **`config_mode_insecure`** — `chmod 600 engine/bridlewise.config.json`.
+- **`config_mode_insecure`** — `node --experimental-strip-types engine/scripts/tooling/bootstrap-permissions.ts`.
 - **Port already in use** — `node scripts/sd.mjs status`; stop the owning tree, then start again.
 - **`landlock_unavailable`** — the kernel does not expose Landlock; the guardian tests skip that path. This is not a pass for confinement.
 - **`confinement_not_observed`** — the guardian answered with the expected stamp but did not deny a protected probe read (or could not read the control), so it is not confining; rebuild it from this tree (`make -C engine/guardian all`).
