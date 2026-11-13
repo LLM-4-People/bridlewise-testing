@@ -388,6 +388,29 @@ test("a measurement producer in a new product area cannot slip past the registry
   expect(failuresWith(planted)).toContain("unregistered-producer");
 });
 
+test("numeric inputs do not make a boolean setter a measurement; declared numeric results still do", () => {
+  const producerPath = "engine/src/process/plant-producer.ts";
+  const consumerPath = "tests/performance/regression.test.ts";
+  const producer = [
+    "export function settlePlant(mode: number, read: () => number): boolean | undefined { return statSync('fixture').mode === mode; }",
+    "export function touchPlant(limit: number): void { statSync('fixture'); }",
+    "export function samplePlant(input: string): number { return statSync(input).size; }",
+    "export function objectPlant(input: string): Readonly<{ value: number }> { return { value: statSync(input).size }; }",
+    "export function callbackPlant(input: string): () => number { const size = statSync(input).size; return () => size; }",
+    "export function variantPlant(): number; export function variantPlant(input?: string) { return statSync(input ?? 'fixture').size; }",
+    "export function mergedPlant(input: string): number { return statSync(input).size; } export namespace mergedPlant { export const label = 'fixture'; }",
+    "export function typedPlant(input: string): number { return statSync(input).size; } export interface typedPlant { label: string; }",
+    "export function aliasedPlant(input: string): number { return statSync(input).size; } export type aliasedPlant = { label: string };",
+    "export function readPlantLatencyMs() { return performance.now(); }",
+  ].join("\n");
+  const world = withSource(withSource(WORLD, producerPath, producer), consumerPath,
+    `${WORLD.sources.get(consumerPath)}\nimport * as plant from '../../engine/src/process/plant-producer.ts';\nvoid plant;\n`);
+  const report = validateMeasurementContract(world);
+  const discovered = report.checked.discoveredProducers.filter((id) => id.startsWith(`${producerPath}::`));
+  expect([...new Set(discovered)]).toEqual(["aliasedPlant", "callbackPlant", "mergedPlant", "objectPlant", "readPlantLatencyMs", "samplePlant", "typedPlant", "variantPlant"].map((name) => `${producerPath}::${name}`));
+  expect(new Set(report.failures.filter((failure) => failure.code === "unregistered-producer" && discovered.includes(`${producerPath}::${failure.metric}`)).map((failure) => failure.metric)).size).toBe(8);
+});
+
 test("the shard weight producer is the function that subtracts the timestamps", () => {
   const source = WORLD.sources.get("scripts/test-shard-manifest.mjs");
   expect(source).toBeDefined();

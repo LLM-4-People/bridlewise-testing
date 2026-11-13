@@ -1803,6 +1803,8 @@ export type ExportedBinding = Readonly<{
   kind: "function" | "value" | "elsewhere";
   /** The parameter list as written, empty for a zero-parameter function. */
   parameters: string;
+  /** Declared result annotations, including same-scope overloads, verbatim; empty when unannotated or unreadable here. */
+  returnTypes: readonly string[];
   /** How the export is spelled, for a failure message that can be acted on. */
   form: "declaration" | "specifier" | "default" | "star";
   /**
@@ -1849,6 +1851,12 @@ export type ExportedBinding = Readonly<{
 export function exportedBindings(source: string, what = "exported bindings"): ReadonlyMap<string, ExportedBinding> {
   const out = new Map<string, ExportedBinding>();
   for (const region of parsedRegionsOf(source, what)) {
+    const regionBindings = new Map<string, ExportedBinding>();
+    const statements = astNodeArray(astNode(region.ast.program)?.body ?? region.ast.body);
+    const resultAnnotationOf = (node: AstNode | undefined): string | undefined => {
+      const annotation = node === undefined ? undefined : astNode(astNode(node.returnType)?.typeAnnotation);
+      return annotation === undefined ? undefined : region.text.slice(nodeStart(annotation), nodeEnd(annotation));
+    };
     /** The parameter text of a function-valued node, or `undefined`. */
     const parametersOf = (node: AstNode | undefined): string | undefined => {
       if (node === undefined || !FUNCTION_NODE_TYPES.has(node.type)) return undefined;
@@ -1863,16 +1871,31 @@ export function exportedBindings(source: string, what = "exported bindings"): Re
     // specifier export is the commonest way a signature hides from a walk that
     // only reads declarations, and resolving it costs one pass.
     const local = new Map<string, AstNode | undefined>();
-    walkAst(region.ast, (node) => {
-      if (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") {
-        const id = astNode(node.id);
-        if (id?.type === "Identifier" && typeof id.name === "string") local.set(id.name, node);
-        return;
+    const declaredResults = new Map<string, string[]>();
+    const remember = (name: string, node: AstNode | undefined): void => {
+      local.set(name, node);
+      const annotation = resultAnnotationOf(node);
+      if (annotation !== undefined) {
+        const results = declaredResults.get(name) ?? [];
+        if (!results.includes(annotation)) results.push(annotation);
+        declaredResults.set(name, results);
       }
-      if (node.type !== "VariableDeclarator") return;
-      const id = astNode(node.id);
-      if (id?.type === "Identifier" && typeof id.name === "string") local.set(id.name, astNode(node.init));
-    });
+    };
+    // Only this module's declarations belong to its exports. A nested local
+    // with the same name is not an overload and cannot replace their facts.
+    for (const statement of statements) {
+      const node = astNode(statement.declaration) ?? statement;
+      if (node.type === "FunctionDeclaration" || node.type === "TSDeclareFunction" || node.type === "ClassDeclaration") {
+        const id = astNode(node.id);
+        if (id?.type === "Identifier" && typeof id.name === "string") remember(id.name, node);
+        continue;
+      }
+      if (node.type !== "VariableDeclaration") continue;
+      for (const declaration of astNodeArray(node.declarations)) {
+        const id = astNode(declaration.id);
+        if (id?.type === "Identifier" && typeof id.name === "string") remember(id.name, astNode(declaration.init));
+      }
+    }
 
     const record = (
       name: string,
@@ -1880,20 +1903,29 @@ export function exportedBindings(source: string, what = "exported bindings"): Re
       form: ExportedBinding["form"],
       declaredAs: string | undefined,
       kind?: ExportedBinding["kind"],
+      augmentsValue = false,
     ): void => {
+      // Type declarations and namespace augmentation do not replace an actual
+      // callable value export. A private local function is not enough: only a
+      // value export already recorded in this module can supply those facts.
+      if (augmentsValue && regionBindings.get(name)?.kind === "function") return;
       const parameters = parametersOf(node);
-      out.set(name, Object.freeze({
-        kind: kind ?? (parameters === undefined ? "value" : "function"),
-        parameters: parameters ?? "",
+      const annotation = resultAnnotationOf(node);
+      const results = declaredAs === undefined ? undefined : declaredResults.get(declaredAs);
+      const bindingKind = kind ?? (parameters === undefined ? "value" : "function");
+      regionBindings.set(name, Object.freeze({
+        kind: bindingKind,
+        parameters: bindingKind === "function" ? parameters ?? "" : "",
+        returnTypes: Object.freeze(bindingKind !== "function" ? [] : [...(results ?? (annotation === undefined ? [] : [annotation]))]),
         form,
         declaredAs,
       }));
     };
 
-    walkAst(region.ast, (node) => {
+    for (const node of statements) {
       if (node.type === "ExportAllDeclaration") {
         record("*", undefined, "star", undefined, "elsewhere");
-        return;
+        continue;
       }
       if (node.type === "ExportDefaultDeclaration") {
         const declared = astNode(node.declaration);
@@ -1905,9 +1937,9 @@ export function exportedBindings(source: string, what = "exported bindings"): Re
           "default",
           viaName ?? (id?.type === "Identifier" && typeof id.name === "string" ? id.name : undefined),
         );
-        return;
+        continue;
       }
-      if (node.type !== "ExportNamedDeclaration") return;
+      if (node.type !== "ExportNamedDeclaration") continue;
       const declared = astNode(node.declaration);
       if (declared !== undefined) {
         // `export function f() {}`, `export const f = …`, `export class C {}`.
@@ -1916,11 +1948,12 @@ export function exportedBindings(source: string, what = "exported bindings"): Re
             const id = astNode(declarator.id);
             if (id?.type === "Identifier" && typeof id.name === "string") record(id.name, astNode(declarator.init), "declaration", id.name);
           }
-          return;
+          continue;
         }
         const id = astNode(declared.id);
-        if (id?.type === "Identifier" && typeof id.name === "string") record(id.name, declared, "declaration", id.name);
-        return;
+        const augmentation = declared.type === "TSInterfaceDeclaration" || declared.type === "TSTypeAliasDeclaration" || declared.type === "TSModuleDeclaration";
+        if (id?.type === "Identifier" && typeof id.name === "string") record(id.name, declared, "declaration", id.name, undefined, augmentation);
+        continue;
       }
       // `export { f }`, `export { f as g }`, `export { f } from "./other.ts"`.
       const fromAnotherModule = astNode(node.source) !== undefined;
@@ -1928,11 +1961,16 @@ export function exportedBindings(source: string, what = "exported bindings"): Re
         const exported = astNode(specifier.exported) ?? astNode(specifier.local);
         const name = declaredName(exported, false);
         if (name === undefined) continue;
-        if (fromAnotherModule) { record(name, undefined, "specifier", undefined, "elsewhere"); continue; }
         const localName = declaredName(astNode(specifier.local), false);
+        if (node.exportKind === "type" || specifier.exportKind === "type") {
+          record(name, undefined, "specifier", fromAnotherModule ? undefined : localName, "value", true);
+          continue;
+        }
+        if (fromAnotherModule) { record(name, undefined, "specifier", undefined, "elsewhere"); continue; }
         record(name, localName === undefined ? undefined : local.get(localName), "specifier", localName);
       }
-    });
+    }
+    for (const [name, binding] of regionBindings) out.set(name, binding);
   }
   return out;
 }

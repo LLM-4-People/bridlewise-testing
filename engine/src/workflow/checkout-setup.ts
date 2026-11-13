@@ -50,6 +50,7 @@ import { persistableText } from "../privacy/evidence-handler.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
 import { settleContainedFileMode, settleFileMode } from "../filesystem/file-mode.ts";
 import { resolveLocation, sameLocation } from "../filesystem/path-identity.ts";
+import { relativeKeySuffix } from "../filesystem/path-boundary.ts";
 import { repositoryRootCapabilityExpectedRawFileMode } from "../filesystem/repository-root-capability-contracts.ts";
 import { QUALIFICATION_INVOCATION_ENV } from "../shared/run-history.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
@@ -479,7 +480,7 @@ export function runCheckoutPhase(
 
 /** Whether a changed repository path is one of a command's declared inputs (a file, or a directory prefix). */
 function touchesInputs(inputs: readonly string[], changed: readonly string[]): boolean {
-  return changed.some((path) => inputs.some((input) => path === input || path.startsWith(`${input}/`)));
+  return changed.some((path) => inputs.some((input) => relativeKeySuffix(path, input) !== null));
 }
 
 /**
@@ -727,9 +728,8 @@ export function settleCheckout(checkoutRoot: string, engineRelative: string): re
   for (const entry of indexEntries(checkoutRoot, "directory")) {
     if (entry.stage !== 0 || (entry.mode !== "100644" && entry.mode !== "100755")) continue;
     // The loader's config-mode contract above remains its one authority.
-    if (entry.path === configRelative) continue;
-    const policyPath = enginePath.length > 0 && entry.path.startsWith(`${enginePath}/`)
-      ? entry.path.slice(enginePath.length + 1) : entry.path;
+    if (relativeKeySuffix(entry.path, configRelative) === "") continue;
+    const policyPath = relativeKeySuffix(entry.path, enginePath) ?? entry.path;
     const declared = repositoryRootCapabilityExpectedRawFileMode(policyPath);
     const mode = entry.mode === "100755" && declared !== ROOT_POLICY.filesystem.rawFileModes.config
       ? Number.parseInt(entry.mode.slice(-3), 8) : declared;

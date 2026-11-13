@@ -324,6 +324,99 @@ test("SourceStructure: a name declared TWICE is refused, never silently answered
   assert.equal(bodyCalls(functionBody(twice, "reallyRun"), "runGitConfined"), true);
 });
 
+test("SourceStructure: exported return annotations are separate from parameters in every local export form", () => {
+  const source = [
+    "export function direct(mode: number, callback: () => number): boolean | undefined { return true; }",
+    "const local = (input: number): Readonly<{ value: number | null }> => ({ value: input });",
+    "export { local as renamed };",
+    "export const arrow = <T>(input: T): Promise<T> => Promise.resolve(input);",
+    "export default function callback(input: number): () => number { return () => input; }",
+    "export function inferred(input: number) { return input > 0; }",
+    "export const value = 1;",
+    "export { remote } from './elsewhere.ts';",
+  ].join("\n");
+  const bindings = exportedBindings(source);
+  for (const [name, expected] of [
+    ["direct", "boolean | undefined"],
+    ["renamed", "Readonly<{ value: number | null }>"],
+    ["arrow", "Promise<T>"],
+    ["default", "() => number"],
+    ["inferred", undefined],
+  ] as const) {
+    assert.equal(bindings.get(name)?.kind, "function", name);
+    assert.deepEqual(bindings.get(name)?.returnTypes, expected === undefined ? [] : [expected], name);
+  }
+  assert.equal(bindings.get("direct")?.parameters, "mode: number, callback: () => number");
+  assert.equal(bindings.get("value")?.kind, "value");
+  assert.deepEqual(bindings.get("value")?.returnTypes, []);
+  assert.equal(bindings.get("remote")?.kind, "elsewhere");
+  assert.deepEqual(bindings.get("remote")?.returnTypes, []);
+});
+
+test("SourceStructure: result annotations keep module overloads and exclude nested same-name declarations", () => {
+  const source = [
+    "export function direct(): number;",
+    "export function direct(input: string): Readonly<{ value: number }>;",
+    "export function direct(input?: string) { return input ? { value: 1 } : 1; }",
+    "function local(): number; function local(input?: string) { return 1; }",
+    "export { local as alias }; export default local;",
+    "function flag(): boolean { return true; } export { flag };",
+    "function nested() {",
+    "  function direct(): boolean { return true; }",
+    "  function local(): boolean { return true; }",
+    "  function flag(): number { return 1; }",
+    "}",
+    "namespace Inner { export function hidden(): number { return 1; } }",
+  ].join("\n");
+  const bindings = exportedBindings(source);
+  assert.deepEqual(bindings.get("direct")?.returnTypes, ["number", "Readonly<{ value: number }>"]);
+  assert.deepEqual(bindings.get("alias")?.returnTypes, ["number"]);
+  assert.deepEqual(bindings.get("default")?.returnTypes, ["number"]);
+  assert.deepEqual(bindings.get("flag")?.returnTypes, ["boolean"]);
+  assert.equal(bindings.has("hidden"), false, "a namespace member is not a direct module export");
+  assert.deepEqual([...bindings.keys()], ["direct", "alias", "default", "flag"]);
+});
+
+test("SourceStructure: declaration augmentation preserves actual callable exports without exporting private values", () => {
+  for (const augmentation of [
+    "export namespace merged { export const label = 'fixture'; }",
+    "export interface merged { label: string; }",
+    "export type merged = { label: string };",
+  ]) {
+    const callable = "export function merged(input: string): number { return input.length; }";
+    for (const declarations of [[callable, augmentation], [augmentation, callable]]) {
+      const bindings = exportedBindings(declarations.join("\n"));
+      assert.equal(bindings.get("merged")?.kind, "function", declarations.join("\n"));
+      assert.deepEqual(bindings.get("merged")?.returnTypes, ["number"]);
+      assert.equal(bindings.get("merged")?.parameters, "input: string");
+      assert.equal(bindings.has("label"), false, "an augmentation's member is not a module export");
+    }
+  }
+  for (const typeExport of [
+    "export interface privateValue { label: string; }",
+    "export type privateValue = { label: string };",
+    "export type { privateValue };",
+    "export { type privateValue };",
+  ]) {
+    const bindings = exportedBindings(`function privateValue(): number { return 1; }\n${typeExport}`);
+    assert.equal(bindings.get("privateValue")?.kind, "value", typeExport);
+    assert.deepEqual(bindings.get("privateValue")?.returnTypes, []);
+    assert.equal(bindings.get("privateValue")?.parameters, "");
+  }
+  const aliases = exportedBindings([
+    "function local(): number { return 1; }",
+    "export { local as alias }; export default local;",
+    "export interface alias { label: string; }",
+    "export namespace Independent { export function hidden(): number { return 1; } }",
+  ].join("\n"));
+  assert.equal(aliases.get("alias")?.kind, "function");
+  assert.equal(aliases.get("alias")?.declaredAs, "local");
+  assert.deepEqual(aliases.get("alias")?.returnTypes, ["number"]);
+  assert.deepEqual(aliases.get("default")?.returnTypes, ["number"]);
+  assert.equal(aliases.get("Independent")?.kind, "value");
+  assert.equal(aliases.has("hidden"), false);
+});
+
 test("SourceStructure: a subject that has vanished is a FAILURE, never a clean verdict", () => {
   // THE VACUOUS-SCAN CLASS, closed at the helper rather than at each caller.
   for (const [what, run] of [

@@ -370,6 +370,8 @@ test("checkout setup re-run: only the commands whose declared inputs changed run
   assert.deepEqual((await rerunChangedSetup(isolation, ["engine/guardian/src/guardian.c", "package-lock.json"], run)).map((step) => step.step), ["deps", "native"]);
   assert.deepEqual(await rerunChangedSetup(isolation, ["engine/guardian-other.c"], run), [], "a directory input is a path prefix, not a string prefix");
   assert.equal(readFileSync(join(target, "ran"), "utf8"), "deps\nnative\n");
+  const rootInput = { ...isolation, commands: { root: { cwd: ".", argv: writer("root"), timeoutMs: 60_000, inputs: ["."] } }, phases: { ...isolation.phases, setup: ["root"] } };
+  assert.deepEqual((await rerunChangedSetup(rootInput, ["lib/a.ts"], run)).map((step) => step.step), ["root"], "the configuration's repository-root sentinel covers every changed key");
 });
 
 test("checkout setup re-run: a command OWED (failed, or skipped after a failure, at its last attempt) runs again whatever its inputs say, until it succeeds (PROMO2FIX-N8)", async () => {

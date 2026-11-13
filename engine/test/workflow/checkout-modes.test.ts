@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { armCheckoutUnderTest, assertCheckoutWriteAllowed, CHECKOUT_WRITE_REFUSAL_CODE } from "../../src/filesystem/checkout-write-door.ts";
+import { relativeKeySuffix } from "../../src/filesystem/path-boundary.ts";
 import { indexFilePath } from "../../src/git/repository-ownership.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { settleCheckout } from "../../src/workflow/checkout-setup.ts";
@@ -20,6 +21,27 @@ const FILES = [
   [CONFIG, Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8)],
 ] as const;
 const EXECUTABLE = "run.sh";
+
+test("repository key relations compare whole components and refuse malformed operands", () => {
+  for (const [key, ancestor, expected] of [
+    ["engine/src/a.ts", "engine", "src/a.ts"],
+    ["engine/src", "engine/src", ""],
+    ["engine-other/a.ts", "engine", null],
+    ["engine", "engine/src", null],
+    ["Engine/a.ts", "engine", null],
+    ["engine/é.ts", "engine", "é.ts"],
+    ["engine/a.ts", "", "engine/a.ts"],
+    ["engine/a.ts", ".", "engine/a.ts"],
+    [".", "", ""],
+    ["", "engine", null],
+  ] as const) assert.equal(relativeKeySuffix(key, ancestor), expected);
+  for (const malformed of ["/engine", "engine/", "engine//src", "engine/./src", "engine/../src", "engine\\src", "engine\0src"]) {
+    for (const [key, ancestor] of [[malformed, "engine"], ["engine/src", malformed]]) {
+      assert.throws(() => relativeKeySuffix(key!, ancestor!),
+        (error: unknown) => (error as { code?: string }).code === "repository_key_invalid");
+    }
+  }
+});
 
 /** Real Git creates every tested worktree; all writes stay in owned fixture roots. */
 function checkout(mask: number): string {
