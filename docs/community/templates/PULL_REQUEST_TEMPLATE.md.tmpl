@@ -8,14 +8,16 @@
 
 ## Verification
 
-<!-- The exact commands, tests or manual steps. State what you could not verify. -->
+<!-- The exact commands, tests or manual steps. State what you could not verify.
+A refusal means verification is incomplete; required checks and independent
+review must pass before the pull request lands. -->
 
-- [ ] `cd engine && node src/cli.ts harness check` is green
+- [ ] The [local gates]({{repositoryUrl}}/blob/main/CONTRIBUTING.md#setup) pass, or their exact refusals are explained below.
 - [ ] the suites the change touches are green (see docs/testing.md)
 
 ## Checklist
 
-- [ ] Every commit is signed off (`git commit -s`; fix with `git rebase --signoff main`).
+- [ ] Every commit carries the required [DCO sign-off]({{repositoryUrl}}/blob/main/CONTRIBUTING.md#commit-and-pull-request-style).
 - [ ] No credentials, private source, personal data, databases, logs or build output are included.
 - [ ] No silent fallback, retry mask or fabricated data was added.
 - [ ] Generated files come from `harness sync`, not hand edits.
