@@ -75,11 +75,45 @@ function plantRepository(files: Readonly<Record<string, string>>): string {
 }
 
 /** The repository-relative, forward-slash paths a walk of `root` returned. */
-function walkedUnder(root: string, opts?: { exts?: readonly string[]; ignore?: readonly string[] }): string[] {
+function walkedUnder(root: string, opts?: Parameters<typeof walk>[1]): string[] {
   return walk(root, opts).map((file) => file.slice(root.length + 1).split("\\").join("/")).sort();
 }
 
 describe("walk() refuses a universe smaller than the git index", () => {
+  test("an explicit all-extension scan includes hidden, extensionless and future formats without weakening ownership or index coverage", () => {
+    const files = {
+      "lib/.hidden/settings.json": "{}\n",
+      "lib/LICENSE": "a notice\n",
+      "lib/future.unfamiliar": "future format\n",
+      "lib/code.ts": "export {};\n",
+      ".gitignore": "lib/ignored/\n",
+    };
+    const root = plantRepository(files);
+    const lib = join(root, "lib");
+    mkdirSync(join(lib, "ignored"));
+    writeFileSync(join(lib, "ignored", "private.json"), "{}\n");
+    writeFileSync(join(lib, "untracked"), "new source\n");
+    expect(walkedUnder(lib, { exts: "all" })).toEqual([
+      ".hidden/settings.json", "LICENSE", "code.ts", "future.unfamiliar", "untracked",
+    ]);
+    expect(walkedUnder(lib, { exts: [".ts"] })).toEqual(["code.ts"]);
+    expect(walkedUnder(lib, { exts: "all", ignore: [".hidden"] })).toEqual([
+      "LICENSE", "code.ts", "future.unfamiliar", "untracked",
+    ]);
+    rmSync(join(lib, "future.unfamiliar"));
+    expect(() => walk(lib, { exts: "all" })).toThrowError(/lib\/future\.unfamiliar/u);
+    expect(() => walk(join(root, "absent"), { exts: "all" })).toThrowError(/scan root does not exist/u);
+  });
+
+  test("an all-extension scan outside Git still finds every regular file without a format inventory", () => {
+    const root = createTempDir("scan-universe-all-formats-");
+    mkdirSync(join(root, ".hidden"));
+    writeFileSync(join(root, ".hidden", "data.json"), "{}\n");
+    writeFileSync(join(root, "README"), "text\n");
+    writeFileSync(join(root, "arbitrary.future"), "future\n");
+    expect(walkedUnder(root, { exts: "all" })).toEqual([".hidden/data.json", "README", "arbitrary.future"]);
+  });
+
   test("benign: an intact tree walks clean, and the index agrees file for file", () => {
     const root = plantRepository({
       "lib/a.ts": "export const a = 1;\n",

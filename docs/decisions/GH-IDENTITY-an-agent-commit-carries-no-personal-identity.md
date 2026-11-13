@@ -13,9 +13,13 @@ acted_in: [engine/src/kernel/root-policy.ts, engine/scripts/verification/sign-of
 GitHub publishes every name and address a commit carries: its author, its
 committer and every identity trailer (`Signed-off-by`, `Co-authored-by`,
 `Reviewed-by` and the like, whatever the spelling of the key). A commit an
-agent makes is the project's work, so each of those is the project's
-declared agent identity, `ROOT_POLICY.workflow.commitIdentity.agent` (the one
-source; nothing else spells it), and never a person's own name or address.
+agent makes is the project's work. Local authors, committers and identity
+trailers use the project's declared contributor identity,
+`ROOT_POLICY.workflow.commitIdentity.agent` (the one source; nothing else
+spells it), never a person's own name or address. GitHub chooses its App
+author and web-flow committer when it signs a publication; the narrowly
+verified publication contract below retains the project contributor's DCO
+and attribution without pretending the App has that local identity.
 
 - **Which commits are an agent's.** A commit is an agent's when any identity
   on it is the agent identity or uses its address's domain; when it is made
@@ -59,18 +63,43 @@ source; nothing else spells it), and never a person's own name or address.
 - **A commit GitHub creates and signs.** A commit made through GitHub's API so
   that GitHub signs it (an App-published branch, such as the IssueOps record)
   always has the committer `GitHub <noreply@github.com>`, who signs nothing
-  off. Its author's sign-off is accepted instead, exactly when both hold:
+  off. Its signature and author association are read together for its exact
+  oid (`commitVerification` in `forge/repository-reads.ts`). The judge accepts
+  that proof only when it names the commit being judged, its author matches
+  the recorded author, and both hold:
   - the committer is GitHub's web-flow identity
     (`ROOT_POLICY.workflow.commitIdentity.webFlowCommitter`);
   - GitHub's own verification, read from its API (`signature.isValid` and
     `wasSignedByGitHub`), reports the signature valid and made by GitHub.
 
-  The author must be the project's agent identity. The committer field alone
-  is a claim anyone can write, so a commit that only claims GitHub as its
-  committer, or whose verification is false, still needs its committer's
-  sign-off and is refused. Every other commit keeps requiring the committer's
-  sign-off. The `Commit records` check asks GitHub, with its read-only token,
-  only about commits whose committer is GitHub.
+  A project-authored commit still requires that author's sign-off. An App
+  publication instead requires ALL of these:
+  - GitHub associates its author email with the exact bot account of an App
+    declared in `FORGE_APPS`, whose permissions include `contents: write`;
+  - the recorded author name is that account's login, rather than a personal
+    name attached to a bot email;
+  - `Signed-off-by` names the project contributor identity;
+  - `Co-authored-by` credits that same project contributor, as the workspace
+    publisher's existing message owner records it.
+
+  App accounts derive from the existing App registry; there is no second
+  list of privileged bot names. A verifier App without publishing authority,
+  a bot-looking name without GitHub's account association, an unknown App,
+  another commit's proof or a personal author is refused. All identity
+  trailers and the whole message still satisfy the project identity rule;
+  the App's public author does not authorize personal addresses in either.
+  The committer field alone is a claim anyone can write, so a commit that
+  only claims GitHub as its committer, or whose verification is false, still
+  needs its committer's sign-off and is refused. Every other commit keeps
+  requiring the committer's sign-off. The `Commit records` check asks GitHub,
+  with its read-only token, only about commits whose committer is GitHub.
+
+  The publisher continues omitting custom author, committer and signature
+  fields, as [GitHub's bot signature contract](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification)
+  requires. A fixture crosses actual workspace publication, its real Git
+  objects, the verification reader and the range judge; it simulates only
+  GitHub's signature/account answer. This is a publication identity contract,
+  not proof of independent review or the unavoidable self-evolution gate.
 - **The merge queue.** In a merge group the judge verifies the group's ref is
   in GitHub's `refs/heads/gh-readonly-queue/` namespace and held at the
   group's head; that namespace and the event's ref name are what is trusted,

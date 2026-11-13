@@ -4,12 +4,15 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { lstatSync, mkdirSync, writeFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import test from "node:test";
 
-import { commitRecordProblems, committerIdentity, isAgentAccount, isAgentCheckout, messageSignOffProblem, signedByGitHubCommits, unsignedCommits } from "../../scripts/verification/sign-off.ts";
+import { commitRecordProblems, committerIdentity, githubCommitVerifications, isAgentAccount, isAgentCheckout, messageSignOffProblem, unsignedCommits } from "../../scripts/verification/sign-off.ts";
+import { walk } from "../../scripts/verification/source-walk.ts";
+import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { TEST_GIT_IDENTITY, testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 
@@ -129,10 +132,12 @@ test("a GitHub-signed web-flow commit carries its AUTHOR's sign-off — only whe
   const agent = ROOT_POLICY.workflow.commitIdentity.agent;
   const github = ROOT_POLICY.workflow.commitIdentity.webFlowCommitter;
   const signedOffByAuthor = `${"Signed-off-by"}: ${agent.name} <${agent.email}>`;
-  const record = { author: agent, committer: github, trailers: [{ key: "Signed-off-by", value: `${agent.name} <${agent.email}>` }], message: `publish\n\n${signedOffByAuthor}\n` };
-  assert.deepEqual(commitRecordProblems({ ...record, signedByGitHub: true }), [], "an App-published, GitHub-verified commit with its author's sign-off passes");
+  const sha = "c".repeat(40);
+  const verification = { oid: sha, signedByGitHub: true, author: { ...agent, login: null } };
+  const record = { sha, author: agent, committer: github, trailers: [{ key: "Signed-off-by", value: `${agent.name} <${agent.email}>` }], message: `publish\n\n${signedOffByAuthor}\n` };
+  assert.deepEqual(commitRecordProblems({ ...record, githubVerification: verification }), [], "a GitHub-verified project-authored commit with its author's sign-off passes");
   for (const [why, recorded] of [
-    ["GitHub's verification is false", { ...record, signedByGitHub: false }],
+    ["GitHub's verification is false", { ...record, githubVerification: { ...verification, signedByGitHub: false } }],
     ["an unsigned commit that only claims GitHub as its committer", record],
   ] as const) {
     const problems = commitRecordProblems(recorded);
@@ -140,11 +145,49 @@ test("a GitHub-signed web-flow commit carries its AUTHOR's sign-off — only whe
   }
   // GitHub's verdict without GitHub as the committer changes nothing: the committer's sign-off is still the DCO.
   const otherCommitter = { name: "Robin Example", email: "robin@example.invalid" };
-  assert.ok(commitRecordProblems({ ...record, committer: otherCommitter, signedByGitHub: true }).some((problem) => problem.includes("has no \"Signed-off-by\" trailer naming its committer")), "a signed commit committed by someone else needs that committer's sign-off");
+  assert.ok(commitRecordProblems({ ...record, committer: otherCommitter, githubVerification: verification }).some((problem) => problem.includes("has no \"Signed-off-by\" trailer naming its committer")), "a signed commit committed by someone else needs that committer's sign-off");
   // The author must still be the project's agent identity: GitHub's door does not launder a person's commit.
   const person = { name: "Pat Example", email: "pat@example.invalid" };
-  const byPerson = { ...record, author: person, trailers: [{ key: "Signed-off-by", value: `${person.name} <${person.email}>` }], message: "edit\n", signedByGitHub: true };
+  const byPerson = { ...record, author: person, trailers: [{ key: "Signed-off-by", value: `${person.name} <${person.email}>` }], message: "edit\n", githubVerification: { ...verification, author: { ...person, login: "pat-example" } } };
   assert.ok(commitRecordProblems(byPerson).some((problem) => problem.includes("GitHub-signed web-flow commit and its author is")), "a person's web-flow commit is refused");
+});
+
+test("an App-published commit binds the verified author account to its exact commit and keeps the project's DCO and co-author attribution", () => {
+  const project = ROOT_POLICY.workflow.commitIdentity.agent;
+  const login = `${FORGE_APPS.agent.name}[bot]`;
+  const appAuthor = { name: login, email: `10000+${login}@users.noreply.github.com` };
+  const sha = "a".repeat(40);
+  const projectValue = `${project.name} <${project.email}>`;
+  const trailers = [{ key: "Signed-off-by", value: projectValue }, { key: "Co-authored-by", value: projectValue }];
+  const message = `publish\n\nSigned-off-by: ${projectValue}\nCo-authored-by: ${projectValue}\n`;
+  const githubVerification = { oid: sha, signedByGitHub: true, author: { ...appAuthor, login } };
+  const record = {
+    sha, author: appAuthor, committer: ROOT_POLICY.workflow.commitIdentity.webFlowCommitter,
+    trailers, message, githubVerification,
+    // The old boolean alone cannot describe GitHub's actual App author. Keep
+    // that claimed value in the defect's fixture and prove it grants nothing.
+    signedByGitHub: true,
+  };
+  assert.deepEqual(commitRecordProblems(record), [], "the real App publication shape preserves the project contributor's sign-off");
+  for (const [why, changed] of [
+    ["no API verification, only a claimed boolean", { ...record, githubVerification: undefined }],
+    ["an invalid or foreign signature", { ...record, githubVerification: { ...githubVerification, signedByGitHub: false } }],
+    ["a proof for another commit", { ...record, githubVerification: { ...githubVerification, oid: "b".repeat(40) } }],
+    ["an author differing from the API's exact author", { ...record, author: { ...appAuthor, email: "someone@example.invalid" } }],
+    ["no associated GitHub account", { ...record, githubVerification: { ...githubVerification, author: { ...appAuthor, login: null } } }],
+    ["an undeclared bot account", { ...record, githubVerification: { ...githubVerification, author: { ...appAuthor, login: "other-app[bot]" } } }],
+    ["a personal author name associated with a bot email", { ...record, author: { ...appAuthor, name: "Pat Example" }, githubVerification: { ...githubVerification, author: { ...appAuthor, name: "Pat Example", login } } }],
+    ["the project sign-off is absent", { ...record, trailers: trailers.filter((trailer) => trailer.key !== "Signed-off-by"), message: `publish\n\nCo-authored-by: ${projectValue}\n` }],
+    ["the project's co-author attribution is absent", { ...record, trailers: trailers.filter((trailer) => trailer.key !== "Co-authored-by"), message: `publish\n\nSigned-off-by: ${projectValue}\n` }],
+  ] as const) {
+    assert.notDeepEqual(commitRecordProblems(changed), [], why);
+  }
+  const verifierLogin = `${FORGE_APPS.verifier.name}[bot]`;
+  const verifier = { name: verifierLogin, email: `10001+${verifierLogin}@users.noreply.github.com` };
+  assert.notDeepEqual(commitRecordProblems({ ...record, author: verifier, githubVerification: { ...githubVerification, author: { ...verifier, login: verifierLogin } } }), [], "a declared App without contents-write authority cannot publish commits");
+  const publisherLogin = `${FORGE_APPS.publisher.name}[bot]`;
+  const publisher = { name: publisherLogin, email: `10002+${publisherLogin}@users.noreply.github.com` };
+  assert.deepEqual(commitRecordProblems({ ...record, author: publisher, githubVerification: { ...githubVerification, author: { ...publisher, login: publisherLogin } } }), [], "the same registry-derived contract covers the other publishing App");
 });
 
 test("the range reader asks GitHub only about web-flow commits, and takes as signed only those GitHub says it signed", async () => {
@@ -162,12 +205,14 @@ test("the range reader asks GitHub only about web-flow commits, and takes as sig
   const forged = git(["rev-parse", "HEAD"]).trim();
   commit(git, root, "c.txt", `ordinary\n\n${SIGNED}`);
   const asked: string[] = [];
-  const signed = await signedByGitHubCommits(root, `${base}..HEAD`, async (sha) => {
+  const verifications = await githubCommitVerifications(root, `${base}..HEAD`, async (sha) => {
     asked.push(sha);
-    return sha === verified;
+    return { oid: sha, signedByGitHub: sha === verified, author: { ...TEST_GIT_IDENTITY, login: null } };
   });
   assert.deepEqual(asked.toSorted(), [verified, forged].toSorted(), "only commits whose committer is GitHub's web-flow identity are asked about");
-  assert.deepEqual([...signed], [verified]);
+  assert.deepEqual([...verifications.keys()].toSorted(), [verified, forged].toSorted());
+  assert.equal(verifications.get(verified)?.signedByGitHub, true);
+  assert.equal(verifications.get(forged)?.signedByGitHub, false, "an unsigned claim retains its negative verification");
 });
 
 test("identity trailers are judged by KEY (any -by key, any case): one carrying an address is exactly Name <address>; other keys keep their own grammar", () => {
@@ -334,12 +379,43 @@ const PERSONAL = { name: "A Person", email: "person@example.invalid" } as const;
 const signedBy = (...identities: readonly { name: string; email: string }[]): string =>
   `feat: a change\n\n${identities.map((identity) => `Signed-off-by: ${identity.name} <${identity.email}>`).join("\n")}\n`;
 
+/** Scan the owned source image in every format, including hidden and untracked regular files. */
+function identitySpellings(base: string, roots: readonly string[]): readonly string[] {
+  return roots.flatMap((root) => {
+    const files = walk(join(base, root), { exts: "all" }).filter((path) => lstatSync(path).isFile());
+    assert.ok(files.length > 0, `identity scan root ${root} has no files`);
+    return files.flatMap((path) => {
+      const view = readSourceView(path);
+      const spelled = view.codeWithStringsAndTemplates().includes(AGENT.email) ||
+        view.prose().some(({ text }) => text.includes(AGENT.email));
+      return spelled ? [relative(base, path).split(sep).join("/")] : [];
+    });
+  }).toSorted();
+}
+
 test("agent identity: declared once — the root policy is its one source, and no other source spells it", () => {
   assert.deepEqual(AGENT, ROOT_POLICY.workflow.commitIdentity.agent);
   const engine = join(import.meta.dirname, "..", "..");
-  const spelled = execFileSync("git", ["grep", "-l", "-F", AGENT.email, "--", "src", "scripts", "../.github", "../scripts"], { cwd: engine, encoding: "utf8" })
-    .trim().split("\n").filter(Boolean);
+  const spelled = identitySpellings(engine, ["src", "scripts", "../.github", "../scripts"]);
   assert.deepEqual(spelled, ["src/kernel/root-policy.ts"], "the identity is read from the policy, never restated");
+});
+
+test("the identity census needs no Git metadata, catches hidden and untracked copies, and refuses a missing or empty source root", () => {
+  const root = createTempDir("identity-census-");
+  mkdirSync(join(root, ".private"));
+  writeFileSync(join(root, "visible.ts"), `export const identity = ${JSON.stringify(AGENT.email)};\n`);
+  writeFileSync(join(root, ".private", "hidden.json"), JSON.stringify({ identity: AGENT.email }));
+  writeFileSync(join(root, "untracked"), AGENT.email);
+  writeFileSync(join(root, "template.ts"), `export const identity = \`${AGENT.email}\`;\n`);
+  writeFileSync(join(root, "comment.ts"), `// ${AGENT.email}\n`);
+  writeFileSync(join(root, "block.ts"), `/* ${AGENT.email} */\n`);
+  writeFileSync(join(root, "workflow.yml"), `identity: '${AGENT.email}'\n`);
+  writeFileSync(join(root, "future.unknown"), AGENT.email);
+  writeFileSync(join(root, "ordinary.ts"), "export const ordinary = true;\n");
+  assert.deepEqual(identitySpellings(root, ["."]), [".private/hidden.json", "block.ts", "comment.ts", "future.unknown", "template.ts", "untracked", "visible.ts", "workflow.yml"]);
+  assert.throws(() => identitySpellings(root, ["missing"]), /scan root does not exist/u);
+  mkdirSync(join(root, "empty"));
+  assert.throws(() => identitySpellings(root, ["empty"]), /has no files/u);
 });
 
 test("commit-msg: an agent commit whose sign-off, author or committer is a person's own is refused, each named", () => {
@@ -386,7 +462,7 @@ test("CI: a pull request a declared agent account opened brings agent commits on
 
 test("the commit-records workflow checks out the base and only fetches the branch's commits — a spelling pin, not a boundary (a pull_request run uses the branch's copy; the boundary is the door App, #67)", () => {
   const workflows = join(import.meta.dirname, "..", "..", "..", ".github", "workflows");
-  const dco = readFileSync(join(workflows, "commit-records.yml"), "utf8");
+  const dco = readSourceView(join(workflows, "commit-records.yml")).codeWithStringsAndTemplates();
   assert.match(dco, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| github\.event\.merge_group\.base_sha \}\}/u, "the checkout is the base, never the branch");
   assert.match(dco, /git fetch --no-tags "\$SERVER\/\$REPOSITORY" "refs\/pull\/\$PR_NUMBER\/head"/u, "the branch's commits are fetched as objects");
   assert.match(dco, /--pull-request-author "\$PR_AUTHOR"/u, "the pull request's author decides an agent pull request");
@@ -396,5 +472,5 @@ test("the commit-records workflow checks out the base and only fetches the branc
   assert.match(dco, /--range "\$GROUP_BASE\.\.\$GROUP_HEAD" --merge-group "\$GROUP_REF" --remote "\$SERVER\/\$REPOSITORY"/u, "a merge group is verified by its queue ref");
   assert.match(dco, /A `pull_request` run uses the BRANCH's copy/u, "the header states what it does not guarantee");
   // One owner: CI carries no second DCO job a trimmed branch could edit.
-  assert.doesNotMatch(readFileSync(join(workflows, "ci.yml"), "utf8"), /sign-off\.ts/u);
+  assert.doesNotMatch(readSourceView(join(workflows, "ci.yml")).codeWithStringsAndTemplates(), /sign-off\.ts/u);
 });

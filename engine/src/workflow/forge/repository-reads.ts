@@ -96,22 +96,39 @@ export async function workflowJobs(client: ForgeClient, repository: string, runI
   return jobs.map((job) => Object.freeze({ id: Number(job.id), name: text(job.name), status: text(job.status), conclusion: text(job.conclusion), url: text(job.html_url) }));
 }
 
+/** GitHub's signature verdict and author association, bound to the queried commit. */
+export type GitHubCommitVerification = Readonly<{
+  oid: string;
+  signedByGitHub: boolean;
+  author: Readonly<{ name: string; email: string; login: string | null }> | null;
+}>;
+
 /**
- * Whether GitHub itself signed commit `sha` and reports the signature valid
- * (`signature.isValid` and `wasSignedByGitHub`, read through GraphQL: the REST
- * verification object does not say who signed). A commit with no signature is
- * `false`; an unknown commit is a typed refusal, never `false`.
+ * GitHub's own verification of commit `sha`: a valid signature made by
+ * GitHub, plus the author and account associated with its email. Read in ONE
+ * query so the identity judge never substitutes a bot-looking name for that
+ * association. An unsigned commit is recorded as such; a missing commit or
+ * another returned oid is a typed refusal. The REST verification object alone
+ * does not identify who signed.
  */
-export async function commitSignedByGitHub(client: ForgeClient, repository: string, sha: string): Promise<boolean> {
+export async function commitVerification(client: ForgeClient, repository: string, sha: string): Promise<GitHubCommitVerification> {
   // The parts as written, never an encoded path decoded back: GraphQL takes them as variables.
   const { owner, name } = repositoryParts(repository);
-  const data = await client.graphql<{ repository?: { object?: { signature?: { isValid?: unknown; wasSignedByGitHub?: unknown } | null } | null } | null }>(
-    "query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) { object(oid: $oid) { ... on Commit { signature { isValid wasSignedByGitHub } } } } }",
+  const data = await client.graphql<{ repository?: { object?: { oid?: unknown; author?: { name?: unknown; email?: unknown; user?: { login?: unknown } | null } | null; signature?: { isValid?: unknown; wasSignedByGitHub?: unknown } | null } | null } | null }>(
+    "query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) { object(oid: $oid) { ... on Commit { oid author { name email user { login } } signature { isValid wasSignedByGitHub } } } } }",
     { owner, name, oid: sha },
   );
   const commit = data.repository?.object;
   if (commit === undefined || commit === null) throw new ForgeError("github_not_found", `GitHub holds no commit ${sha} in ${repository}.`, { repository, sha });
-  return commit.signature?.isValid === true && commit.signature.wasSignedByGitHub === true;
+  if (commit.oid !== sha) throw new ForgeError("github_response_invalid", "GitHub's commit verification does not name the queried commit.", { repository, sha });
+  const author = commit.author;
+  return Object.freeze({
+    oid: sha,
+    signedByGitHub: commit.signature?.isValid === true && commit.signature.wasSignedByGitHub === true,
+    author: typeof author?.name === "string" && author.name.length > 0 && typeof author.email === "string" && author.email.length > 0
+      ? Object.freeze({ name: author.name, email: author.email, login: typeof author.user?.login === "string" ? author.user.login : null })
+      : null,
+  });
 }
 
 /** The latest run of each workflow (by name, then path). */

@@ -3,6 +3,11 @@ import { chmodSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { githubCommitVerifications, unsignedCommits } from "../../scripts/verification/sign-off.ts";
+import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { FORGE_APPS } from "../../src/workflow/forge/app-registry.ts";
+import { commitVerification } from "../../src/workflow/forge/repository-reads.ts";
+import type { ForgeClient } from "../../src/workflow/forge/port.ts";
 import { WorkspaceConflictError } from "../../src/workflow/workspace-manager.ts";
 import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import { resolveForgeTarget, type WorkspaceForge, type WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
@@ -20,6 +25,7 @@ import {
   trackBranch,
   writeFile,
 } from "./workspace-test-support.ts";
+import { createFakeForge } from "./fake-forge.ts";
 
 /** Matches a HarnessError by its typed code. */
 function throwsCode(code: string): (error: unknown) => boolean {
@@ -39,6 +45,39 @@ function forgeFixture(prefix: string, options: Readonly<{ forge?: WorkspaceForge
 function forgeRev(bare: string, ref: string): string {
   return rawGit(bare, ["rev-parse", ref]);
 }
+
+test("the workspace publisher's real commit reaches the identity judge with the verified App author and the original project sign-off", async () => {
+  const { root, bare } = initTempRepo("ws-forge-identity");
+  const project = ROOT_POLICY.workflow.commitIdentity.agent;
+  const login = `${FORGE_APPS.agent.name}[bot]`;
+  const app = { name: login, email: `10000+${login}@users.noreply.github.com` };
+  const forge = createFakeForge(bare, mkWorkspaceTempDir("ws-forge-identity-objects"), { author: app, committer: ROOT_POLICY.workflow.commitIdentity.webFlowCommitter });
+  const { manager } = makeManager(root, { config: makeTestConfig(mkWorkspaceTempDir("ws-forge-identity-wt")), forge: () => forge });
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  writeFile(record.lease.worktreePath, "src/feature.ts", "export const feature = true;\n");
+  rawGit(record.lease.worktreePath, ["add", "--", "src/feature.ts"]);
+  rawGit(record.lease.worktreePath, ["commit", "-m", `Add the feature\n\nSigned-off-by: ${project.name} <${project.email}>`], {
+    GIT_AUTHOR_NAME: project.name, GIT_AUTHOR_EMAIL: project.email,
+    GIT_COMMITTER_NAME: project.name, GIT_COMMITTER_EMAIL: project.email,
+  });
+  const { round } = await manager.publish(record.workspaceId);
+  const range = `${record.lease.baseSha}..${round.head}`;
+  const asked: string[] = [];
+  // Only GitHub's verdict is simulated. The publisher made the objects and
+  // message in the real bare repository, and the range judge reads them.
+  const client = { graphql: async (_query: string, variables: Readonly<Record<string, unknown>>) => {
+    const sha = String(variables["oid"]);
+    asked.push(sha);
+    const [name, email] = rawGit(bare, ["log", "-1", "--format=%an%x00%ae", sha]).split("\0");
+    return { repository: { object: { oid: sha, author: { name, email, user: { login } }, signature: { isValid: true, wasSignedByGitHub: true } } } };
+  } } as unknown as ForgeClient;
+  const githubVerifications = await githubCommitVerifications(bare, range, (sha) => commitVerification(client, "o/r", sha));
+  assert.deepEqual(asked, [round.head], "one verification read at the exact published head");
+  assert.deepEqual(unsignedCommits(bare, range, { agentPullRequest: true, githubVerifications }), []);
+  assert.notDeepEqual(unsignedCommits(bare, range, { agentPullRequest: true }), [], "the App-looking fields alone never pass");
+  const request = forge.calls.find((call) => call.op === "createCommit")!.request as Readonly<Record<string, unknown>>;
+  assert.deepEqual(Object.keys(request).toSorted(), ["message", "parents", "tree"], "custom author/committer fields would prevent GitHub's signature");
+});
 
 test("the first round publishes signed twins with the same trees, moves the local branch to them, and opens ONE draft pull request with a generated body", async () => {
   const { root, bare, manager, forge } = forgeFixture("ws-forge-round");

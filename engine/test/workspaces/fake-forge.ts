@@ -2,6 +2,7 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { ForgeError } from "../../src/workflow/forge/codes.ts";
 import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { resolveGitExecutable } from "../../src/git/git-adapter.ts";
+import type { GitIdentity } from "../../src/git/git-port.ts";
 import { commitTreeReader, gitOutput, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
 import type { ForgeCommit, ForgeEnqueueAnswer, ForgePullRequest, ForgeTreeEntry, WorkspaceForge } from "../../src/workflow/workspace-forge.ts";
 
@@ -53,8 +54,13 @@ const FORGE_IDENTITY = deepFreeze({
 });
 
 /** A fake forge over the bare repository `bare`; `scratch` holds its private indexes (the tree writer's). */
-export function createFakeForge(bare: string, scratch: string): FakeForge {
+export function createFakeForge(bare: string, scratch: string, identity?: Readonly<{ author: GitIdentity; committer: GitIdentity }>): FakeForge {
   const repository: GitRepository = deepFreeze({ root: bare, executable: resolveGitExecutable(), timeoutMs: 30_000 });
+  const commitIdentity = identity === undefined ? FORGE_IDENTITY : {
+    ...FORGE_IDENTITY,
+    GIT_AUTHOR_NAME: identity.author.name, GIT_AUTHOR_EMAIL: identity.author.email,
+    GIT_COMMITTER_NAME: identity.committer.name, GIT_COMMITTER_EMAIL: identity.committer.email,
+  };
   const calls: FakeForgeCall[] = [];
   const pulls = new Map<number, FakePull>();
   let verified = true;
@@ -105,7 +111,7 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
       if (merging === null) throw new HarnessError(`pull request #${String(number)} is not in the merge queue`, "forge_validation_failed");
       const baseTip = headOf(pull.base)!;
       const tree = git(["merge-tree", "--write-tree", baseTip, merging]).split("\n")[0]!;
-      const merge = git(["commit-tree", tree, "-p", baseTip, "-p", merging, "-F", "-"], { input: Buffer.from(`Merge pull request #${String(number)}\n`, "utf8"), environment: FORGE_IDENTITY });
+      const merge = git(["commit-tree", tree, "-p", baseTip, "-p", merging, "-F", "-"], { input: Buffer.from(`Merge pull request #${String(number)}\n`, "utf8"), environment: commitIdentity });
       git(["update-ref", `refs/heads/${pull.base}`, merge, baseTip]);
       Object.assign(pull, { merged: true, mergeCommitSha: merge, state: "closed", queuedHead: null });
       // delete_branch_on_merge: the head branch goes, and the pull requests based on it are closed with it.
@@ -132,7 +138,7 @@ export function createFakeForge(bare: string, scratch: string): FakeForge {
     },
     async createCommit(request: Readonly<{ message: string; tree: string; parents: readonly string[] }>): Promise<ForgeCommit> {
       record("createCommit", request);
-      const sha = git(["commit-tree", request.tree, ...request.parents.flatMap((parent) => ["-p", parent]), "-F", "-"], { input: Buffer.from(request.message, "utf8"), environment: FORGE_IDENTITY });
+      const sha = git(["commit-tree", request.tree, ...request.parents.flatMap((parent) => ["-p", parent]), "-F", "-"], { input: Buffer.from(request.message, "utf8"), environment: commitIdentity });
       return deepFreeze({ sha, tree: request.tree, verified, verificationReason: verified ? "valid" : "unsigned" });
     },
     async branchHead(branch: string): Promise<string | null> {
