@@ -1,8 +1,9 @@
 # Merge and promotion guide
 
 This is the public-floor runbook for moving finished work: a feature branch
-into `testing` (§1b), and `testing` into `master` by promotion (§3–§5). It
-grants no integration role to work in another workspace. The rule it serves is
+into a configured forge trunk (§1b–§1c), and a promotion source into its
+profile's product target (§3–§5). It grants no integration role to work in
+another workspace. The rule it serves is
 [UR-12](../decisions/UR-12-master-changes-only-through-the-promotion-door.md):
 the product branch changes only through the promotion door. The design behind
 it is [PROMO-DIR](../decisions/PROMO-DIR-a-generic-promotion-primitive.md) and
@@ -15,36 +16,52 @@ follows is [WORKFLOW.md](WORKFLOW.md).
 
 ## 1. The model
 
-- **Work happens on `testing`.** Every edit, test, guard, record and tool
-  lives there, and reaches it only through a workspace merge (§1b) or the
-  committer's certified commits.
-- **`product` is a promotion of `main`** (on GitHub, the one repository;
-  [PROMO-GH](../decisions/PROMO-GH-the-product-is-promoted-on-land.md)). Its
-  tree is a pure function of a `main` commit S and the promotion profile S
-  carries (`promotion/main-to-product.json`): what the product's entry points
-  reach, what the profile includes, the files of its overlay folder, and the
-  derived package manifests and lockfiles. Nothing is merged, so nothing
-  conflicts and nothing is settled by hand.
-- **Never edit `product` directly**, and never use its checkout as a work
+- **Work happens in isolated feature workspaces.** Finished work reaches a
+  configured forge trunk through a reviewed, verified pull request and the
+  merge queue (§1c). A workspace's local target alias identifies a checkout;
+  its upstream must name an allowed forge trunk.
+- **A product target is a projection of its profile's source.** Its tree is
+  a pure function of a source commit S and the promotion profile S carries:
+  the product's reachable entry points, the profile's included files and
+  overlay, and the derived package manifests and lockfiles.
+- **Never edit a product target directly**, or use its checkout as a work
   tree. A direct edit is refused at the next promotion
-  (`promotion_target_edits`) and handed back as a patch to land on `main`
-  (§4).
-- **Never merge `product` into `main`.** The promotion refuses a source that
-  holds a promotion commit (`promotion_never_rule`): the rule is structural,
-  not a convention.
+  (`promotion_target_edits`) and handed back as a patch to land on the source
+  through the normal workspace workflow (§4).
+- **Never merge a product target into its source.** The promotion refuses a
+  source that holds a promotion commit (`promotion_never_rule`).
 
-## 1b. Feature → `testing`: the workspace merge — refusals and the land
+The branch names below come from the selected repository tree's canonical
+configuration and every validated promotion profile. `harness check` refuses
+stale roles; `harness sync` regenerates this block. Change the declarations,
+then regenerate; the surrounding instructions use roles rather than duplicate
+branch names. [The profile owner](../../engine/src/workflow/promotion/profile.ts)
+validates and projects them; [the configuration contract](../../engine/src/kernel/config-contracts.ts)
+defines `workspaceIsolation.landTargets` and `promotion.profileDirectory`.
+
+<!-- BEGIN GENERATED: merge guide branch roles (harness sync; engine/src/workflow/promotion/profile.ts) -->
+
+| Role | Branch | Authority |
+| --- | --- | --- |
+| Workspace forge trunk | <code>main</code> | [engine/bridlewise\.config\.json](../../engine/bridlewise.config.json) `/workspaceIsolation/landTargets/0` |
+| Promotion main\-to\-product\: source | <code>main</code> | [promotion/main\-to\-product\.json](../../promotion/main-to-product.json) `/source/ref` |
+| Promotion main\-to\-product\: target | <code>product</code> | [promotion/main\-to\-product\.json](../../promotion/main-to-product.json) `/target/ref` |
+<!-- END GENERATED: merge guide branch roles -->
+
+## 1b. Feature → configured forge trunk: the workspace merge — refusals and the land
 
 A feature workspace lands on its target's UPSTREAM trunk on the forge — one
-of `workspaceIsolation.landTargets`, which name the forge's trunk (this
-repository: `main` on GitHub), never a local branch name: any local branch
+of `workspaceIsolation.landTargets`, which name the forge's trunk, never a
+local branch name: any local branch
 whose upstream is that trunk lands there, and a target whose upstream is
-another trunk, another remote, or none is refused at create. There are two
-ways to land, side by side: `ws land` through the forge's merge queue (§1c),
-and the local integrator, `npm run ws -- merge <id>` (= `node
+another trunk, another remote, or none is refused at create. The normal
+landing path is a pull request through `ws land` and the forge's merge queue
+(§1c). The local integrator, `npm run ws -- merge <id>` (= `node
 engine/src/cli.ts harness workspace merge <id>`, in
-`engine/src/workflow/workspace-manager.ts`), which lands locally and leaves
-the push to the caller. Under the repository's merge lock (merges queue):
+`engine/src/workflow/workspace-manager.ts`), lands locally. It is an
+integration primitive; the public workflow uses pull requests. Finished public milestones use publish, ready and
+land; do not push the trunk directly. Under the repository's merge lock
+(merges queue):
 
 1. **Preconditions.** Validated (`ws validate`), the target still a land
    target, the lease live, the worktree intact and clean at the validated
@@ -72,7 +89,8 @@ the push to the caller. Under the repository's merge lock (merges queue):
    checkout it snapshotted.
 6. **After the land**: the qualifying runs imported into the landing
    checkout's ledgers, the timeline import, the worktree and branch removed, a
-   hashed receipt. Then push `testing`.
+   hashed receipt. Public milestones still use the reviewed pull request and
+   merge queue (§1c); a local merge does not authorize a direct trunk push.
 
 A failure before the land leaves every checkout untouched and the workspace
 `active` (or `validating` when git refused the land itself). An integrator
@@ -93,7 +111,7 @@ newer code. They are upcast in memory and never written, as the decision
 states. Act on an older workspace from the checkout of the version that made
 it.
 
-## 1c. Feature → `main` on the forge: `ws land`
+## 1c. Feature → configured forge trunk on the forge: `ws land`
 
 `npm run ws -- land <id>` puts a workspace's pull request in the forge's
 MERGE QUEUE and waits for the queue's verdict. Auto-merge is never used.
@@ -186,7 +204,7 @@ Run them from the engine package root of the development checkout. See
 [engine/src/workflow/README.md](../../engine/src/workflow/README.md) for the
 full workspace command list and the registry/config leaves.
 
-## 3. `testing` → `master`: `harness promote`
+## 3. Promotion source → product target: `harness promote`
 
 `npm run promote -- <verb>` (= `node engine/src/cli.ts harness promote
 <verb>`, from any checkout of the repository; the promoter is
@@ -195,7 +213,7 @@ full workspace command list and the registry/config leaves.
 | Verb | What it does |
 |---|---|
 | `status` | The source and target tips, the commits waiting (and the oldest one's age), the pending and hold refs, the last run's state and result, and the preflight (git, node and each command's tool, the work folder's filesystem and free space, `core.hooksPath`). Changes nothing. |
-| `plan [--diff] [--patch]` | What `master` would become: every added, modified and deleted path with its reason, the derived manifests and lockfiles, the target's direct edits, the refusals and the advisories. Writes objects only. |
+| `plan [--diff] [--patch]` | What the product target would become: every added, modified and deleted path with its reason, the derived manifests and lockfiles, the target's direct edits, the refusals and the advisories. Writes objects only. |
 | `explain <path>…` | Why a path ships or not: the import chain from an entry point, the include, the companion rule, the exclusion. |
 | `apply` | The promotion, end to end (below). |
 | `rollback --to <promotion commit> --reason <text>` | §5. |
@@ -210,11 +228,11 @@ process exits with its class's code (§7).
 
 1. **Lock and reconcile.** One promotion per target ref (a repository-wide
    lock; a live holder is never broken). The remote's source, target and hold
-   are read and fetched; a local `master` behind its remote is fast-forwarded
+   are read and fetched; a local product target behind its remote is fast-forwarded
    first (a `--no-publish` run moves nothing: it builds on the remote's tip),
    ahead of it (an earlier promotion published with `--no-push`) is carried,
    apart from it is `promotion_target_diverged`; S must be ordered with the
-   remote's `testing` (`promotion_source_diverged`). A hold stops the run
+   remote's promotion source (`promotion_source_diverged`). A hold stops the run
    (§5).
 2. **Plan** (as `plan`). Its refusals stand, except two that an explicit,
    reasoned flag accepts: `--accept-target-edits <exactly the plan's list>
@@ -222,11 +240,11 @@ process exits with its class's code (§7).
    promote ends the run (`promotion_up_to_date`, `promotion_unchanged`).
 3. **Build and certify**, in a disposable worktree beside the repository (on
    its filesystem, under `workspaceIsolation.workspaceRoot`): the candidate
-   holds `master`'s tip with the projected tree; the profile's `setup`
+   holds the product target's tip with the projected tree; the profile's `setup`
    commands run, its `converge` commands are driven to a fixed point (only
    generated outputs may change), its `verify` gates run on the exact tree,
    and ONE `git commit` records it — the repository's commit hooks certify
-   it like any commit, never `--no-verify`. The commit has `master`'s tip and
+   it like any commit, never `--no-verify`. The commit has the product target's tip and
    S as parents, S's committer as author and committer at S's date, and the
    trailers `Projected-From`, `Promotion-Profile` (and
    `Promotion-Accepted-Target-Edits`). It is pinned by
@@ -235,15 +253,15 @@ process exits with its class's code (§7).
    with its evidence (argv, attempts, duration, the load it met), the
    toolchain. `--no-publish` stops here.
 4. **Publish** — the remote first: ONE `git push --atomic` of the commit to
-   `master`, its receipt, and `testing` when the remote's `testing` lags S
+   the product target, its receipt, and the promotion source when the remote's promotion source lags S
    (never forced); `ls-remote` must then read the commit. A push rejected
    because the remote moved re-plans once. Then the checkout that holds
-   `master` is fast-forwarded (a torn fast-forward is completed with git
+   the product target is fast-forwarded (a torn fast-forward is completed with git
    alone — only when every path in the way already holds the commit's bytes
    and is staged as the old tip or the commit records it: a version staged
    there that is neither is that checkout's own work, and parks the
    promotion). `--no-push` publishes locally only (the next run pushes it).
-5. **Finish** — in the checkout that holds `master`: the configuration
+5. **Finish** — in the checkout that holds the product target: the configuration
    document's mode restored (0600), the candidate's pinned build outputs (the
    bundle, the guardian binary) installed as one journaled transaction, the
    index baseline checked, and the setup commands its new tree needs named
@@ -255,16 +273,16 @@ trailers: a crash at any point is finished by running `apply` again (a pinned
 commit is published, a published one landed, a landed one finished), and the
 same inputs rebuild the same commit. There is no resume or abort verb.
 
-**Parking.** When the checkout that holds `master` has its own edits on paths
+**Parking.** When the checkout that holds the product target has its own edits on paths
 the promotion changes, the remote is already right, and nothing there is
 touched: `promotion_parked` (exit 7) names the paths. Commit them on
-`testing` or discard them there, then run `apply` again (or `git merge
+the promotion source or discard them there, then run `apply` again (or `git merge
 --ff-only` there) — nothing is rebuilt.
 
 ### 3.2 Where it runs
 
-Any checkout: the `testing` checkout, the `master` checkout (the profile is
-found through `master`'s last `Promotion-Profile` trailer), a workspace, a
+Any checkout: the promotion source checkout, the product target checkout (the profile is
+found through the product target's last `Promotion-Profile` trailer), a workspace, a
 fresh clone. S's own committed promoter promotes S: when the invoking
 checkout is not clean at S, `apply` re-executes itself in the promoter home
 (a detached worktree at S beside the repository, its engine dependencies
@@ -287,21 +305,21 @@ promoter home's): while another run holds it, it answers
 `promotion_locked` (exit 0) and that holder owes the newer source. **Latest
 wins**: every `apply` — whatever it answered, a failure included, except a
 hold or a coalesced run — ends, once its locks are released and in its
-top-level process, by fetching the remote's `testing`; when it holds a commit
+top-level process, by fetching the remote's promotion source; when it holds a commit
 the run's S does not contain, the trigger's own rules decide over that tip and
 start one more unattended run. When the previous run of a profile did not end
 ok, the next push prints ONE line on stderr naming it and `harness promote
 status --profile <name>`. The promoter's own fetches and pushes never
 trigger anything.
 
-## 4. The first promotion, and direct edits of `master`
+## 4. The first promotion, and direct edits of the product target
 
 Since the last promotion — or, the first time, since the merge base — any
-path `master` changed that the projection does not reproduce is a **target
+path the product target changed that the projection does not reproduce is a **target
 edit**: `plan` lists each one and writes the reverse patch
 (`<registry>/promotion/<profile>/target-edits-<T>-<S>.patch`). Either land the
-patch on `testing` (the next promotion reproduces those bytes with nothing to
-accept, and records it — even when nothing else changed — so later `testing`
+patch on the promotion source (the next promotion reproduces those bytes with nothing to
+accept, and records it — even when nothing else changed — so later source
 edits of those paths are never read as the target's again), or overwrite them
 once, deliberately: `apply --accept-target-edits <the exact
 list> --reason <text>` (the trailer and the receipt record it; a different
@@ -310,20 +328,20 @@ list is refused).
 The first promotion is not a special mode: the coordinator reviews `plan
 --diff --text` (the added modules, the deletions, the derived manifests, the
 target-edit list with each diff, and the advisories), then runs `apply
---accept-target-edits <exact list> --reason "bootstrap: master adopts
-testing's shared files"`, then switches the profile's `trigger` to
-`on-source-publish` on `testing`.
+--accept-target-edits <exact list> --reason "bootstrap: the product target adopts
+the source's shared files"`, then switches the profile's `trigger` to
+`on-source-publish` on the promotion source.
 
 ## 5. Rollback and hold
 
-- `rollback --to <promotion commit> --reason <text>` restores `master` to what
+- `rollback --to <promotion commit> --reason <text>` restores the product target to what
   an earlier promotion shipped with a NEW commit (its tree, one parent: the
   tip; `Promotion-Restores`), built, certified and published like a
   promotion — never a forced push. It sets the profile's **hold**, pushed
   atomically with it (the hold is in force here only once the rollback is
   pinned: a failed build leaves none behind; a rerun of an unpublished one
-  pushes both). A rollback touches `master` and the hold only: it never reads
-  or pushes `testing`. A rollback of a rollback is refused; so is the tip.
+  pushes both). A rollback touches the product target and the hold only: it never reads
+  or pushes the promotion source. A rollback of a rollback is refused; so is the tip.
 - While held, an unattended run answers `promotion_held` (exit 0) and a manual
   `apply` refuses unless given `--release-hold --reason <text>` (a human says
   the defect is fixed).
@@ -333,7 +351,7 @@ testing's shared files"`, then switches the profile's `trigger` to
 
 ## 6. The profile
 
-`promotion/<name>.json` on the source branch (read from the source commit,
+A profile under the configured `promotion.profileDirectory` on the source branch (read from the source commit,
 never a working tree; validated strictly, every value stated; see
 [promotion/README.md](../../promotion/README.md)):
 
@@ -350,7 +368,7 @@ never a working tree; validated strictly, every value stated; see
   (`workspaceIsolation.commands`);
 - `safety.maxDeletedFraction`.
 
-Changing what ships is a commit on `testing` to this file, judged at every
+Changing what ships is a commit on the promotion source to this file, judged at every
 change by the source-side guard. A second pair is a second file.
 
 ## 7. Codes

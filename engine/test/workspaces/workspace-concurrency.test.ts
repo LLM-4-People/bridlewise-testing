@@ -6,6 +6,7 @@ import test from "node:test";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { acquireLock, LockAcquisitionTimeout } from "../../src/workflow/resource-lock.ts";
 import { FILE_LOCK_SCHEMA_VERSION, type FileLockContent } from "../../src/filesystem/file-lock.ts";
+import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import {
   WorkspaceConflictError,
   WorkspaceIntegrityError,
@@ -13,12 +14,14 @@ import {
 } from "../../src/workflow/workspace-manager.ts";
 import {
   commitFile,
+  forgeAt,
   initTempRepo,
   makeManager,
   makeTestConfig,
   mkWorkspaceTempDir,
   rawGit,
   registryRoot,
+  registryOf,
   trackBranch,
 } from "./workspace-test-support.ts";
 
@@ -178,22 +181,107 @@ test("deleting the worktree's .git entry mid-run quarantines without touching th
   assert.equal(sha256(readFileSync(join(root, ".git/index"))), indexBefore);
 });
 
-test("an expired lease aborts through validation and through the sweep; the sweep removes a quarantined worktree past its retention", async () => {
+for (const preserveOnFailure of [false, true]) {
+  test(`expiry revokes authority without ending a clean published workspace (preserveOnFailure=${preserveOnFailure})`, async () => {
+    let clock = Date.parse("2026-11-13T00:00:00Z");
+    const { root, bare } = initTempRepo("ws-expiry-authority");
+    const config = makeTestConfig(mkWorkspaceTempDir("ws-expiry-authority-wt"), { preserveOnFailure });
+    const { manager, git } = makeManager(root, { config, now: () => new Date(clock) });
+    const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+    commitFile(record.lease.worktreePath, "src/work.ts", "preserved work\n");
+    const published = await manager.publish(record.workspaceId);
+    const before = manager.status(record.workspaceId);
+    rawGit(root, ["merge", "--ff-only", published.round.head]);
+    const indexPath = rawGit(record.lease.worktreePath, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const index = readFileSync(indexPath);
+    const calls = forgeAt(bare).calls.length;
+    let removals = 0;
+    const expiring = makeManager(root, { config, now: () => new Date(clock), git: {
+      ...git,
+      worktreeRemove(request) {
+        removals++;
+        writeFileSync(join(request.worktreePath, "late-work.txt"), "unique work at removal\n");
+        return git.worktreeRemove(request);
+      },
+    } }).manager;
+    clock += 2 * config.leaseTtlMs;
+    await assert.rejects(() => expiring.validate(record.workspaceId), WorkspaceLeaseExpiredError);
+    assert.deepEqual((await expiring.sweep()).swept, []);
+    assert.deepEqual(manager.status(record.workspaceId), before, "expiry is not an abort or quarantine decision");
+    assert.equal(removals, 0, "age never starts destructive cleanup, even when the current tree is clean");
+    assert.equal(forgeAt(bare).calls.length, calls, "expiry never closes or otherwise changes the pull request");
+    assert.deepEqual(readFileSync(indexPath), index, "the actual index remains intact");
+    writeFileSync(join(record.lease.worktreePath, "new-work.txt"), "work after expiry\n");
+    assert.equal((await expiring.extend(record.workspaceId, record.lease.writeSet)).lease.generation, before.lease.generation + 1);
+    assert.equal(readFileSync(join(record.lease.worktreePath, "new-work.txt"), "utf8"), "work after expiry\n");
+  });
+}
+
+test("old clean explicitly quarantined workspaces can be safely retired", async () => {
   let clock = Date.parse("2026-09-30T12:00:00.000Z");
   const { root } = initTempRepo("ws-expired");
   const config = makeTestConfig(mkWorkspaceTempDir("ws-expired-wt"), { leaseTtlMs: 1_000, quarantineTtlMs: 5_000 });
   const { manager } = makeManager(root, { config, now: () => new Date(clock) });
   const first = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/e1"] });
   const second = await manager.create({ agentName: "agentB", mode: "feature", writeSet: ["src/e2"] });
-  clock += 2_000;
-  await assert.rejects(() => manager.validate(first.workspaceId), WorkspaceLeaseExpiredError);
+  await manager.abort(first.workspaceId, { quarantine: true });
+  await manager.abort(second.workspaceId, { quarantine: true });
   assert.equal(manager.status(first.workspaceId).state, "quarantined");
-  assert.deepEqual((await manager.sweep()).swept, [second.workspaceId]);
+  assert.deepEqual((await manager.sweep()).swept, []);
   assert.equal(manager.status(second.workspaceId).state, "quarantined");
   assert.ok(existsSync(first.lease.worktreePath) && existsSync(second.lease.worktreePath), "quarantine preserves the worktrees");
   assert.match(rawGit(root, ["worktree", "list", "--porcelain"]), /locked/u, "a quarantined worktree is locked");
 
   clock += 10_000;
   assert.deepEqual([...(await manager.sweep()).swept].toSorted(), [first.workspaceId, second.workspaceId].toSorted());
-  assert.ok(!existsSync(first.lease.worktreePath) && !existsSync(second.lease.worktreePath), "past its retention a quarantined (locked) worktree is removed");
+  assert.ok(!existsSync(first.lease.worktreePath) && !existsSync(second.lease.worktreePath), "age schedules the check; clean state and preserved ancestry authorize removal");
+});
+
+test("a stale sweep census cannot close or end a workspace whose explicit renewal already completed", async () => {
+  let clock = Date.parse("2026-11-13T00:00:00Z");
+  const { root, bare } = initTempRepo("ws-renew-sweep");
+  const config = makeTestConfig(mkWorkspaceTempDir("ws-renew-sweep-wt"));
+  const { manager } = makeManager(root, { config, now: () => new Date(clock) });
+  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/work.ts", "unfinished work\n");
+  await manager.publish(record.workspaceId);
+  clock += 2 * config.leaseTtlMs;
+  const expiredCensus = manager.status(record.workspaceId);
+  const renewed = await manager.extend(record.workspaceId, record.lease.writeSet);
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
+  let reads = 0;
+  const sweeping = makeManager(root, { config, now: () => new Date(clock), records: {
+    ...store,
+    list: () => [expiredCensus],
+    load(workspaceId) {
+      reads++;
+      if (reads === 1) return expiredCensus;
+      assert.ok(existsSync(join(registryRoot(root), "locks", `${config.admissionLock.name}.lock`)), "the authoritative expiry recheck holds admission");
+      return store.load(workspaceId);
+    },
+  } }).manager;
+  const calls = forgeAt(bare).calls.length;
+  assert.deepEqual((await sweeping.sweep()).swept, []);
+  assert.deepEqual(manager.status(record.workspaceId), renewed);
+  assert.equal(forgeAt(bare).calls.length, calls, "fresh state is checked before any forge effect");
+  assert.equal(reads, 2, "the stale observation is replaced under the shared lock");
+  assert.ok(existsSync(record.lease.worktreePath));
+});
+
+test("expiry preserves an unfinished published workspace and its PR so explicit renewal remains possible", async () => {
+  let clock = Date.parse("2026-11-13T00:00:00Z");
+  const { root, bare } = initTempRepo("ws-expiry-preserve");
+  const config = makeTestConfig(mkWorkspaceTempDir("ws-expiry-preserve-wt"));
+  const { manager } = makeManager(root, { config, now: () => new Date(clock) });
+  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/work.ts", "unfinished work\n");
+  await manager.publish(record.workspaceId);
+  const before = manager.status(record.workspaceId);
+  const calls = forgeAt(bare).calls.length;
+  clock += 2 * config.leaseTtlMs;
+  await assert.rejects(() => manager.validate(record.workspaceId), WorkspaceLeaseExpiredError);
+  assert.deepEqual((await manager.sweep()).swept, []);
+  assert.deepEqual(manager.status(record.workspaceId), before);
+  assert.equal(forgeAt(bare).calls.length, calls, "age alone never closes unfinished work's PR");
+  assert.equal((await manager.extend(record.workspaceId, record.lease.writeSet)).lease.generation, before.lease.generation + 1);
 });

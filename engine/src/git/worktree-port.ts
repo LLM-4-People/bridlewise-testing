@@ -313,6 +313,8 @@ export type WorktreeGitPort = Readonly<{
   /** Every path the checkout's status names (`--porcelain=v2 -z`, every untracked file): what changed where. */
   status(cwd: string, timeoutMs: number): readonly StatusEntry[];
   deleteBranch(repoRoot: string, branch: string, force: boolean, timeoutMs: number): void;
+  /** Deletes only an agent branch still at the expected tip; a moved tip is a refusal, never forced. */
+  deleteBranchAt(repoRoot: string, branch: string, expectedTip: string, timeoutMs: number): RefusableOutcome;
   verifyWorktreeIntact(worktreePath: string, timeoutMs: number): boolean;
 }>;
 
@@ -1184,6 +1186,16 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
         cwd: repoRoot,
         timeoutMs,
         allowedExitCodes: [0],
+      });
+    },
+
+    deleteBranchAt(repoRoot: string, branch: string, expectedTip: string, timeoutMs: number): RefusableOutcome {
+      assertAbsolutePath(repoRoot, "repoRoot");
+      assertAgentBranchName(branch, branchNamespace);
+      assertGitSha(expectedTip, "expectedTip");
+      return refusable("update-ref -d (agent branch)", {
+        args: ["-c", "gc.auto=0", "-C", repoRoot, "update-ref", "-d", `refs/heads/${branch}`, expectedTip],
+        cwd: repoRoot, timeoutMs, allowedExitCodes: [0],
       });
     },
 

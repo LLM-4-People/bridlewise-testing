@@ -25,7 +25,7 @@
  * directories appear during a run (reports, state, build output).
  *
  * ONE DECLARED EXCEPTION, IN THE READER: {@link machineIgnoredFiles}. The
- * commit guard's move-loss check asks a different question from every
+ * commit guard's move-loss check and workspace retirement ask a different question from every
  * population above — not "what does the repository own" but "what did
  * `git add -A` skip ON THIS MACHINE" — and `git add` honours
  * `.git/info/exclude` and the user's `core.excludesFile` too. Judged by the
@@ -33,7 +33,8 @@
  * ignores (or a rename to a `core.excludesFile` pattern) dropped a tracked
  * file with the guard green (wf-del-verify P3). So that one population is
  * git's full, machine-local ignore view (`--exclude-standard`), and no other
- * reader may use it.
+ * population reader may use it. Retirement must preserve those skipped bytes
+ * too; an ignore rule never proves that a file is disposable.
  *
  * The prevention guard `repository-ownership-reader.test.ts` refuses a
  * `git ls-files` population query (`--others`, `--ignored`, `--exclude*`,
@@ -208,10 +209,10 @@ export type FlaggedIndexEntry = Readonly<{ flag: "skip-worktree" | "assume-uncha
  * mode the INDEX holds — git's view of the path, the one a commit records,
  * whatever the disk holds.
  */
-export function flaggedIndexEntries(top: string, paths: readonly string[]): ReadonlyMap<string, FlaggedIndexEntry> {
+export function flaggedIndexEntries(top: string, paths: readonly string[], environment: GitEnvironment = "inherited"): ReadonlyMap<string, FlaggedIndexEntry> {
   const flagged = new Map<string, FlaggedIndexEntry>();
-  const tags = gitNulRecords(top, ["ls-files", "-v", "-z", "--", ...paths], "inherited");
-  const stages = new Map(gitNulRecords(top, ["ls-files", "-s", "-z", "--", ...paths], "inherited").map((record) => {
+  const tags = gitNulRecords(top, ["ls-files", "-v", "-z", "--", ...paths], environment);
+  const stages = new Map(gitNulRecords(top, ["ls-files", "-s", "-z", "--", ...paths], environment).map((record) => {
     const tab = record.indexOf("\t");
     const [mode, oid] = record.slice(0, tab).split(" ");
     return [record.slice(tab + 1), { mode: mode!, oid: oid! }] as const;
@@ -222,7 +223,7 @@ export function flaggedIndexEntries(top: string, paths: readonly string[]): Read
     const flag = tag === "S" || tag === "s" ? "skip-worktree" : tag !== tag.toUpperCase() ? "assume-unchanged" : undefined;
     const entry = stages.get(path);
     if (flag === undefined || entry === undefined) continue;
-    const bytes = execFileSync("git", ["cat-file", "blob", entry.oid], { cwd: top, env: gitProcessEnvironment("inherited"), maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
+    const bytes = execFileSync("git", ["cat-file", "blob", entry.oid], { cwd: top, env: gitProcessEnvironment(environment), maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes });
     flagged.set(path, Object.freeze({ flag, mode: entry.mode, bytes }));
   }
   return flagged;
@@ -355,8 +356,8 @@ export function revisionFileText(top: string, rev: string, path: string, environ
   return STRICT_UTF8.decode(execFileSync("git", ["cat-file", "blob", `${rev}:${path}`], { cwd: top, env, maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes }));
 }
 
-function listPaths(cwd: string, argv: readonly string[]): readonly string[] {
-  return gitNulRecords(cwd, ["ls-files", "-z", ...argv], "inherited");
+function listPaths(cwd: string, argv: readonly string[], environment: GitEnvironment = "inherited"): readonly string[] {
+  return gitNulRecords(cwd, ["ls-files", "-z", ...argv], environment);
 }
 
 /**
@@ -385,8 +386,8 @@ export function presentTrackedFiles(root: string): readonly string[] | undefined
 }
 
 /** `listed` minus git's own `ls-files --deleted` under `absoluteRoot` (the one unstaged-deletion answer). */
-function withoutUnstagedDeletions(absoluteRoot: string, listed: readonly string[]): readonly string[] {
-  const deleted = new Set(listPaths(absoluteRoot, ["--deleted", "--deduplicate", "--", "."]));
+function withoutUnstagedDeletions(absoluteRoot: string, listed: readonly string[], environment: GitEnvironment = "inherited"): readonly string[] {
+  const deleted = new Set(listPaths(absoluteRoot, ["--deleted", "--deduplicate", "--", "."], environment));
   return deleted.size === 0 ? listed : Object.freeze(listed.filter((path) => !deleted.has(path)));
 }
 
@@ -395,19 +396,21 @@ function withoutUnstagedDeletions(absoluteRoot: string, listed: readonly string[
  * plus untracked-but-not-ignored under the versioned rules. An UNSTAGED
  * deletion is absent (a directory whose tracked files were all deleted is no
  * longer an owned entry — no "git rm" is needed for discovery to agree with
- * the disk). `undefined` outside a work tree.
+ * the disk). `undefined` outside a work tree. The default honors hook Git
+ * state; an explicit directory context applies to root, listing and deletion
+ * queries together, for consumers selecting another repository.
  */
-export function ownedFiles(root: string): readonly string[] | undefined {
+export function ownedFiles(root: string, environment: GitEnvironment = "inherited"): readonly string[] | undefined {
   const absoluteRoot = resolve(root);
-  if (repositoryToplevel(absoluteRoot, "inherited") === undefined) return undefined;
-  return withoutUnstagedDeletions(absoluteRoot, listPaths(absoluteRoot, ["--cached", "--others", "--deduplicate", VERSIONED_IGNORE_RULES, "--", "."]));
+  if (repositoryToplevel(absoluteRoot, environment) === undefined) return undefined;
+  return withoutUnstagedDeletions(absoluteRoot, listPaths(absoluteRoot, ["--cached", "--others", "--deduplicate", VERSIONED_IGNORE_RULES, "--", "."], environment), environment);
 }
 
 /**
  * Every untracked file under `root` that git ignores ON THIS MACHINE — the
  * versioned rules plus `.git/info/exclude` and `core.excludesFile`
- * (`--exclude-standard`): exactly what `git add -A` skips. The move-loss
- * population only (see the header); relative to `root`, one entry per file.
+ * (`--exclude-standard`): exactly what `git add -A` skips. The preservation
+ * population (move-loss and retirement); relative to `root`, one entry per file.
  * `undefined` outside a work tree.
  */
 export function machineIgnoredFiles(root: string, environment: GitEnvironment): readonly string[] | undefined {

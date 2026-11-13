@@ -9,7 +9,7 @@ import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { REQUIREMENTS_REGISTRY_IDENTITY_HASH, REQUIREMENTS_REGISTRY_SOURCE_PATH } from "../kernel/requirements.ts";
 import { FORENSIC_SCHEMA_BUNDLE_HASH } from "../forensics/forensic-contracts.ts";
 import { S3_OFFLINE_FORENSIC_HASH } from "../forensics/offline-forensics.ts";
-import { DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, TRACKER_BOARD, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
+import { GENERATED_BLOCKS, PIN_AUTHORITY_PATHS, SHIPPED_HOOK_FILES, SLICE_PROJECTION_PATHS, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { computeGuardianBuildStamp } from "../filesystem/self-protection/guardian-build-stamp.ts";
 import { ARCHITECTURE_EXTERNAL_COMMANDS } from "../kernel/architecture-external-commands.ts";
 import { ARCHITECTURE_MODULES_PATH } from "./architecture-module-entries.ts";
@@ -497,15 +497,8 @@ export function generatedOutputPaths(): ReadonlySet<string> {
     ...Object.values(ROOT_POLICY.verification.ratchetBaselines),
     // The architecture judge's baseline: a fixed path in code, never a policy entry (ratchet-baselines.ts).
     VERIFICATION_PATHS.architectureJudgeBaseline,
-    // The decision index a regenerate pass rebuilds from the decision files
-    // (`DECISION_INDEX.generator`).
-    DECISION_INDEX.path,
-    // The task board a regenerate pass renders from the tracker items
-    // (`TRACKER_BOARD.generator`).
-    TRACKER_BOARD.path,
-    // The root ignore file's evidence block, which a sync pass rewrites from the
-    // evidence manifests (`EVIDENCE_IGNORE_BLOCK.generator`).
-    EVIDENCE_IGNORE_BLOCK.path,
+    // Every partial generated output is registered once, with its own markers.
+    ...GENERATED_BLOCKS.map((block) => block.path),
     // The shipped hooks a regenerate pass writes whole from their owners
     // (`SHIPPED_HOOK_FILES.generator`).
     ...SHIPPED_HOOK_PATHS,
@@ -730,13 +723,13 @@ function blankBlocks(text: string, begin: string, end: string): string {
 /**
  * A generated output's text with its GENERATED parts blanked: the pin
  * literals of a pin-bearing file ({@link suiteRegeneratedPaths}, the
- * source-authority pins) and the body of every generated block
- * (`GENERATED_BLOCKS`: the decision index, the evidence ignore block). What
+ * source-authority pins) and the body of each generated block registered for
+ * this path (`GENERATED_BLOCKS`). Foreign markers in examples stay authored. What
  * is left is the file's AUTHORED part.
  */
 function stripGeneratedParts(path: string, text: string): string {
   const pinBearing = suiteRegeneratedPaths().has(path) || Object.values(PIN_AUTHORITY_PATHS).some((pinned) => `engine/${pinned}` === path);
-  return GENERATED_BLOCKS.reduce((current, block) => blankBlocks(current, block.begin, block.end), pinBearing ? stripRegeneratedPins(path, text) : text);
+  return GENERATED_BLOCKS.filter((block) => block.path === path).reduce((current, block) => blankBlocks(current, block.begin, block.end), pinBearing ? stripRegeneratedPins(path, text) : text);
 }
 
 /**

@@ -8,8 +8,10 @@ The `engine/test/workspaces/` folder of the development surface.
 - `timeline-shard.test.ts` — the `timeline-shard.test` module.
 - `workspace-concurrency.test.ts` — one registry and lock pair per repository seen from every worktree, concurrent
   admission (exactly one of two overlapping creates), read-only workspaces, `extend`, merge-lock contention and
-  stale-lock recovery, a destroyed worktree, lease expiry and the sweep of quarantined (locked) worktrees.
-- `workspace-contracts.test.ts` — the closed v4 records (the forge state and its land in flight among them), the state machine, the receipt hash, the derived
+  stale-lock recovery, a destroyed worktree, expiry preserving clean and unfinished work and its PR under either
+  failure-preservation policy, explicit quarantine retirement,
+  and a stale sweep census that must not close a renewed workspace's pull request.
+- `workspace-contracts.test.ts` — the closed versioned records (the forge state and its land in flight among them), the state machine, the receipt hash, the derived
   never-leasable set and the read-only lease invariants.
 - `fake-forge.ts` — a fake forge over a real bare repository (the workspace's remote): the Git Data API writes real
   objects there, pull requests are kept in memory with the forge's own refusals, a merge queue with GitHub's
@@ -24,7 +26,7 @@ The `engine/test/workspaces/` folder of the development surface.
   (and a refused one, receipted), the preconditions, every guard each in its own test (a moved head, a closed pull
   request, the changed set judged against the forge's trunk, an unconfirmed merge, an idempotent finish), the probes
   of a forge that queued or merged another head, the queue's own verdicts, the wait budget and its resume, and
-  abort closing the pull request.
+  abort closing the pull request, and post-queue local work retained while the verified land remains successful.
 - `workspace-forge.test.ts` — publishing on the forge: signed twins with the local trees (modes, links, nested paths),
   no identity in a commit request, the local branch moved to the twins, one draft pull request with a generated body,
   later rounds (only new blobs), merges of the trunk and rebases, a crashed round's pull request and twins adopted,
@@ -39,7 +41,11 @@ The `engine/test/workspaces/` folder of the development surface.
   target and a merged-in branch (the fork-point changed set), the lease exempting a regeneration and never an
   authored edit, generated-output conflicts, the merge's own pending-lease and staleness checks, the regenerate
   phase's declared writes, convergence, setup, placement, the like-for-like ledger baseline, the record
-  compare-and-swap, recovery of a dead integrator, the timeline import and the teardown failures.
+  compare-and-swap, recovery of a dead integrator, the timeline import and cleanup refusals that preserve successful
+  landing receipts. Explicit expired renewal rechecks the entire lease and preserves raw index/PR state.
+  Retirement preserves staged, unstaged, untracked, ignored, flagged-index, unmerged and snapshot-only work,
+  including machine exclusions, nested repositories and a foreign inherited Git index; unknown state is retained. Native non-force
+  removal and expected-tip branch deletion cover changes observed at the final deletion boundary.
 - `workspace-migration.test.ts` — the one record migration chain v2 → v3 → v4 → v5 and per-version storage over real v2
   records (`fixtures/v2-records/`, copied from a host registry: arrays trimmed, home paths replaced) and v3 and v4 records
   of this code's own workspaces: deterministic, receipts kept verbatim, migrated in memory and NEVER rewritten
@@ -59,7 +65,8 @@ The `engine/test/workspaces/` folder of the development surface.
 - `worktree-port.test.ts` — the pinned port's argument vectors, refusals as data, hostile inputs and the projected
   hook environment; the promotion candidate's operations (`merge -s ours` of a commit, `read-tree --reset`,
   stage-all answering the tree, missing objects), the dated identity, and the harness's own refs (create only
-  when absent, delete only at the old value, never a branch, tag or remote-tracking ref).
+  when absent, delete only at the old value, never a branch, tag or remote-tracking ref); the separate agent-branch
+  deletion operation is namespace limited and compares its expected tip before deleting.
 - `write-set-proof.test.ts` — the write-set path arithmetic (prefix boundaries, the regeneration-only exemption).
 
 ## Where it lives and what consumes it

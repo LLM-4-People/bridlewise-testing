@@ -284,7 +284,7 @@ export function registerWorkspaceGitExposure(): void {
     id: "workspaceGit.sweepWorkspaces",
     module: "workspaceGit",
     name: "Sweep the workspaces",
-    description: "End every workspace whose lease expired (quarantined when failures are preserved), recover every workspace whose integrator died mid-merge (finish a land that happened, else back to active), and remove the quarantined worktrees past their retention — `harness workspace sweep`.",
+    description: "Recheck expired leases under the admission lock, retaining every workspace and its pull request for explicit renewal; recover dead integrators and retire old quarantines only after proving no unique work remains — `harness workspace sweep`.",
     execute: async () => requireGitStateSource().sweepWorkspaces(),
   });
   registerAction({

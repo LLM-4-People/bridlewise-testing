@@ -10,6 +10,7 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { landCommit } from "../../src/workflow/tree-landing.ts";
+import { indexFilePath } from "../../src/git/repository-ownership.ts";
 import { WEB_RUN_HISTORY_PATH, suiteLedgerPaths, type SuiteLedgerName } from "../../src/shared/run-history.ts";
 import { DECISION_INDEX } from "../../src/kernel/verification-paths.ts";
 import { acquireLock } from "../../src/workflow/resource-lock.ts";
@@ -21,7 +22,6 @@ import {
   createWorkspaceTimelineHooks,
   WorkspaceConflictError,
   WorkspaceGateFailedError,
-  WorkspaceLeaseExpiredError,
 } from "../../src/workflow/workspace-manager.ts";
 import { configureDebugSystem, createCollectingSink, getAuditEvents, resetDebugSystem } from "../../src/shared/debug/debug-system.ts";
 import { DEBUG_CONFIG_DEFAULTS } from "../../src/shared/debug/debug-config.ts";
@@ -32,6 +32,7 @@ import {
   commitTrackerBoard,
   failGate,
   fakeForgeFactory,
+  forgeAt,
   forgeStateOf,
   initTempRepo,
   makeFakeCommands,
@@ -666,7 +667,7 @@ test("an expired lease holds nothing: an overlapping successor is admitted and m
   assert.equal((await later.validate(successor.workspaceId)).status, "pass");
   assert.equal((await later.merge(successor.workspaceId)).changedPaths[0], "src/shared/inner/x.ts", "the merge's pending-lease check skips the expired lease too");
   const untouched = later.status(expired.workspaceId);
-  assert.equal(untouched.state, "active", "admission never ends the expired workspace: only its own verbs or a sweep do");
+  assert.equal(untouched.state, "active", "admission never ends the expired workspace or discards its work");
   assert.ok(existsSync(expired.lease.worktreePath), "its worktree is kept");
   assert.notEqual(rawGit(root, ["branch", "--list", expired.lease.branch!]), "", "its branch is kept");
 });
@@ -688,19 +689,44 @@ test("a MERGING workspace keeps its paths past its lease's expiry: its integrato
   assert.equal(later.status(merging.workspaceId).state, "merging", "and nothing ended it");
 });
 
-test("extend never revives an expired lease: it ends it like every other verb (correctness N4)", async () => {
-  const { root } = initTempRepo("ws-extend-expired");
+test("explicit expired renewal rechecks the whole lease and preserves unpublished work and its pull request", async () => {
+  let clock = Date.parse("2026-11-13T00:00:00Z");
+  const { root, bare } = initTempRepo("ws-extend-expired");
   const workspaceRoot = mkWorkspaceTempDir("ws-extend-expired-wt");
   const config = makeTestConfig(workspaceRoot);
-  const { manager } = makeManager(root, { config });
+  const { manager } = makeManager(root, { config, now: () => new Date(clock) });
   const expired = await manager.create({ agentName: "agentA", mode: "feature", writeSet: ["src/shared"] });
+  commitFile(expired.lease.worktreePath, "src/shared/work.ts", "published work\n");
+  await manager.publish(expired.workspaceId);
   const live = await manager.extend(expired.workspaceId, ["src/more"]);
   assert.deepEqual(live.lease.writeSet, ["src/more", "src/shared"], "a live lease is widened and renewed");
-  const later = makeManager(root, { config, now: () => new Date(Date.now() + 2 * config.leaseTtlMs) }).manager;
-  await assert.rejects(() => later.extend(expired.workspaceId, ["src/other"]), (error: unknown) => error instanceof WorkspaceLeaseExpiredError);
-  const ended = later.status(expired.workspaceId);
-  assert.ok(ended.state === "aborted" || ended.state === "quarantined", `the expired workspace is ended, not renewed (${ended.state})`);
-  assert.deepEqual(ended.lease.writeSet, ["src/more", "src/shared"], "and its lease never took the new paths");
+  const worktree = expired.lease.worktreePath;
+  writeFile(worktree, "src/shared/work.ts", "unique staged bytes\n");
+  rawGit(worktree, ["add", "--", "src/shared/work.ts"]);
+  writeFile(worktree, "src/shared/work.ts", "different unfinished disk bytes\n");
+  const index = readFileSync(indexFilePath(worktree, "directory"));
+  const before = checkoutState(worktree);
+  const calls = forgeAt(bare).calls.length;
+  clock += 2 * config.leaseTtlMs;
+  const renewed = await manager.extend(expired.workspaceId, live.lease.writeSet);
+  assert.equal(renewed.state, live.state);
+  assert.deepEqual(renewed.forge, live.forge);
+  assert.deepEqual(renewed.validationReport, live.validationReport);
+  assert.deepEqual(renewed.lease.writeSet, live.lease.writeSet);
+  assert.equal(renewed.lease.generation, live.lease.generation + 1);
+  assert.ok(renewed.lease.expiresAt > live.lease.expiresAt);
+  assert.deepEqual(readFileSync(indexFilePath(worktree, "directory")), index);
+  assert.deepEqual(checkoutState(worktree), before);
+  assert.equal(forgeAt(bare).calls.length, calls, "renewal never asks or closes the forge");
+
+  clock += 2 * config.leaseTtlMs;
+  const successor = await manager.create({ agentName: "successor", mode: "feature", writeSet: ["src/shared/nested"] });
+  const recordBeforeRefusal = manager.status(expired.workspaceId);
+  await assert.rejects(() => manager.extend(expired.workspaceId, ["docs"]), (error: unknown) =>
+    error instanceof WorkspaceConflictError && error.report.conflicts.some((entry) => entry.otherWorkspaceId === successor.workspaceId));
+  assert.deepEqual(manager.status(expired.workspaceId), recordBeforeRefusal, "overlap on an OLD path refuses the entire renewal");
+  assert.deepEqual(readFileSync(indexFilePath(worktree, "directory")), index);
+  assert.deepEqual(checkoutState(worktree), before);
 });
 
 test("never-leasable: a wholly generated output or a state path cannot enter a write set; a pin-bearing source can", async () => {
@@ -781,7 +807,7 @@ test("uncommitted work fails the write-set proof: the gates judge commits", asyn
   assert.deepEqual(report.gates[0]!.details, ["uncommitted: src/wip.ts"]);
 });
 
-test("setup: links become symlinks to the source's entry, the config mode is 0600, and a failing setup command removes the worktree and branch", async () => {
+test("setup: links and config modes are applied, and a failed setup retains ignored linked material", async () => {
   const { root } = initTempRepo("ws-setup");
   const workspaceRoot = mkWorkspaceTempDir("ws-setup-wt");
   commitFile(root, "engine/bridlewise.config.json", "{}\n");
@@ -807,8 +833,10 @@ test("setup: links become symlinks to the source's entry, the config mode is 060
     "the refusal carries the failed gate's own words, not only its name");
   const broken = failing.list().find((entry) => entry.agentName === "broken")!;
   assert.equal(broken.state, "aborted");
-  assert.ok(!existsSync(broken.lease.worktreePath), "the worktree is removed");
-  assert.equal(rawGit(root, ["branch", "--list", broken.lease.branch!]), "", "the branch is removed");
+  assert.ok(existsSync(broken.lease.worktreePath), "failed setup never discards ignored material by assumption");
+  assert.equal(readlinkSync(join(broken.lease.worktreePath, "corpus")), corpus);
+  assert.ok(rawGit(root, ["branch", "--list", broken.lease.branch!]).includes(broken.lease.branch!));
+  assert.match(broken.history.at(-1)!.reason, /cleanup retained/u);
 });
 
 test("a workspace root on another filesystem is refused before anything is made", async () => {
@@ -986,7 +1014,7 @@ for (const failure of ["canonical-open", "canonical-close", "shard-close", "impo
 }
 
 for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as const) {
-  test(`actual merge ${failure} after the land retains the shard and never reports a completed merged state`, async () => {
+  test(`actual merge ${failure}: cleanup refusal retains work without reversing a successful land`, async () => {
     const { root } = initTempRepo("ws-teardown-failure");
     const workspaceRoot = mkWorkspaceTempDir("ws-teardown-failure-wt");
     const config = makeTestConfig(workspaceRoot);
@@ -1007,12 +1035,19 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
       records,
       git: { ...git,
         worktreeRemove(options) { if (failure === "worktree-remove") throw injected; return git.worktreeRemove(options); },
-        deleteBranch(...args) { if (failure === "branch-delete") throw injected; return git.deleteBranch(...args); },
+        deleteBranchAt(...args) { if (failure === "branch-delete") throw injected; return git.deleteBranchAt(...args); },
       },
     });
-    await assert.rejects(() => failing.merge(record.workspaceId), (error: unknown) => error === injected);
-    assert.equal(persisted.state, "merging");
-    assert.equal(persisted.mergeReceipt, null);
+    if (failure === "receipt-save") {
+      await assert.rejects(() => failing.merge(record.workspaceId), (error: unknown) => error === injected);
+      assert.equal(persisted.state, "merging");
+      assert.equal(persisted.mergeReceipt, null);
+    } else {
+      const receipt = await failing.merge(record.workspaceId);
+      assert.equal(persisted.state, "merged");
+      assert.deepEqual(persisted.mergeReceipt, receipt);
+      assert.match(persisted.history.at(-1)!.reason, /cleanup retained/u);
+    }
     assert.equal(existsSync(record.lease.worktreePath), failure === "worktree-remove", "partial teardown remains visible; it is not rolled back");
     assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]).includes(record.lease.branch!), failure !== "receipt-save");
     assert.equal(existsSync(join(root, "src/change/new.ts")), true, "the land already happened");
@@ -1023,12 +1058,12 @@ for (const failure of ["worktree-remove", "branch-delete", "receipt-save"] as co
       assert.equal(source.verifyChain().valid, true);
       assert.equal(canonical.verifyChain().valid, true);
     } finally { source.close(); canonical.close(); }
-    // The integrator is gone: recover finishes whatever teardown remained.
+    // A missing receipt still needs recovery; a receipted land is already complete.
     inject = false;
     const recovering = createWorkspaceManager({ checkoutRoot: root, engineRelative: "engine", config, timeline, timeouts: TEST_TIMEOUTS, identity: TEST_INTEGRATOR_IDENTITY, commands: makeFakeCommands(), repository: testRepository, records, git });
     assert.equal((await recovering.recover(record.workspaceId)).state, "merged");
-    assert.equal(existsSync(record.lease.worktreePath), false);
-    assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "");
+    assert.equal(existsSync(record.lease.worktreePath), failure === "worktree-remove");
+    assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]).includes(record.lease.branch!), failure !== "receipt-save");
   });
 }
 
@@ -1467,7 +1502,7 @@ test("ONE judge: a new failure the flaky memory holds is a regression — nothin
   assert.deepEqual(ran, ["regen", "suite"], "no command but the phases' own ran: nothing was re-run alone");
 });
 
-test("a workspace's snapshot refs go with it at abort (A5-design L4), and stay with a quarantined one for inspection", async () => {
+test("abort and quarantine expiry preserve unique recovery points instead of deleting them because of age", async () => {
   const { root } = initTempRepo("ws-snapshot-refs");
   const config = makeTestConfig(mkWorkspaceTempDir("ws-snapshot-refs-wt"));
   const { manager } = makeManager(root, { config });
@@ -1482,16 +1517,126 @@ test("a workspace's snapshot refs go with it at abort (A5-design L4), and stay w
     assert.equal(refsOf(workspace.workspaceId).length, 2);
   }
   await manager.abort(aborted.workspaceId);
-  assert.deepEqual(refsOf(aborted.workspaceId), [], "an aborted workspace leaves no snapshot ref");
+  assert.equal(refsOf(aborted.workspaceId).length, 2, "ending a workspace does not authorize discarding its recovery points");
+  assert.ok(existsSync(aborted.lease.worktreePath));
   await manager.abort(kept.workspaceId, { quarantine: true });
   assert.equal(refsOf(kept.workspaceId).length, 2, "a quarantined workspace keeps its recovery points");
-  // Its quarantine expired: the sweep removes the worktree, the branch and the recovery points (A5-correctness L2).
+  // The old A5 TTL policy discarded these unique points; elapsed time is not a preservation proof.
   const later = makeManager(root, { config, now: () => new Date(Date.now() + 2 * config.quarantineTtlMs) }).manager;
-  assert.deepEqual((await later.sweep()).swept, [kept.workspaceId]);
-  assert.equal(existsSync(kept.lease.worktreePath), false);
-  assert.equal(rawGit(root, ["branch", "--list", kept.lease.branch!]), "", "the expired quarantine's branch is gone");
-  assert.deepEqual(refsOf(kept.workspaceId), []);
+  assert.deepEqual((await later.sweep()).swept, []);
+  assert.equal(existsSync(kept.lease.worktreePath), true);
+  assert.ok(rawGit(root, ["branch", "--list", kept.lease.branch!]).includes(kept.lease.branch!));
+  assert.equal(refsOf(kept.workspaceId).length, 2);
   assert.equal(later.status(kept.workspaceId).state, "quarantined", "the record stays: the account of what was quarantined");
+});
+
+for (const kind of ["staged", "unstaged", "untracked", "ignored", "info-exclude", "global-exclude", "skip-worktree", "assume-unchanged", "branch", "snapshot", "gitlink", "missing-index", "status-error"] as const) {
+  test(`quarantine retirement retains ${kind} work even after its TTL`, async () => {
+    let clock = Date.parse("2026-11-13T00:00:00Z");
+    const { root } = initTempRepo(`ws-retain-${kind}`);
+    if (kind === "gitlink") {
+      rawGit(root, ["update-index", "--add", "--cacheinfo", `160000,${rawGit(root, ["rev-parse", "HEAD"])},nested`]);
+      rawGit(root, ["commit", "-q", "-m", "tracked nested repository"]);
+    }
+    const config = makeTestConfig(mkWorkspaceTempDir(`ws-retain-${kind}-wt`));
+    const { manager, git } = makeManager(root, { config, now: () => new Date(clock) });
+    const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+    const worktree = record.lease.worktreePath;
+    if (kind === "staged" || kind === "unstaged") {
+      writeFile(worktree, "README.md", "unique index or disk work\n");
+      if (kind === "staged") {
+        rawGit(worktree, ["add", "--", "README.md"]);
+        writeFile(worktree, "README.md", "different disk work\n");
+      }
+    } else if (kind === "untracked") writeFile(worktree, "unfinished.txt", "unique untracked work\n");
+    else if (kind === "ignored") writeFile(worktree, "engine/.bridlewise/unfinished.txt", "unique ignored work\n");
+    else if (kind === "info-exclude" || kind === "global-exclude") {
+      const ignore = join(root, ".git", kind === "info-exclude" ? "info/exclude" : "retirement-global-ignore");
+      writeFileSync(ignore, "ignored-work.txt\n");
+      if (kind === "global-exclude") rawGit(root, ["config", "core.excludesFile", ignore]);
+      writeFile(worktree, "ignored-work.txt", "unique machine-ignored work\n");
+    } else if (kind === "skip-worktree" || kind === "assume-unchanged") {
+      rawGit(worktree, ["update-index", `--${kind}`, "--", "README.md"]);
+      writeFile(worktree, "README.md", "bytes hidden from ordinary status\n");
+      assert.equal(rawGit(worktree, ["status", "--porcelain"]), "", "the flag hides the dirty disk from the usual status check");
+    } else if (kind === "branch") commitFile(worktree, "src/unfinished.ts", "unmerged commit\n");
+    else if (kind === "snapshot") {
+      writeFile(worktree, "only-snapshot.txt", "only the recovery ref keeps this work\n");
+      manager.snapshot(record.workspaceId, "unique");
+      rmSync(join(worktree, "only-snapshot.txt"));
+      assert.equal(rawGit(worktree, ["status", "--porcelain"]), "", "only the recovery ref is unique");
+    }
+    await manager.abort(record.workspaceId, { quarantine: true });
+    const indexPath = indexFilePath(worktree, "directory");
+    if (kind === "missing-index") rmSync(indexPath);
+    const index = existsSync(indexPath) ? readFileSync(indexPath) : null;
+    const branch = rawGit(root, ["rev-parse", record.lease.branch!]);
+    const refs = rawGit(root, ["for-each-ref", "--format=%(objectname) %(refname)", ROOT_POLICY.verification.workingTreeSnapshot.refNamespace]);
+    clock += 2 * config.quarantineTtlMs;
+    const sweeping = makeManager(root, { config, now: () => new Date(clock), git: kind === "status-error" ? {
+      ...git, status() { throw new HarnessError("injected unreadable status", "fixture_status_unreadable"); },
+    } : git }).manager;
+    assert.deepEqual((await sweeping.sweep()).swept, []);
+    assert.ok(existsSync(worktree));
+    assert.equal(rawGit(root, ["rev-parse", record.lease.branch!]), branch);
+    assert.equal(rawGit(root, ["for-each-ref", "--format=%(objectname) %(refname)", ROOT_POLICY.verification.workingTreeSnapshot.refNamespace]), refs);
+    assert.deepEqual(existsSync(indexPath) ? readFileSync(indexPath) : null, index);
+    assert.match(rawGit(root, ["worktree", "list", "--porcelain"]), /locked/u, "a refused retirement keeps its quarantine lock");
+  });
+}
+
+for (const race of ["late-untracked", "branch-moved"] as const) {
+  test(`successful local land retains ${race} work observed at the final deletion boundary`, async () => {
+    const { root } = initTempRepo(`ws-retirement-${race}`);
+    const config = makeTestConfig(mkWorkspaceTempDir(`ws-retirement-${race}-wt`));
+    const { manager, git } = makeManager(root, { config });
+    const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+    commitFile(record.lease.worktreePath, "src/work.ts", "landed work\n");
+    await manager.validate(record.workspaceId);
+    let moved: string | null = null;
+    const finishing = makeManager(root, { config, git: {
+      ...git,
+      worktreeRemove(request) {
+        assert.equal(request.force, false, "automatic retirement never forces native deletion");
+        if (race === "late-untracked") writeFile(request.worktreePath, "late-work.txt", "late unique bytes\n");
+        return git.worktreeRemove(request);
+      },
+      deleteBranchAt(repo, branch, expected, timeout) {
+        if (race === "branch-moved") {
+          moved = rawGit(root, ["commit-tree", rawGit(root, ["rev-parse", `${expected}^{tree}`]), "-p", expected, "-m", "new branch work"]);
+          rawGit(root, ["update-ref", `refs/heads/${branch}`, moved, expected]);
+        }
+        return git.deleteBranchAt(repo, branch, expected, timeout);
+      },
+    } }).manager;
+    const receipt = await finishing.merge(record.workspaceId);
+    assert.equal(manager.status(record.workspaceId).state, "merged");
+    assert.equal(receipt.mergeCommitSha, rawGit(root, ["rev-parse", "HEAD"]));
+    assert.match(manager.status(record.workspaceId).history.at(-1)!.reason, /cleanup retained/u);
+    if (race === "late-untracked") assert.equal(readFileSync(join(record.lease.worktreePath, "late-work.txt"), "utf8"), "late unique bytes\n");
+    else assert.equal(rawGit(root, ["rev-parse", record.lease.branch!]), moved);
+  });
+}
+
+test("retirement reads its own flagged index despite a foreign inherited Git index", async () => {
+  let clock = Date.parse("2026-11-13T00:00:00Z");
+  const { root } = initTempRepo("ws-retain-own-index");
+  const config = makeTestConfig(mkWorkspaceTempDir("ws-retain-own-index-wt"));
+  const { manager } = makeManager(root, { config, now: () => new Date(clock) });
+  const record = await manager.create({ agentName: "worker", mode: "feature", writeSet: ["src"] });
+  rawGit(record.lease.worktreePath, ["update-index", "--assume-unchanged", "--", "README.md"]);
+  writeFile(record.lease.worktreePath, "README.md", "hidden unique disk work\n");
+  await manager.abort(record.workspaceId, { quarantine: true });
+  clock += 2 * config.quarantineTtlMs;
+  const previous = process.env["GIT_INDEX_FILE"];
+  process.env["GIT_INDEX_FILE"] = indexFilePath(root, "directory");
+  try {
+    assert.deepEqual((await manager.sweep()).swept, []);
+    assert.equal(readFileSync(join(record.lease.worktreePath, "README.md"), "utf8"), "hidden unique disk work\n");
+  } finally {
+    if (previous === undefined) delete process.env["GIT_INDEX_FILE"];
+    else process.env["GIT_INDEX_FILE"] = previous;
+  }
 });
 
 test("the CLI states each command's own outcome: a successful abort or list of a record with a failed validation is a pass", async () => {

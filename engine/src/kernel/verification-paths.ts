@@ -121,8 +121,16 @@ export const TRACKER_BOARD = deepFreeze({
   end: "<!-- END GENERATED: the task board -->",
 } as const);
 
+/** The live merge guide's branch roles, from the selected tree's config and every strict promotion profile. */
+export const MERGE_GUIDE_ROLES = deepFreeze({
+  path: "docs/process/MERGE-GUIDE.md",
+  generator: "src/workflow/promotion/profile.ts",
+  begin: "<!-- BEGIN GENERATED: merge guide branch roles (harness sync; engine/src/workflow/promotion/profile.ts) -->",
+  end: "<!-- END GENERATED: merge guide branch roles -->",
+} as const);
+
 /** Every generated BLOCK a hand-written file can carry (its generator owns the text between `begin` and `end`). */
-export const GENERATED_BLOCKS = deepFreeze([DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD] as const);
+export const GENERATED_BLOCKS = deepFreeze([DECISION_INDEX, EVIDENCE_IGNORE_BLOCK, TRACKER_BOARD, MERGE_GUIDE_ROLES] as const);
 
 /** A generated block's markers. */
 export type GeneratedBlockMarkers = Readonly<{ begin: string; end: string }>;

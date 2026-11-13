@@ -8,11 +8,11 @@ import { DatabaseSync } from "node:sqlite";
 
 import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { HarnessError, InputError, extractErrorContext, extractErrorMessage } from "../kernel/errors.ts";
-import { loadPinnedConfigSnapshot } from "../kernel/config.ts";
+import { readConfigDocumentRaw, getConfigDocumentSchema, loadPinnedConfigSnapshot } from "../kernel/config.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { rewriteTestSurfaceDispositionManifest } from "../kernel/test-surface-manifest.ts";
 import { EXPERIMENT_INCLUDE_ENV_VAR } from "../shared/source-scan.ts";
-import { DECISION_INDEX, FRONT_DOOR_GENERATOR, ROADMAP_PAGE, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
+import { DECISION_INDEX, MERGE_GUIDE_ROLES, FRONT_DOOR_GENERATOR, ROADMAP_PAGE, SERVICE_WORKER_DIGEST, SHIPPED_HOOK_FILES, VERIFICATION_PATHS } from "../kernel/verification-paths.ts";
 import { frontDoorInput } from "./messaging.ts";
 import { collectTestResults, readTestExecutionConfig, writeTestResultCollection, type TestResultCollection } from "./test-result-collector.ts";
 import { generateModuleRegistrarReport, type ModuleRegistrarReport } from "./module-registrar.ts";
@@ -68,7 +68,8 @@ import { configuredGitRepository, configuredWorktreeGitPort } from "../git/workt
 import { repositoryRegistryArea, resolveRepositoryRegistry } from "./repository-registry.ts";
 import { convergeBound, convergeUntilStable, unconsumedCommands, type ConvergenceReport } from "./checkout-setup.ts";
 import { PromotionError } from "./promotion/codes.ts";
-import { loadPromotionProfiles, profileCommandNames, profileTreeViolations, type LoadedPromotionProfile } from "./promotion/profile.ts";
+import { mergeGuideRoleFacts, projectMergeGuideRoles, requireMergeGuideRoleAuthorities, loadPromotionProfiles, profileCommandNames, profileTreeViolations, type LoadedPromotionProfile } from "./promotion/profile.ts";
+import { declaredTreeKind, PRODUCT_TREE_DECLARATION } from "./promotion/tree-kind.ts";
 import { journalsUnder } from "../filesystem/journaled-commit.ts";
 import { bootstrapProcess, isEntryPoint } from "../runtime/cli-debug.ts";
 
@@ -164,6 +165,8 @@ export type HarnessCheckOutput = Readonly<{
   bundle: CheckStepResult;
   /** Would the engine runner accept the tree at its setup (scripts/verification/candidate-manifest.ts --verdict, its own door)? */
   candidateFormat: CheckStepResult;
+  /** The live guide's roles, projected from this tree's config and every promotion profile. */
+  mergeGuideRoles: CheckStepResult;
   allPassed: boolean;
 }>;
 
@@ -181,6 +184,7 @@ export type DispositionAutoAddResult = Readonly<{
 }>;
 
 export type HarnessRegenerateOutput = Readonly<{
+  mergeGuideRoles: MergeGuideRolesArm;
   autoGenerator: AutoGeneratorReport;
   moduleRegistrar: ModuleRegistrarReport;
   hashBindings: BindingRepairReport;
@@ -560,6 +564,10 @@ export async function harnessCheck(
   emitProgress(onProgress, "Checking the tree the engine runner would accept...");
   steps.push(await candidateFormatStep(root));
 
+  emitProgress(onProgress, "Checking the merge guide's branch roles...");
+  const mergeGuideRoles = mergeGuideRolesStep(regenerateMergeGuideRoles(root, false));
+  steps.push(mergeGuideRoles);
+
   const allPassed = steps.every((step) => step.status !== "fail");
   const output: HarnessCheckOutput = deepFreeze({
     typecheck: steps[0]!,
@@ -589,6 +597,7 @@ export async function harnessCheck(
     frontDoors: steps[24]!,
     bundle: steps[25]!,
     candidateFormat: steps[26]!,
+    mergeGuideRoles,
     allPassed,
   });
   return wrapResult("check", output);
@@ -984,8 +993,9 @@ export async function harnessRegenerate(
   // The canonical artifact inventory, LAST: every governed file the arms above
   // rewrote (the test inventory, the traces) must
   // be at its final bytes before its digest is recorded.
+  const mergeGuideRoles = regenerateMergeGuideRoles(root, write);
   const artifactManifest = await regenerateArtifactManifest(root, write);
-  const output: HarnessRegenerateOutput = deepFreeze({ autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, roadmapPage, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, serviceWorkerDigest, frontDoors, guardianSpecArtifact, artifactManifest });
+  const output: HarnessRegenerateOutput = deepFreeze({ mergeGuideRoles, autoGenerator, moduleRegistrar, hashBindings, testInventory, dispositionAutoAdd, dispositionManifest, schemaArtifact, pinAuthorities, ratchetBaselines, decisionIndex, trackerBoard, roadmapPage, shippedHooks, evidenceIgnore, forgeFiles, frozenRecords, communityFiles, serviceWorkerDigest, frontDoors, guardianSpecArtifact, artifactManifest });
   // In write mode the status is derived from POST-WRITE state: every binding
   // repaired, the registrar left the manifest clean, the inventory was
   // written or already current, and the schema artifact is current. In check
@@ -1000,11 +1010,11 @@ export async function harnessRegenerate(
     ? (hashBindings.allMatch && autoGenerator.allMatch &&
         moduleRegistrar.postWrite !== null && moduleRegistrar.postWrite.clean && testInventoryConverged &&
         (schemaArtifact.status === "current" || schemaArtifact.status === "regenerated") &&
-        pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && roadmapPage.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && serviceWorkerDigest.converged && frontDoors.converged &&
+        mergeGuideRoles.converged && pinAuthorities.converged && ratchetBaselines.converged && decisionIndex.converged && trackerBoard.converged && roadmapPage.converged && shippedHooks.converged && evidenceIgnore.converged && forgeFiles.converged && frozenRecords.converged && communityFiles.converged && serviceWorkerDigest.converged && frontDoors.converged &&
         (guardianSpecArtifact.status === "current" || guardianSpecArtifact.status === "regenerated") &&
         (artifactManifest.status === "current" || artifactManifest.status === "regenerated" || artifactManifest.status === "absent")
       ? "pass" : "fail")
-    : undefined;
+    : mergeGuideRoles.converged ? undefined : "fail";
   return wrapResult("regenerate", output, status === undefined ? {} : { status });
 }
 
@@ -1420,7 +1430,8 @@ function regenerateEvidenceIgnore(root: string, write: boolean): DecisionIndexAr
  * (`engineGeneratorPopulation`) derives its population from this table, never
  * from a second list.
  */
-export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegenerateOutput, ((repositoryPath: string) => boolean) | null>> = Object.freeze({
+export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegenerateOutput, ((repositoryPath: string, context: GeneratorInputContext) => boolean) | null>> = Object.freeze({
+  mergeGuideRoles: (repositoryPath: string, context: GeneratorInputContext) => repositoryPath === MERGE_GUIDE_ROLES.path || repositoryPath === PRODUCT_TREE_DECLARATION || context.mergeGuideDependencies.includes(repositoryPath),
   autoGenerator: null,
   moduleRegistrar: null,
   hashBindings: null,
@@ -1450,6 +1461,69 @@ export const GENERATOR_INPUTS_BEYOND_ENGINE: Readonly<Record<keyof HarnessRegene
   guardianSpecArtifact: null,
   artifactManifest: null,
 });
+
+/** Fixture population is bound to an explicitly selected source tree, using the projection's own strict authorities. */
+export type GeneratorInputContext = Readonly<{ mergeGuideDependencies: readonly string[] }>;
+export function generatorInputContext(root: string): GeneratorInputContext {
+  const top = repositoryToplevel(root, "directory");
+  if (top === undefined) throw new HarnessError("generator inputs require a repository tree", "merge_guide_roles_tree_missing");
+  const reader = workingTreeReader(top, "directory");
+  const prefix = relative(top, root).split(sep).join("/");
+  const configPath = [prefix, ROOT_POLICY.configuration.basename].filter(Boolean).join("/");
+  const document = mergeGuideConfigDocument(reader, configPath, join(top, configPath));
+  return deepFreeze({ mergeGuideDependencies: mergeGuideRoleFacts(reader, configPath, document).dependencies });
+}
+
+/** A source projection arm, with its actual authority membership in the answer. */
+export type MergeGuideRolesArm = Readonly<{ status: DecisionIndexArm["status"] | "refused"; converged: boolean; changed: readonly string[]; dependencies: readonly string[]; refusal: string }>;
+
+export function mergeGuideRolesStep(arm: MergeGuideRolesArm): CheckStepResult {
+  return deepFreeze({
+    step: "merge-guide-roles", status: arm.converged ? "pass" : "fail",
+    message: arm.status === "refused" ? arm.refusal : arm.converged
+      ? `the merge guide's branch roles are current${arm.status === "absent" ? " (declared product tree)" : ""}`
+      : "the merge guide's branch roles are stale against this tree's config and promotion profiles (run harness sync)",
+    details: arm,
+  });
+}
+
+/** Strict selected-tree config acquisition, shared with generator-input membership. */
+function mergeGuideConfigDocument(reader: ReturnType<typeof workingTreeReader>, configPath: string, absolutePath: string) {
+  const entry = reader.entry(configPath);
+  if (entry === null || !["100644", "100755"].includes(entry.mode)) throw new HarnessError(`${configPath} is missing or not a regular config document`, "merge_guide_roles_config_missing");
+  const parsed = getConfigDocumentSchema().safeParse(readConfigDocumentRaw(absolutePath));
+  if (!parsed.success) throw new HarnessError(`${configPath} is invalid: ${parsed.error.message}`, "merge_guide_roles_config_invalid");
+  return parsed.data;
+}
+
+/** Existing generated-block protocol; config acquisition is from this tree, never the process's pinned settings. */
+export function regenerateMergeGuideRoles(root: string, write: boolean): MergeGuideRolesArm {
+  try {
+    const top = repositoryToplevel(root, "directory");
+    if (top === undefined) throw new HarnessError("merge-guide roles require a repository tree", "merge_guide_roles_tree_missing");
+    const reader = workingTreeReader(top, "directory");
+    const enginePrefix = relative(top, root).split(sep).join("/");
+    const configPath = [enginePrefix, ROOT_POLICY.configuration.basename].filter(Boolean).join("/");
+    const document = mergeGuideConfigDocument(reader, configPath, join(top, configPath));
+    const { promotion } = requireMergeGuideRoleAuthorities(document);
+    const kind = declaredTreeKind(top, [MERGE_GUIDE_ROLES.path, promotion.profileDirectory, [enginePrefix, "test"].filter(Boolean).join("/")]);
+    if (kind.contradiction.length > 0) throw new HarnessError(`product declaration contradicts source authorities: ${kind.contradiction.join(", ")}`, "merge_guide_roles_tree_contradiction");
+    if (kind.kind === "product") return deepFreeze({ status: "absent", converged: true, changed: [], dependencies: [configPath], refusal: "" });
+    const facts = mergeGuideRoleFacts(reader, configPath, document);
+    const projected = projectMergeGuideRoles(reader, facts);
+    const changed = projected !== reader.text(MERGE_GUIDE_ROLES.path);
+    if (changed && write) {
+      const result = atomicWriteFile(join(top, MERGE_GUIDE_ROLES.path), projected);
+      if (!result.success) throw new HarnessError(`cannot write merge-guide roles: ${result.reason ?? "unknown"}`, "merge_guide_roles_write_refused");
+    }
+    return deepFreeze({ status: changed ? write ? "regenerated" : "stale" : "current", converged: !changed || write, changed: changed ? [MERGE_GUIDE_ROLES.path] : [], dependencies: facts.dependencies, refusal: "" });
+  } catch (error) {
+    if (error instanceof HarnessError) return deepFreeze({ status: "refused", converged: false, changed: [], dependencies: [], refusal: `${error.code}: ${error.message}` });
+    const code = (error as NodeJS.ErrnoException).code;
+    if (typeof code === "string" && ["ENOENT", "EACCES", "EPERM", "ELOOP", "EISDIR", "ENOTDIR"].includes(code)) return deepFreeze({ status: "refused", converged: false, changed: [], dependencies: [], refusal: `merge_guide_roles_source_unavailable: ${code}` });
+    throw error;
+  }
+}
 
 /** The forge-files arm (in process): `.github/forge/` from the App registry and the `forge` configuration section. */
 function regenerateForgeFiles(root: string, write: boolean): DecisionIndexArm {
@@ -1546,14 +1620,14 @@ export function harnessRegister(
 
 /**
  * One-shot consistency command — the recommended way to bring the harness
- * into a consistent state after any edit. Without `--with-bundle`, runs in
- * order:
+ * into a consistent state after any edit. With a fresh bundle and without
+ * `--with-bundle`, runs in order:
  * 1. `harness register --write` (fix module drift)
  * 2. `harness regenerate` (auto-add dispositions, fix hash bindings +
  * inventory, regenerate the module registrar)
  * 3. `harness check --skip-typecheck` (verify every gate passes)
  *
- * With `--with-bundle`, runs:
+ * When the bundle is missing/stale, or `--with-bundle` forces a rebuild, runs:
  * 1. `harness register --write` (fix module drift)
  * 2. `harness regenerate` (stabilize the hash bindings — config-contracts
  *    sha256, the spec-schema pins, etc.)
@@ -1583,9 +1657,9 @@ export function harnessRegister(
  * write-mode reports describe PRE-FIX drift counts, so the predicate fallback
  * in `wrapResult` must not derive the status from them. `register` and
  * `regenerate` remain available as separate commands for fine-grained
- * control; `sync` is the preferred one-shot operation. Use `--with-bundle`
- * after any edit that changes a bundled source file (src/, workflow-config,
- * root-policy) so the bundle + hash bindings stabilize in a single pass.
+ * control; `sync` is the preferred one-shot operation. Plain sync rebuilds
+ * when bundled source changes; `--with-bundle` forces a rebuild even when
+ * the existing bundle is fresh.
  *
  * CONVERGENCE IS CHECKED, NOT ASSUMED — the fixed point is this command's
  * own: the pass repeats until one leaves every generated output
@@ -1709,8 +1783,8 @@ async function syncPass(
   options: Readonly<{ withBundle?: boolean; prune?: readonly string[]; onProgress?: (message: string) => void }>,
 ): Promise<Omit<HarnessSyncOutput, "convergence">> {
   const prune = pruneArguments(options.prune ?? []);
-  // Without --with-bundle: register -> regenerate -> check (3 steps).
-  // With --with-bundle: register -> regenerate (stabilize the pins) ->
+  // Fresh bundle without --with-bundle: register -> regenerate -> check (3 steps).
+  // Missing/stale bundle or --with-bundle: register -> regenerate (stabilize the pins) ->
   //   build-bundle (build from the stabilized root-policy; writes the spec-schema
   //   artifact) -> regenerate (re-derive what the build wrote) -> check (5 steps).
   // The bundle compiles root-policy.ts in, so it is built after the pins

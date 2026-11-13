@@ -549,6 +549,28 @@ test("the root ignore file's evidence block is a registered generated block and 
   assert.equal(isGenerationOnlyChange(EVIDENCE_IGNORE_BLOCK.path, before, `/dist/\n${before}`), false, "an authored rule outside it is a source edit");
 });
 
+test("every registered generated block belongs to generated outputs while its authored surroundings remain leased source", () => {
+  const outputs = generatedOutputPaths();
+  for (const block of GENERATED_BLOCKS) {
+    assert.ok(outputs.has(block.path), `${block.path}: registry membership must imply generated-output membership`);
+    assert.equal(wholesaleGeneratedPaths().has(block.path), false, `${block.path}: a block does not own the whole file`);
+    const before = `authored before\n${block.begin}\nold generated body\n${block.end}\nauthored after\n`;
+    const regenerated = before.replace("old generated body", "current generated body");
+    assert.equal(isGenerationOnlyChange(block.path, before, regenerated), true, block.path);
+    assert.equal(isGenerationOnlyChange(block.path, before, `new instruction\n${regenerated}`), false, `${block.path}: authored edits require a lease`);
+    assert.equal(isGenerationOnlyChange(block.path, null, regenerated), false, `${block.path}: initial markers are authored`);
+    assert.equal(isGenerationOnlyChange(block.path, before, null), false, `${block.path}: deleting the file is authored`);
+    for (const foreign of GENERATED_BLOCKS.filter((entry) => entry.path !== block.path)) {
+      const example = `${foreign.begin}\nforeign example body\n${foreign.end}\n`;
+      const withExample = `${example}${before}`;
+      assert.equal(isGenerationOnlyChange(block.path, withExample, withExample.replace("foreign example body", "edited foreign example")), false,
+        `${block.path}: ${foreign.path}'s marker body here is authored, not that generator's output`);
+      assert.equal(isGenerationOnlyChange(block.path, withExample, `${example}${regenerated}`), true,
+        `${block.path}: its own registered block remains generated beside foreign examples`);
+    }
+  }
+});
+
 test("every source-authority pin target and projection a sync pass re-derives is a generated output (a candidate copies it back)", () => {
   // The pin authorities were missing from the set: a candidate re-derived
   // test/support/planned-node-test-source-authority.ts and copy-back refused

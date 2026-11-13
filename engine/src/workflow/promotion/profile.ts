@@ -14,6 +14,12 @@
 import { z } from "zod";
 
 import { deepFreeze } from "../../kernel/integrity.ts";
+import type { ConfigDocument } from "../../kernel/config-contracts.ts";
+import { HarnessError } from "../../kernel/errors.ts";
+import { MERGE_GUIDE_ROLES, spliceGeneratedBlock } from "../../kernel/verification-paths.ts";
+import { escapeSiteHtml, escapeSiteText } from "../../../../shared/markup.ts";
+import { relativePath } from "../markdown-links.ts";
+import { siteDestination } from "../site-prose.ts";
 import { schemaId } from "../../kernel/product-identity.ts";
 import { PROMOTION_PROFILE_NAME_SCHEMA, REPOSITORY_RELATIVE_PATH_SCHEMA, WORKSPACE_COMMAND_NAME_SCHEMA } from "../../kernel/config-contracts.ts";
 import { assertNoDuplicateJsonObjectKeys } from "../../kernel/json-integrity.ts";
@@ -327,4 +333,66 @@ export function selectPromotionProfile(loaded: readonly LoadedPromotionProfile[]
     );
   }
   return found;
+}
+
+/** Stable source pointers identify roles; branch spelling and host placement do not. */
+export type MergeGuideRoleFact = Readonly<{ id: string; role: string; branch: string; path: string; pointer: string }>;
+export type MergeGuideRoleFacts = Readonly<{ rows: readonly MergeGuideRoleFact[]; dependencies: readonly string[] }>;
+
+/** The schema permits these sections to be absent; a role projection needs
+ * both authorities. This pure narrowing is shared by acquisition and facts. */
+export function requireMergeGuideRoleAuthorities(document: ConfigDocument): Readonly<{
+  promotion: NonNullable<ConfigDocument["promotion"]>;
+  workspaceIsolation: NonNullable<ConfigDocument["workspaceIsolation"]>;
+}> {
+  const { promotion, workspaceIsolation } = document;
+  if (promotion === undefined || workspaceIsolation === undefined) {
+    const missing = [promotion === undefined ? "promotion" : null, workspaceIsolation === undefined ? "workspaceIsolation" : null].filter((section) => section !== null);
+    throw new HarnessError(`missing merge-guide role authority sections: ${missing.join(", ")}`, "merge_guide_roles_authority_missing");
+  }
+  return { promotion, workspaceIsolation };
+}
+
+/** The same strict profile reader as promotion, over the explicitly selected tree. No local branch, remote, HOME or network is a fact source. */
+export function mergeGuideRoleFacts(reader: TreeReader, configPath: string, document: ConfigDocument): MergeGuideRoleFacts {
+  const { promotion, workspaceIsolation } = requireMergeGuideRoleAuthorities(document);
+  for (const path of profileFiles(reader, promotion.profileDirectory)) {
+    const entry = reader.entry(path);
+    if (entry === null || !["100644", "100755"].includes(entry.mode)) throw new HarnessError(`${path} is not a regular profile authority`, "merge_guide_roles_profile_invalid");
+  }
+  const profiles = loadPromotionProfiles(reader, promotion.profileDirectory, new Set(Object.keys(workspaceIsolation.commands)));
+  if (profiles.length === 0) throw new HarnessError(`the source tree holds no promotion profiles under ${promotion.profileDirectory}`, "merge_guide_roles_profiles_missing");
+  const targets = workspaceIsolation.landTargets;
+  if (new Set(targets).size !== targets.length) throw new HarnessError("workspaceIsolation.landTargets repeats a forge trunk", "merge_guide_roles_authority_ambiguous");
+  const rows: MergeGuideRoleFact[] = targets.map((branch, index) => ({
+    id: `${configPath}#/workspaceIsolation/landTargets/${String(index)}`,
+    role: "Workspace forge trunk", branch, path: configPath, pointer: `/workspaceIsolation/landTargets/${String(index)}`,
+  }));
+  for (const { profile, path } of profiles) {
+    for (const role of ["source", "target"] as const) rows.push({
+      id: `${path}#/${role}/ref`, role: `Promotion ${profile.name}: ${role}`, branch: branchOf(profile[role].ref), path, pointer: `/${role}/ref`,
+    });
+  }
+  return deepFreeze({ rows, dependencies: [configPath, ...profiles.map(({ path }) => path)] });
+}
+
+/** Render only from typed source facts; one table for every declared trunk and pair. */
+export function renderMergeGuideRoles(facts: MergeGuideRoleFacts): string {
+  const folder = MERGE_GUIDE_ROLES.path.slice(0, MERGE_GUIDE_ROLES.path.lastIndexOf("/"));
+  return [
+    "| Role | Branch | Authority |", "| --- | --- | --- |",
+    ...facts.rows.map((row) => `| ${escapeSiteText(row.role)} | <code>${escapeSiteHtml(row.branch)}</code> | [${escapeSiteText(row.path)}](${siteDestination(relativePath(folder, row.path).split("/").map(encodeURIComponent).join("/"))}) \`${row.pointer}\` |`),
+  ].join("\n");
+}
+
+/** A missing, torn or repeated marker is an explicit refusal; authored text outside the registered block is preserved byte-for-byte. */
+export function projectMergeGuideRoles(reader: TreeReader, facts: MergeGuideRoleFacts): string {
+  const text = reader.text(MERGE_GUIDE_ROLES.path);
+  if (text === null) throw new HarnessError(`${MERGE_GUIDE_ROLES.path} is missing from this source tree`, "merge_guide_roles_guide_missing");
+  if ([MERGE_GUIDE_ROLES.begin, MERGE_GUIDE_ROLES.end].some((marker) => text.split(marker).length !== 2)) {
+    throw new HarnessError(`${MERGE_GUIDE_ROLES.path} needs exactly one complete branch-role block`, "merge_guide_roles_markers_invalid");
+  }
+  const projected = spliceGeneratedBlock(text, MERGE_GUIDE_ROLES, renderMergeGuideRoles(facts));
+  if (projected === null) throw new HarnessError(`${MERGE_GUIDE_ROLES.path} has a torn branch-role block`, "merge_guide_roles_markers_invalid");
+  return projected;
 }

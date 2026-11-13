@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import { HarnessError } from "../../src/kernel/errors.ts";
@@ -102,6 +103,22 @@ test("land: the published head enters the merge queue at itself, the queue's mer
   assert.equal(existsSync(record.lease.worktreePath), false, "the worktree is gone");
   assert.equal(rawGit(root, ["branch", "--list", record.lease.branch!]), "", "the local branch is gone (the forge's is the forge's)");
   assert.deepEqual(await manager.land(workspaceId), receipt, "a landed workspace answers its receipt");
+});
+
+test("a verified forge land remains successful when post-queue local work makes cleanup unsafe", async () => {
+  const fixture = await readyFixture("ws-land-retain");
+  const { manager, forge, record, workspaceId, head } = fixture;
+  fixture.onWait(() => {
+    writeFileSync(join(record.lease.worktreePath, "unfinished-after-queue.txt"), "new work after enqueue\n");
+    forge.runQueue(1);
+  });
+  const receipt = await manager.land(workspaceId);
+  assert.equal(receipt.landedHead, head);
+  assert.equal(manager.status(workspaceId).state, "merged");
+  assert.match(manager.status(workspaceId).history.at(-1)!.reason, /cleanup retained/u);
+  assert.equal(readFileSync(join(record.lease.worktreePath, "unfinished-after-queue.txt"), "utf8"), "new work after enqueue\n");
+  assert.deepEqual(await manager.land(workspaceId), receipt, "retained cleanup never re-enqueues an actual land");
+  assert.equal(fixture.enqueues(), 1);
 });
 
 test("land preconditions: validated, published, ready, and nothing unpublished — each refused before the forge is asked", async () => {

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { commitTreeReader, rawDiffEntries, treeDiff, workingTreeReader, writeBlob, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
+import { directoryGitEnvironment } from "../../src/git/repository-ownership.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
@@ -52,6 +53,60 @@ test("a working-tree reader holds what `git add -A` would commit: untracked and 
   assert.deepEqual(reader.entry("run.sh"), { mode: "100755", oid: null });
   assert.equal(reader.entry("link.ts")?.mode, "120000");
   assert.equal(reader.text("new.ts"), "export {};\n");
+});
+
+/** Ask the real ownership/tree-reader APIs in a child with an explicit Git
+ * context; the test process's environment is never changed. */
+function workingPopulation(root: string, inheritedRoot: string, environment: NodeJS.ProcessEnv) {
+  const script = `import { ownedFiles } from ${JSON.stringify(new URL("../../src/git/repository-ownership.ts", import.meta.url).href)};
+import { workingTreeReader } from ${JSON.stringify(new URL("../../src/git/tree-reader.ts", import.meta.url).href)};
+const [selected, inherited] = process.argv.slice(1);
+process.stdout.write(JSON.stringify({
+  directoryOwned: ownedFiles(selected, "directory")?.toSorted(),
+  directoryTree: workingTreeReader(selected, "directory").paths(),
+  inheritedOwned: ownedFiles(inherited)?.toSorted(),
+  inheritedTree: workingTreeReader(inherited).paths(),
+}));`;
+  return JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script, root, inheritedRoot], {
+    cwd: root, encoding: "utf8", env: { ...directoryGitEnvironment(), ...environment },
+  })) as { directoryOwned: string[]; directoryTree: string[]; inheritedOwned: string[]; inheritedTree: string[] };
+}
+
+test("directory-scoped working ownership uses the selected repository while the inherited default keeps its hook repository context", () => {
+  const selected = repository();
+  const inherited = repository();
+  writeFileSync(join(selected.root, "selected-only.txt"), "selected\n");
+  writeFileSync(join(inherited.root, "hook-only.txt"), "hook\n");
+  const selectedExpected = [...workingTreeReader(selected.root, "directory").paths()];
+  const inheritedExpected = [...workingTreeReader(inherited.root, "directory").paths()];
+  const population = workingPopulation(selected.root, inherited.root, {
+    GIT_DIR: join(inherited.root, ".git"), GIT_WORK_TREE: inherited.root,
+  });
+  assert.deepEqual(population.directoryOwned, selectedExpected, "toplevel, listing and deletion questions all use the selected repository");
+  assert.deepEqual(population.directoryTree, selectedExpected);
+  assert.deepEqual(population.inheritedOwned, inheritedExpected, "default ownership still honors the hook repository");
+  assert.deepEqual(population.inheritedTree, inheritedExpected, "default tree-reader semantics stay inherited");
+});
+
+test("directory-scoped ownership retains tracked ignored files and removes deleted paths using its own index; the default honors an inherited index", () => {
+  const { root, git } = repository();
+  const alternateIndex = join(createTempDir("tree-reader-hook-index-"), "index");
+  // A real alternate index at the existing HEAD, before new staged files.
+  execFileSync("git", ["read-tree", "HEAD"], { cwd: root, env: { ...directoryGitEnvironment(), GIT_INDEX_FILE: alternateIndex } });
+  writeFileSync(join(root, "ignored.txt"), "tracked even though versioned rules ignore it\n");
+  git("add", "-f", "--", "ignored.txt");
+  writeFileSync(join(root, "selected-deleted.txt"), "staged then deleted\n");
+  git("add", "--", "selected-deleted.txt");
+  rmSync(join(root, "selected-deleted.txt"));
+  rmSync(join(root, "binary.bin"));
+  const expected = [...workingTreeReader(root, "directory").paths()];
+  assert.ok(expected.includes("ignored.txt"));
+  assert.equal(expected.includes("selected-deleted.txt"), false);
+  const population = workingPopulation(root, root, { GIT_INDEX_FILE: alternateIndex });
+  assert.deepEqual(population.directoryOwned, expected, "the deletion query must use the same selected index as the listing");
+  assert.deepEqual(population.directoryTree, expected);
+  assert.deepEqual(population.inheritedOwned, expected.filter((path) => path !== "ignored.txt"));
+  assert.deepEqual(population.inheritedTree, population.inheritedOwned, "the hook index still decides tracked ignored membership by default");
 });
 
 test("the tree writer builds exactly the entries given, binary-safe, in a private index the repository never sees", () => {

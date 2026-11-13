@@ -506,6 +506,103 @@ test("HarnessCommands: a deleted governed artifact is refused by the check's art
   }
 });
 
+test("HarnessCommands: the existing check and regenerate doors bind merge-guide roles to the selected tree's actual config and every profile", async () => {
+  // A full existing working copy is intentional: the OLD input metadata did
+  // not copy this guide or the profiles, so a narrowed copy would fail to
+  // read the fixture before it ever reached the production check door.
+  const copy = createRepositoryWorkingCopy("merge-guide-roles-");
+  const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
+  // Discover the arm through the existing production answer: the old code
+  // reaches harnessCheck and fails here, rather than failing a new import.
+  const roleArm = (result: HarnessCommandResult<HarnessCheckOutput>) => {
+    const arm = Object.values(result.result).find((value) => typeof value === "object" && value !== null && "step" in value && value.step === "merge-guide-roles");
+    assert.ok(arm && typeof arm === "object" && "status" in arm && "message" in arm, "harnessCheck must judge the guide's role facts");
+    return arm as { status: string; message: string };
+  };
+  try {
+    const guidePath = join(copy.root, "docs/process/MERGE-GUIDE.md");
+    const configPath = join(copy.engineRoot, ROOT_POLICY_AT_LOAD.configuration.basename);
+    const originalGuide = readFileSync(guidePath, "utf8");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.equal(roleArm(await harnessCheck(copy.engineRoot, options)).status, "pass", "the current projection passes");
+    config.workspaceIsolation.landTargets.push("guide-control-trunk");
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    assert.equal(readFileSync(guidePath, "utf8"), originalGuide, "changing the real owner does not change its consumer");
+    const stale = roleArm(await harnessCheck(copy.engineRoot, options));
+    assert.equal(stale.status, "fail", "an unchanged guide cannot pass after its owner changes");
+    assert.match(stale.message, /stale/u);
+    await harnessRegenerate(copy.engineRoot, { write: true });
+    const repaired = readFileSync(guidePath, "utf8");
+    assert.notEqual(repaired, originalGuide, "the existing regenerate door repairs the guide");
+    assert.match(repaired, /guide-control-trunk/u);
+    assert.equal(roleArm(await harnessCheck(copy.engineRoot, options)).status, "pass");
+
+    const directory = join(copy.root, config.promotion.profileDirectory);
+    const names = (await import("node:fs")).readdirSync(directory).filter((name) => name.endsWith(".json")).sort();
+    assert.ok(names.length > 0, "this source tree declares a promotion profile");
+    const profile = JSON.parse(readFileSync(join(directory, names[0]!), "utf8"));
+    profile.name = "guide-control-profile";
+    profile.source.ref = "refs/heads/guide-control-source";
+    profile.target.ref = "refs/heads/guide-control-product";
+    writeFileSync(join(directory, `${profile.name}.json`), `${JSON.stringify(profile, null, 2)}\n`);
+    assert.equal(roleArm(await harnessCheck(copy.engineRoot, options)).status, "fail", "adding another profile leaves stale roles");
+    await harnessRegenerate(copy.engineRoot, { write: true });
+    const allProfiles = readFileSync(guidePath, "utf8");
+    assert.match(allProfiles, /guide-control-source/u);
+    assert.match(allProfiles, /guide-control-product/u);
+    assert.equal(roleArm(await harnessCheck(copy.engineRoot, options)).status, "pass");
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
+test("HarnessCommands: unavailable merge-guide authorities return typed refusals without writing stale or empty output", async () => {
+  const { regenerateMergeGuideRoles } = await import("../../src/workflow/harness-commands.ts");
+  const copy = createRepositoryWorkingCopy("merge-guide-refusals-", { include: engineGeneratorPopulation });
+  try {
+    const guide = join(copy.root, "docs/process/MERGE-GUIDE.md");
+    const configPath = join(copy.engineRoot, ROOT_POLICY_AT_LOAD.configuration.basename);
+    const original = readFileSync(configPath, "utf8");
+    const guideBytes = readFileSync(guide, "utf8");
+    const refuse = (code: RegExp) => {
+      for (const write of [false, true]) {
+        const answer = regenerateMergeGuideRoles(copy.engineRoot, write);
+        assert.equal(answer.status, "refused");
+        assert.equal(answer.converged, false);
+        assert.match(answer.refusal, code);
+        assert.equal(readFileSync(guide, "utf8"), guideBytes, "a refused authority never writes a stale or empty projection");
+      }
+    };
+    for (const [bytes, code] of [
+      [Buffer.from([0xff]), /config_encoding_invalid/u],
+      ["{", /config_json_invalid/u],
+      ['{"a":1,"a":2}', /config_key_duplicate/u],
+      ["{}", /merge_guide_roles_config_invalid/u],
+    ] as const) {
+      writeFileSync(configPath, bytes);
+      refuse(code);
+    }
+    for (const section of ["promotion", "workspaceIsolation"] as const) {
+      const omitted = JSON.parse(original);
+      delete omitted[section];
+      // The existing strict schema admits these optional sections' absence:
+      // the role owner, rather than an accidental TypeError, must refuse it.
+      const { getConfigDocumentSchema } = await import("../../src/kernel/config.ts");
+      assert.equal(getConfigDocumentSchema().safeParse(omitted).success, true);
+      writeFileSync(configPath, JSON.stringify(omitted));
+      refuse(/merge_guide_roles_authority_missing/u);
+    }
+    rmSync(configPath);
+    refuse(/merge_guide_roles_config_missing/u);
+    writeFileSync(configPath, original);
+    const config = JSON.parse(original);
+    rmSync(join(copy.root, config.promotion.profileDirectory), { recursive: true });
+    refuse(/merge_guide_roles_profiles_missing/u);
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
 test("HarnessCommands: harnessCheck inventory step checks inventory hash", async () => {
   const result = await checkInventoryOnly();
   assert.ok(["pass", "fail", "skip"].includes(result.result.inventory.status));
@@ -601,16 +698,18 @@ test("HarnessCommands: harnessTest structured JSON has correct fields", async ()
 
 test("HarnessCommands: harnessCheck allPassed, step names, status, and messages are consistent", async () => {
   const result = await checkSkipAll();
-  if (result.result.moduleRegistrar.status === "pass" && result.result.autoGenerator.status === "pass") {
-    assert.equal(result.result.allPassed, true);
-  }
+  const { allPassed, ...returnedSteps } = result.result;
+  const steps = Object.values(returnedSteps);
+  assert.ok(steps.length > 0, "the check must report the arms it judged");
+  assert.equal(allPassed, steps.every((step) => step.status !== "fail"));
   assert.equal(result.result.typecheck.step, "typecheck");
   assert.equal(result.result.architecture.step, "architecture");
   assert.equal(result.result.inventory.step, "inventory");
   assert.equal(result.result.moduleRegistrar.step, "module-registrar");
   assert.equal(result.result.autoGenerator.step, "auto-generator");
   assert.equal(result.status, result.result.allPassed ? "pass" : "fail");
-  for (const step of [result.result.typecheck, result.result.architecture, result.result.inventory, result.result.moduleRegistrar, result.result.autoGenerator]) {
+  for (const step of steps) {
+    assert.ok(["pass", "fail", "skip"].includes(step.status));
     assert.ok(typeof step.message === "string");
     assert.ok(step.message.length > 0);
   }
@@ -1052,15 +1151,15 @@ test("runHarnessCli: an unknown subcommand flag is rejected with actionable erro
 });
 
 // ---------------------------------------------------------------------------
-// harness sync: one-shot consistency command (register --write -> regenerate
-// -> check --skip-typecheck). Each step runs as its own CLI subprocess so a
+// harness sync: register --write -> regenerate -> build and regenerate when
+// the bundle is missing/stale -> check --skip-typecheck. Each step runs as its own CLI subprocess so a
 // step's writes are visible to the next step's fresh module imports — the
 // in-process ARCHITECTURE_MANIFEST / ROOT_POLICY imports are stale after a
 // write, so an in-process pipeline would report false drift.
 //
-// A single lazy invocation is shared by the structural assertions below: the
-// run scans the whole repository three times (subprocess per step), so it is
-// too expensive to repeat per assertion.
+// One lazy pair of invocations proves both bundle states. The owned copy has
+// no ignored bundle: plain sync builds it, then plain sync reuses the fresh
+// result. The assertions share those results instead of repeating the scans.
 //
 // It runs on a WORKING COPY, never on this repository: sync WRITES whenever
 // the tree disagrees with its generated files, and pointed at the live root
@@ -1069,10 +1168,13 @@ test("runHarnessCli: an unknown subcommand flag is rejected with actionable erro
 // thing, and the copy is released when the file finishes.
 // ---------------------------------------------------------------------------
 
-let cachedSync: HarnessCommandResult<HarnessSyncOutput> | null = null;
+let cachedSyncStates: Promise<Readonly<{
+  missingBundle: HarnessCommandResult<HarnessSyncOutput>;
+  freshBundle: HarnessCommandResult<HarnessSyncOutput>;
+}>> | null = null;
 
-function syncOnce(): Promise<HarnessCommandResult<HarnessSyncOutput>> {
-  if (cachedSync) return Promise.resolve(cachedSync);
+function syncStates(): NonNullable<typeof cachedSyncStates> {
+  if (cachedSyncStates) return cachedSyncStates;
   // A FULL COPY, not the narrowed generator population: `harness sync` also
   // runs the README consumer generator, whose import graph covers the web
   // tests. A narrowed copy now makes that generator report every engine
@@ -1080,9 +1182,20 @@ function syncOnce(): Promise<HarnessCommandResult<HarnessSyncOutput>> {
   // converged by absence), and a sync that only passes because its subject is
   // absent is exactly the vacuous convergence this suite exists to refuse.
   const copy = createRepositoryWorkingCopy("harness-sync-");
-  return harnessSync(copy.engineRoot)
-    .then((result) => { cachedSync = result; return result; })
+  cachedSyncStates = harnessSync(copy.engineRoot)
+    .then(async (missingBundle) => {
+      assert.equal(missingBundle.status, "pass", "the initial sync must pass before testing fresh-bundle reuse");
+      assert.equal(missingBundle.result.allPassed, true);
+      assert.equal(missingBundle.result.bundleBuild?.status, "pass", "the owned copy must exercise the missing-bundle build");
+      const freshBundle = await harnessSync(copy.engineRoot);
+      return { missingBundle, freshBundle };
+    })
     .finally(() => removeRepositoryLocalTemporaryDirectory(copy.root));
+  return cachedSyncStates;
+}
+
+async function syncOnce(): Promise<HarnessCommandResult<HarnessSyncOutput>> {
+  return (await syncStates()).freshBundle;
 }
 
 test("HarnessCommands: sync subcommand is registered", () => {
@@ -1137,15 +1250,9 @@ test("HarnessCommands: harnessSync result is frozen with a valid integrity hash"
 // production bundle from the stabilized pins and re-derives what the build
 // wrote, in a single pass (no digest of the bundle is committed, #221).
 //
-// The bundle-build step is verified STRUCTURALLY (the step type + the
-// runBundleBuildStep export + the CLI flag parsing) rather than by running the
-// full sync with --with-bundle. Running the real bundle build in the test
-// suite is destructive: build-bundle.ts writes dist/bundle.js to disk, which
-// races with the concurrent hash-binding + bundle-staleness tests in the
-// serial tier (a rebuild with a changed root-policy.ts produces a different
-// sha256, breaking the pin for other tests). The full --with-bundle flow is
-// verified by the manual `harness sync --with-bundle` invocation + the
-// BundleStaleness prevention test (which rebuilds in-memory, write:false).
+// The shared owned copy above exercises the real default build and reuse.
+// These additional structural assertions cover the build wrapper, step type
+// and forcing flag without rebuilding this live checkout's bundle.
 // ---------------------------------------------------------------------------
 
 test("HarnessCommands: runBundleBuildStep is exported + wraps a build into a HarnessCommandResult", () => {
@@ -1158,9 +1265,8 @@ test("HarnessCommands: runBundleBuildStep is exported + wraps a build into a Har
 test("HarnessCommands: harnessSync withBundle option type includes the bundle-build step", () => {
   // Structural assertion: the HarnessSyncOutput type + HarnessSyncStepSummary
   // step union include the bundle-build step. The full integration run is
-  // expensive (5 subprocesses) + destructive (writes the bundle); the step
-  // structure is verified by the type + the manual sync run. The CLI flag
-  // parsing is verified by the runHarnessCli flag test below.
+  // expensive (5 subprocesses); the owned-copy default-build test below
+  // exercises that sequence. The CLI flag is checked below.
   const steps: HarnessSyncOutput["steps"] = [
     { step: "register", status: "pass" },
     { step: "regenerate", status: "pass" },
@@ -1194,13 +1300,17 @@ test("HarnessCommands: syncPassVerdict judges every step except the stabilizing 
   assert.throws(() => syncPassVerdict([pass("register"), pass("bundle-build"), pass("regenerate"), pass("check")], true), /out of order/u);
 });
 
-test("HarnessCommands: harnessSync without withBundle omits the bundle-build step", async () => {
-  // The default sync (no --with-bundle) must NOT run the bundle-build step —
-  // deny-by-default: the bundle rebuild is opt-in, not opt-out.
-  const result = await syncOnce();
-  assert.equal(result.result.bundleBuild, undefined, "bundleBuild must be absent without --with-bundle");
+test("HarnessCommands: plain harnessSync builds a missing bundle and reuses the fresh bundle", async () => {
+  const { missingBundle, freshBundle } = await syncStates();
+  assert.equal(missingBundle.result.bundleBuild?.status, "pass");
   assert.deepEqual(
-    result.result.steps.map((step) => step.step),
+    missingBundle.result.steps.map((step) => step.step),
+    ["register", "regenerate", "bundle-build", "regenerate", "check"],
+  );
+  assert.equal(freshBundle.status, "pass");
+  assert.equal(freshBundle.result.bundleBuild, undefined, "plain sync must reuse the bundle it just proved fresh");
+  assert.deepEqual(
+    freshBundle.result.steps.map((step) => step.step),
     ["register", "regenerate", "check"],
   );
 });

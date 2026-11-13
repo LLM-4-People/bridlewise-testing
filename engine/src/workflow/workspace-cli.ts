@@ -40,7 +40,7 @@ import type { PublishedRound } from "./workspace-forge.ts";
  *   land <id>                                enter the merge queue at the published head; wait; follow the trunk
  *   merge <id>                               integrate in the workspace, gate, land on the target
  *   recover <id>                             finish or roll back a merge whose integrator died
- *   abort <id> [--quarantine]                remove (or preserve) the worktree and branch
+ *   abort <id> [--quarantine]                end the workspace; retain unique or unproven work
  *   snapshot <id> --label <label>            record the worktree's tree (a recovery point, never the commit of record)
  *   list | status <id> | sweep
  *

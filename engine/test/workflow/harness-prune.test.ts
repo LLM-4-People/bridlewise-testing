@@ -21,14 +21,15 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { FRONT_DOOR_GENERATOR, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { FRONT_DOOR_GENERATOR, MERGE_GUIDE_ROLES, VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 
-import { GENERATOR_INPUTS_BEYOND_ENGINE, harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
+import { GENERATOR_INPUTS_BEYOND_ENGINE, generatorInputContext, harnessRegenerate, harnessRegister } from "../../src/workflow/harness-commands.ts";
 import { stageInCopy } from "../../src/git/working-copy.ts";
 import { trackedFiles } from "../../src/git/repository-ownership.ts";
 import { reachabilityClosure } from "../../src/workflow/reachability.ts";
 import { frontDoorGeneratorModules } from "../../src/workflow/messaging.ts";
-import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
+import { createRepositoryWorkingCopy, engineGeneratorInputContext, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 
 /** A recorded exception (a pending source): deleting it is a decision that must be named. A canonical-by-default test has no entry to prune. */
@@ -42,10 +43,42 @@ test("a generator test's repository copy carries every path an arm declares it n
   }
   // Near misses: the web tree no generator reads stays out.
   for (const path of ["src/main.ts", "server/index.ts", "docs/floor/roadmap.md", "tests/unit/x.test.ts"]) assert.equal(engineGeneratorPopulation(path), false, path);
-  // Every arm that declares inputs is honoured: each declared path of each arm is in the population.
+  // Every input arm supplies its own witnesses from the source tree's owned
+  // population. New arms need no hand-maintained representative-path list.
+  const context = engineGeneratorInputContext();
+  const paths = trackedFiles(join(import.meta.dirname, "..", "..", "..")) ?? [];
   for (const [arm, input] of Object.entries(GENERATOR_INPUTS_BEYOND_ENGINE)) {
     if (input === null) continue;
-    assert.ok(["docs/community/intake.json", ".github/workflows/ci.yml", "package-lock.json", "CONTRIBUTING.md", VERIFICATION_PATHS.architectureJudgeBaseline, "docs/brand/messaging.json"].some((path) => input(path) && engineGeneratorPopulation(path)), arm);
+    assert.ok(paths.some((path) => input(path, context) && engineGeneratorPopulation(path)), arm);
+  }
+});
+
+test("the generator input context follows the selected tree's canonical profile directory rather than this process's settings", () => {
+  const copy = createRepositoryWorkingCopy("guide-input-context-", { include: engineGeneratorPopulation });
+  try {
+    const configPath = join(copy.engineRoot, ROOT_POLICY.configuration.basename);
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    const context = generatorInputContext(copy.engineRoot);
+    const profiles = context.mergeGuideDependencies.filter((path) => path.startsWith(`${config.promotion.profileDirectory}/`));
+    assert.ok(profiles.length > 0);
+    const formerDirectory = config.promotion.profileDirectory;
+    config.promotion.profileDirectory = "selected-tree-profiles";
+    mkdirSync(join(copy.root, config.promotion.profileDirectory));
+    for (const path of profiles) {
+      const profile = JSON.parse(readFileSync(join(copy.root, path), "utf8"));
+      profile.boundary.exclude = profile.boundary.exclude.map((entry: string) => entry === `${formerDirectory}/` ? `${config.promotion.profileDirectory}/` : entry);
+      writeFileSync(join(copy.root, config.promotion.profileDirectory, `${profile.name}.json`), JSON.stringify(profile));
+    }
+    writeFileSync(configPath, JSON.stringify(config));
+    const selected = generatorInputContext(copy.engineRoot);
+    const input = GENERATOR_INPUTS_BEYOND_ENGINE.mergeGuideRoles!;
+    assert.equal(input(MERGE_GUIDE_ROLES.path, selected), true);
+    for (const path of profiles) {
+      assert.equal(input(path, selected), false, "the former directory is not an authority");
+      assert.equal(input(`${config.promotion.profileDirectory}/${path.slice(path.lastIndexOf("/") + 1)}`, selected), true);
+    }
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
   }
 });
 

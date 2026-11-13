@@ -28,7 +28,7 @@ import { deepFreeze } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { createOwnedTemporaryDirectory, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
 import { RAW_DIFF_RECORD_QUOTE_CHARACTERS, TREE_MISMATCH_ENTRIES_NAMED } from "./git-config.ts";
-import { gitProcessEnvironment, ownedFiles } from "./repository-ownership.ts";
+import { gitProcessEnvironment, ownedFiles, type GitEnvironment } from "./repository-ownership.ts";
 
 /** A repository and the git that answers about it: the executable (the configured one: `configuredGitRepository`, src/git/worktree-port.ts) and each call's ceiling. */
 export type GitRepository = Readonly<{
@@ -236,10 +236,11 @@ export function commitTreeReader(repository: GitRepository, commit: string): Tre
  * The files of the working tree at `root` (its top level): what the repository
  * OWNS (`ownedFiles`: the tracked files still on disk and the untracked files
  * no versioned ignore rule names — what any clone would commit) — read from
- * disk.
+ * disk. Membership honors the inherited hook Git context by default; an
+ * explicit directory context binds every ownership query to this tree.
  */
-export function workingTreeReader(root: string): TreeReader {
-  const listed = ownedFiles(root);
+export function workingTreeReader(root: string, environment: GitEnvironment = "inherited"): TreeReader {
+  const listed = ownedFiles(root, environment);
   if (listed === undefined) throw new HarnessError(`${root} is not inside a git working tree`, "tree_reader_git_failed");
   const entries = new Map<string, TreeEntry>();
   for (const path of listed) {

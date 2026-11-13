@@ -20,7 +20,7 @@ import { createWorkingCopy } from "../../src/git/working-copy.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, removeOwnedTemporaryDirectory } from "../../src/filesystem/private-state.ts";
 import { buildOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
 import { applyCheckoutFiles, installedDependencyLinks } from "../../src/workflow/checkout-setup.ts";
-import { GENERATOR_INPUTS_BEYOND_ENGINE } from "../../src/workflow/harness-commands.ts";
+import { GENERATOR_INPUTS_BEYOND_ENGINE, generatorInputContext, type GeneratorInputContext } from "../../src/workflow/harness-commands.ts";
 
 export const TEST_REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const REPOSITORY_LOCAL_TEMPORARY_ROOT = join(
@@ -168,9 +168,17 @@ export function createRepositoryWorkingCopy(
  * stays in the index as skip-worktree, so the tracked set is still the
  * checkout's.
  */
+// This module's explicit source tree is the source of every mirrored copy.
+// Capture one validated authority snapshot; no ambient config or local Git
+// branch can supply a profile directory for a different tree.
+let generatorContext: GeneratorInputContext | undefined;
+export function engineGeneratorInputContext(): GeneratorInputContext {
+  return generatorContext ??= generatorInputContext(TEST_REPOSITORY_ROOT);
+}
+
 export function engineGeneratorPopulation(repositoryPath: string): boolean {
   if (repositoryPath.startsWith("engine/") || repositoryPath.startsWith("shared/")) return true;
-  return Object.values(GENERATOR_INPUTS_BEYOND_ENGINE).some((input) => input !== null && input(repositoryPath));
+  return Object.values(GENERATOR_INPUTS_BEYOND_ENGINE).some((input) => input !== null && input(repositoryPath, engineGeneratorInputContext()));
 }
 
 function engineRelativePath(repositoryRoot: string): string {

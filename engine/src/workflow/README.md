@@ -32,6 +32,22 @@ land are in
 [MERGE-GUIDE.md §1b](../../../docs/process/MERGE-GUIDE.md#1b-feature--testing-the-workspace-merge--refusals-and-the-land)
 and [§1c](../../../docs/process/MERGE-GUIDE.md#1c-feature--main-on-the-forge-ws-land).
 
+- **Renewal and preservation**: `extend` can explicitly renew an expired
+  active or validating feature workspace. Under the existing admission lock it
+  rechecks its entire old write set plus additions against current owners;
+  expiry never grants an overlap exception. Ordinary operations still refuse
+  expired authority. Sweep re-reads the current record under that same lock.
+  Expiry never ends a workspace, closes its pull request or starts cleanup:
+  even a currently clean workspace remains available for explicit renewal.
+  Explicit aborts and completed lands own retirement; old quarantines are
+  checked for safe retirement when swept.
+  Every retirement uses one judgment of the worktree, index (including hidden
+  flags), ordinary untracked and machine-ignored files, current HEAD, branch
+  and recovery refs. Nested repositories, unknown or unique work are retained. A proven-safe removal
+  uses Git's non-force operation and expected-tip ref deletion, with no force
+  retry. This can retain dependency-bearing workspaces: an ignored path is
+  not evidence that its bytes are disposable. The lock coordinates harness
+  lifecycle calls; it does not prevent arbitrary external filesystem edits.
 - **The forge** (`workspace-forge.ts`): a feature workspace lands through a
   pull request against its target's UPSTREAM (`branch.<target>.remote` and
   `.merge`, resolved at create; a target with none is refused,
@@ -286,10 +302,12 @@ Workspace hooks capture scalar timeline configuration once and forward the same
 selection to both stores and the importer. The manager closes acquired handles on
 partial-open or close failures and retains source shards after success and failure:
 appenders do not share its merge lock, so a last-tip check cannot authorize source
-deletion. Worktree teardown still precedes the terminal `merged` state. Git can
-already be merged when import, teardown or receipt persistence fails; partial
-teardown is not rolled back nor retried by `merge`: `ws recover <id>` (or the
-sweep) finishes it once no integrator holds the merge lock.
+deletion. After the import, cleanup is judged independently of landing success.
+A verified land receives its receipt and reaches `merged` even when cleanup
+is retained; history, audit and progress explain the retained work. A cleanup
+refusal never re-enqueues a forge land. An import or receipt-persistence failure
+can still leave an already landed record `merging`; `ws recover <id>` (or the
+sweep) finishes its accounting once no integrator holds the merge lock.
 
 Before any destination lookup or append, import verifies source-chain integrity
 through the store's local synchronous SQLite iterator, then requires the captured

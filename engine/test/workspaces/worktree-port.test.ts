@@ -193,6 +193,20 @@ test("deleteBranch refuses branches outside the namespace", () => {
   assert.throws(() => port.deleteBranch("/repo", "main", true, 5), throwsCode("worktree_branch_namespace_denied"));
 });
 
+test("deleteBranchAt deletes only the expected agent tip and reports a moved tip without forcing it", () => {
+  const captured: WorktreeGitExecRequest[] = [];
+  const answers = [ok(), refused("fatal: expected tip changed", 128)];
+  const port = createWorktreeGitPort({ exec: makeExec(() => answers.shift()!, captured) });
+  assert.deepEqual(port.deleteBranchAt("/repo", "agent/worker/one", SHA_A, 5), { refusal: null });
+  assert.match(port.deleteBranchAt("/repo", "agent/worker/one", SHA_A, 5).refusal ?? "", /expected tip changed/u);
+  assert.deepEqual(captured[0]!.args.slice(4), ["update-ref", "-d", "refs/heads/agent/worker/one", SHA_A]);
+  for (const branch of ["main", "other/worker", "-D", "agent/../main"]) {
+    assert.throws(() => port.deleteBranchAt("/repo", branch, SHA_A, 5), InputError);
+  }
+  assert.throws(() => port.deleteBranchAt("/repo", "agent/worker/one", "bad-sha", 5), InputError);
+  assert.equal(captured.length, 2, "invalid arguments never reach Git");
+});
+
 // ---------------------------------------------------------------------------
 // porcelain parsing
 // ---------------------------------------------------------------------------
