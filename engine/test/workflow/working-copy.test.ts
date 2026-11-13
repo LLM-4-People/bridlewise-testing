@@ -157,7 +157,7 @@ function supervisedRunner(retries: CommandRetryPolicy = { retries: 0, backoffMs:
   return { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
 }
 
-test("checkout setup: links, the config mode, then the declared commands in order; after the first failure the rest are skipped", async () => {
+test("checkout setup: links, config and tracked file modes, then the declared commands in order; after the first failure the rest are skipped", async () => {
   const source = plantDirtySource();
   mkdirSync(join(source, "corpus"), { recursive: true });
   const target = join(createTempDir("working-copy-target-"), "copy");
@@ -178,9 +178,9 @@ test("checkout setup: links, the config mode, then the declared commands in orde
     phases: { setup: ["marker", "broken", "never"], validate: [], regenerate: [], merge: [] },
   }, checkoutCommandRunner(target, supervisedRunner()));
   assert.deepEqual(steps.map((step) => [step.step, step.status]), [
-    ["link corpus", "pass"], ["config-mode", "pass"], ["marker", "pass"], ["broken", "fail"], ["never", "skip"],
+    ["link corpus", "pass"], ["config-mode", "pass"], ["file-modes", "pass"], ["marker", "pass"], ["broken", "fail"], ["never", "skip"],
   ]);
-  assert.match(steps[3]!.message, /exited 3/u);
+  assert.match(steps.find((step) => step.step === "broken")!.message, /exited 3/u);
   assert.equal(readlinkSync(join(target, "corpus")), join(source, "corpus"));
   assert.equal(statSync(join(target, "engine", ROOT_POLICY.configuration.basename)).mode & 0o777,
     Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));

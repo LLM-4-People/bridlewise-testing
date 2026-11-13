@@ -48,12 +48,15 @@ import { StringDecoder } from "node:string_decoder";
 import { generateId, sha256 } from "../kernel/integrity.ts";
 import { persistableText } from "../privacy/evidence-handler.ts";
 import { ensurePrivateStateDirectory, PRIVATE_STATE_FILE_MODE, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
-import { settleFileMode } from "../filesystem/file-mode.ts";
+import { settleContainedFileMode, settleFileMode } from "../filesystem/file-mode.ts";
+import { resolveLocation, sameLocation } from "../filesystem/path-identity.ts";
+import { repositoryRootCapabilityExpectedRawFileMode } from "../filesystem/repository-root-capability-contracts.ts";
 import { QUALIFICATION_INVOCATION_ENV } from "../shared/run-history.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import type { WorkspaceIsolationConfig } from "../kernel/config-contracts.ts";
-import { trackedFiles } from "../git/repository-ownership.ts";
+import { requiredRepositoryToplevel, trackedFiles } from "../git/repository-ownership.ts";
+import { indexEntries } from "../git/index-entries.ts";
 import { CHECKOUT_COMMAND_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
@@ -688,9 +691,11 @@ export function applyCheckoutFiles(
 
 /**
  * THE ONE POINT AFTER EVERY TREE MOVE: a checkout, a merge, a fast-forward or
- * a read-tree switch rewrites each file it changes with git's own mode (0644,
- * or 0664 under the usual umask), so the configuration document's required
- * mode is re-applied after each, here. Every mover calls this: the checkout
+ * a read-tree switch rewrites each file it changes under the caller's umask.
+ * Re-apply the shared raw-file policy to tracked regular files and keep Git's
+ * executable modes. Private/untracked files are never part of that census.
+ * The configuration document keeps its loader's exact private mode, including
+ * in a non-Git staging home. Every mover calls this: the checkout
  * setup ({@link applyCheckoutFiles}), a workspace's worktree moves, the land
  * (`landCommit`, its fast-forward and its torn completion) and the overlay's
  * read-tree switch. Measured without it: a land of a config change left the
@@ -698,12 +703,43 @@ export function applyCheckoutFiles(
  * refused (`config_mode_insecure`).
  */
 export function settleCheckout(checkoutRoot: string, engineRelative: string): readonly CheckoutStep[] {
+  const steps: CheckoutStep[] = [];
   const configPath = join(checkoutRoot, engineRelative, ROOT_POLICY.configuration.basename);
-  if (!existsSync(configPath)) return Object.freeze([]);
   // Through the one mode owner, which changes nothing when the mode is already right: a same-mode chmod
   // still moves the ctime every configuration bootstrap compares (#293).
-  const changed = settleFileMode(configPath, Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
-  return Object.freeze([step("config-mode", "pass", `${ROOT_POLICY.configuration.requiredConfigFileMode} ${relative(checkoutRoot, configPath)}${changed ? "" : " (already)"}`)]);
+  if (existsSync(configPath)) {
+    const changed = settleFileMode(configPath, Number.parseInt(ROOT_POLICY.configuration.requiredConfigFileMode, 8));
+    steps.push(step("config-mode", "pass", `${ROOT_POLICY.configuration.requiredConfigFileMode} ${relative(checkoutRoot, configPath)}${changed ? "" : " (already)"}`));
+  }
+  // A non-Git staging home has only the existing config contract. Once a
+  // checkout declares Git metadata, an unreadable/invalid census is a refusal.
+  if (lstatSync(join(checkoutRoot, ".git"), { throwIfNoEntry: false }) === undefined) return Object.freeze(steps);
+  const top = requiredRepositoryToplevel(checkoutRoot, "checkout_mode_repository_unavailable", "directory");
+  const root = resolveLocation(realpathSync(checkoutRoot), "the checkout");
+  if (!sameLocation(root, resolveLocation(realpathSync(top), "the repository"))) {
+    throw new InputError("Checkout modes require the checkout's own repository root", "checkout_mode_repository_root_mismatch");
+  }
+  const enginePath = relative(checkoutRoot, join(checkoutRoot, engineRelative)).split(sep).join("/");
+  let changed = 0;
+  let missing = 0;
+  let regular = 0;
+  const configRelative = relative(checkoutRoot, configPath).split(sep).join("/");
+  for (const entry of indexEntries(checkoutRoot, "directory")) {
+    if (entry.stage !== 0 || (entry.mode !== "100644" && entry.mode !== "100755")) continue;
+    // The loader's config-mode contract above remains its one authority.
+    if (entry.path === configRelative) continue;
+    const policyPath = enginePath.length > 0 && entry.path.startsWith(`${enginePath}/`)
+      ? entry.path.slice(enginePath.length + 1) : entry.path;
+    const declared = repositoryRootCapabilityExpectedRawFileMode(policyPath);
+    const mode = entry.mode === "100755" && declared !== ROOT_POLICY.filesystem.rawFileModes.config
+      ? Number.parseInt(entry.mode.slice(-3), 8) : declared;
+    const settled = settleContainedFileMode(root, entry.path, mode);
+    regular++;
+    if (settled === undefined) missing++;
+    else if (settled) changed++;
+  }
+  steps.push(step("file-modes", "pass", `${regular} tracked regular files; ${changed} changed; ${missing} missing`));
+  return Object.freeze(steps);
 }
 
 /**

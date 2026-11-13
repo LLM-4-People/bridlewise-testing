@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { InputError, SecurityError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { handleError } from "../shared/debug/debug-system.ts";
-import { windowsDriveMountPoints } from "./linux-path.ts";
+import { fileDescriptorPath, windowsDriveMountPoints } from "./linux-path.ts";
 
 /**
  * THE ONE OWNER OF PATH IDENTITY: where a path really is, and whether one
@@ -475,7 +475,7 @@ export type ContainedFolder = Readonly<{ path: string; close: () => void }>;
  */
 export function openContainedFolder(root: ResolvedAbsolutePath, segments: readonly string[], create: boolean): ContainedFolder | undefined {
   const procRoot = ROOT_POLICY.receipts.immutableExecution.procFileDescriptorRoot;
-  const viaDescriptor = (fd: number): string => join(procRoot, String(fd));
+  const viaDescriptor = (fd: number): string => fileDescriptorPath(procRoot, fd);
   let fd = openSync(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   let spelled: string = root;
   try {
