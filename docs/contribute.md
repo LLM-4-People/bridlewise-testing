@@ -162,12 +162,11 @@ permalink: /contribute/
     <h2>Run the public gate before you change anything.</h2>
   </div>
   <div class="prose">
-    <pre><code>git clone {{ site.repository_url }}.git
+    <pre><code>git clone {{ site.repository_url }}.git bridlewise
 cd bridlewise
 npm ci
-npm --prefix engine ci
+npm run setup:engine
 npm run bootstrap:hooks
-chmod 600 engine/bridlewise.config.json
 npm run typecheck
 npm --prefix engine run typecheck
 npm run test:public</code></pre>

@@ -49,11 +49,10 @@ jobs:
           cache: npm
           cache-dependency-path: engine/package-lock.json
 
-      - name: Install the base's engine dependencies
-        run: npm --prefix engine ci --no-audit --no-fund --ignore-scripts
-
-      - name: Enforce the self-protection config mode
-        run: chmod 600 engine/bridlewise.config.json
+      - name: Set up the base's engine
+        uses: ./.github/actions/engine-setup
+        with:
+          ignore-scripts: "true"
 
       # The branch's commits as objects only: a pull request's head (a fork's
       # too, through refs/pull/<n>/head) or the merge group's head.

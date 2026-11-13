@@ -7,6 +7,7 @@
     "node": ">=24.18.0 <25.0.0"
   },
   "scripts": {
+    "setup:engine": "npm --prefix engine ci && node --experimental-strip-types engine/scripts/tooling/bootstrap-permissions.ts",
     "bootstrap:hooks": "node --experimental-strip-types engine/scripts/bootstrap-hooks.ts .",
     "dev": "vite",
     "dev:api": "node --experimental-strip-types server/index.ts",

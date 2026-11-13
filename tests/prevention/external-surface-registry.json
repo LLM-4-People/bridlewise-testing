@@ -259,6 +259,7 @@
       "usedIn": [
         ".github/actions/site-build-setup/action.yml",
         ".github/workflows/ci.yml",
+        ".github/workflows/commit-records.yml",
         ".github/workflows/community.yml",
         ".github/workflows/forge-apps-audit.yml",
         ".github/workflows/pages.yml",

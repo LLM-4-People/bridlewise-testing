@@ -23,7 +23,7 @@ The `product` branch intentionally carries no large test tree. Publishing a test
 
 ```bash
 npm ci
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 npm run test:public
 ```
 
@@ -45,12 +45,11 @@ npm run verify:public   # typecheck + secret scan + public tests
 ## Development-floor setup
 
 ```bash
-git clone {{ site.repository_url }}.git
+git clone {{ site.repository_url }}.git bridlewise
 cd bridlewise
 npm ci
-npm --prefix engine ci
+npm run setup:engine
 npm run bootstrap:hooks
-chmod 600 engine/bridlewise.config.json
 make -C engine/guardian all            # the Landlock guardian and its test payload
 npm --prefix engine run build:bundle   # the engine bundle, pinned by self-protection
 npm run corpus:fetch                   # optional: the pinned subset for the corpus-backed tests

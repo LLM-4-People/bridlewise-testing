@@ -19,11 +19,10 @@ Expected outputs below are shapes from the 2026-10-19 public snapshot. Counts an
 ## Fresh clone gate
 
 ```bash
-git clone {{ site.repository_url }}.git
+git clone {{ site.repository_url }}.git bridlewise
 cd bridlewise
 npm ci
-npm --prefix engine ci
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 npm run typecheck
 npm --prefix engine run typecheck
 npm run check:secrets
@@ -208,8 +207,8 @@ npm run corpus:fetch     # materialise the pinned subset and link it
 npm run corpus:verify    # judge every size and hash against the manifest
 cd engine
 node --experimental-strip-types --test --test-concurrency=1 \
-  test/aux/awareness.test.ts \
-  test/aux/quality.test.ts \
+  test/auxiliary/awareness.test.ts \
+  test/auxiliary/quality.test.ts \
   test/tools/concurrent/worker-pool.test.ts \
   test/safety/hallucination-benchmark.test.ts \
   test/verification/required-fixture-roots.test.ts \

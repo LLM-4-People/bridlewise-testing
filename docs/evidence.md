@@ -84,11 +84,10 @@ CI runs the tracked hooks, both typechecks, the secret scan, the public smoke su
 ## 2. The public smoke suite
 
 ```bash
-git clone {{ site.repository_url }}.git
+git clone {{ site.repository_url }}.git bridlewise
 cd bridlewise
 npm ci
-npm --prefix engine ci
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 npm run test:public
 ```
 

@@ -2,9 +2,8 @@
 
 install:
 	npm ci
-	npm --prefix engine ci
+	npm run setup:engine
 	npm run bootstrap:hooks
-	chmod 600 engine/bridlewise.config.json
 
 typecheck:
 	npm run typecheck

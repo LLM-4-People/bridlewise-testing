@@ -105,12 +105,16 @@ cd bridlewise-testing
 
 ```bash
 npm ci
-npm --prefix engine ci
+npm run setup:engine
 npm run bootstrap:hooks
-chmod 600 engine/bridlewise.config.json
 make -C engine/guardian all
 npm --prefix engine run build:bundle
 ```
+
+`npm run setup:engine` installs the engine lockfile, then uses the shared Linux
+permission bootstrap to settle the configuration mode from policy. Both the
+checkout and config must belong to the invoking user and group. The command
+refuses unsafe paths and repairs permissions before the config loader runs.
 
 Run the public smoke suite — the part that works on a fresh clone without the private corpus:
 
