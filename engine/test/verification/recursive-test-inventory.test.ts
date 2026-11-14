@@ -5,6 +5,8 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  lstatSync,
+  realpathSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -13,7 +15,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import test, { type TestContext } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   assertTestInventorySourceSnapshot,
@@ -22,6 +24,7 @@ import {
   createTestInventoryEntry,
   discoverTestNames,
   listRecognizableTestPaths,
+  parseTestInventoryDocument,
   testFilesFromInventory,
   testInventoryEntryIdentity,
   testInventoryIdentity,
@@ -45,14 +48,22 @@ import {
   type TestSurfaceDispositionEntry,
 } from "../../scripts/verification/test-surface.ts";
 import { HarnessError } from "../../src/kernel/errors.ts";
-import { defaultDispositionEntry } from "../../src/kernel/test-surface-manifest.ts";
-import { canonicalDomainHash, canonicalHash, canonicalJson } from "../../src/kernel/integrity.ts";
+import { defaultDispositionEntry, serializeTestSurfaceDispositionManifest } from "../../src/kernel/test-surface-manifest.ts";
+import { canonicalDomainHash, canonicalHash, canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
 import { compareUtf8Bytes } from "../../src/kernel/ordered.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { standaloneNodeTestEnvironment } from "../../src/shared/workflow/e2e-runner.mjs";
 import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
-import { createRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
+import { createRepositoryLocalTemporaryDirectory, createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 import { withProductionRejectFloor, withProductionRejectFloorAsync } from "../support/test-env-helpers.ts";
 import { readLinuxMountPoints } from "../../src/filesystem/linux-path.ts";
+import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
+import { indexFilePath } from "../../src/git/repository-ownership.ts";
+import { stageInCopy } from "../../src/git/working-copy.ts";
+import { runCpuBounded } from "../../src/process/supervised-run.ts";
+import { configuredSubprocessBounds } from "../../src/workflow/workflow-config.ts";
+import { parseJsonExact } from "../../src/kernel/json-integrity.ts";
+import { journalsUnder } from "../../src/filesystem/journaled-commit.ts";
 
 // The synthetic policy the inventory transaction rewrites lives at the
 // policy's post-fold location; derive it from the authority, not a literal, so
@@ -1189,3 +1200,301 @@ async function runTemporaryOwnerWorker(
   assert.equal(code, 0, stderr);
   return JSON.parse(stdout) as { path: string; exists: boolean };
 }
+
+type OnePassFault = "none" | "source" | "population" | "scope" | "manifest" | "policy" | "index";
+type OnePassFixture = ReturnType<typeof createRepositoryWorkingCopy> & Readonly<{
+  markerRelative: string; markerRepositoryRelative: string; markerPath: string;
+  populationPath: string; manifestPath: string; policyPath: string; scriptPath: string; scriptUrl: string;
+}>;
+type OnePassCounter = Readonly<{
+  scriptUrl: string; functionName: string; functionEntries: number; callCount: number | null;
+  markerHits: number; faultApplied: boolean; faultError: string | null; error?: string;
+}>;
+
+let sharedOnePassFixture: OnePassFixture | undefined;
+
+/** One full real fixture for this supplemental mechanism group; no narrowed source population or warmed cache copy. */
+function onePassFixture(): OnePassFixture {
+  if (sharedOnePassFixture !== undefined) return sharedOnePassFixture;
+  const copy = createRepositoryWorkingCopy("inventory-one-pass-");
+  const markerRelative = "test/00-inventory-one-pass-marker.test.ts";
+  const markerRepositoryRelative = relative(copy.root, join(copy.engineRoot, markerRelative)).split("\\").join("/");
+  const scriptPath = realpathSync(join(copy.engineRoot, "scripts/test-inventory.ts"));
+  sharedOnePassFixture = { ...copy, markerRelative, markerRepositoryRelative,
+    markerPath: join(copy.engineRoot, markerRelative), populationPath: join(copy.engineRoot, "test/00-inventory-one-pass-population.test.ts"),
+    manifestPath: join(copy.engineRoot, ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath),
+    policyPath: join(copy.engineRoot, POLICY_REL), scriptPath, scriptUrl: pathToFileURL(scriptPath).href,
+  };
+  assert.equal(existsSync(sharedOnePassFixture.markerPath), false, "the controlled source path is not inherited work");
+  assert.equal(existsSync(join(copy.engineRoot, VERIFICATION_PATHS.testInventory)), false, "the full fixture starts without an ignored inventory cache");
+  return sharedOnePassFixture;
+}
+
+test.after(() => {
+  if (sharedOnePassFixture !== undefined) removeRepositoryLocalTemporaryDirectory(sharedOnePassFixture.root);
+});
+
+function onePassMarker(seed: string): string {
+  return `import test from "node:test";\ntest("one-pass fixture marker", () => undefined);\n// Private source identity: ${seed}\n`;
+}
+
+function setOnePassMarker(fixture: OnePassFixture, seed: string): string {
+  const marker = onePassMarker(seed);
+  writeFileSync(fixture.markerPath, marker);
+  stageInCopy(fixture.root, [fixture.markerRepositoryRelative]);
+  return marker;
+}
+
+function cachedOnePassInventory(fixture: OnePassFixture) {
+  return parseTestInventoryDocument(JSON.parse(readFileSync(join(fixture.engineRoot, VERIFICATION_PATHS.testInventory), "utf8")));
+}
+
+function currentOnePassSourceCount(fixture: OnePassFixture): number {
+  const manifest = parseTestSurfaceDispositionManifestText(readFileSync(fixture.manifestPath, "utf8"));
+  return buildTestSurfaceScope(listRecognizableTestPaths(fixture.engineRoot), manifest).canonicalNodeSourceIds.length;
+}
+
+/** Native V8 coverage observes the actual exported function, never a replacement parser or a copied producer. */
+async function observeOnePass(fixture: OnePassFixture, marker: string, mode: "public-control" | "cli", fault: OnePassFault = "none") {
+  const observation = createRepositoryLocalTemporaryDirectory("inventory-one-pass-observation-");
+  const input = join(observation, "input.json");
+  const report = join(observation, "counter.json");
+  const replacement = join(observation, "scope-manifest.json");
+  if (fault === "scope") {
+    const original = parseTestSurfaceDispositionManifestText(readFileSync(fixture.manifestPath, "utf8"));
+    const entry = defaultDispositionEntry(fixture.markerRelative);
+    assert.ok(entry, "the controlled fixture is a real canonical Node source");
+    const next = createTestSurfaceDispositionManifest([...original.entries, { ...entry,
+      disposition: "pending-external-qualification", blocksFullRepositoryClaim: true,
+      rationale: "Private fault: the bound scope changes after the first complete source snapshot.",
+    }]);
+    writeFileSync(replacement, serializeTestSurfaceDispositionManifest(next), { mode: 0o600 });
+  }
+  writeFileSync(input, `${canonicalJson({ report, scriptUrl: fixture.scriptUrl, marker, fault,
+    sourcePath: fixture.markerPath, populationPath: fixture.populationPath, manifestPath: fixture.manifestPath,
+    policyPath: fixture.policyPath, replacement, repositoryRoot: fixture.root, markerRepositoryRelative: fixture.markerRepositoryRelative,
+    gitReaderUrl: pathToFileURL(join(fixture.engineRoot, "src/git/tree-reader.ts")).href,
+    gitPortUrl: pathToFileURL(join(fixture.engineRoot, "src/git/worktree-port.ts")).href,
+  })}\n`, { mode: 0o600 });
+  const preload = [
+    'import { Session } from "node:inspector";',
+    'import { readFileSync, writeFileSync } from "node:fs";',
+    `const config = JSON.parse(readFileSync(${JSON.stringify(input)}, "utf8"));`,
+    String.raw`
+let directoryGit;
+if (config.fault === "index") {
+  const reader = await import(config.gitReaderUrl);
+  const port = await import(config.gitPortUrl);
+  const repository = port.configuredGitRepository({}, config.repositoryRoot);
+  directoryGit = () => reader.gitOutput(repository, ["update-index", "--force-remove", "--", config.markerRepositoryRelative]);
+}
+const session = new Session();
+session.connect();
+const post = (method, parameters = {}) => new Promise((resolve, reject) => {
+  session.post(method, parameters, (error, answer) => error ? reject(error) : resolve(answer));
+});
+await post("Profiler.enable");
+await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+let markerHits = 0;
+let faultApplied = false;
+let faultError = null;
+const realDecode = TextDecoder.prototype.decode;
+TextDecoder.prototype.decode = function(...args) {
+  const text = Reflect.apply(realDecode, this, args);
+  if (text === config.marker) {
+    markerHits += 1;
+    if (markerHits === 1 && config.fault !== "none") {
+      try {
+        if (config.fault === "source") writeFileSync(config.sourcePath, config.marker + "// Changed after the safe snapshot.\n");
+        else if (config.fault === "population") writeFileSync(config.populationPath, 'import test from "node:test"; test("post-snapshot population", () => undefined);\n');
+        else if (config.fault === "scope") writeFileSync(config.manifestPath, readFileSync(config.replacement));
+        else if (config.fault === "manifest") writeFileSync(config.manifestPath, Buffer.concat([readFileSync(config.manifestPath), Buffer.from("\n")]));
+        else if (config.fault === "policy") writeFileSync(config.policyPath, Buffer.concat([readFileSync(config.policyPath), Buffer.from("\n// Private post-snapshot policy-byte fault.\n")]));
+        else if (config.fault === "index") directoryGit();
+        else throw new Error("unknown private fault");
+        faultApplied = true;
+      } catch (error) { faultError = String(error); throw error; }
+    }
+  }
+  return text;
+};
+process.once("beforeExit", () => {
+  TextDecoder.prototype.decode = realDecode;
+  session.post("Profiler.takePreciseCoverage", (error, answer) => {
+    if (error) {
+      writeFileSync(config.report, JSON.stringify({ error: String(error), markerHits, faultApplied, faultError }), { mode: 0o600 });
+      process.exitCode = 1;
+      session.disconnect();
+      return;
+    }
+    const functions = answer.result.filter((script) => script.url === config.scriptUrl)
+      .flatMap((script) => script.functions.filter((fn) => fn.functionName === "discoverTestNames"));
+    writeFileSync(config.report, JSON.stringify({ scriptUrl: config.scriptUrl, functionName: "discoverTestNames",
+      functionEntries: functions.length, callCount: functions.length === 1 ? functions[0].ranges[0].count : null,
+      markerHits, faultApplied, faultError }), { mode: 0o600 });
+    session.post("Profiler.stopPreciseCoverage", (stopError) => { if (stopError) process.exitCode = 1; session.disconnect(); });
+  });
+});
+`,
+  ].join("\n");
+  const preloadUrl = `data:text/javascript;base64,${Buffer.from(preload).toString("base64")}`;
+  const program = mode === "public-control"
+    ? ["--input-type=module", "--eval", `const owner = await import(${JSON.stringify(fixture.scriptUrl)}); const inventory = owner.buildTestInventory(${JSON.stringify(fixture.engineRoot)}); owner.writeTestInventoryTransaction(${JSON.stringify(fixture.engineRoot)}, inventory);`]
+    : [fixture.scriptPath, "--write"];
+  const run = await runCpuBounded(process.execPath, [`--import=${preloadUrl}`, ...program], {
+    cwd: fixture.engineRoot, env: standaloneNodeTestEnvironment(process.env), bounds: configuredSubprocessBounds(),
+  });
+  const diagnostic = run.stdout.toString("utf8") + run.stderr.toString("utf8");
+  assert.equal(run.ending, "exited", diagnostic);
+  const decoded = parseJsonExact(readFileSync(report, "utf8"));
+  assert.ok(decoded, "the native inspector wrote its small function-count projection");
+  const counter = decoded.value as OnePassCounter;
+  assert.equal(counter.error, undefined, diagnostic);
+  assert.equal(counter.scriptUrl, fixture.scriptUrl);
+  assert.equal(counter.functionName, "discoverTestNames");
+  assert.equal(counter.functionEntries, 1, "native coverage must identify one actual canonical function");
+  assert.ok(counter.callCount !== null && Number.isInteger(counter.callCount) && counter.callCount > 0);
+  writeFileSync(join(observation, "outcome.json"), `${canonicalJson({ counter, command: {
+    ending: run.ending, status: run.status, signal: run.signal, cpuMs: run.cpuMs,
+  } })}\n`, { mode: 0o600 });
+  return { run, counter, diagnostic };
+}
+
+function assertOnePassCacheSource(fixture: OnePassFixture, marker: string) {
+  const inventory = cachedOnePassInventory(fixture);
+  const entries = inventory.tests.filter((entry) => entry.sourceId === fixture.markerRelative);
+  assert.equal(entries.length, 1, "the actual complete roster contains the planted source once");
+  assert.equal(entries[0]!.sourceHash, sha256(marker));
+  return inventory;
+}
+
+async function ensureOnePassCache(fixture: OnePassFixture, marker: string) {
+  const path = join(fixture.engineRoot, VERIFICATION_PATHS.testInventory);
+  if (existsSync(path) && cachedOnePassInventory(fixture).tests.some((entry) => entry.sourceId === fixture.markerRelative && entry.sourceHash === sha256(marker))) return;
+  // A selected single regression case can establish its setup once; failure is never retried.
+  const setup = await observeOnePass(fixture, marker, "cli");
+  assert.equal(setup.run.status, 0, setup.diagnostic);
+  assertOnePassCacheSource(fixture, marker);
+}
+
+test("inventory public control performs two real discoveries per canonical source without a copied generator", async () => {
+  const fixture = onePassFixture();
+  const marker = setOnePassMarker(fixture, "strict public control");
+  const count = currentOnePassSourceCount(fixture);
+  const answer = await observeOnePass(fixture, marker, "public-control");
+  assert.equal(answer.run.status, 0, answer.diagnostic);
+  assert.equal(answer.counter.markerHits, 2);
+  assert.equal(answer.counter.callCount, 2 * count);
+  assert.equal(answer.counter.faultApplied, false);
+  assert.equal(assertOnePassCacheSource(fixture, marker).scope.canonicalNodeSourceIds.length, count);
+});
+
+test("inventory CLI publishes its own complete build with one actual discovery per canonical source", async () => {
+  const fixture = onePassFixture();
+  const marker = setOnePassMarker(fixture, "actual CLI publication");
+  const count = currentOnePassSourceCount(fixture);
+  const answer = await observeOnePass(fixture, marker, "cli");
+  assert.equal(answer.run.status, 0, answer.diagnostic);
+  const payload = parseJsonExact(answer.run.stdout.toString("utf8"))!.value as { status: string; inventoryHash: string; conservation: { kind: string } };
+  assert.equal(payload.status, "written", "the actual producer reached the changed-cache write path");
+  assert.equal(payload.conservation.kind, "verified");
+  assert.equal(answer.counter.markerHits, 1);
+  assert.equal(answer.counter.callCount, count);
+  const inventory = assertOnePassCacheSource(fixture, marker);
+  assert.equal(inventory.scope.canonicalNodeSourceIds.length, count);
+  assert.equal(inventory.inventoryHash, payload.inventoryHash);
+});
+
+test("inventory CLI rechecks a current cache with one discovery and does not rewrite its bytes", async () => {
+  const fixture = onePassFixture();
+  const marker = setOnePassMarker(fixture, "actual CLI current cache");
+  await ensureOnePassCache(fixture, marker);
+  const path = join(fixture.engineRoot, VERIFICATION_PATHS.testInventory);
+  const before = readFileSync(path);
+  const mode = lstatSync(path).mode & 0o7777;
+  const identity = lstatSync(path, { bigint: true });
+  const answer = await observeOnePass(fixture, marker, "cli");
+  assert.equal(answer.run.status, 0, answer.diagnostic);
+  assert.equal((parseJsonExact(answer.run.stdout.toString("utf8"))!.value as { status: string }).status, "current");
+  assert.equal(answer.counter.markerHits, 1);
+  assert.equal(answer.counter.callCount, currentOnePassSourceCount(fixture));
+  assert.deepEqual(readFileSync(path), before);
+  assert.equal(lstatSync(path).mode & 0o7777, mode);
+  const after = lstatSync(path, { bigint: true });
+  assert.deepEqual([after.dev, after.ino, after.mtimeNs, after.ctimeNs], [identity.dev, identity.ino, identity.mtimeNs, identity.ctimeNs], "current-cache validation makes no replacement or timestamp write");
+});
+
+async function assertOnePassDrift(fault: Exclude<OnePassFault, "none">) {
+  const fixture = onePassFixture();
+  const marker = setOnePassMarker(fixture, `controlled ${fault} drift`);
+  if (fault === "source") await ensureOnePassCache(fixture, marker); // Exercise the cache-current --write branch too.
+  const inventoryPath = join(fixture.engineRoot, VERIFICATION_PATHS.testInventory);
+  const cache = existsSync(inventoryPath) ? readFileSync(inventoryPath) : undefined;
+  const cacheMode = cache === undefined ? undefined : lstatSync(inventoryPath).mode & 0o7777;
+  if (fault !== "source" && cache !== undefined) {
+    assert.ok(cachedOnePassInventory(fixture).tests.some((entry) => entry.sourceId === fixture.markerRelative && entry.sourceHash !== sha256(marker)),
+      "each changed-cache fault reaches a genuinely stale write path, not a disabled cache");
+  }
+  const index = indexFilePath(fixture.root, "directory");
+  const indexBytes = readFileSync(index);
+  const indexMode = lstatSync(index).mode & 0o7777;
+  const manifestBytes = readFileSync(fixture.manifestPath);
+  const policyBytes = readFileSync(fixture.policyPath);
+  const sourceBytes = readFileSync(fixture.markerPath);
+  assert.equal(existsSync(fixture.populationPath), false);
+  const count = currentOnePassSourceCount(fixture);
+  try {
+    const answer = await observeOnePass(fixture, marker, "cli", fault);
+    assert.equal(answer.counter.markerHits, 1, "the exact real source decoder boundary fired once");
+    assert.equal(answer.counter.faultApplied, true, "a missing or failed plant cannot satisfy the refusal");
+    assert.equal(answer.counter.faultError, null);
+    assert.equal(answer.counter.callCount, count, "the refusal preserves one complete original discovery, with no second Babel build");
+    assert.equal(answer.run.status, 1, answer.diagnostic);
+    const refusal = parseJsonExact(answer.run.stderr.toString("utf8"))!.value as { error: string };
+    assert.equal(refusal.error, "test_inventory_generation_failed");
+    if (cache === undefined) assert.equal(existsSync(inventoryPath), false);
+    else {
+      assert.deepEqual(readFileSync(inventoryPath), cache, "no stale inventory is published over the earlier cache");
+      assert.equal(lstatSync(inventoryPath).mode & 0o7777, cacheMode);
+    }
+    assert.deepEqual(journalsUnder(fixture.engineRoot), [], "input drift refuses before a transaction can leave residue");
+    if (fault === "manifest") {
+      assert.deepEqual(parseTestSurfaceDispositionManifestText(readFileSync(fixture.manifestPath, "utf8")), parseTestSurfaceDispositionManifestText(manifestBytes.toString("utf8")),
+        "format-only binding drift keeps the semantic scope unchanged");
+    }
+    if (fault === "index") assert.deepEqual(readFileSync(fixture.markerPath), sourceBytes, "tracked-set drift moves no source bytes");
+  } finally {
+    // Exact scratch fault restoration retains every unique staged byte; it never reconstructs an index from HEAD.
+    writeFileSync(fixture.markerPath, sourceBytes);
+    writeFileSync(fixture.manifestPath, manifestBytes);
+    writeFileSync(fixture.policyPath, policyBytes);
+    if (existsSync(fixture.populationPath)) rmSync(fixture.populationPath);
+    const restored = atomicWriteFile(index, indexBytes, { exactMode: indexMode });
+    assert.equal(restored.success, true, restored.reason);
+    assert.deepEqual(readFileSync(index), indexBytes);
+    assert.equal(lstatSync(index).mode & 0o7777, indexMode);
+  }
+}
+
+test("inventory CLI refuses post-snapshot source drift even on a current-cache write", async () => { await assertOnePassDrift("source"); });
+test("inventory CLI refuses post-snapshot recognizable population drift", async () => { await assertOnePassDrift("population"); });
+test("inventory CLI refuses a fresh canonical manifest that changes its bound scope", async () => { await assertOnePassDrift("scope"); });
+test("inventory CLI refuses manifest byte drift even when parsed scope is unchanged", async () => { await assertOnePassDrift("manifest"); });
+test("inventory CLI refuses post-snapshot root-policy byte drift", async () => { await assertOnePassDrift("policy"); });
+test("inventory CLI refuses tracked-set drift with unchanged source bytes", async () => { await assertOnePassDrift("index"); });
+
+test("inventory public writer still refuses a forged renamed roster with valid document hashes", (t) => {
+  const root = temporaryRoot(t);
+  writeTest(root, "test/source.test.ts", 'test("original one", () => undefined);\ntest("original two", () => undefined);\n');
+  const full = buildTestInventory(root);
+  const forgedEntry = createTestInventoryEntry(full.tests[0]!.sourceId, full.tests[0]!.sourceHash, "forged renamed registration");
+  const forged = createTestInventory(full.scope, [forgedEntry, ...full.tests.slice(1)]);
+  const path = join(root, VERIFICATION_PATHS.testInventory);
+  writeTestInventoryTransaction(root, full, () => undefined, testInventoryBuildOptions(root));
+  const before = readFileSync(path);
+  let transactionStarted = false;
+  assert.throws(() => writeTestInventoryTransaction(root, forged, () => { transactionStarted = true; }, testInventoryBuildOptions(root)),
+    /does not exactly match the current test-source projection/u);
+  assert.equal(transactionStarted, false);
+  assert.deepEqual(readFileSync(path), before);
+});

@@ -28,9 +28,10 @@ import { parseArgs } from "node:util";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
+import { sha256 } from "../../engine/src/kernel/integrity.ts";
 import { escapeHtml } from "../../shared/markup.ts";
 import { SITE_THEME_STORAGE } from "../../shared/site-page.ts";
-import { BROWSER_ARGS, FREEZE_CSS, gate, shotName, shots, VOLATILE_SELECTORS, type Comparison, type Shot } from "./plan.ts";
+import { BROWSER_ARGS, FREEZE_CSS, gate, shotName, shots, VOLATILE_SELECTORS, type Comparison, type ImageEvidence, type Shot } from "./plan.ts";
 
 export class VisualRefusal extends Error {
   readonly code: string;
@@ -55,6 +56,28 @@ const TYPES: Readonly<Record<string, string>> = Object.freeze({
  */
 const freezePath = (base: string): string => `${base}/__visual-freeze.css`;
 
+/** Preserve the operation and every cleanup failure; pending cleanup belongs to the supervising process boundary. */
+async function withCleanup<T>(operation: () => Promise<T>, cleanup: () => readonly Promise<unknown>[]): Promise<T> {
+  let result: { value: T } | { error: unknown };
+  try { result = { value: await operation() }; }
+  catch (error) { result = { error }; }
+  const closed = await Promise.allSettled(cleanup());
+  const failures = [...("error" in result ? [result.error] : []), ...closed.flatMap((item) => item.status === "rejected" ? [item.reason] : [])];
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, `visual_cleanup_failed: ${failures.map((error) => error instanceof Error ? error.message : String(error)).join("; ")}`, { cause: failures[0] });
+  if ("value" in result) return result.value;
+  throw result.error;
+}
+
+/** Start listener shutdown now, close remaining connections and observe its real completion. */
+function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
+  return new Promise<void>((done, reject) => {
+    server.close((error) => { if (error !== undefined) reject(error); else done(); });
+    server.closeAllConnections();
+  });
+}
+
 async function serve(siteRoot: string, baseurl: string): Promise<{ server: Server; origin: string }> {
   const base = baseurl.replace(/\/+$/u, "");
   const server = createServer((request, response) => {
@@ -68,21 +91,30 @@ async function serve(siteRoot: string, baseurl: string): Promise<{ server: Serve
     response.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
     createReadStream(file).pipe(response);
   });
-  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
-  const address = server.address();
-  if (address === null || typeof address === "string") throw new VisualRefusal("visual_server_failed", "the static server has no port");
-  return { server, origin: `http://127.0.0.1:${String(address.port)}` };
+  let acquired = false;
+  return withCleanup(async () => {
+    await new Promise<void>((done, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => { server.off("error", reject); done(); });
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new VisualRefusal("visual_server_failed", "the static server has no port");
+    acquired = true;
+    return { server, origin: `http://127.0.0.1:${String(address.port)}` };
+  }, () => acquired ? [] : [closeServer(server)]);
 }
 
-async function context(browser: Browser, shot: Shot): Promise<BrowserContext> {
+async function context<T>(browser: Browser, shot: Shot, operation: (ctx: BrowserContext) => Promise<T>): Promise<T> {
   const ctx = await browser.newContext({ viewport: { width: shot.viewport.width, height: shot.viewport.height }, deviceScaleFactor: 1, reducedMotion: "reduce", colorScheme: "light" });
-  await ctx.addInitScript(({ key, value, carbon }) => {
-    try {
-      if (carbon) localStorage.setItem(key, value);
-      else localStorage.removeItem(key);
-    } catch { /* a page without storage leads in Logbook */ }
-  }, { key: SITE_THEME_STORAGE.key, value: SITE_THEME_STORAGE.carbon, carbon: shot.theme === "carbon" });
-  return ctx;
+  return withCleanup(async () => {
+    await ctx.addInitScript(({ key, value, carbon }) => {
+      try {
+        if (carbon) localStorage.setItem(key, value);
+        else localStorage.removeItem(key);
+      } catch { /* a page without storage leads in Logbook */ }
+    }, { key: SITE_THEME_STORAGE.key, value: SITE_THEME_STORAGE.carbon, carbon: shot.theme === "carbon" });
+    return operation(ctx);
+  }, () => [Promise.resolve().then(() => ctx.close())]);
 }
 
 async function settle(page: Page, origin: string, base: string, path: string): Promise<void> {
@@ -105,6 +137,13 @@ async function settle(page: Page, origin: string, base: string, path: string): P
 async function picture(page: Page): Promise<Buffer> {
   const masks = page.locator(VOLATILE_SELECTORS.join(", "));
   return page.screenshot({ fullPage: true, animations: "disabled", mask: [masks], maskColor: "#808080" });
+}
+
+/** Persist an image once and bind the report's reference to those exact bytes. */
+function saveShot(out: string, name: string, content: Buffer): ImageEvidence {
+  const path = `shots/${name}`;
+  writeFileSync(join(out, path), content);
+  return { path, bytes: content.byteLength, sha256: sha256(content) };
 }
 
 /** Changed pixels between two PNGs, counted (and a diff painted) in the browser's canvas. */
@@ -159,40 +198,55 @@ export async function run(options: RunOptions): Promise<Readonly<{ comparisons: 
     if (!existsSync(join(root, "index.html"))) throw new VisualRefusal("visual_site_missing", `the ${name} site at ${root} is not a built site (no index.html); build it with scripts/build-site.mjs first`);
   }
   mkdirSync(join(options.out, "shots"), { recursive: true });
-  const base = await serve(resolve(options.base), options.baseurl);
-  const head = await serve(resolve(options.head), options.baseurl);
-  const browser = await chromium.launch({ args: [...BROWSER_ARGS] });
-  const prefix = options.baseurl.replace(/\/+$/u, "");
-  const comparisons: Comparison[] = [];
-  const differ = await browser.newPage();
-  try {
+  const servers: Server[] = [];
+  let browser: Browser | undefined;
+  const comparisons = await withCleanup(async () => {
+    const base = await serve(resolve(options.base), options.baseurl);
+    servers.push(base.server);
+    const head = await serve(resolve(options.head), options.baseurl);
+    servers.push(head.server);
+    const activeBrowser = await chromium.launch({ args: [...BROWSER_ARGS] });
+    browser = activeBrowser;
+    const prefix = options.baseurl.replace(/\/+$/u, "");
+    const comparisons: Comparison[] = [];
+    const differ = await activeBrowser.newPage();
     for (const shot of shots(options.pages)) {
       const name = shotName(shot);
-      const ctx = await context(browser, shot);
-      const page = await ctx.newPage();
-      await settle(page, head.origin, prefix, shot.page);
-      const first = await picture(page);
-      await settle(page, head.origin, prefix, shot.page);
-      const second = await picture(page);
-      let before: Buffer | null = null;
-      try {
-        await settle(page, base.origin, prefix, shot.page);
-        before = await picture(page);
-      } catch (error) {
-        if (!(error instanceof VisualRefusal && error.code === "visual_page_missing")) throw error;
-      }
-      await ctx.close();
+      const { first, second, before } = await context(activeBrowser, shot, async (ctx) => {
+        const page = await ctx.newPage();
+        await settle(page, head.origin, prefix, shot.page);
+        const first = await picture(page);
+        await settle(page, head.origin, prefix, shot.page);
+        const second = await picture(page);
+        let before: Buffer | null = null;
+        try {
+          await settle(page, base.origin, prefix, shot.page);
+          before = await picture(page);
+        } catch (error) {
+          if (!(error instanceof VisualRefusal && error.code === "visual_page_missing")) throw error;
+        }
+        return { first, second, before };
+      });
       // Only a shot that needs a reader's eyes is kept: an unchanged page has
       // nothing to show.
-      if (before === null || !before.equals(first) || !first.equals(second)) {
-        writeFileSync(join(options.out, "shots", `head--${name}`), first);
-        if (before !== null) writeFileSync(join(options.out, "shots", `base--${name}`), before);
-      }
-      if (!first.equals(second)) {
-        comparisons.push({ name, verdict: "unstable", changedPixels: 0, totalPixels: 0 });
+      const unstable = !first.equals(second);
+      const unchanged = before !== null && before.equals(first);
+      const keep = !unchanged || unstable;
+      if (keep && !unstable) writeFileSync(join(options.out, "shots", `head--${name}`), first);
+      if (keep && before !== null) writeFileSync(join(options.out, "shots", `base--${name}`), before);
+      if (unstable) {
+        const { changed, total, diff } = await difference(differ, first, second);
+        comparisons.push({
+          name, verdict: "unstable", changedPixels: changed, totalPixels: total,
+          stability: {
+            first: saveShot(options.out, `head--${name}`, first),
+            second: saveShot(options.out, `head-repeat--${name}`, second),
+            diff: saveShot(options.out, `unstable-diff--${name}`, Buffer.from(diff, "base64")),
+          },
+        });
       } else if (before === null) {
         comparisons.push({ name, verdict: "added", changedPixels: 0, totalPixels: 0 });
-      } else if (before.equals(first)) {
+      } else if (unchanged) {
         comparisons.push({ name, verdict: "same", changedPixels: 0, totalPixels: 0 });
       } else {
         const { changed, total, diff } = await difference(differ, before, first);
@@ -200,11 +254,18 @@ export async function run(options: RunOptions): Promise<Readonly<{ comparisons: 
         comparisons.push({ name, verdict: changed === 0 ? "same" : "changed", changedPixels: changed, totalPixels: total });
       }
     }
-  } finally {
-    await browser.close();
-    base.server.close();
-    head.server.close();
-  }
+    return comparisons;
+  }, () => {
+    // Start BOTH listener closes before invoking browser cleanup. A rejected or
+    // pending browser close cannot keep either listener open. The existing
+    // supervisor bounds a stuck browser; allSettled never proves it stopped.
+    const closing: Promise<unknown>[] = servers.map(closeServer);
+    if (browser !== undefined) {
+      const acquiredBrowser = browser;
+      closing.push(Promise.resolve().then(() => acquiredBrowser.close()));
+    }
+    return closing;
+  });
   const verdict = gate(comparisons, { changeDeclared: options.changeDeclared });
   writeFileSync(join(options.out, "result.json"), `${JSON.stringify({ schema: "bridlewise-visual-check/v1", ...verdict, comparisons }, null, 2)}\n`);
   writeFileSync(join(options.out, "summary.md"), summary(comparisons, verdict));
@@ -229,9 +290,11 @@ function summary(comparisons: readonly Comparison[], verdict: { pass: boolean; r
 function report(comparisons: readonly Comparison[], verdict: { pass: boolean; reasons: readonly string[] }): string {
   const h = escapeHtml;
   const card = (c: Comparison): string => {
-    const images = c.verdict === "changed"
-      ? ["base", "head", "diff"].map((kind) => `<figure><img loading="lazy" alt="${h(`${kind}: ${c.name}`)}" src="shots/${kind}--${h(c.name)}"><figcaption>${kind}</figcaption></figure>`).join("")
-      : `<figure><img loading="lazy" alt="${h(`head: ${c.name}`)}" src="shots/head--${h(c.name)}"><figcaption>head</figcaption></figure>`;
+    const images = c.stability !== undefined
+      ? Object.entries(c.stability).map(([kind, image]) => `<figure><img loading="lazy" alt="${h(`${kind}: ${c.name}`)}" src="${h(image.path)}"><figcaption>${h(kind)} · ${String(image.bytes)} bytes · SHA-256 <code>${h(image.sha256)}</code></figcaption></figure>`).join("")
+      : c.verdict === "changed"
+        ? ["base", "head", "diff"].map((kind) => `<figure><img loading="lazy" alt="${h(`${kind}: ${c.name}`)}" src="shots/${kind}--${h(c.name)}"><figcaption>${kind}</figcaption></figure>`).join("")
+        : `<figure><img loading="lazy" alt="${h(`head: ${c.name}`)}" src="shots/head--${h(c.name)}"><figcaption>head</figcaption></figure>`;
     return `<section data-verdict="${h(c.verdict)}"><h2>${h(c.name)} <small>${h(c.verdict)}${c.totalPixels === 0 ? "" : ` · ${(100 * c.changedPixels / c.totalPixels).toFixed(2)}% of pixels`}</small></h2><div class="row">${images}</div></section>`;
   };
   const ordered = comparisons.filter((c) => c.verdict !== "same");
