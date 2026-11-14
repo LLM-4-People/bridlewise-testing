@@ -64,6 +64,7 @@ import {
   posixShellQuoted,
   systemdRunLaunchCommand,
   serverLaunchEnvironment,
+  serverManagerLaunchEnvironment,
 } from "../../scripts/sd-stale-classifier.ts";
 // The census owner — the /proc enumeration + the pattern tables live there
 // now (one census primitive consumed by sd.mjs AND the anatomy view); the
@@ -678,9 +679,10 @@ describe("sd.mjs start — the launch command's shell quoting (the words systemd
   });
 
   test.each([
-    ["systemd", undefined], ["systemd", ""], ["systemd", "custom"],
-    ["fallback", undefined], ["fallback", ""], ["fallback", "custom"],
-  ] as const)("actual cmdStart wiring: %s with credential %s", async (branch, credential) => {
+    ["systemd", undefined, "start"], ["systemd", "", "start"], ["systemd", "custom", "start"],
+    ["fallback", undefined, "start"], ["fallback", "", "start"], ["fallback", "custom", "start"],
+    ["none", undefined, "stop"], ["none", undefined, "status"], ["none", undefined, "restart-invalid"],
+  ] as const)("actual lifecycle wiring: %s with credential %s for %s", async (branch, credential, command) => {
     // Execute the actual CLI module with external effects intercepted. This
     // proves dispatch/ENV wiring; the workflow separately proves real serving.
     const argv = process.argv;
@@ -688,6 +690,7 @@ describe("sd.mjs start — the launch command's shell quoting (the words systemd
     const key = `${probeDir}/actual key home\nline`;
     const messages: unknown[][] = [];
     const launches: string[][] = [];
+    const managerEnvironments: Array<Record<string, string>> = [];
     const children: Array<{ env: Record<string, string> }> = [];
     const unref = vi.fn();
     const close = vi.fn();
@@ -698,13 +701,20 @@ describe("sd.mjs start — the launch command's shell quoting (the words systemd
     vi.stubEnv("HARNESS_KEY_HOME", key);
     vi.stubEnv("HARNESS_WEB_HOST", "");
     vi.stubEnv("UNRELATED_TOKEN", "caller-only-credential");
+    vi.stubEnv("HARNESS_WEB_ALLOWED_ORIGIN", command === "start" ? undefined : "https://example.invalid/task");
+    vi.stubEnv("CODESPACES", "true");
+    vi.stubEnv("CODESPACE_NAME", "careful-horse-example");
+    vi.stubEnv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev");
+    vi.stubEnv("XDG_RUNTIME_DIR", "/scratch/manager");
+    vi.stubEnv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/scratch/manager/bus");
     vi.spyOn(console, "log").mockImplementation((...args) => { messages.push(args); });
     vi.spyOn(console, "error").mockImplementation((...args) => { messages.push(args); });
     vi.spyOn(process, "kill").mockImplementation(() => { throw new Error("wiring guard must never signal a process"); });
     vi.doMock("node:child_process", () => ({
-      execSync: (command: string) => {
+      execSync: (command: string, options: { env?: Record<string, string> }) => {
         if (command.startsWith("systemd-run ")) {
           launches.push(argvOf(command));
+          managerEnvironments.push(options.env ?? {});
           if (branch === "fallback") throw Object.assign(new Error(`secret command: ${command}`), { status: 71 });
           return "";
         }
@@ -733,15 +743,36 @@ describe("sd.mjs start — the launch command's shell quoting (the words systemd
     }));
     vi.doMock("../../scripts/sd-stale-classifier.ts", () => ({
       classifyStaleProcess, livePidfilePids: () => [], servingTreeLine, bootBindingLine,
-      bootServingVerdict, bootStderrTailMessage, systemdRunLaunchCommand, serverLaunchEnvironment,
+      bootServingVerdict, bootStderrTailMessage, systemdRunLaunchCommand, serverLaunchEnvironment, serverManagerLaunchEnvironment,
     }));
     try {
       const entry = join(REPO_ROOT, "scripts/sd.mjs");
-      process.argv = [process.execPath, entry, "start"];
+      process.argv = [process.execPath, entry, command === "restart-invalid" ? "restart" : command];
       // Execute the selected JavaScript CLI entry for its side effects.
       // It has no typed exports for this TypeScript guard to consume.
+      if (command === "restart-invalid") {
+        await expect(import(entry)).rejects.toThrow("Invalid HARNESS_WEB_ALLOWED_ORIGIN");
+        expect(launches).toHaveLength(0);
+        expect(messages.flat().join(" ")).not.toContain("Stopping dev server");
+        expect(messages.flat().join(" ")).not.toContain("boot tree:");
+        return;
+      }
       await import(entry);
+      if (command === "stop" || command === "status") {
+        expect(launches).toHaveLength(0);
+        expect(children).toHaveLength(0);
+        expect(messages.flat().join(" ")).toContain(command === "stop" ? "Stopping dev server" : "Status: STOPPED");
+        return;
+      }
       expect(launches, "the actual cmdStart must reach the launch boundary").toHaveLength(1);
+      expect(managerEnvironments).toHaveLength(1);
+      const managerEnvironment = managerEnvironments[0]!;
+      expect(managerEnvironment.HARNESS_WEB_ALLOWED_ORIGIN).toBe("https://careful-horse-example-5173.app.github.dev");
+      expect(managerEnvironment.XDG_RUNTIME_DIR).toBe("/scratch/manager");
+      expect(managerEnvironment.DBUS_SESSION_BUS_ADDRESS).toBe("unix:path=/scratch/manager/bus");
+      for (const name of ["CODESPACES", "CODESPACE_NAME", "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "UNRELATED_TOKEN", "NODE_OPTIONS", "HARNESS_API_KEY"]) {
+        expect(Object.hasOwn(managerEnvironment, name), `${name} stays outside the manager launch`).toBe(false);
+      }
       const setenv = launches[0]!.filter((word) => word.startsWith("--setenv="));
       // NAMES ONLY on the command line: systemd-run reads the values from its
       // own (inherited) environment, so no path or password is in /proc.
@@ -756,6 +787,9 @@ describe("sd.mjs start — the launch command's shell quoting (the words systemd
         expect(children, "the failed systemd launch must actually dispatch the fallback").toHaveLength(1);
         expect(new Set(Object.keys(children[0]!.env)), "both branches receive the same selected caller environment").toEqual(forwarded);
         expect(children[0]!.env.HARNESS_WEB_DB_PATH).toBe(database);
+        expect(children[0]!.env.HARNESS_WEB_ALLOWED_ORIGIN).toBe(managerEnvironment.HARNESS_WEB_ALLOWED_ORIGIN);
+        expect(children[0]!.env.XDG_RUNTIME_DIR).toBeUndefined();
+        expect(children[0]!.env.DBUS_SESSION_BUS_ADDRESS).toBeUndefined();
         expect(unref).toHaveBeenCalledOnce();
         expect(close).toHaveBeenCalledExactlyOnceWith(73);
         expect(messages.flat().join(" "), "raw command errors must not expose credentials").not.toContain("secret command:");

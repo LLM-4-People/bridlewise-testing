@@ -25,11 +25,18 @@ import {
   devApiPortFromEnv,
 } from "./shared/dev-ports.ts";
 
+import { resolveDevOrigin } from "./shared/dev-origin.ts";
+
+const devOrigin = resolveDevOrigin(process.env);
+if (!devOrigin.ok) throw new Error(devOrigin.reason);
+
 // The dev proxy must target the port the API server actually binds to.
 // `HARNESS_WEB_PORT` is the server's own knob (server/kernel/config.ts owns
 // the strict parse); `shared/dev-ports.ts` owns the default and the coercion
 // this pre-server config can use. No port literal belongs here.
 const HARNESS_WEB_PORT = devApiPortFromEnv(process.env);
+const API_PROXY_TARGET = new URL(`http://127.0.0.1:${HARNESS_WEB_PORT}`);
+const FORWARDED_AUTHORITY = devOrigin.forwardedHostname === undefined ? undefined : new URL(devOrigin.origin).host;
 
 /**
  * THE DEP-SCANNER'S ENTRY UNIVERSE — the SECOND door into the tree, with its
@@ -118,10 +125,22 @@ export const BUILD_CONFIG: UserConfig = defineConfig({
     host: "127.0.0.1",
     port: DEV_CLIENT_PORT,
     strictPort: true,
+    // Exact declared forwarded hostname; Vite keeps its built-in local hosts.
+    allowedHosts: devOrigin.forwardedHostname === undefined ? [] : [devOrigin.forwardedHostname],
     proxy: {
       "/api": {
-        target: `http://127.0.0.1:${HARNESS_WEB_PORT}`,
+        target: API_PROXY_TARGET.origin,
         changeOrigin: false,
+        configure(proxy) {
+          // Vite also accepts built-in local/IP hosts. Preserve those Host
+          // headers so the API keeps its own loopback judgement; rewrite
+          // only this declared forwarded authority. Origin stays untouched.
+          proxy.on("proxyReq", (outgoing, incoming) => {
+            if (FORWARDED_AUTHORITY !== undefined && incoming.headers.host?.toLowerCase() === FORWARDED_AUTHORITY) {
+              outgoing.setHeader("host", API_PROXY_TARGET.host);
+            }
+          });
+        },
         ws: false,
       },
     },

@@ -29,7 +29,8 @@ import { RESPONSES_REQUEST_SCHEMA } from "../../engine/src/shared/llm/responses.
 // credential". Imported, never restated: the admission path and the
 // own-credential discovery below must agree about what a sensitive name is.
 import { isSensitiveKeyName, normalizeSecretKey } from "../../engine/src/privacy/secret-signals.ts";
-import { DEV_API_PORT, DEV_CLIENT_PORT } from "../../shared/dev-ports.ts";
+import { DEV_API_PORT } from "../../shared/dev-ports.ts";
+import { DEFAULT_DEV_ORIGIN, resolveDevOrigin } from "../../shared/dev-origin.ts";
 
 function parseInteger(name: string, raw: string, min: number, max: number): number {
   const n = Number(raw);
@@ -71,7 +72,7 @@ function parseAllowedRoots(raw: string): readonly string[] {
 // and the freshness preflight read the SAME declaration the server uses.
 export const DEFAULT_PORT = DEV_API_PORT;
 export const DEFAULT_HOST = "127.0.0.1";
-export const DEFAULT_ALLOWED_ORIGIN = `http://127.0.0.1:${DEV_CLIENT_PORT}`;
+export const DEFAULT_ALLOWED_ORIGIN = DEFAULT_DEV_ORIGIN;
 export const DEFAULT_MAX_BODY_BYTES = 1 << 20; // 1 MiB
 export const DEFAULT_SSE_KEEPALIVE_MS = 15_000;
 /** The largest epoch-millisecond value a JavaScript `Date` can represent
@@ -1007,7 +1008,9 @@ function envSynchronous(
 }
 
 export function resolveServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const allowedOrigin = envString(env, "HARNESS_WEB_ALLOWED_ORIGIN", DEFAULT_ALLOWED_ORIGIN);
+  const origin = resolveDevOrigin(env);
+  if (!origin.ok) throw new ConfigError(origin.reason);
+  const allowedOrigin = origin.origin;
   // The Secure cookie flag is a DERIVED invariant: it must match the
   // transport scheme. https → Secure (the cookie is dropped if a request
   // downgrades to http, which is exactly the defense). http (dev loopback)

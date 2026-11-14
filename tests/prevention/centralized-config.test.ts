@@ -286,7 +286,12 @@ describe("centralized configuration — launcher port-fallback contract", () => 
   test("the server config's owned defaults ARE the shared dev-port declaration", () => {
     const configSrc = readFileSync(join(WEB_ROOT, "server/kernel/config.ts"), "utf8");
     expect(configSrc).toMatch(/export\s+const\s+DEFAULT_PORT\s*=\s*DEV_API_PORT\b/);
-    expect(configSrc).toContain("DEV_CLIENT_PORT");
+    expect(configSrc).toMatch(/export\s+const\s+DEFAULT_ALLOWED_ORIGIN\s*=\s*DEFAULT_DEV_ORIGIN\b/);
+    expect(configSrc).toContain("shared/dev-origin.ts");
+    const originSrc = readFileSync(join(WEB_ROOT, "shared/dev-origin.ts"), "utf8");
+    expect(originSrc).toContain("DEV_CLIENT_PORT");
+    expect(originSrc).toContain("./dev-ports.ts");
+    expect(originSrc, "the origin must not restate a dev port").not.toMatch(/\b517[34]\b/u);
     expect(configSrc, "DEFAULT_PORT must not restate the literal").not.toMatch(/DEFAULT_PORT\s*=\s*\d+/);
   });
 
