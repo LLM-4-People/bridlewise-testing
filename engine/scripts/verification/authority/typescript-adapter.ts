@@ -12,11 +12,13 @@ export type ImportBinding = Readonly<{
   kind: "named" | "default" | "namespace";
   declaration: AstNode;
 }>;
-export type ModuleFacts = Readonly<{
-  source: AuthoritySource;
-  program: AstNode;
+export type ModuleScopeFacts = Readonly<{
   nodes: readonly AstNode[];
   parents: ReadonlyMap<AstNode, AstNode>;
+}>;
+export type ModuleFacts = ModuleScopeFacts & Readonly<{
+  source: AuthoritySource;
+  program: AstNode;
   constants: ReadonlyMap<string, AstNode>;
   exports: ReadonlyMap<string, string>;
   imports: ReadonlyMap<string, ImportBinding>;
@@ -85,6 +87,40 @@ export function astChildren(node: AstNode): AstNode[] {
   return children;
 }
 
+/** Scope identities for an already parsed program; every consumer shares this walk. */
+export function moduleScopeFacts(program: AstNode): ModuleScopeFacts {
+  const nodes: AstNode[] = [];
+  const parents = new Map<AstNode, AstNode>();
+  const pending: Array<{ node: AstNode; parent?: AstNode }> = [{ node: program }];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    nodes.push(current.node);
+    if (current.parent) parents.set(current.node, current.parent);
+    for (const child of astChildren(current.node)) pending.push({ node: child, parent: current.node });
+  }
+  return { nodes, parents };
+}
+
+/** Prove this reference names the exact declaration, including local const aliases. */
+export function identifierResolvesToDeclaration(
+  identifier: AstNode,
+  declaration: AstNode,
+  module: ModuleScopeFacts,
+): boolean {
+  if (identifier.type !== "Identifier" || !isIdentifierReference(identifier, module)) return false;
+  const name = String(identifier.name);
+  const target = astNode(declaration.id ?? declaration.local);
+  if (!target || !patternBindsName(target, name)) return false;
+  const expectedScope = bindingScope(declaration, module.parents);
+  let scope = nearestLexicalScope(identifier, module.parents);
+  while (scope) {
+    if (scope === expectedScope) return true;
+    if (scopeDeclaresName(scope, name, module)) return false;
+    scope = nearestLexicalScope(scope, module.parents);
+  }
+  return false;
+}
+
 export function identifierResolvesToImport(
   identifierNode: AstNode,
   module: ModuleFacts,
@@ -100,7 +136,7 @@ export function identifierResolvesToImport(
   return module.imports.get(name) === binding;
 }
 
-export function isIdentifierReference(node: AstNode, module: ModuleFacts): boolean {
+export function isIdentifierReference(node: AstNode, module: ModuleScopeFacts): boolean {
   const parent = module.parents.get(node);
   if (!parent) return false;
   if (["ImportSpecifier", "ImportDefaultSpecifier", "ImportNamespaceSpecifier"].includes(parent.type)) return false;
@@ -126,7 +162,7 @@ function nearestLexicalScope(node: AstNode, parents: ReadonlyMap<AstNode, AstNod
   return undefined;
 }
 
-function scopeDeclaresName(scope: AstNode, name: string, module: ModuleFacts): boolean {
+function scopeDeclaresName(scope: AstNode, name: string, module: ModuleScopeFacts): boolean {
   if (FUNCTION_SCOPE_TYPES.has(scope.type)) {
     if (astNodeArray(scope.params).some((parameter) => patternBindsName(parameter, name))) return true;
     const id = astNode(scope.id);
@@ -171,7 +207,7 @@ function bindingScope(declaration: AstNode, parents: ReadonlyMap<AstNode, AstNod
   return nearestLexicalScope(declaration, parents);
 }
 
-function isInsideBindingPattern(node: AstNode, module: ModuleFacts): boolean {
+function isInsideBindingPattern(node: AstNode, module: ModuleScopeFacts): boolean {
   let current: AstNode = node;
   let parent = module.parents.get(current);
   while (parent) {
@@ -218,15 +254,7 @@ function moduleFacts(
   availablePaths: ReadonlySet<string>,
   violations: string[],
 ): ModuleFacts {
-  const nodes: AstNode[] = [];
-  const parents = new Map<AstNode, AstNode>();
-  const pending: Array<{ node: AstNode; parent?: AstNode }> = [{ node: program }];
-  while (pending.length > 0) {
-    const current = pending.pop()!;
-    nodes.push(current.node);
-    if (current.parent) parents.set(current.node, current.parent);
-    for (const child of astChildren(current.node)) pending.push({ node: child, parent: current.node });
-  }
+  const { nodes, parents } = moduleScopeFacts(program);
   const constants = new Map<string, AstNode>();
   const exports = new Map<string, string>();
   const imports = new Map<string, ImportBinding>();
