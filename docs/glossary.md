@@ -2,7 +2,6 @@
 layout: default
 title: "Glossary"
 description: "The working vocabulary of Bridlewise: runs, beats, causal edges, admissions, guardians, floors, projections, and evidence."
-permalink: /glossary/
 ---
 
 # Glossary
@@ -75,4 +74,4 @@ The development floor is where the product is tested, measured, decided, and pro
 
 Use **run** for the unit, **beat** for the part, **record** for the whole, and **evidence** for the part someone else can check. Avoid “session” when you mean run, “log” when you mean ledger, and “sandbox” when you mean Landlock. The distinctions are the product.
 
-The [reading map]({{ '/reading-map/' | relative_url }}) puts these terms in order. The [GitHub map]({{ '/github/' | relative_url }}) shows where the record leaves a trace. The [evidence page]({{ '/evidence/' | relative_url }}) shows how to check it.
+The [reading map](reading-map.md) puts these terms in order. The [GitHub map](github.md) shows where the record leaves a trace. The [evidence page](evidence.md) shows how to check it.

@@ -11,6 +11,8 @@
  * `security_url`, `url`) and pages read them from there.
  */
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 /**
  * THE ONE READER of the generated repository identity (owner, name,
@@ -18,8 +20,9 @@ import { readFileSync } from "node:fs";
  * missing or malformed file is a loud failure (run harness sync), never a
  * guess.
  */
-export function generatedRepositoryIdentity() {
-  const path = new URL("../../.github/forge/repository-identity.json", import.meta.url);
+export function generatedRepositoryIdentity(root = undefined) {
+  const path = root === undefined ? new URL("../../.github/forge/repository-identity.json", import.meta.url)
+    : pathToFileURL(resolve(root, ".github/forge/repository-identity.json"));
   const identity = JSON.parse(readFileSync(path, "utf8"));
   const text = (value) => typeof value === "string" && value !== "";
   const repository = (value) => typeof value === "object" && value !== null && [value.name, value.fullName, value.webUrl, value.pagesUrl, value.docsUrl].every(text);
@@ -46,6 +49,9 @@ export function siteCoordinates(identity) {
     // The site's own host when the trunk declares one (`site.host`), else none: its project site is on the forge's domain.
     siteHost: identity.pagesBasePath === "" ? new URL(identity.pagesUrl).host : "",
     docsUrl: identity.docsUrl,
+    // Documentation placement relative to the site's deployment base, read
+    // from the same identity as its absolute address.
+    docsPath: new URL(identity.docsUrl).pathname.slice(identity.pagesBasePath.length),
     // The product's repository and the preview repository: identities of their own (the forge section's flags).
     productRepository: identity.product.fullName,
     productRepositoryUrl: identity.product.webUrl,

@@ -9,6 +9,39 @@
   var themeButton = document.querySelector("[data-theme-toggle]");
   var themeLabel = document.querySelector("[data-theme-label]");
   var themeMeta = document.querySelector('meta[name="theme-color"]');
+  var demoFrames = document.querySelectorAll("iframe[data-demo-presentation]");
+  var readyDemoFrames = new WeakSet();
+
+  function paintDemoTheme(frame) {
+    if (frame.contentWindow) frame.contentWindow.postMessage({ channel: frame.dataset.demoPresentation, theme: currentTheme() }, window.location.origin);
+  }
+
+  for (var d = 0; d < demoFrames.length; d += 1) {
+    (function (frame) {
+      frame.addEventListener("load", function () { readyDemoFrames.delete(frame); paintDemoTheme(frame); });
+    })(demoFrames[d]);
+  }
+
+  // The embedded production view reports its natural height. The iframe's
+  // HTML height attribute stays CSP-safe and lets every state join the page.
+  if (demoFrames.length > 0) window.addEventListener("message", function (event) {
+    var message = event.data;
+    if (event.origin !== window.location.origin || message === null || typeof message !== "object" || Array.isArray(message)
+      || Object.keys(message).length !== 2 || !Object.hasOwn(message, "channel") || !Object.hasOwn(message, "height") || typeof message.channel !== "string" || !Number.isSafeInteger(message.height) || message.height <= 0) return;
+    for (var i = 0; i < demoFrames.length; i += 1) {
+      var frame = demoFrames[i];
+      if (event.source === frame.contentWindow && message.channel === frame.dataset.demoPresentation) {
+        // Deferred product imports can mount after iframe load. Its first
+        // size observation proves the presentation listener is now ready.
+        if (!readyDemoFrames.has(frame)) {
+          readyDemoFrames.add(frame);
+          paintDemoTheme(frame);
+        }
+        if (frame.height !== String(message.height)) frame.height = String(message.height);
+        return;
+      }
+    }
+  });
 
   function currentTheme() {
     return root.dataset.theme === "carbon" ? "carbon" : "logbook";
@@ -19,6 +52,7 @@
     if (themeLabel) themeLabel.textContent = dark ? "Light" : "Dark";
     if (themeButton) themeButton.setAttribute("aria-label", dark ? "Use the light theme" : "Use the dark theme");
     if (themeMeta) themeMeta.setAttribute("content", getComputedStyle(root).getPropertyValue("--ground-0").trim());
+    for (var i = 0; i < demoFrames.length; i += 1) paintDemoTheme(demoFrames[i]);
   }
 
   function setTheme(theme) {

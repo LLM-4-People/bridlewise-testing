@@ -22,7 +22,7 @@ This repository is the development floor: the source of Bridlewise together with
 | Every change passes a secret scan before it lands in the public tree | `secret` | [scripts/check-secrets.mjs](https://github.com/LLM-4-People/bridlewise-testing/blob/main/scripts/check-secrets.mjs) |
 | CodeQL analyses every change | `codeql` | [.github/workflows/codeql.yml](https://github.com/LLM-4-People/bridlewise-testing/blob/main/.github/workflows/codeql.yml) |
 
-A claim whose check is red is struck out on the [live claims page](https://bridlewise.llm4people.dev/floor/claims/) until it passes again.
+A claim whose check is red is struck out on the [live claims page](https://bridlewise.llm4people.dev/claims/) until it passes again.
 
 **Designed, not built yet:** A malicious module cannot bypass the core ([UD-CORE-NO-BYPASS](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/UD-CORE-NO-BYPASS-a-module-cannot-bypass-core.md)); The model never sees a credential ([CRED-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/CRED-DIR-credentials-the-model-never-sees.md)); Layered memory with provenance and forgetting ([MEM-DIR](https://github.com/LLM-4-People/bridlewise-testing/blob/main/docs/decisions/MEM-DIR-continue-the-memory-layers-lab.md)).
 

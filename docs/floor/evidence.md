@@ -342,7 +342,7 @@ What this proves: the configured steps passed at that commit.
 
 What it does not prove: that the full corpus-backed, live, or E2E suites ran. They do not run in that job.
 
-The product-facing checks and their limits are on the [evidence page]({{ '/evidence/' | relative_url }}).
+The product-facing checks and their limits are on the [evidence page](../evidence.md).
 
 ## Product preview release
 
@@ -431,4 +431,4 @@ observed:
 interpretation:
 ```
 
-A claim without a command is a story. The [known issues]({{ '/known-issues/' | relative_url }}) page lists the gaps these commands cannot close, and the [status snapshot]({{ '/floor/status/' | relative_url }}) shows the last generated floor state.
+A claim without a command is a story. The [known issues](../known-issues.md) page lists the gaps these commands cannot close, and the [status snapshot](status.md) shows the last generated floor state.

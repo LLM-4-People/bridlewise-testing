@@ -64,6 +64,7 @@ import {
   TELEMETRY_STACK_HEAD_MAX_CHARS,
 } from "../client-config";
 import { registerReset } from "./store-registry";
+import { assertClientNetwork, clientNetworkAccess } from "../data/network-access.ts";
 
 // ── The batch contract (the wire shape server/blocks/client-telemetry.ts
 // validates; this module only ever produces well-formed batches) ─────────────
@@ -149,6 +150,11 @@ const state: {
 /** Test seam: inject the flush door. Pass null to restore the default. */
 export function installTelemetrySink(sink: TelemetryFlushSink | null): void {
   state.sink = sink;
+}
+
+/** Numeric volume diagnostics only; buffered event contents never leave through this door. */
+export function telemetryVolume(): Readonly<{ buffered: number; dropped: number }> {
+  return { buffered: state.buffer.length, dropped: state.dropped };
 }
 
 // ── Capture ──────────────────────────────────────────────────────────────────
@@ -279,19 +285,27 @@ async function drainBatches(sink: TelemetryFlushSink): Promise<Readonly<{ sent: 
       if (ok) sent += batch.events.length;
       else {
         refused = true;
-        noteDropped(batch.events.length);
+        // A refused report must keep the earlier hole it was carrying, too.
+        // The empty-buffer synthetic report represents that hole, not one
+        // additional captured event.
+        noteDropped(take.length === 0 ? droppedNow : batch.events.length + (batch.droppedCount ?? 0));
       }
     }
     return { sent, refused };
   } catch {
-    noteDropped(take.length);
+    noteDropped(take.length + droppedNow);
     return { sent: 0, refused: true };
   }
 }
 
 /** Flush now, through the injected sink if one stands, else the broker door. */
 export async function flushTelemetry(): Promise<Readonly<{ sent: number; refused: boolean }>> {
-  return drainBatches(state.sink ?? defaultSink);
+  return drainBatches(networkBoundSink(state.sink ?? defaultSink));
+}
+
+/** Refusal still drains/counts at the queue owner; it never retains an unbounded closed-page buffer. */
+function networkBoundSink(sink: TelemetryFlushSink): TelemetryFlushSink {
+  return async (batch) => clientNetworkAccess().allowed ? sink(batch) : false;
 }
 
 /**
@@ -308,7 +322,7 @@ export async function flushViaBeacon(): Promise<boolean> {
     const result = await flushTelemetry();
     return !result.refused;
   }
-  const result = await drainBatches(beaconSink);
+  const result = await drainBatches(networkBoundSink(beaconSink));
   return !result.refused;
 }
 
@@ -318,6 +332,7 @@ const beaconSink: TelemetryFlushSink = async (batch) => {
   if (typeof beacon !== "function") return false;
   const { blockActionRequestPath } = await import("../data/broker.ts");
   const { DEFAULT_API_BASE } = await import("../client-config");
+  assertClientNetwork();
   return beacon(
     `${DEFAULT_API_BASE}${blockActionRequestPath("client.telemetry", "ingest")}`,
     JSON.stringify(batch),

@@ -28,6 +28,8 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/svelte";
+import { mount, tick, unmount } from "svelte";
+import { SvelteMap } from "svelte/reactivity";
 
 import Flow from "../../src/cockpit/flow/Flow.svelte";
 import {
@@ -453,5 +455,54 @@ describe("a measurement reaches only the index of the workspace that drew it", (
       "B's row 1 is a drawn turn, and B's index reserves a drawn turn for it — the SAME " +
         "index position, a different reservation",
     ).toBe(SHAPE_HEIGHT["full"]);
+  });
+});
+
+
+describe("optional focus observers own only their own input notifications", () => {
+  type Observer = (beat: Beat) => void;
+  async function focusHost(initial: Observer | undefined, run: (host: { beat: Beat; row: HTMLElement; target: HTMLElement; observe: (observer: Observer | undefined) => void }) => Promise<void>): Promise<void> {
+    activateLog(activeWorkspaceId.get()!);
+    const beat = turn("optional-focus-row", "you", "A visible input target.");
+    appendBeat(beat);
+    const observers = new SvelteMap<string, Observer | undefined>([["current", initial]]);
+    const target = document.createElement("div");
+    document.body.append(target);
+    const component = mount(Flow, { target, props: { ingest: false, get onFocus() { return observers.get("current"); } } });
+    try {
+      await tick();
+      const row = target.querySelector<HTMLElement>('[data-beat-id="optional-focus-row"]')!;
+      await run({ beat, row, target, observe: (observer) => observers.set("current", observer) });
+    } finally { await unmount(component); target.remove(); }
+  }
+
+  test("adding an observer cannot reinterpret an earlier unobserved input", async () => {
+    const observer = vi.fn();
+    await focusHost(undefined, async ({ beat, row, target, observe }) => {
+      row.click();
+      // Change the getter-backed prop in the same task, before input effects flush.
+      observe(observer);
+      await tick();
+      expect(target.querySelector(".flow")!.getAttribute("aria-activedescendant")).toBe("beat-" + beat.id);
+      expect(observer).not.toHaveBeenCalled();
+      row.click();
+      await tick();
+      expect(observer).toHaveBeenCalledExactlyOnceWith(beat);
+    });
+  });
+
+  test("an input queued for one observer cannot be delivered to a replacement host", async () => {
+    const first = vi.fn(), replacement = vi.fn();
+    await focusHost(first, async ({ beat, row, observe }) => {
+      row.click();
+      // Testing-library rerender would flush the previous batch first.
+      observe(replacement);
+      await tick();
+      expect(first).not.toHaveBeenCalled();
+      expect(replacement).not.toHaveBeenCalled();
+      row.click();
+      await tick();
+      expect(replacement).toHaveBeenCalledExactlyOnceWith(beat);
+    });
   });
 });

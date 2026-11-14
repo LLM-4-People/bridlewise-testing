@@ -98,7 +98,7 @@ export type WebToolEntry = ToolManifestEntry & Readonly<{
    * declared at the tool's registration. The renderer reads this instead of
    * re-deriving the shape from the tool's name.
    */
-  outputShape?: "file" | "command" | "search";
+  outputShape?: ToolManifestEntry["outputShape"];
   /**
   * Whether this tool's results are stored in the harness memory (exp519:
    * memory opt-in via tool schema). Default false — most tools (read_file,

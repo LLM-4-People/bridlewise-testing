@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { TOOL_OUTPUT_SHAPES } from "../../src/tools/tool-output-shape.ts";
 import {
   createToolManifest,
   validateToolManifestEntry,
@@ -449,4 +450,13 @@ test("Round-3: tool-manifest.ts does not hardcode the 30_000 timeout literal", (
     !/timeoutMs:\s*30_000\b/u.test(src),
     "tool-manifest.ts must not hardcode timeoutMs: 30_000 in DEFAULT_TOOL_RESOURCE_BOUNDS",
   );
+});
+
+
+test("tool-manifest: output presentation uses the canonical import-safe vocabulary", () => {
+  for (const outputShape of TOOL_OUTPUT_SHAPES) assert.deepEqual(validateToolManifestEntry(validEntry({ outputShape })), []);
+  for (const outputShape of ["unknown-shape", "", null, ["command"]]) {
+    const candidate = validEntry({ outputShape } as unknown as Partial<ToolManifestEntry>);
+    assert.ok(validateToolManifestEntry(candidate).includes("outputShape must be a declared tool output shape"));
+  }
 });

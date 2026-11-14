@@ -29,11 +29,13 @@ import {
   noteChatHistoryUnread,
 } from "../../src/state/chat-history-load.ts";
 import { selectChat } from "../../src/state/chats.ts";
-import { resetIngest, startIngest } from "../../src/cockpit/flow/ingest.ts";
-import { beatCount, windowSlice, beatById } from "../../src/cockpit/flow/log.ts";
+import { projectRecordedTranscript, resetIngest, startIngest } from "../../src/cockpit/flow/ingest.ts";
+import { appendBeat, beatCount, windowSlice, beatById } from "../../src/cockpit/flow/log.ts";
 import { deskLine, resetAdmission } from "../../src/cockpit/computer/admission.ts";
 import type { Beat } from "../../src/cockpit/flow/types.ts";
 import { setTools, resetTools } from "../../src/state/tools.ts";
+import { toolPresentationByName } from "../../shared/tool-presentation.ts";
+import { noteTurnStart, noteOutputDelta, noteTurnEnd, resetTurnTimings } from "../../src/cockpit/flow/turn-timing.ts";
 import type { WebToolEntry } from "../../shared/types.ts";
 
 /**
@@ -562,4 +564,50 @@ describe("ingest — a measured-empty history clears the previous conversation's
     noteChatHistoryUnread("c2", "not answering right now", "second conversation");
     expect(beatCount()).toBe(2);
   });
+});
+
+
+test("explicit recorded projection honors typed refusal without using live tool classification", () => {
+  const messages: readonly ChatMessage[] = [
+    { id: "recorded-plan", role: "assistant", content: "A recorded plan.", timestamp: 1 },
+    { id: "recorded-refused", role: "tool", content: "", timestamp: 2, toolCall: { name: "scoped_writer", input: { path: "file.mjs" }, output: "refused", status: "done", refused: true, startedAt: 2 } },
+  ];
+  setTools([{ ...EDIT_ENTRY, name: "scoped_writer", label: "private live label" }]);
+  const context = { tools: toolPresentationByName([{ name: "scoped_writer", label: "public edit", fileEffect: true }]), effects: new Map<string, string>() };
+  const projected = projectRecordedTranscript(messages, 0, context);
+  expect(projected.some((beat) => beat.kind === "effect")).toBe(false);
+  expect(projected.find((beat) => beat.kind === "tool")?.tool?.label).toBe("public edit");
+  expect(() => projectRecordedTranscript(messages, 0, { ...context, effects: new Map([["recorded-refused", "not a dispatched change"]]) })).toThrowError(/successful file-writing/u);
+  expect(projectRecordedTranscript(messages).some((beat) => beat.kind === "effect")).toBe(false);
+});
+
+test("explicit recorded projection preserves pure results despite colliding active effects", () => {
+  const message: ChatMessage = { id: "recorded-edit", role: "tool", content: "", timestamp: 2, toolCall: { name: "scoped_writer", input: { path: "file.mjs" }, output: "recorded", status: "done", startedAt: 2 } };
+  const patch = ["--- a/file.mjs", "+++ b/file.mjs", "@@ -1 +1 @@", "-old", "+new", ""].join("\n");
+  const context = { tools: toolPresentationByName([{ name: "scoped_writer", fileEffect: true }]), effects: new Map([[message.id, patch]]) };
+  const original = projectRecordedTranscript([message], 0, context);
+  const effect = original.find((beat) => beat.kind === "effect")!;
+  const unrelated = { ...effect, effect: { path: "private-other.mjs", producedBy: "private-other" } };
+  appendBeat(unrelated);
+  expect(projectRecordedTranscript([message], 0, context)).toEqual(original);
+  expect(projectRecordedTranscript([message], 0, context)).toEqual(original);
+  expect(beatById(effect.id)).toBe(unrelated);
+});
+
+test("public recorded turns cannot acquire colliding live timings or arrival addresses", () => {
+  const id = "colliding-recorded-assistant";
+  const message: ChatMessage = { id, role: "assistant", content: "Public authored words.", timestamp: 1 };
+  noteTurnStart(id, 100);
+  noteOutputDelta(id, "answer", 125, 7);
+  noteTurnEnd(id, 225);
+  try {
+    const normal = projectRecordedTranscript([message])[0]!;
+    expect(normal.turn).toMatchObject({ sourceId: id, firstOutputMs: 25, generationMs: 100 });
+    const recorded = projectRecordedTranscript([message], 0, { tools: toolPresentationByName([]), effects: new Map() })[0]!;
+    expect(recorded.id).toBe(normal.id);
+    expect(recorded.turn?.sourceId).toBeUndefined();
+    expect(recorded.turn?.firstOutputMs).toBeUndefined();
+    expect(recorded.turn?.generationMs).toBeUndefined();
+    expect(recorded.turn?.answerStarted).toBeUndefined();
+  } finally { resetTurnTimings(); }
 });

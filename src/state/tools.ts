@@ -18,6 +18,7 @@ import { atom, computed, type ReadableAtom } from "nanostores";
 
 import type { WebToolEntry } from "../../shared/types";
 import { registerReset } from "./store-registry";
+import { toolChangesFile, type ToolPresentationContext } from "../../shared/tool-presentation.ts";
 
 // ── Stores ──
 
@@ -53,8 +54,8 @@ export const toolByName: ReadableAtom<ReadonlyMap<string, WebToolEntry>> = compu
  * renders as its name with underscores spaced — the fallback, never a
  * bespoke second answer.
  */
-export function toolLabel(name: string): string {
-  const entry = toolByName.get().get(name);
+export function toolLabel(name: string, presentation?: ToolPresentationContext): string {
+  const entry = presentation === undefined ? toolByName.get().get(name) : presentation.get(name);
   return entry?.label ?? name.replaceAll("_", " ");
 }
 
@@ -67,9 +68,16 @@ export function toolLabel(name: string): string {
 export function fileEffectToolNames(): ReadonlySet<string> {
   const out = new Set<string>();
   for (const t of toolManifest.get()) {
-    if (t.capabilities.includes("write")) out.add(t.name);
+    if (toolChangesFile(t)) out.add(t.name);
   }
   return out;
+}
+
+/** An explicit recorded context is authoritative and never falls back to private live state. */
+export function toolHasFileEffect(name: string, presentation?: ToolPresentationContext): boolean {
+  if (presentation !== undefined) return presentation.get(name)?.fileEffect === true;
+  const entry = toolByName.get().get(name);
+  return entry !== undefined && toolChangesFile(entry);
 }
 
 // ── Ingestion (called only by client.ts) ──

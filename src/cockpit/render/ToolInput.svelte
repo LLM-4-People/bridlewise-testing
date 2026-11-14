@@ -104,7 +104,7 @@
     font-size: var(--f-data-size);
   }
   dt {
-    color: var(--ink-3);
+    color: var(--ink-2);
     white-space: nowrap;
   }
   dt::after {

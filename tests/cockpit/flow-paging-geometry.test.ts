@@ -24,6 +24,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { render, cleanup, waitFor } from "@testing-library/svelte";
+import { tick } from "svelte";
 
 import Flow from "../../src/cockpit/flow/Flow.svelte";
 import { appendBeat, batch, clearLog, prependBeats } from "../../src/cockpit/flow/log.ts";
@@ -34,12 +35,8 @@ import { resetIngest } from "../../src/cockpit/flow/ingest.ts";
 import { clearHistoryReach, noteReachOpened } from "../../src/state/chat-history-reach.ts";
 import { currentChatId } from "../../src/state/chats.ts";
 import type { Beat } from "../../src/cockpit/flow/types.ts";
-
-class RO {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
+import { LayoutFreeResizeObserver } from "../helpers/resize-observer.ts";
+import { requestBeatAction } from "../../src/cockpit/flow/beat-request.ts";
 
 /** jsdom reports 0 for both, which makes the flow think it is always at the
  * tail. A scroll box has to be declared for the reader to be anywhere. */
@@ -83,7 +80,7 @@ function offsets(container: HTMLElement): number[] {
 }
 
 beforeEach(() => {
-  vi.stubGlobal("ResizeObserver", RO);
+  vi.stubGlobal("ResizeObserver", LayoutFreeResizeObserver);
   resetIngest();
   clearLog();
   clearHistoryReach();
@@ -98,6 +95,19 @@ afterEach(() => {
 });
 
 describe("the head row is a real row with a declared height", () => {
+  test("revealing a row taller than its viewport keeps that fact's beginning visible", async () => {
+    load(20);
+    const { container } = render(Flow, { props: { ingest: false, shell: null } });
+    const scroller = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    giveItABox(scroller, 24, 2_000);
+    await tick();
+    scroller.scrollTop = 0;
+    const id = container.querySelector('[data-beat-id]')!.getAttribute("data-beat-id")!;
+    requestBeatAction(id, "reveal");
+    await waitFor(() => expect(scroller.getAttribute("aria-activedescendant")).toBe(`beat-${id}`));
+    await waitFor(() => expect(scroller.scrollTop).toBe(HISTORY_HEAD_H));
+  });
+
   test("it renders whenever beats do, at the height the config DECLARES", () => {
     load(20);
     const { container } = render(Flow, { props: { ingest: false } });

@@ -11,8 +11,8 @@ permalink: /contribute/
   <h1>Build the harness.<br><span class="beam-text">Break it honestly.</span></h1>
   <p class="lede">Bridlewise is built in the open, in one repository. Next to the product it carries the tests, prevention guards, benchmarks, decision records, and verification machinery. This page is where contributors start.</p>
   <div class="actions">
-    <a class="button primary" href="{{ '/floor/help/' | relative_url }}">Find a way to help</a>
-    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>
+    <a class="button primary" href="floor/help.md">Find a way to help</a>
+    <a class="button" href="floor/roadmap.md">Read the roadmap</a>
     <a class="button" href="{{ site.repository_url }}">Open the repository</a>
   </div>
   <p class="hero-note">Node 24 · Linux first · public gate green · full suite incomplete · not production-ready</p>
@@ -34,9 +34,9 @@ permalink: /contribute/
         <tr><th>Part</th><th>What it is for</th><th>Start here</th></tr>
       </thead>
       <tbody>
-        <tr><td><strong><code>main</code></strong></td><td>The source: the product code, its tests, guards, benchmarks, decisions, and evidence records. Every change lands here through a pull request.</td><td><a href="{{ site.repository_url }}">Repository</a> · <a href="{{ '/floor/help/' | relative_url }}">How to help</a></td></tr>
-        <tr><td><strong><code>product</code></strong></td><td>The shipped tree, projected from <code>main</code> after each land. Releases are tagged on it.</td><td><a href="{{ site.repository_url }}/releases">Releases</a> · <a href="{{ '/quickstart/' | relative_url }}">Quickstart</a></td></tr>
-        <tr><td><strong>This site</strong></td><td>The product documentation and the floor pages, built from <code>docs/</code> on <code>main</code>. Each release keeps its own documentation.</td><td><a href="{{ '/' | relative_url }}">Product home</a> · <a href="{{ site.versions_url }}">Versions</a></td></tr>
+        <tr><td><strong><code>main</code></strong></td><td>The source: the product code, its tests, guards, benchmarks, decisions, and evidence records. Every change lands here through a pull request.</td><td><a href="{{ site.repository_url }}">Repository</a> · <a href="floor/help.md">How to help</a></td></tr>
+        <tr><td><strong><code>product</code></strong></td><td>The shipped tree, projected from <code>main</code> after each land. Releases are tagged on it.</td><td><a href="{{ site.repository_url }}/releases">Releases</a> · <a href="quickstart.md">Quickstart</a></td></tr>
+        <tr><td><strong>This site</strong></td><td>The product documentation and the floor pages, built from <code>docs/</code> on <code>main</code>. Each release keeps its own documentation.</td><td><a href="index.md">Product home</a> · <a href="{{ site.versions_url }}">Versions</a></td></tr>
       </tbody>
     </table>
   </div>
@@ -53,19 +53,19 @@ permalink: /contribute/
       <p class="feature-kicker">01 · Contribute</p>
       <h3>Make the floor stronger</h3>
       <p>Reproduce a failure, add a prevention guard, improve a benchmark, fix a flaky test, or make the docs match the command output. The issue labels name the evidence needed.</p>
-      <p><a href="{{ '/floor/help/' | relative_url }}">How to help</a> · <a href="{{ site.repository_url }}/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="{{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22">Good first issues</a> · <a href="{{ site.repository_url }}/blob/main/docs/trackers/TASKS.md">Task board</a></p>
+      <p><a href="floor/help.md">How to help</a> · <a href="{{ site.repository_url }}/blob/main/CONTRIBUTING.md">Contributing</a> · <a href="{{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22">Good first issues</a> · <a href="{{ site.repository_url }}/blob/main/docs/trackers/TASKS.md">Task board</a></p>
     </article>
     <article class="feature">
       <p class="feature-kicker">02 · Build</p>
       <h3>Extend the harness</h3>
       <p>Add a governed tool, a block, a provider, an MCP server, a quality check, or an embedding. The extension points and typed refusals are part of the shipped tree.</p>
-      <p><a href="{{ '/extending/' | relative_url }}">Building on the harness</a> · <a href="{{ '/architecture/' | relative_url }}">Architecture</a> · <a href="{{ '/cli/' | relative_url }}">CLI</a></p>
+      <p><a href="extending.md">Building on the harness</a> · <a href="architecture.md">Architecture</a> · <a href="cli.md">CLI</a></p>
     </article>
     <article class="feature">
       <p class="feature-kicker">03 · Verify</p>
       <h3>Check the claim</h3>
       <p>Run the public gate, inspect the test atlas, read the status snapshot, or rerun an evidence command. A green badge is a pointer, not a proof.</p>
-      <p><a href="{{ '/floor/evidence/' | relative_url }}">Evidence commands</a> · <a href="{{ '/floor/status/' | relative_url }}">Status</a> · <a href="{{ '/floor/atlas/' | relative_url }}">Atlas</a></p>
+      <p><a href="floor/evidence.md">Evidence commands</a> · <a href="floor/status.md">Status</a> · <a href="floor/atlas.md">Atlas</a></p>
     </article>
   </div>
 </section>
@@ -87,19 +87,19 @@ permalink: /contribute/
       <p class="feature-kicker">Prevent</p>
       <h3>Add a guard that would have caught it</h3>
       <p>A prevention guard states the class, the plant, the driven behavior, and the liveness check. It must fail on the old behavior and pass on the fix.</p>
-      <p><a href="{{ '/testing/' | relative_url }}">Testing guide</a> · <a href="{{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3Atesting">Testing issues</a></p>
+      <p><a href="testing.md">Testing guide</a> · <a href="{{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3Atesting">Testing issues</a></p>
     </article>
     <article class="feature">
       <p class="feature-kicker">Make it reproducible</p>
       <h3>Shard, fetch, and merge the floor</h3>
       <p>The full suite is too slow for one host and too dependent on external fixtures. Help build the shard contract, the corpus manifest, and the single merged receipt.</p>
-      <p><a href="{{ '/floor/roadmap/' | relative_url }}">Milestone M1</a> · <a href="{{ '/testing/' | relative_url }}">Full-suite prerequisites</a></p>
+      <p><a href="floor/roadmap.md">Milestone M1</a> · <a href="testing.md">Full-suite prerequisites</a></p>
     </article>
     <article class="feature">
       <p class="feature-kicker">Build</p>
       <h3>Extend a real boundary</h3>
       <p>Provider conformance, MCP transport, platform path handling, quality packs, and embedding contracts are all open work. Add the test at the layer that owns the behavior.</p>
-      <p><a href="{{ '/extending/' | relative_url }}">Extension points</a> · <a href="{{ '/architecture/' | relative_url }}">Architecture</a></p>
+      <p><a href="extending.md">Extension points</a> · <a href="architecture.md">Architecture</a></p>
     </article>
     <article class="feature">
       <p class="feature-kicker">Document</p>
@@ -111,7 +111,7 @@ permalink: /contribute/
       <p class="feature-kicker">Review</p>
       <h3>Read for the failure mode</h3>
       <p>Review the owner, the trust boundary, the failure path, and the evidence. A passing run is necessary, not sufficient. Report vulnerabilities privately.</p>
-      <p><a href="{{ '/floor/help/' | relative_url }}">Review checklist</a> · <a href="{{ site.repository_url }}/blob/main/SECURITY.md">Security policy</a></p>
+      <p><a href="floor/help.md">Review checklist</a> · <a href="{{ site.repository_url }}/blob/main/SECURITY.md">Security policy</a></p>
     </article>
   </div>
 </section>
@@ -120,7 +120,7 @@ permalink: /contribute/
   <div class="section-head">
     <p class="eyebrow">Roadmap</p>
     <h2>A milestone is a state of evidence.</h2>
-    <p class="section-lede">No dates. Each milestone names what must be true before the next one can be claimed. The <a href="{{ '/floor/roadmap/' | relative_url }}">full roadmap</a> carries the workstreams and exit criteria.</p>
+    <p class="section-lede">No dates. Each milestone names what must be true before the next one can be claimed. The <a href="floor/roadmap.md">full roadmap</a> carries the workstreams and exit criteria.</p>
   </div>
   <div class="prose">
     <table>
@@ -152,7 +152,7 @@ permalink: /contribute/
       <li><strong>Quality and language packs.</strong> Typed checks that report findings and deltas, not silent pass states.</li>
       <li><strong>Embedding.</strong> The engine barrel is public. The server and cockpit stay separate from domain logic.</li>
     </ul>
-    <p>Read <a href="{{ '/extending/' | relative_url }}">Building on the harness</a> for the contracts, then add the test at the layer that owns the behavior. The <a href="{{ '/testing/' | relative_url }}">testing guide</a> explains where each test belongs.</p>
+    <p>Read <a href="extending.md">Building on the harness</a> for the contracts, then add the test at the layer that owns the behavior. The <a href="testing.md">testing guide</a> explains where each test belongs.</p>
   </div>
 </section>
 
@@ -171,7 +171,7 @@ chmod 600 engine/bridlewise.config.json
 npm run typecheck
 npm --prefix engine run typecheck
 npm run test:public</code></pre>
-    <p>The public gate is the part that works on a fresh clone. The corpus-backed suites and the live provider suite have named prerequisites and are not silently skipped. Read <a href="{{ '/testing/' | relative_url }}">the testing guide</a> before claiming a full run.</p>
+    <p>The public gate is the part that works on a fresh clone. The corpus-backed suites and the live provider suite have named prerequisites and are not silently skipped. Read <a href="testing.md">the testing guide</a> before claiming a full run.</p>
   </div>
 </section>
 

@@ -145,6 +145,7 @@
   }
   .leaf {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: var(--sp-1);
     padding-left: var(--json-twisty-w);
@@ -165,24 +166,27 @@
     color: var(--syn-type);
     min-width: 0;
     overflow-wrap: anywhere;
+    flex-shrink: 0;
+    max-width: 100%;
   }
   .key::after {
     content: ":";
-    color: var(--syn-punct);
+    color: var(--ink-2);
   }
   .summary {
-    color: var(--ink-3);
+    color: var(--ink-2);
     font-variant-numeric: tabular-nums;
     min-width: 0;
     overflow-wrap: anywhere;
   }
   .brace {
-    color: var(--syn-punct);
+    color: var(--ink-2);
   }
   .close {
     padding-left: var(--json-twisty-w);
   }
   .str {
+    flex: 1 1 16ch;
     color: var(--syn-string);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -215,7 +219,9 @@
     margin-left: var(--sp-1);
     font: inherit;
     font-variant-numeric: tabular-nums;
-    color: var(--ink-3);
+    color: var(--ink-2);
+    max-width: 100%;
+    overflow-wrap: anywhere;
     cursor: pointer;
   }
   .more:hover {

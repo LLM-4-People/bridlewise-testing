@@ -1,75 +1,76 @@
-# The site's one navigation source. The header, the phone menu and the
-# footer index are rendered from it (docs/_layouts/default.html); a page is
-# added to the site's navigation here and nowhere else. `path` is a site
-# permalink (the layout applies the base path); `url` is a project coordinate
-# from the builder-owned configuration.
-
+# One authored navigation source: page keys are resolved by the publish plan.
+# Assets retain the current build base; live page links retain the live site base.
+home:
+  page: index.md
+demo:
+  artifact: src/demo/index.html
+limits:
+  page: security-and-limits.md
 primary:
+  - title: Demo
+    artifact: src/demo/index.html
   - title: Quickstart
-    path: /quickstart/
+    page: quickstart.md
   - title: Docs
-    path: /reading-map/
+    page: README.md
   - title: Roadmap
-    path: /floor/roadmap/
+    page: floor/roadmap.md
   - title: Decisions
-    path: /decisions/
-  - title: Evidence
-    path: /evidence/
+    page: decisions/README.md
   - title: Limits
-    path: /security/
-
+    page: security-and-limits.md
 sections:
   - title: Use it
     links:
       - title: Quickstart
-        path: /quickstart/
+        page: quickstart.md
       - title: CLI reference
-        path: /cli/
+        page: cli.md
       - title: Codespaces
-        path: /codespaces/
-      - title: Run record
-        path: /run/
+        page: codespaces.md
+      - title: Try the demo
+        artifact: src/demo/index.html
       - title: Policy lab
-        path: /policy-lab/
+        page: policy-lab/index.html
       - title: FAQ
-        path: /faq/
+        page: faq.md
   - title: Understand it
     links:
       - title: Reading map
-        path: /reading-map/
+        page: reading-map.md
       - title: Architecture
-        path: /architecture/
+        page: architecture.md
       - title: Building on the harness
-        path: /extending/
+        page: extending.md
       - title: Design
-        path: /design/
+        page: design.md
       - title: Design records
-        path: /design/records/
+        page: design/README.md
       - title: Glossary
-        path: /glossary/
+        page: glossary.md
   - title: Check it
     links:
       - title: Security and limits
-        path: /security/
+        page: security-and-limits.md
       - title: Known issues
-        path: /known-issues/
+        page: known-issues.md
       - title: Evidence
-        path: /evidence/
+        page: evidence.md
       - title: Testing
-        path: /testing/
+        page: testing.md
       - title: Decision records
-        path: /decisions/
+        page: decisions/README.md
       - title: Roadmap
-        path: /floor/roadmap/
+        page: floor/roadmap.md
   - title: The project
     links:
       - title: Development floor
-        path: /floor/
+        page: floor/index.md
       - title: Contributor hub
-        path: /contribute/
+        page: contribute.md
       - title: The repo as a run record
-        path: /github/
+        page: github.md
       - title: Shipping
-        path: /shipping/
+        page: shipping.md
       - title: llms.txt
-        path: /llms.txt
+        asset: /llms.txt

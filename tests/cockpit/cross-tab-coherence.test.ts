@@ -30,7 +30,7 @@
  * worker. Storage is cleared instead.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { storageKeyFor } from "../../src/state/persistence";
 import { crossTabBound, foreignWritesAdopted } from "../../src/state/cross-tab";
@@ -713,5 +713,38 @@ describe("cross-tab coherence", () => {
       expect(after.some((m) => m.id === second!.id)).toBe(true);
       expect(after.some((m) => m.id === third!.id)).toBe(true);
     });
+  });
+});
+
+describe("an embedded example cannot adopt personal storage values", () => {
+  it("uses the same scoped owner for preferences, raw marks and foreign writes", async () => {
+    vi.resetModules();
+    const scope = await import("../../src/state/persistence.ts");
+    scope.selectPersistenceNamespace("public-cross-tab");
+    const prefs = await import("../../src/cockpit/settings/local-prefs.ts");
+    const cross = await import("../../src/state/cross-tab.ts");
+    const marks = await import("../../src/cockpit/sweep/marks.ts");
+    const sweep = await import("../../src/cockpit/sweep/sweep-store.ts");
+    try {
+      prefs.setLocalPref(prefs.THEME_ID, "logbook");
+      expect(prefs.cockpitTheme.get()).toBe("logbook");
+      expect(scope.persistGet("cockpitTheme")).toBe("logbook");
+      const before = cross.foreignWritesAdopted.get();
+      foreignWrite("bridlewise:cockpitTheme", "carbon");
+      const privateMarks = JSON.stringify([{ id: "personal-mark", timeMs: 1, label: "personal", createdAtMs: 1, origin: "user", storage: "local" }]);
+      foreignWrite(marks.MARKS_STORAGE_KEY, privateMarks);
+      expect(prefs.cockpitTheme.get()).toBe("logbook");
+      expect(sweep.sweepMarks.get()).toEqual([]);
+      expect(marks.loadMarks()).toEqual([]);
+      expect(cross.foreignWritesAdopted.get()).toBe(before);
+      const scopedMarks = JSON.stringify([{ id: "example-mark", timeMs: 2, label: "example", createdAtMs: 2, origin: "user", storage: "local" }]);
+      foreignWrite(scope.rawStorageKeyFor(marks.MARKS_STORAGE_KEY), scopedMarks);
+      expect(sweep.sweepMarks.get().map(mark => mark.id)).toEqual(["example-mark"]);
+      foreignWrite(scope.storageKeyFor("cockpitTheme"), "carbon");
+      expect(prefs.cockpitTheme.get()).toBe("carbon");
+      expect(cross.foreignWritesAdopted.get()).toBe(before + 2);
+      expect(localStorage.getItem(marks.MARKS_STORAGE_KEY)).toBe(privateMarks);
+      expect(localStorage.getItem("bridlewise:cockpitTheme")).toBe("carbon");
+    } finally { vi.resetModules(); }
   });
 });

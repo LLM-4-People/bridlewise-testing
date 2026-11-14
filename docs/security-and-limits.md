@@ -147,7 +147,7 @@ If you cannot check every box, do not run Bridlewise on that repository.
 
 ## Related
 
-- [Architecture]({{ '/architecture/' | relative_url }}) — the trust boundary and data flow.
-- [Quickstart]({{ '/quickstart/' | relative_url }}) — installation, key home, and troubleshooting.
-- [Roadmap]({{ '/floor/roadmap/' | relative_url }}) — the gaps that are known and not yet closed.
+- [Architecture](architecture.md) — the trust boundary and data flow.
+- [Quickstart](quickstart.md) — installation, key home, and troubleshooting.
+- [Roadmap](floor/roadmap.md) — the gaps that are known and not yet closed.
 - [SECURITY.md](../SECURITY.md) — the repository policy.

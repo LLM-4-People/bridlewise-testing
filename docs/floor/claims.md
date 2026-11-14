@@ -3,7 +3,6 @@ layout: default
 page_class: article
 title: "Claims"
 description: "Every public claim Bridlewise makes, judged against the checks that ran on the published commit; a claim whose check is red is struck out."
-permalink: /floor/claims/
 ---
 
 # Claims

@@ -1,6 +1,7 @@
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { canonicalHash, deepFreeze } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
+import { isToolOutputShape, type ToolOutputShape } from "./tool-output-shape.ts";
 
 /**
  * Governed tool manifest — the authoritative registry of all available
@@ -52,7 +53,7 @@ export type ToolManifestEntry = Readonly<{
    * tool's name in a hand-maintained set. Absent for a tool whose output is
    * none of these (renders as JSON/text by its own structure).
    */
-  outputShape?: "file" | "command" | "search";
+  outputShape?: ToolOutputShape;
   inputSchema: Readonly<Record<string, unknown>>;
   outputSchema?: Readonly<Record<string, unknown>>;
   capabilities: readonly ToolCapability[];
@@ -122,6 +123,9 @@ export function validateToolManifestEntry(entry: ToolManifestEntry): readonly st
     if (schema.type !== "object") {
       violations.push("inputSchema must declare type 'object'");
     }
+  }
+  if (entry.outputShape !== undefined && !isToolOutputShape(entry.outputShape)) {
+    violations.push("outputShape must be a declared tool output shape");
   }
   if (entry.outputSchema !== undefined) {
     if (typeof entry.outputSchema !== "object" || entry.outputSchema === null || Array.isArray(entry.outputSchema)) {

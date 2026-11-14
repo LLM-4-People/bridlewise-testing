@@ -63,6 +63,8 @@
     beat,
     projectPath = null,
     onfocusbeat = undefined,
+    showRecordDetails = true,
+    fillAvailable = false,
   }: {
     beat: Beat;
     projectPath?: string | null;
@@ -70,6 +72,12 @@
      * when the host cannot move the flow; the reference then renders as
      * plain text rather than as a button that would do nothing (§1.2). */
     onfocusbeat?: ((id: string) => void) | undefined;
+    /** Low-level IDs and recorded-document folds remain available by default.
+     * A guided host can reveal them with its existing advanced controls. */
+    showRecordDetails?: boolean;
+    /** Use the host's available instrumental width. Running prose still
+     * reads at the measure owned by MdBlocks; normal chat stays unchanged. */
+    fillAvailable?: boolean;
   } = $props();
 
   const HHMMSS_LEN = 8; // "14:02:07"
@@ -111,7 +119,7 @@
   }
 </script>
 
-<div class="beat-scope">
+<div class="beat-scope" data-content-width={fillAvailable ? "available" : undefined}>
   <!-- WHAT THIS IS — one statement, once, with the time it belongs to. -->
   <p class="what">{noun} <span class="when">at {when}</span></p>
 
@@ -170,6 +178,7 @@
     </div>
   {/if}
 
+  {#if showRecordDetails}
   <!-- THE RECORDED DOCUMENTS — the event's own recorded payload, one level
        deeper than the body, behind a fold that reads NOTHING until opened.
        Rendered name-agnostic (whatever documents the record holds), through
@@ -221,6 +230,7 @@
       <dd>{beat.turnIndex + 1}</dd>
     </dl>
   </details>
+  {/if}
 </div>
 
 <style>
@@ -239,7 +249,7 @@
   .when {
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
     font-variant-numeric: tabular-nums;
   }
   .cause {
@@ -268,7 +278,7 @@
   }
   .cause-text {
     font-size: var(--f-ui-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   /* The verb row's recipe is owned by tokens.css (.cockpit .verbs). */
   .verbs {
@@ -279,16 +289,7 @@
     border-top: var(--hairline-w) solid var(--line-1);
     padding-top: var(--sp-2);
   }
-  .record-grip {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--hit-min);
-    font-family: var(--face-mono);
-    cursor: pointer;
-  }
-  .record-grip:hover {
-    color: var(--ink-1);
-  }
+  /* Native record disclosure affordances are shared in tokens.css. */
   .record-rows {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -298,7 +299,7 @@
     font-size: var(--f-data-size);
   }
   .record-rows dt {
-    color: var(--ink-3);
+    color: var(--ink-2);
     white-space: nowrap;
   }
   .record-rows dd {
@@ -318,7 +319,7 @@
   .documents-state {
     margin: 0;
     font-size: var(--f-ui-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   .document {
     display: flex;

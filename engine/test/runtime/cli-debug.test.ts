@@ -35,7 +35,6 @@ const PRIVATE_STATE = pathToFileURL(join(ENGINE_ROOT, "src", "filesystem", "priv
 const NOT_BOOTSTRAPPED: Readonly<Record<string, string>> = {
   "engine/scripts/tooling/test-worker.ts": "it hosts the test files' own process: configuring its debug system would change the state every test in it starts from",
   "scripts/check-docs-links.mjs": "a dependency-free CI utility: it runs as the gate's first step and in docs-links.yml, before or without any package install, so it reaches only node built-ins and the leaf entry-point module; its findings go to stderr and its exit code",
-  "scripts/floor/site-links.mjs": "a dependency-free CI utility: the Pages job builds with Jekyll and installs no package; its findings go to stderr and its exit code",
   "scripts/test-shard-manifest.mjs": "a dependency-free CI utility: the shard toolchain's merge job (the required receipt check) installs no package; its refusals go to stderr and its exit code",
   "scripts/test-shard-merge.mjs": "a dependency-free CI utility: the shard merge job (the required receipt check) installs no package; its refusals go to stderr and its exit code",
 };
@@ -143,8 +142,15 @@ test("the import-graph reader follows every import form, through the one specifi
 
 test("a dependency-free utility reaches no package: its whole import graph is node built-ins and the leaf entry-point module", () => {
   const utilities = Object.entries(NOT_BOOTSTRAPPED).filter(([, reason]) => reason.startsWith("a dependency-free CI utility")).map(([path]) => path);
-  assert.ok(utilities.length >= 4, "the dependency-free utilities are no longer declared");
+  // The source docs gate and the shard probes still run before package installation.
+  for (const path of ["scripts/check-docs-links.mjs", "scripts/test-shard-manifest.mjs", "scripts/test-shard-merge.mjs"]) {
+    assert.ok(utilities.includes(path), `${path} must remain a declared dependency-free CI utility`);
+  }
   for (const path of utilities) assert.deepEqual(reachedPackages(path), [], `${path} is declared dependency-free but reaches a package`);
+  // The rendered crawler uses the installed HTML parser and follows the normal bootstrap guard below.
+  const crawler = "scripts/floor/site-links.mjs";
+  assert.equal(Object.hasOwn(NOT_BOOTSTRAPPED, crawler), false, "the installed crawler is not a cold CI exception");
+  assert.ok(reachedPackages(crawler).some((edge) => edge.endsWith(" -> parse5")), "the rendered crawler reaches the authoritative installed HTML parser");
   // The reader is not vacuous: an entry point that runs the bootstrap reaches packages through it.
   assert.ok(reachedPackages("engine/scripts/verification/corpus.ts").length > 0, "the import-graph reader saw no package behind the bootstrap");
 });
@@ -152,6 +158,7 @@ test("a dependency-free utility reaches no package: its whole import graph is no
 test("every process entry point runs the process bootstrap first (derived by scanning), bar the declared exceptions", () => {
   const entries = entryFiles().filter((file) => file.code.includes(ENTRY_GUARD));
   assert.ok(entries.length >= 35, `the scan found ${String(entries.length)} entry points: it is not seeing them`);
+  assert.ok(entries.some((entry) => entry.path === "scripts/floor/site-links.mjs"), "the installed crawler retains its bootstrap-guarded CLI entry point");
   for (const path of Object.keys(NOT_BOOTSTRAPPED)) {
     assert.ok(entries.some((entry) => entry.path === path), `the declared exception ${path} is no longer an entry point: remove it`);
   }

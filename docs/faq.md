@@ -2,7 +2,6 @@
 layout: default
 title: "FAQ"
 description: "Straight answers about Bridlewise's readiness, providers, data handling, licensing, repositories, and platform support."
-permalink: /faq/
 ---
 
 # Frequently asked questions
@@ -49,7 +48,7 @@ It is not an open-core license with a proprietary "enterprise" edition, and ther
 
 ## How do I contribute?
 
-Start with the [contributor hub]({{ '/contribute/' | relative_url }}) and the [repository]({{ site.repository_url }}). It carries the product with its prevention suite, benchmarks, design records, and the decision log. Read [CONTRIBUTING.md](../CONTRIBUTING.md) and the [Code of Conduct](../CODE_OF_CONDUCT.md).
+Start with the [contributor hub](contribute.md) and the [repository]({{ site.repository_url }}). It carries the product with its prevention suite, benchmarks, design records, and the decision log. Read [CONTRIBUTING.md](../CONTRIBUTING.md) and the [Code of Conduct](../CODE_OF_CONDUCT.md).
 
 Useful contributions include reproducible bug reports, a failing test for a real failure mode, documentation corrections, accessibility fixes, and provider compatibility evidence. Every change lands on `main` through a pull request with its evidence; the `product` branch is a projection of `main` and is never edited directly.
 
@@ -84,4 +83,4 @@ Do not assume parity with Linux. Native Linux is the supported path for the conf
 
 It is an **application record**: append-only at the application layer, ordered, queryable, and locally hash-chained. It is not a signed, externally anchored, tamper-evident compliance log. Someone who can write the database can rewrite the chain, and a removed suffix may not be detectable locally. Do not use it as your organization's audit system.
 
-Security reports belong in a private channel, not a public issue. See [Security and limits]({{ '/security/' | relative_url }}) for the private reporting channel, scope, and what to include. There is no bug bounty and no response-time guarantee.
+Security reports belong in a private channel, not a public issue. See [Security and limits](security-and-limits.md) for the private reporting channel, scope, and what to include. There is no bug bounty and no response-time guarantee.

@@ -9,6 +9,8 @@ import { buildAtlas, readInventory } from "../../scripts/floor/atlas.mjs";
 import { parse } from "yaml";
 
 import { buildSiteSource } from "../../scripts/floor/site.mjs";
+import { readPage } from "../../scripts/floor/site-pages.mjs";
+import { SITE_LINKS } from "../../engine/src/workflow/site-sources.ts";
 import { buildStatus } from "../../scripts/floor/status.mjs";
 import { repoInfo } from "../../scripts/floor/files.mjs";
 import { memoryCredential } from "../../engine/src/workflow/forge/credentials.ts";
@@ -74,23 +76,56 @@ test("the one site's source is this tree's docs/, with no second repository", as
     assert.match(layout, /assets\/floor\/floor\.js/u);
     assert.doesNotMatch(layout, /page\.floor_assets|floor_notice|testing_url|testing_hub_url/u, "one shell, one design layer, no mirror banner");
     // The front door leads with the product; the contributor hub and the floor are pages of the same site.
-    assert.match(readFileSync(join(out, "index.md"), "utf8"), /permalink: \/\n/u);
+    const page = (path) => readPage(join(out, path)).data;
+    const docsPrefix = new URL(IDENTITY.docsUrl).pathname.slice(IDENTITY.pagesBasePath.length).replace(/\/$/u, "");
+    assert.equal(page("index.md").permalink, "/");
+    assert.equal(page("index.md").site_href, "/bridlewise/");
+    assert.equal(page("README.md").permalink, `${docsPrefix}/`);
+    assert.equal(page("README.md").site_href, `/bridlewise${docsPrefix}/`);
     // Its words are the messaging source's (docs/brand/messaging.json, written by harness sync), never typed here.
     const messaging = JSON.parse(readFileSync(join(ROOT, "docs/brand/messaging.json"), "utf8"));
     assert.ok(readFileSync(join(out, "index.md"), "utf8").includes(`<h1>${messaging.promise}</h1>`));
-    assert.match(readFileSync(join(out, "contribute.md"), "utf8"), /permalink: \/contribute\//u);
+    assert.equal(page("contribute.md").permalink, `${docsPrefix}/contribute/`);
+    assert.equal(page("contribute.md").site_href, `/bridlewise${docsPrefix}/contribute/`);
+    for (const [path, permalink] of [["floor/roadmap.md", "/roadmap/"], ["floor/claims.md", "/claims/"], ["floor/status.md", "/status/"], ["policy-lab/index.html", "/policy-lab/"], ["404.md", "/404.html"]]) {
+      assert.equal(page(path).permalink, permalink, `${path} is a live root page`);
+      assert.equal(page(path).site_href, `/bridlewise${permalink}`);
+    }
+    const navigation = parse(readFileSync(join(out, "_data/navigation.yml"), "utf8"));
+    assert.equal(navigation.primary.find((entry) => entry.page === "floor/roadmap.md").href, "/bridlewise/roadmap/");
+    assert.equal(navigation.primary.find((entry) => entry.page === "quickstart.md").href, `/bridlewise${docsPrefix}/quickstart/`);
+    assert.equal(navigation.primary[0].title, "Demo");
+    assert.equal(navigation.primary[0].href, "/bridlewise/run/");
+    assert.equal(navigation.primary[0].artifact, "src/demo/index.html");
+    assert.equal(navigation.demo.href, "/bridlewise/run/");
+    assert.equal(existsSync(join(out, "run/index.html")), false, "the source API defers trusted live artifacts to its caller's one assembler");
+    assert.equal(navigation.sections.find((section) => section.title === "Use it").links.find((entry) => entry.artifact === "src/demo/index.html").title, "Try the demo");
+    const home = readFileSync(join(out, "index.md"), "utf8");
+    assert.ok(home.includes('src="{{ site.data.navigation.demo.href }}?view=embedded"'));
+    assert.ok(home.includes('title="Try the guided Bridlewise example"'));
+    assert.doesNotMatch(home, /run-record\.json|run-demo\.js/u, "the homepage embeds the one production demo rather than maintaining a second replay");
+    const versionsFolder = `${docsPrefix.slice(1)}/v`;
+    assert.equal(page(`${versionsFolder}/index.md`).permalink, `${docsPrefix}/v/`);
+    assert.equal(config.versions_url, SITE_LINKS.versions);
+    assert.deepEqual(config.relative_links, { enabled: false });
+    assert.deepEqual(JSON.parse(readFileSync(join(out, versionsFolder, "versions.json"), "utf8")), { current: "main", versions: [] });
+    assert.equal(existsSync(join(out, "versions.json")), false, "the versions list belongs to the documentation versions folder");
     assert.ok(readFileSync(join(out, "floor/index.md"), "utf8").includes("The development floor"));
     assert.ok(readFileSync(join(out, "assets/floor/floor.css"), "utf8").includes("floor-table-wrap"));
     assert.ok(readFileSync(join(out, ".well-known/security.txt"), "utf8").includes("Contact:"));
     // The trackers are plain Markdown; the build gives the copy its header.
     const tasks = readFileSync(join(out, "trackers/TASKS.md"), "utf8");
     assert.match(tasks, /^---\nlayout: "default"\n/u);
-    assert.match(tasks, /permalink: "\/trackers\/TASKS\/"/u);
-    assert.match(readFileSync(join(out, "floor/roadmap.md"), "utf8"), /\]\(\/bridlewise\/trackers\/TASKS\/\)/u);
+    assert.equal(page("trackers/TASKS.md").permalink, `${docsPrefix}/trackers/TASKS/`);
+    assert.ok(readFileSync(join(out, "floor/roadmap.md"), "utf8").includes("](../trackers/TASKS.md)"), "source-relative bodies are resolved after Jekyll");
     // The mirror landing is gone; its URL is a redirect to the front door.
     assert.equal(existsSync(join(out, "product.md")), false);
-    assert.match(readFileSync(join(out, "product/index.html"), "utf8"), /<script src="moved\.js"><\/script>/u, "a moved page forwards through a file (no inline script under the policy)");
-    assert.equal(readFileSync(join(out, "product/moved.js"), "utf8"), 'location.replace("/bridlewise/");\n');
+    assert.match(readFileSync(join(out, "product/index.html"), "utf8"), /<script src="\/bridlewise\/assets\/js\/moved\.js"><\/script>/u, "moved pages share one external canonical-derived script");
+    assert.equal(page("product/index.html").permalink, "/product/");
+    assert.equal(page("product/index.html").site_href, "/bridlewise/product/");
+    assert.equal(page("product/index.html").canonical_url, "/");
+    assert.ok(readFileSync(join(out, "assets/js/moved.js"), "utf8").includes("movedUrl + location.search + location.hash"));
+    assert.equal(existsSync(join(out, "product/moved.js")), false);
     assert.ok(result.pages > 100);
     assert.deepEqual(result.versions, []);
   } finally {

@@ -129,10 +129,10 @@ export function checkDocsLinks({ root = process.cwd(), files } = {}) {
 
 /**
  * The site half of the docs-links gate. The site is built from `docs/`, and
- * its builder refuses two pages for one URL and a page link that names
- * nothing. `siteSourceViolations` asks the publish plan's OWN owner
- * (`scripts/floor/site-pages.mjs`) the builder's exact question, so a link
- * the build would refuse is red in the normal test run, before any build.
+ * its publish plan refuses collisions and source-owned deployment values.
+ * `siteSourceViolations` asks that same owner before a build. Actual page
+ * links are resolved after Jekyll through this plan, then the merged output
+ * is crawled; the source gate does not approximate the Markdown renderer.
  */
 export function checkSiteLinks({ root = process.cwd() } = {}) {
   return siteSourceViolations({ root });

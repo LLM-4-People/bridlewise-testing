@@ -33,11 +33,7 @@ import { requestBeatAction, consumeBeatRequest } from "../../src/cockpit/flow/be
 import type { ShellApi, ScopeRequest } from "../../src/cockpit/shell/contract.ts";
 import type { Beat } from "../../src/cockpit/flow/types.ts";
 
-class RO {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
+import { LayoutFreeResizeObserver } from "../helpers/resize-observer.ts";
 
 function turnBeat(id: string, at: number): Beat {
   return {
@@ -83,7 +79,7 @@ describe("the flow consumes the right menu's beat requests", () => {
   let hints: string[] = [];
 
   beforeEach(() => {
-    vi.stubGlobal("ResizeObserver", RO);
+    vi.stubGlobal("ResizeObserver", LayoutFreeResizeObserver);
     resetIngest();
     clearLog();
     consumeBeatRequest();

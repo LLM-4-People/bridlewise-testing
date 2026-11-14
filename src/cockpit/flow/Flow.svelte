@@ -98,12 +98,15 @@
   let {
     shell = null,
     onOpen = undefined,
+    onFocus = undefined,
     prefill = null,
     ingest = true,
   }: {
     shell?: ShellApi | null;
     /** Harness hook: called on Enter-open in addition to the shell scope. */
     onOpen?: ((beat: Beat) => void) | undefined;
+    /** Notify a standalone host of input focus, excluding restored reading position. */
+    onFocus?: ((beat: Beat) => void) | undefined;
     /** Composer prefill sink. Default: the shell's prefill seam
      * (ShellApi.prefillComposer); a harness may override. Only a mount
      * with NEITHER renders the verb disabled (§1.2). */
@@ -165,9 +168,39 @@
    * plain locals — the component is the only reader — and `bindFlowView`
    * below swaps them on activation and records them on departure, the same
    * shape `shell/workspace-view.ts` uses for the room and the desk. */
-  let focusedId = $state<string | null>(null);
+  /** Reading-position restoration and committed input are different facts. */
+  function createFocusSelection() {
+    let current = $state<string | null>(null);
+    let input = $state.raw<Readonly<{ id: string; notify: (beat: Beat) => void }> | null>(null);
+    return {
+      get current() { return current; },
+      get input() { return input; },
+      select(id: string | null): void {
+        current = id;
+        const notify = onFocus;
+        input = id === null || notify === undefined ? null : { id, notify };
+      },
+      restore(id: string | null): void { current = id; input = null; },
+    };
+  }
+  const focus = createFocusSelection();
+  // Readonly outside the focus owner: a new input path must select or restore.
+  const focusedId = $derived(focus.current);
+  $effect(() => {
+    const input = focus.input;
+    if (input === null) return;
+    untrack(() => {
+      if (onFocus !== input.notify) return;
+      const beat = beatById(input.id);
+      if (beat !== undefined) input.notify(beat);
+    });
+  });
   let expanded = $state<Record<string, boolean>>({});
   let follow = true;
+  /** Explicit navigation stays addressed to its fact while row measurements settle. */
+  let revealAnchor = $state.raw<{ index: HeightIndex; id: string } | null>(null);
+  function releaseRevealAnchor(): void { revealAnchor = null; }
+  function hasRevealAnchor(): boolean { return revealAnchor?.index === heights; }
   /** A restored offset waiting for the incoming log's rows to exist. */
   let pendingScrollRestore: number | null = null;
 
@@ -340,7 +373,7 @@
     prependPending = true;
     void tick().then(() => {
       prependPending = false;
-      if (container === undefined || container === null || follow || heights !== index) return;
+      if (container === undefined || container === null || follow || hasRevealAnchor() || heights !== index) return;
       const next = index.offsetOf(anchor.index + k) + anchor.into + headHeight();
       container.scrollTop = next;
       scrollTop = container.scrollTop;
@@ -386,7 +419,8 @@
   });
 
   function scrollToEnd(): void {
-    if (container === undefined || container === null) return;
+    // A queued follow must surrender to a navigation made after it queued.
+    if (container === undefined || container === null || !follow) return;
     container.scrollTop = container.scrollHeight;
   }
 
@@ -416,7 +450,7 @@
   function onScroll(): void {
     if (container === undefined || container === null) return;
     scrollTop = container.scrollTop;
-    follow = container.scrollTop + container.clientHeight >= container.scrollHeight - 48;
+    follow = !hasRevealAnchor() && container.scrollTop + container.clientHeight >= container.scrollHeight - 48;
     reachBackwards();
     recordView();
   }
@@ -479,7 +513,8 @@
   }
 
   function applyView(view: FlowView): void {
-    focusedId = view.focusedId;
+    releaseRevealAnchor();
+    focus.restore(view.focusedId);
     expanded = { ...view.expanded };
     follow = view.follow;
     scrollTop = view.scrollTop;
@@ -920,7 +955,7 @@
     // A prepend absorption owns the scroll position until it lands; see
     // `prependPending`. Holding here as well would restore an anchor
     // captured against a half-applied geometry.
-    if (container === undefined || container === null || follow || anchorHeld || prependPending) return;
+    if (container === undefined || container === null || follow || hasRevealAnchor() || anchorHeld || prependPending) return;
     const el = container;
     const head = headHeight();
     // ── THE READER ON THE HEAD ROW IS NOT ANCHORED TO A BEAT ────────────────
@@ -945,7 +980,7 @@
       anchorHeld = false;
       // The reader may have taken over in the meantime (a scroll flips
       // `follow`, a workspace switch swaps the index). Their action wins.
-      if (container === undefined || container === null || follow || heights !== idx) return;
+      if (container === undefined || container === null || follow || hasRevealAnchor() || heights !== idx) return;
       const next = Math.max(0, idx.offsetOf(index) + into + headHeight());
       if (Math.abs(next - container.scrollTop) < 0.5) return;
       container.scrollTop = next;
@@ -1048,7 +1083,8 @@
   // ── Keyboard: roving focus in causal (log) order (§2.7) ──────────────────
 
   /**
-   * Scroll beat `index` just far enough to be wholly on screen.
+   * Scroll beat `index` just far enough to be wholly on screen. A row taller
+   * than the viewport starts at its beginning, so its identity stays visible.
    *
    * This was CALLED by `moveFocus` and never defined — an unresolved
    * identifier, which the Svelte compiler happily emits as a bare global
@@ -1069,7 +1105,7 @@
     const viewTop = container.scrollTop;
     const viewBottom = viewTop + container.clientHeight;
     let next: number | null = null;
-    if (top < viewTop) next = top;
+    if (top < viewTop || heights.heightOf(index) > container.clientHeight) next = top;
     else if (bottom > viewBottom) next = bottom - container.clientHeight;
     if (next === null) return;
     // "Butter smooth" for a SCRUB, instant for everything else — and always
@@ -1108,7 +1144,8 @@
       // reader's own place in the log. Only a deliberate act (click, key,
       // scrub) takes focus.
       if (!asPreview) {
-        focusedId = beat.id;
+        releaseRevealAnchor();
+        focus.select(beat.id);
         follow = false;
       }
       revealIndex(target, true);
@@ -1133,9 +1170,12 @@
     }
     const beat = windowSlice(next, next + 1)[0];
     if (beat !== undefined && rendersInFlow(beat)) {
-      focusedId = beat.id;
-      follow = $asOfHead === null && next === n - 1;
-      revealIndex(next);
+      if ($asOfHead === null && next === n - 1) {
+        releaseRevealAnchor();
+        focus.select(beat.id);
+        follow = true;
+        revealIndex(next);
+      } else focusAndReveal(beat.id);
     }
   }
 
@@ -1197,7 +1237,7 @@
    */
   function expandBeat(id: string): void {
     if (beatById(id) === undefined) return;
-    focusedId = id;
+    focus.select(id);
     toggleExpandById(id);
   }
 
@@ -1205,11 +1245,26 @@
    * implementation, used by the SCOPE sheet's causal reference and by the
    * open card's inline depth, so the two cannot behave differently. */
   function focusAndReveal(id: string): void {
-    focusedId = id;
+    focus.select(id);
     follow = false;
+    revealAnchor = { index: heights, id };
     const index = indexOfBeat(id);
     if (index >= 0) revealIndex(index);
   }
+
+  $effect(() => {
+    layoutVersion;
+    version;
+    const anchor = revealAnchor;
+    if (anchor === null || anchor.index !== heights) return;
+    // Initial estimates and later font/expansion measurements can move the
+    // target after its first reveal. Keep that navigation until the reader
+    // takes over; a generic reading anchor would preserve an earlier row.
+    untrack(() => {
+      const index = indexOfBeat(anchor.id);
+      if (index >= 0 && index < visibleCount) revealIndex(index);
+    });
+  });
 
   /** Focus a beat and open its SCOPE — the `scope` grip, and ⏎ for the kinds
    * that still have a sheet (`openFocused` above). Deliberately NOT the body
@@ -1219,7 +1274,8 @@
   function openBeat(id: string): void {
     const beat = beatById(id);
     if (beat === undefined) return;
-    focusedId = id;
+    if (revealAnchor?.id !== id) releaseRevealAnchor();
+    focus.select(id);
     if (shell !== null) {
       shell.openScope({
         // The cap says WHAT THIS IS in plain words, once. It used to read
@@ -1268,7 +1324,8 @@
    */
 
   function returnToNow(): void {
-    focusedId = null;
+    releaseRevealAnchor();
+    focus.select(null);
     follow = true;
     scrollToEnd();
   }
@@ -1304,18 +1361,22 @@
   $effect(() => {
     const head = $asOfHead;
     if (head === lastHead) return;
+    const initial = lastHead === undefined;
     lastHead = head;
+    if (!initial || head !== null) releaseRevealAnchor();
     const n = visibleCount;
     if (head === null) {
-      follow = true;
-      queueMicrotask(scrollToEnd);
+      if (!hasRevealAnchor()) {
+        follow = true;
+        queueMicrotask(scrollToEnd);
+      }
       return;
     }
     follow = false;
     if (n === 0) return;
     const beat = windowSlice(n - 1, n)[0];
     if (beat === undefined) return;
-    focusedId = beat.id;
+    focus.select(beat.id);
     queueMicrotask(() => revealIndex(n - 1));
   });
 
@@ -1446,6 +1507,7 @@
   });
 
   function onKeydown(e: KeyboardEvent): void {
+    if (["PageUp", "PageDown", "Home", "End", " "].includes(e.key)) releaseRevealAnchor();
     // Standalone-mode bindings; under the shell the same handlers arrive
     // via claimKey and the shell's global listener.
     if (e.key === "ArrowDown") {
@@ -1611,6 +1673,9 @@
     tabindex="0"
     bind:this={container}
     onscroll={onScroll}
+    onwheel={releaseRevealAnchor}
+    ontouchstart={releaseRevealAnchor}
+    onpointerdown={releaseRevealAnchor}
     onkeydown={onKeydown}
     use:viewport
   >
@@ -1720,7 +1785,7 @@
               expanded={expanded[item.beat.id] ?? false}
               {projectPath}
               onfocusbeat={(id) => {
-                focusedId = id;
+                focus.select(id);
                 follow = indexOfBeat(id) === beatCount() - 1;
               }}
               onoverridebeat={overrideBeat}
@@ -1802,7 +1867,7 @@
     overflow: hidden;
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   .head-said {
     overflow: hidden;

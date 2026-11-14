@@ -787,7 +787,7 @@
     margin-top: var(--sp-2);
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
-    color: var(--outcome-ink, var(--ink-3));
+    color: var(--outcome-ink, var(--ink-2));
     background: var(--ground-0);
     line-height: var(--lh-tight);
     padding: var(--sp-0) 0;
@@ -960,7 +960,7 @@
      * (`--outcome-ink`, set by the cap's own `data-state` in tokens.css) —
      * a batch that contains a failure wears the failure's colour (see
      * grouping.ts "worst wins"), and no per-state restatement can drift. */
-    color: var(--outcome-ink, var(--ink-3));
+    color: var(--outcome-ink, var(--ink-2));
     flex: none;
   }
   /* The engraved recipe is owned by tokens.css (.cockpit .engraved). */
@@ -982,7 +982,7 @@
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
     line-height: var(--lh-tight);
-    color: var(--ink-3);
+    color: var(--ink-2);
     /* The two hints are the only elastic parts of the compressed row: they
      * SHRINK and ellipsize so that the fields on either side of them — the
      * tool's name, the measured duration — are never the things pushed off
@@ -1011,13 +1011,13 @@
   /* The output side of the transformation — quieter than the input, the same
    * relationship the open card's two cells have. The COMPRESSED twin of the
    * open card's result preview, so it carries the same register that field
-   * was moved to (ink-3): a summarized OUTPUT is recorded data, and ink-4
-   * sat under the 3:1 floor on both themes (UIE-046). */
+   * now uses (ink-2): a summarized OUTPUT is recorded data, and ink-4
+   * sat under the text contrast floor on both themes. */
   .ghost-out {
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
     line-height: var(--lh-tight);
-    color: var(--ink-3);
+    color: var(--ink-2);
     min-width: 0;
     flex: 1 1 auto;
   }
@@ -1027,7 +1027,7 @@
     font-family: var(--face-mono);
     font-size: var(--f-micro-size);
     line-height: var(--lh-tight);
-    color: var(--ink-3);
+    color: var(--ink-2);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     flex: none;
@@ -1043,7 +1043,7 @@
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
     line-height: var(--lh-tight);
-    color: var(--ink-3);
+    color: var(--ink-2);
     flex: none;
     display: inline-flex;
     align-items: baseline;
@@ -1058,7 +1058,7 @@
    * glyph — `--outcome-ink` set by the card's `data-state` in tokens.css —
    * so the tick, the ghost and the open card can never disagree about what
    * `warn` looks like, and a grammar re-point lands here for free. */
-  .state-mark[data-state] { color: var(--outcome-ink, var(--ink-3)); }
+  .state-mark[data-state] { color: var(--outcome-ink, var(--ink-2)); }
   .tick-mark {
     width: var(--sp-3);
     height: var(--tick-h);
@@ -1072,8 +1072,8 @@
     line-height: var(--lh-tight);
     /* The fisheye's explanation is informative text on a compressed row —
      * the same sub-3:1 class the output hints were (UIE-046); it joins the
-     * ghost-meta register (same size class, ink-3). */
-    color: var(--ink-3);
+     * ghost-meta register (same size class, readable ink-2). */
+    color: var(--ink-2);
     flex: none;
   }
 </style>

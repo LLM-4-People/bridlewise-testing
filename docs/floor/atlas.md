@@ -3,7 +3,6 @@ layout: default
 page_class: floor
 title: "Test atlas"
 description: "A generated map of Bridlewise test surface files, dispositions, prevention guards, and decision records. Existence is not a passing result."
-permalink: /floor/atlas/
 ---
 
 # Test atlas
@@ -24,7 +23,7 @@ The atlas is a map of what the floor recognizes. It lists test surface files and
   </div>
 
   <div class="callout warning" data-atlas-state="error" role="alert" hidden>
-    <p><strong>The atlas snapshot did not load.</strong> The page could not read or validate the generated file. Nothing on this page is a result. Check the <a href="{{ '/floor/status/' | relative_url }}">status snapshot</a> and the <a href="{{ '/floor/evidence/' | relative_url }}">evidence commands</a>. If the file is absent, the generator did not run or the deployment did not publish its output.</p>
+    <p><strong>The atlas snapshot did not load.</strong> The page could not read or validate the generated file. Nothing on this page is a result. Check the <a href="status.md">status snapshot</a> and the <a href="evidence.md">evidence commands</a>. If the file is absent, the generator did not run or the deployment did not publish its output.</p>
   </div>
 
   <div class="callout" data-atlas-state="empty" role="status" hidden>
@@ -215,4 +214,4 @@ If any entry fails schema validation, the page withholds the whole table and sho
 - A decision marked `done` cites paths. It does not prove the behavior at runtime.
 - Counts move with the tree. A snapshot is dated; a stale snapshot is history.
 
-Use the [evidence commands]({{ '/floor/evidence/' | relative_url }}) to run the checks, and the [floor status]({{ '/floor/status/' | relative_url }}) to read the last generated snapshot.
+Use the [evidence commands](evidence.md) to run the checks, and the [floor status](status.md) to read the last generated snapshot.

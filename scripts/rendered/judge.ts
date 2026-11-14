@@ -36,7 +36,11 @@ import { parseArgs } from "node:util";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Frame, type Page } from "playwright-core";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
-import { SERVED_HTML, SITE_THEME_STORAGE } from "../../shared/site-page.ts";
+import { SERVED_HTML, SITE_THEME_STORAGE, type SitePagePolicy } from "../../shared/site-page.ts";
+// @ts-expect-error -- the trusted publish-plan owner is plain Node ESM.
+import { sitePolicyResolver } from "../floor/site-pages.mjs";
+// @ts-expect-error -- the verified snapshot reader is plain Node ESM.
+import { readVersions } from "../floor/site.mjs";
 import { FRAMES_NOT_JUDGED, FUTURE_MS, JUDGE_LIMITS, KIT, RENDER_STATES, RENDERED_RULES, STEP_MS, type PageRule, type Recorded, type Scope, type RenderState, type RequestRule, type Surface } from "./rules.ts";
 
 class RenderedRefusal extends Error {
@@ -57,7 +61,8 @@ export function launchBrowser(executable: string | null, args: readonly string[]
   return chromium.launch({ headless: true, args: [...args], ...(executable === null ? { channel: "chromium" } : { executablePath: executable }) });
 }
 
-const pageRules = (surface: Surface): readonly PageRule[] => RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && r.surfaces.includes(surface));
+const appliesTo = (rule: PageRule, scope: Scope): boolean => rule.appliesTo?.(scope) ?? rule.surfaces.includes(scope.surface);
+const pageRules = (scope: Scope): readonly PageRule[] => RENDERED_RULES.filter((r): r is PageRule => r.kind === "page" && appliesTo(r, scope));
 const requestRules = (surface: Surface): readonly RequestRule[] => RENDERED_RULES.filter((r): r is RequestRule => r.kind === "request" && r.surfaces.includes(surface));
 
 /** The binding every frame the judge instruments records through. */
@@ -76,6 +81,30 @@ const sessions = new WeakMap<Page, CDPSession>();
 const surfaces = new WeakMap<BrowserContext, Surface>();
 /** Each instrumented context's scope: its surface and the base path its pages are served under (a row's input is built for it). */
 const scopes = new WeakMap<BrowserContext, Scope>();
+/** Source-owned policy, read once; browser markup grants no capability. */
+const publicPolicies = new WeakMap<BrowserContext, Readonly<{ origin: string; resolve: (path: string) => SitePagePolicy }>>();
+function scopeForUrl(context: BrowserContext, url: string, inherited: Scope): Scope {
+  const policy = publicPolicies.get(context);
+  if (policy === undefined || /^(?:about|blob|data):/u.test(url)) return inherited;
+  const parsed = new URL(url);
+  if (parsed.origin !== policy.origin) throw new RenderedRefusal("rendered_page_outside_site", `the document ${url} is outside the judged origin`);
+  const publicPage = policy.resolve(parsed.pathname);
+  return { surface: publicPage.surface, base: publicPage.baseurl, publicPage };
+}
+/** Blank/srcdoc documents inherit the nearest actual document URL's policy. */
+function frameScope(frame: Frame, fallback: Surface): Scope {
+  const context = frame.page().context();
+  const inherited = scopes.get(context) ?? { surface: fallback, base: "" };
+  for (let at: Frame | null = frame; at !== null; at = at.parentFrame()) {
+    if (/^(?:about|blob|data):/u.test(at.url())) continue;
+    return scopeForUrl(context, at.url(), inherited);
+  }
+  return inherited;
+}
+/** CDP document URLs use the same owner as the corresponding live frame. */
+function documentSurface(page: Page): (url: string, inherited: Surface) => Surface {
+  return (url, inherited) => scopeForUrl(page.context(), url, { ...(scopes.get(page.context()) ?? { base: "" }), surface: inherited }).surface;
+}
 /** Contexts judged as the load under stress (instrumentContext's `loadStress`). */
 const stressed = new WeakSet<BrowserContext>();
 /** Each stressed page's document: whether it has first painted, and the requests it holds until it does. */
@@ -276,8 +305,9 @@ const opening = new WeakMap<BrowserContext, number>();
  * every request rule of `surface` sees every request. A window the page opens
  * itself is reported: only pages opened by `openPage` are judged.
  */
-export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void, base = "", loadStress = false): Promise<void> {
+export async function instrumentContext(context: BrowserContext, surface: Surface, origin: string, report: (finding: string) => void, base = "", loadStress = false, publicPolicy?: (path: string) => SitePagePolicy): Promise<void> {
   scopes.set(context, Object.freeze({ surface, base }));
+  if (publicPolicy !== undefined) publicPolicies.set(context, { origin, resolve: publicPolicy });
   // NO WALL-CLOCK LIMIT on anything a judgement waits for — a navigation, an action, a wait — set here, once, for
   // every judged context: under host load a slow page is still a page, and Playwright's 30 s defaults would fail
   // it. A long wait logs its progress (`navigate`, `ready`); a true hang is bounded by the run's own backstop
@@ -294,7 +324,6 @@ export async function instrumentContext(context: BrowserContext, surface: Surfac
     if (expected > 0) opening.set(context, expected - 1);
     else report(`[judgeable] the page opened a window the judgement does not judge: ${page.url()}`);
   });
-  const rules = requestRules(surface);
   const page = (request: { frame(): { page(): Page } }): Page | null => { try { return request.frame().page(); } catch { return null; } };
   // A request to the network is loading until it ends — or, for a stream (server-sent events, a WebSocket),
   // until it opens: a stream is a channel the page keeps, not part of loading. A blob: or data: URL is the
@@ -325,9 +354,23 @@ export async function instrumentContext(context: BrowserContext, surface: Surfac
   });
   context.on("request", (request) => {
     begin(request);
-    for (const rule of rules) {
-      const finding = rule.judge(request.url(), request.resourceType(), origin, base);
-      if (finding !== null) report(`[${rule.id}] ${finding}`);
+    try {
+      const inherited = scopes.get(context) ?? { surface, base };
+      let scope: Scope;
+      // Document requests can precede the navigation event. Resolve their
+      // actual target directly, without first inspecting the old document.
+      if (request.resourceType() === "document" && new URL(request.url()).origin === origin) scope = scopeForUrl(context, request.url(), inherited);
+      else {
+        let frame: Frame | null = null;
+        try { frame = request.frame(); } catch { /* worker requests have no frame; request rows still judge them */ }
+        scope = frame === null ? inherited : frameScope(frame, surface);
+      }
+      for (const rule of requestRules(scope.surface)) {
+        const finding = rule.judge(request.url(), request.resourceType(), origin, scope.base);
+        if (finding !== null) report(`[${rule.id}] ${finding}`);
+      }
+    } catch (error) {
+      report(`[same-origin] trusted request scope could not be resolved: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
   context.on("requestfinished", (request) => end(request));
@@ -410,9 +453,9 @@ export async function ready(page: Page): Promise<void> {
  * gave the frame an opaque origin (a sandbox without allow-same-origin).
  */
 async function excluded(frame: Frame, surface: Surface): Promise<boolean> {
-  const declared = FRAMES_NOT_JUDGED.filter((d) => d.surfaces.includes(surface));
-  if (declared.length === 0) return false;
   for (let at: Frame | null = frame; at?.parentFrame() != null; at = at.parentFrame()) {
+    const declared = FRAMES_NOT_JUDGED.filter((d) => d.surfaces.includes(frameScope(at, surface).surface));
+    if (declared.length === 0) continue;
     const element = await at.frameElement();
     const named = await element.evaluate((el, rows) => rows.some((d) => (el as Element).getAttribute(d.attribute) === d.value), declared);
     await element.dispose();
@@ -437,7 +480,7 @@ async function judgedFrames(page: Page, surface: Surface): Promise<readonly Fram
   return frames;
 }
 
-export type DomNode = { nodeId: number; backendNodeId: number; nodeType: number; nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode };
+export type DomNode = { nodeId: number; backendNodeId: number; nodeType: number; nodeName: string; localName?: string; attributes?: string[]; children?: DomNode[]; shadowRoots?: (DomNode & { shadowRootType?: string })[]; contentDocument?: DomNode; documentURL?: string };
 
 /** The browser's own tree of `page`, piercing every shadow root and frame (CDP). */
 async function domTree(page: Page): Promise<DomNode> {
@@ -458,21 +501,22 @@ function declaredFrame(node: DomNode, surface: Surface): boolean {
 async function unreachable(page: Page, surface: Surface): Promise<readonly string[]> {
   const root = await domTree(page);
   await sessions.get(page)!.send("DOM.disable");
-  return closedRootsIn(root, surface);
+  return closedRootsIn(root, surface, documentSurface(page));
 }
 
-function closedRootsIn(root: DomNode, surface: Surface): readonly string[] {
+function closedRootsIn(root: DomNode, surface: Surface, resolveSurface?: (url: string, inherited: Surface) => Surface): readonly string[] {
   const found: string[] = [];
-  const walk = (node: DomNode): void => {
-    if (declaredFrame(node, surface)) return;
+  const walk = (node: DomNode, inherited: Surface): void => {
+    const own = node.nodeType === 9 && node.documentURL !== undefined ? (resolveSurface?.(node.documentURL, inherited) ?? inherited) : inherited;
+    if (declaredFrame(node, own)) return;
     for (const shadow of node.shadowRoots ?? []) {
       if (shadow.shadowRootType === "closed") found.push(`a closed shadow root on <${node.localName ?? node.nodeName.toLowerCase()}>: what it renders cannot be judged`);
-      else if (shadow.shadowRootType === "open") walk(shadow);
+      else if (shadow.shadowRootType === "open") walk(shadow, own);
     }
-    for (const child of node.children ?? []) walk(child);
-    if (node.contentDocument !== undefined) walk(node.contentDocument);
+    for (const child of node.children ?? []) walk(child, own);
+    if (node.contentDocument !== undefined) walk(node.contentDocument, own);
   };
-  walk(root);
+  walk(root, surface);
   return found;
 }
 
@@ -494,12 +538,14 @@ function runnerOf(rule: PageRule): (args: unknown) => string[] {
  * the view `page` shows now, in every judged frame; each finding names its
  * rule (and its frame, when it is not the page's own).
  */
-export async function judgePage(page: Page, surface: Surface, rules: readonly PageRule[] = pageRules(surface), closed?: readonly string[]): Promise<readonly string[]> {
+export async function judgePage(page: Page, surface: Surface, rules?: readonly PageRule[], closed?: readonly string[]): Promise<readonly string[]> {
   const journal = journals.get(page);
   if (journal === undefined) throw new RenderedRefusal("rendered_not_instrumented", "the page was not opened by openPage in a context instrumentContext prepared");
   const recorded = await recordedOf(page, journal, closed ?? (await unreachable(page, surface)));
   const findings: string[] = [];
   for (const frame of await judgedFrames(page, surface)) {
+    const scope = frameScope(frame, surface);
+    const selected = rules === undefined ? pageRules(scope) : scope.publicPage === undefined ? rules : rules.filter((rule) => appliesTo(rule, scope));
     const top = frame === page.mainFrame();
     const missing = await frame.evaluate(() => {
       const scope = globalThis as unknown as { __renderedInstrumented?: boolean; __renderedUninstrumented?: string };
@@ -507,8 +553,8 @@ export async function judgePage(page: Page, surface: Surface, rules: readonly Pa
     });
     if (missing !== null) throw new RenderedRefusal("rendered_not_instrumented", `the frame ${frame.url()} was not instrumented: ${missing}`);
     const where = top ? "" : `in the frame ${frame.url().slice(0, 80)}: `;
-    for (const rule of rules) {
-      const args = { input: rule.input(scopes.get(page.context()) ?? { surface, base: "" }), surface, top, record: top ? recorded : null };
+    for (const rule of selected) {
+      const args = { input: rule.input(scope), surface: scope.surface, top, record: top ? recorded : null };
       for (const finding of await frame.evaluate(runnerOf(rule), args)) findings.push(`[${rule.id}] ${where}${finding}`);
     }
   }
@@ -587,9 +633,9 @@ async function judgeForcedStates(page: Page, surface: Surface, rules?: readonly 
   await send("DOM.enable");
   await send("CSS.enable");
   try {
-    const forced = await forceEveryElement(send, surface);
+    const forced = await forceEveryElement(send, surface, documentSurface(page));
     await ready(page);
-    const findings = await judgePage(page, surface, rules, closedRootsIn(forced.root, surface));
+    const findings = await judgePage(page, surface, rules, closedRootsIn(forced.root, surface, documentSurface(page)));
     await releaseForcedStates(send, forced);
     return findings;
   } finally {
@@ -626,22 +672,23 @@ const ALL_STATES = ["hover", "active", "focus", "focus-visible", "focus-within"]
 const POINTER_STATES = ["hover", "active", "focus-within"];
 
 /** Every element of a snapshot `root` the forcing reaches (not inside a declared frame), with its classes, and the scopes it was found in. */
-function forcingTargets(root: DomNode, surface: Surface): { targets: { nodeId: number; classes: string[] }[]; scopes: number[] } {
+function forcingTargets(root: DomNode, surface: Surface, resolveSurface?: (url: string, inherited: Surface) => Surface): { targets: { nodeId: number; classes: string[] }[]; scopes: number[] } {
   const targets: { nodeId: number; classes: string[] }[] = [];
   const scopes: number[] = [];
-  const walk = (node: DomNode): void => {
-    if (declaredFrame(node, surface)) return;
+  const walk = (node: DomNode, inherited: Surface): void => {
+    const own = node.nodeType === 9 && node.documentURL !== undefined ? (resolveSurface?.(node.documentURL, inherited) ?? inherited) : inherited;
+    if (declaredFrame(node, own)) return;
     if (node.nodeType === 9 || node.nodeType === 11) scopes.push(node.nodeId);
     if (node.nodeType === 1) {
       const attributes = node.attributes ?? [];
       const focusable = FOCUSABLE.has(node.localName ?? "") || attributes.some((name, i) => i % 2 === 0 && (name === "tabindex" || name === "contenteditable"));
       targets.push({ nodeId: node.nodeId, classes: focusable ? ALL_STATES : POINTER_STATES });
     }
-    for (const shadow of node.shadowRoots ?? []) if (shadow.shadowRootType === "open") walk(shadow);
-    for (const child of node.children ?? []) walk(child);
-    if (node.contentDocument !== undefined) walk(node.contentDocument);
+    for (const shadow of node.shadowRoots ?? []) if (shadow.shadowRootType === "open") walk(shadow, own);
+    for (const child of node.children ?? []) walk(child, own);
+    if (node.contentDocument !== undefined) walk(node.contentDocument, own);
   };
-  walk(root);
+  walk(root, surface);
   return { targets, scopes };
 }
 
@@ -652,9 +699,9 @@ function forcingTargets(root: DomNode, surface: Surface): { targets: { nodeId: n
  * found by looking again in every scope the read reached, under the same
  * bindings, and forced too. Any other CDP answer is refused.
  */
-export async function forceEveryElement(send: CdpSend, surface: Surface): Promise<ForcedStates> {
+export async function forceEveryElement(send: CdpSend, surface: Surface, resolveSurface?: (url: string, inherited: Surface) => Surface): Promise<ForcedStates> {
   const { root } = (await send("DOM.getDocument", { depth: -1, pierce: true })) as { root: DomNode };
-  const { targets, scopes } = forcingTargets(root, surface);
+  const { targets, scopes } = forcingTargets(root, surface, resolveSurface);
   const forced = new Set<number>();
   const seen = new Set<number>();
   const force = (batch: readonly { nodeId: number; classes: readonly string[] }[]): Promise<unknown> => Promise.all(batch.map(async ({ nodeId, classes }) => {
@@ -817,10 +864,11 @@ function sitePages(siteRoot: string, baseurl: string): readonly string[] {
 }
 
 /** Judges every page of a built site in both of its themes and every site render state; returns the findings, each with its page. */
-async function judgeSite(siteRoot: string, baseurl: string, executable: string | null): Promise<readonly string[]> {
+async function judgeSite(siteRoot: string, baseurl: string, executable: string | null, versionsDir: string | null): Promise<readonly string[]> {
   if (!existsSync(siteRoot)) throw new RenderedRefusal("rendered_site_missing", `${siteRoot} is not a built site`);
   const pages = sitePages(siteRoot, baseurl);
   if (pages.length === 0) throw new RenderedRefusal("rendered_site_empty", `${siteRoot} holds no HTML page`);
+  const publicPolicy = sitePolicyResolver({ baseurl, versions: readVersions(versionsDir) }) as (path: string) => SitePagePolicy;
   const { server, origin } = await serveSite(siteRoot, baseurl);
   const browser = await launchBrowser(executable);
   const findings = new Set<string>();
@@ -838,7 +886,7 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
         } catch { /* a page without storage shows the lead theme */ }
       }, { key: SITE_THEME_STORAGE.key, value: SITE_THEME_STORAGE.carbon, stored: theme === "carbon" });
       let current = "";
-      await instrumentContext(context, "site", origin, (finding) => findings.add(`${current} [${theme}]: ${finding}`), baseurl);
+      await instrumentContext(context, "site", origin, (finding) => findings.add(`${current} [${theme}]: ${finding}`), baseurl, false, publicPolicy);
       const page = await openPage(context);
       for (const path of pages) {
         current = path;
@@ -853,7 +901,7 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
     // counted from the start.
     const stressed = await browser.newContext({ serviceWorkers: "block" });
     let current = "";
-    await instrumentContext(stressed, "site", origin, (finding) => findings.add(`${current} [logbook, load stress]: ${finding}`), baseurl, true);
+    await instrumentContext(stressed, "site", origin, (finding) => findings.add(`${current} [logbook, load stress]: ${finding}`), baseurl, true, publicPolicy);
     const page = await openPage(stressed);
     for (const path of pages) {
       current = path;
@@ -870,10 +918,10 @@ async function judgeSite(siteRoot: string, baseurl: string, executable: string |
 
 async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
-  if (command !== "site") throw new RenderedRefusal("rendered_usage", "usage: judge.ts site --site <built site> --baseurl <base path> [--browser <executable>]");
-  const { values } = parseArgs({ args: rest, options: { site: { type: "string" }, baseurl: { type: "string" }, browser: { type: "string" } } });
+  if (command !== "site") throw new RenderedRefusal("rendered_usage", "usage: judge.ts site --site <built site> --baseurl <base path> [--browser <executable>] [--versions <verified snapshot folder>]");
+  const { values } = parseArgs({ args: rest, options: { site: { type: "string" }, baseurl: { type: "string" }, browser: { type: "string" }, versions: { type: "string" } } });
   if (values.site === undefined || values.baseurl === undefined) throw new RenderedRefusal("rendered_usage", "site needs --site and --baseurl");
-  const findings = await judgeSite(resolve(values.site), values.baseurl, values.browser ?? null);
+  const findings = await judgeSite(resolve(values.site), values.baseurl, values.browser ?? null, values.versions ?? null);
   const pages = sitePages(resolve(values.site), values.baseurl).length;
   for (const finding of findings) process.stdout.write(`${finding}\n`);
   const pending = RENDERED_RULES.flatMap((r) => (r.pending?.site === undefined ? [] : [{ id: r.id, why: r.pending.site }]));

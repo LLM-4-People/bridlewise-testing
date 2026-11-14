@@ -25,6 +25,7 @@ import { schemaId } from "../kernel/product-identity.ts";
 import { FRONT_DOOR_GENERATOR } from "../kernel/verification-paths.ts";
 import { trackedFiles } from "../git/repository-ownership.ts";
 import { directoryOf, normalizeRepositoryPath, reachabilityClosure } from "./reachability.ts";
+import { readSiteSources } from "./site-sources.ts";
 
 const MESSAGING_PATH = "docs/brand/messaging.json";
 const MESSAGING_SCHEMA = schemaId("messaging", 1);
@@ -111,13 +112,24 @@ export function evidencePath(evidence: string): string | null {
  * Every repository path the front doors are made from, beyond the engine: the
  * two sources (`docs/brand/`), the decision records, the files the blocks are
  * written into, the addresses' owner, and every file a claim cites as its
- * evidence (read from the register of the checkout this module is in). A
- * generator test's repository copy carries exactly these
+ * evidence (read from the register of the checkout this module is in), and
+ * the site source owner's actual input footprint. A generator test's repository
+ * copy carries exactly these
  * (`GENERATOR_INPUTS_BEYOND_ENGINE`).
  */
 export function frontDoorInput(path: string): boolean {
   if (path.startsWith("docs/brand/") || path.startsWith(`${DECISIONS_DIRECTORY}/`) || FRONT_DOOR_FILES.includes(path)) return true;
-  return citedEvidence().has(path) || generatorModules().has(path);
+  return citedEvidence().has(path) || generatorModules().has(path) || siteInputs().has(path);
+}
+
+let siteInputPaths: ReadonlySet<string> | undefined;
+/** Same source footprint the site plan consumes; import is inert, and source reads remain lazy. */
+function siteInputs(): ReadonlySet<string> {
+  if (siteInputPaths === undefined) {
+    const root = fileURLToPath(new URL("../../..", import.meta.url));
+    siteInputPaths = readSiteSources(root).inputs;
+  }
+  return siteInputPaths;
 }
 
 /**

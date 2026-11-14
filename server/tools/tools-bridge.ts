@@ -28,7 +28,7 @@ import {
 } from "../kernel/canonical.ts";
 import { serverConfig } from "../kernel/config.ts";
 import { createBuiltInToolManifestEntries } from "../kernel/canonical.ts";
-import { createEditorToolDefinitions, EDIT_TOOL_LABEL } from "../../engine/src/editor/edit-tools.ts";
+import { editorToolEntries, normalizeToolInputSchema } from "./tool-manifest-data.ts";
 import { editorState } from "../../engine/src/shared/exposure/registrations/editor.ts";
 import type { ToolDefinition } from "../kernel/canonical.ts";
 import { WebError } from "../kernel/errors.ts";
@@ -73,7 +73,7 @@ export type WebToolEntry = ToolManifestEntry & Readonly<{
    * the wire entry declares every field the client reads (the
    * `tool-registry-owner` contract test pins the two mirrors equal).
    */
-  outputShape?: "file" | "command" | "search";
+  outputShape?: ToolManifestEntry["outputShape"];
   /** exp519: opt-in memory save flag (see SAVE_TO_MEMORY_TOOLS below). */
   saveToMemory?: boolean;
 }>;
@@ -135,34 +135,6 @@ export const ARTIFACT_TYPES: readonly string[] = Object.freeze([
   "sheet",
   "presentation",
 ]);
-
-/**
- * Convert an LLM `ToolDefinition` (the OpenAI function-tool shape) into a
- * `WebToolEntry` (the governed manifest shape + category). The `inputSchema`
- * is the function's `parameters` JSON Schema verbatim. This is the sole
- * owner of the ToolDefinition→WebToolEntry mapping so the two shapes cannot
- * drift.
- */
-function toolDefinitionToWebToolEntry(
-  def: ToolDefinition,
-  capabilities: readonly ToolManifestEntry["capabilities"][number][],
-  adapterId: string,
-  category: "built-in" | "mcp",
-  label: string,
-): WebToolEntry {
-  return Object.freeze({
-    id: def.function.name,
-    name: def.function.name,
-    description: def.function.description,
-    inputSchema: def.function.parameters as Readonly<Record<string, unknown>>,
-    capabilities: Object.freeze([...capabilities]),
-    bounds: DEFAULT_TOOL_RESOURCE_BOUNDS,
-    adapterId,
-    category,
-    kind: getToolKind(adapterId),
-    label,
-  });
-}
 
 // ── Web-UI-owned manifest entries (filesystem, intelligence, memory, quality, git) ──
 
@@ -759,28 +731,9 @@ function buildUnifiedManifest(): readonly WebToolEntry[] {
    * the registry's `add` is the ONE point every entry (editor, built-in,
    * web-UI-owned, MCP) passes through, so a loose backend schema cannot leak.
    */
-  function normalizeEntry(entry: WebToolEntry): WebToolEntry {
-    const s = entry.inputSchema as Record<string, unknown>;
-    if (
-      s["type"] === "object" &&
-      Array.isArray(s["required"]) &&
-      s["additionalProperties"] === false
-    ) {
-      return entry; // already canonical — no copy
-    }
-    return Object.freeze({
-      ...entry,
-      inputSchema: Object.freeze({
-        ...s,
-        type: "object",
-        required: Array.isArray(s["required"]) ? s["required"] : [],
-        additionalProperties: false,
-      }),
-    });
-  }
 
   function add(entry: WebToolEntry): void {
-    const normalized = normalizeEntry(entry);
+    const normalized = normalizeToolInputSchema(entry);
     if (byName.has(normalized.name)) {
       // Defensive: a duplicate name across sources is a wiring bug. Keep
       // the first registration and surface the conflict loudly (the
@@ -797,8 +750,8 @@ function buildUnifiedManifest(): readonly WebToolEntry[] {
   //    no file-editing surface). Read from the live projection (the single
   //    owner of the `editor` knobs).
   if (editorState.unifiedEditEnabled) {
-    for (const def of createEditorToolDefinitions()) {
-      add(toolDefinitionToWebToolEntry(def, ["write"], "web-ui-editor", "built-in", EDIT_TOOL_LABEL));
+    for (const entry of editorToolEntries()) {
+      add(Object.freeze({ ...entry, category: "built-in" as const, kind: getToolKind(entry.adapterId) }));
     }
   }
   // 2. Built-in tools (5) — already manifest entries from the backend, tagged.

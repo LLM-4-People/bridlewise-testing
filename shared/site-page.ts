@@ -43,17 +43,34 @@ export function scopeBase(baseurl: string): string {
  * The builder writes both into `_includes/csp.html`, and every page includes
  * it right after its charset, before anything that loads.
  */
-export function sitePolicies(baseurl: string): readonly [string, string] {
+export type SiteConnectionMode = "site" | "none";
+
+/** A published page's expectations, resolved from the source publish plan rather than its HTML. */
+export type SitePagePolicy = Readonly<{
+  baseurl: string;
+  connections: SiteConnectionMode;
+  surface: "site" | "cockpit";
+  cspRequired: true;
+}>;
+
+export function sitePolicies(
+  baseurl: string,
+  options: Readonly<{ connections?: SiteConnectionMode }> = {},
+): readonly [string, string] {
   const hashes = attributeHashes();
   const scope = `*:*${scopeBase(baseurl)}/`;
+  const connections = options.connections ?? "site";
+  if (connections !== "site" && connections !== "none") throw new TypeError("Unknown site connection mode");
+  const originConnect = connections === "none" ? "'none'" : "'self'";
+  const scopedConnect = connections === "none" ? "'none'" : scope;
   return [
     [
       "default-src 'self'", "script-src 'self'", "style-src 'self'", `style-src-attr 'unsafe-hashes' ${hashes}`,
-      "font-src 'self'", "img-src 'self'", "connect-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'",
+      "font-src 'self'", "img-src 'self'", `connect-src ${originConnect}`, "object-src 'none'", "base-uri 'none'", "form-action 'self'",
     ].join("; "),
     [
       `default-src ${scope}`, `script-src ${scope}`, `style-src ${scope}`, `style-src-attr 'unsafe-hashes' ${hashes}`,
-      `font-src ${scope}`, `img-src ${scope}`, `connect-src ${scope}`, "object-src 'none'", "base-uri 'none'", `form-action ${scope}`,
+      `font-src ${scope}`, `img-src ${scope}`, `connect-src ${scopedConnect}`, "object-src 'none'", "base-uri 'none'", `form-action ${scope}`,
     ].join("; "),
   ];
 }
@@ -74,12 +91,11 @@ export const SITE_THEME_STORAGE = Object.freeze({ key: "bridlewise-theme", carbo
  * their pages, but not the token rows.
  */
 export const PALETTE_BURN_DOWN: ReadonlyMap<string, string> = new Map([
-  ["run/run-demo.css", "#161: the run demo's own palette"],
   ["policy-lab/policy-lab.css", "#161: the policy lab's own palette"],
 ]);
 
 /** The file extensions Pages serves as HTML (any case): every one is a page that must carry the policies. */
-export const SERVED_HTML = /\.(?:x?html?)$/iu;
+export { SERVED_HTML } from "./markup.ts";
 
 /**
  * The site's themes as its document root wears them: Logbook leads on a bare

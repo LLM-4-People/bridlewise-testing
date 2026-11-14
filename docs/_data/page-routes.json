@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "bridlewise-site-page-routes/v1",
+  "docsHome": "README.md",
+  "livePages": {
+    "index.md": "/",
+    "floor/roadmap.md": "/roadmap/",
+    "floor/claims.md": "/claims/",
+    "floor/status.md": "/status/",
+    "policy-lab/index.html": "/policy-lab/",
+    "404.md": "/404.html"
+  },
+  "artifacts": [
+    {
+      "sourceEntry": "src/demo/index.html",
+      "outputPath": "/run/",
+      "connections": "none",
+      "surface": "cockpit"
+    }
+  ]
+}

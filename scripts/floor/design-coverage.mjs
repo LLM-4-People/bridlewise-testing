@@ -15,7 +15,6 @@ export const SHARED_CSS = ["assets/css/style.css", "assets/floor/floor.css"];
 const FLOOR_CSS = "assets/floor/floor.css";
 export const STANDALONE_ALLOWLIST = new Map([
   ["/policy-lab/", "Standalone interactive governance demo with its own HTML shell and policy-lab.css."],
-  ["/run/", "Standalone interactive run-record demo with its own HTML shell and run-demo.css."],
 ]);
 const STANDALONE_PAGES = [...STANDALONE_ALLOWLIST.keys()].map((prefix) => new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
 
@@ -107,7 +106,7 @@ function cssClasses(css) {
 
 /**
  * `exclude`: site-path prefixes judged elsewhere — a released docs snapshot
- * (`/v/<version>/`) was judged by its own build and never changes, so today's
+ * (`/docs/v/<version>/`) was judged by its own build and never changes, so today's
  * stylesheets are not its yardstick.
  */
 export function inventory(siteRoot, { exclude = [] } = {}) {
@@ -197,7 +196,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.stderr.write(`design coverage: built site not found at ${siteRoot}\n`);
     process.exitCode = 2;
   } else {
-    const result = coverage(siteRoot);
+    const { readSitePlanProjection, SITE_SOURCE_ROOT } = await import("./site-pages.mjs");
+    const plan = readSitePlanProjection({ site: siteRoot, root: SITE_SOURCE_ROOT });
+    const result = coverage(siteRoot, { exclude: Object.values(plan.pages).filter((page) => page.artifact).map((page) => page.permalink) });
     if (process.argv.includes("--json")) process.stdout.write(JSON.stringify({
       pages: result.pages,
       jekyllPages: result.jekyllPages,

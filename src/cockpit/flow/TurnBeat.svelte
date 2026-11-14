@@ -545,7 +545,7 @@
     margin: var(--sp-1) 0 0;
     font-family: var(--face-mono);
     font-size: var(--f-micro-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   /* The electron-beam caret rides the END of the last rendered block, so it
    * sits at the tip of the streaming sentence exactly like a terminal caret
@@ -572,7 +572,7 @@
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
     font-variant-numeric: tabular-nums;
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   /* ── THE MEASURED RATES WEAR THE LIVE HUE ─────────────────────────────
    *
@@ -605,7 +605,7 @@
   .silent-line {
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
     font-style: italic;
   }
 </style>

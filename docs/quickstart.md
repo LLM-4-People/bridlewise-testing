@@ -9,7 +9,7 @@ permalink: /quickstart/
 
 This gets a **developer preview** running from source on a disposable copy of a repository. It is not an installation guide for a supported product.
 
-> **Read this first.** Bridlewise is pre-1.0 and pre-admission. Do not use it on proprietary, regulated, client-confidential, or production code. Expect breaking changes and data loss. See [Security and limits]({{ '/security/' | relative_url }}).
+> **Read this first.** Bridlewise is pre-1.0 and pre-admission. Do not use it on proprietary, regulated, client-confidential, or production code. Expect breaking changes and data loss. See [Security and limits](security-and-limits.md).
 
 ## Prerequisites
 
@@ -33,7 +33,7 @@ npm --version
 The dev container installs both lockfiles, builds the guardian's native
 dependencies, forwards ports `5173` and `5174`, and still runs the cockpit on
 loopback. It does **not** include a model credential or the development-floor
-corpus. See [Open it in a Codespace]({{ '/codespaces/' | relative_url }}) for
+corpus. See [Open it in a Codespace](codespaces.md) for
 what it configures and what it deliberately leaves to you. A Codespace consumes
 your GitHub plan's included quota; it is not a free hosted deployment.
 
@@ -189,7 +189,7 @@ It reports `harnessReady: false` while the governance gate is open. That is the 
 
 ## Next
 
-- [Architecture]({{ '/architecture/' | relative_url }}) — how the pieces fit and where the trust boundary is.
-- [Security and limits]({{ '/security/' | relative_url }}) — what is protected, what is not, and how to report a vulnerability.
-- [Design]({{ '/design/' | relative_url }}) — the cockpit's surfaces, tokens, and accessibility rules.
-- [FAQ]({{ '/faq/' | relative_url }}) — readiness, providers, licensing, and the `main` and `product` branches.
+- [Architecture](architecture.md) — how the pieces fit and where the trust boundary is.
+- [Security and limits](security-and-limits.md) — what is protected, what is not, and how to report a vulnerability.
+- [Design](design.md) — the cockpit's surfaces, tokens, and accessibility rules.
+- [FAQ](faq.md) — readiness, providers, licensing, and the `main` and `product` branches.

@@ -50,15 +50,10 @@ import { clearAllOverrides } from "../../src/cockpit/flow/fisheye.ts";
 import { HeightIndex, SHAPE_HEIGHT } from "../../src/cockpit/flow/heights.ts";
 import { rendersInFlow } from "../../src/cockpit/flow/beat-state.ts";
 import type { Beat } from "../../src/cockpit/flow/types.ts";
-
-class RO {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
+import { LayoutFreeResizeObserver } from "../helpers/resize-observer.ts";
 
 beforeEach(() => {
-  vi.stubGlobal("ResizeObserver", RO);
+  vi.stubGlobal("ResizeObserver", LayoutFreeResizeObserver);
   resetIngest();
   clearAllOverrides();
   clearLog();

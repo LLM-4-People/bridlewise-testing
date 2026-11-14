@@ -4,37 +4,38 @@ published: false
 
 # Floor content integration notes
 
-These pages are the floor part of the one Pages site, which is built from `docs/` on `main`. The site root is the product home, the contributor hub is `/contribute/`, and this folder adds `/floor/`.
+These pages are the floor part of the one Pages site, which is built from `docs/` on `main`. The site root is the product home. Documentation uses the repository identity's prefix; the route declaration names the live root pages.
 
 This README is integration notes, not a site page. `published: false` keeps it out of the Jekyll output if it sits in the source tree.
 
 ## Files
 
-| File | Permalink | Purpose |
-|---|---|---|
-| `index.md` | `/` | Product home, the site's front door |
-| `contribute.md` | `/contribute/` | Contributor hub |
-| `floor/index.md` | `/floor/` | Floor landing page |
-| `floor/help.md` | `/floor/help/` | Contribution lanes and review checklist |
-| `floor/roadmap.md` | `/floor/roadmap/` | Milestones, workstreams, exit criteria, and generated status blocks |
-| `floor/promotion.md` | `/floor/promotion/` | Projection and gate contract |
-| `floor/claims.md` | `/floor/claims/` | Every public claim, judged at the published commit (body written at publish by `engine/scripts/brand/cli.ts build`) |
-| `floor/atlas.md` | `/floor/atlas/` | Generated test atlas and filter UI |
-| `floor/evidence.md` | `/floor/evidence/` | Rerunnable checks and non-proofs |
-| `floor/status.md` | `/floor/status/` | Generated status console and fallback |
-| `floor/README.md` | none | This file |
+| Source under `docs/` | Purpose |
+|---|---|
+| `index.md` | Product home, the site's front door |
+| `README.md` | Documentation home |
+| `contribute.md` | Contributor hub |
+| `floor/index.md` | Floor landing page |
+| `floor/help.md` | Contribution lanes and review checklist |
+| `floor/roadmap.md` | Live milestones, workstreams, exit criteria, and generated status blocks |
+| `floor/promotion.md` | Projection and gate contract |
+| `floor/claims.md` | Live public claims, judged at the published commit (body written at publish by `engine/scripts/brand/cli.ts build`) |
+| `floor/atlas.md` | Generated test atlas and filter UI |
+| `floor/evidence.md` | Rerunnable checks and non-proofs |
+| `floor/status.md` | Live generated status console and fallback |
+| `floor/README.md` | These unpublished integration notes |
 
-All published pages use `layout: default`, `title`, `description`, and `permalink`. They use `relative_url` for site links. Do not hardcode `baseurl` or the repository name.
+Ordinary pages use `layout: default`, `title` and `description`. The builder owns every output permalink; `docs/_data/page-routes.json` owns the documentation home and live-page exceptions. Navigation names source page keys, and authored page links are source-relative. `relative_url` is for assets. Do not hardcode page URLs, `baseurl` or the repository name.
 
 ## Site build
 
 `node scripts/build-site.mjs` (the steps are `scripts/floor/site.mjs`; the publish plan and link map are `scripts/floor/site-pages.mjs`) builds the site from this repository alone:
 
-1. `source --out .site --baseurl <base> [--versions <dir>]`: copy `docs/` (every Markdown file is a page unless `published: false`; its URL is its `permalink` or its pretty path, and two pages for one URL refuse the build), rewrite each page's relative links (a published page or a served asset becomes its site URL; any other repository path becomes its GitHub URL; a link naming nothing refuses the build), give each plain Markdown page a front matter and wrap its body as raw text, write the redirect pages for older URLs (`/product/`, `/roadmap/`, the trackers' former `/floor/trackers/` home and each page's `.md` spelling), list the released versions at `/v/`, write the floor data (`floor/data/atlas.json` and an offline `status.json`), and refuse any page that names a path the build does not produce. A link into the versions folder in any form is refused: pages link the versions page through `site.versions_url`. The committed source is never edited: GitHub resolves the relative links against the repository.
-2. Refresh the live status online (`node scripts/build-floor-data.mjs --root . --out .site/floor/data`, through the forge client), then Jekyll builds `.site` into `_site`.
-3. `finish --site _site --baseurl <base> [--versions <dir>]`: merge each release's pre-built documentation snapshot at `/v/<version>/`, then crawl every internal link of the whole output and run the design coverage over the pages this build rendered.
+1. `source --out <new directory> --baseurl <base> [--versions <dir>]`: copy `docs/`, resolve Markdown and front-matter HTML through the shared publish plan, and refuse missing pages or URL collisions. Resolve navigation keys, give every page its derived permalink and source identity, keep page bodies source-relative for Jekyll, wrap plain Markdown as raw text, and generate old-URL aliases from the preserved previous plan. List released versions under the documentation prefix followed by `v`, and write `floor/data/atlas.json` plus an offline `status.json`. The final rendered pass refuses a link naming nothing; version links use `site.versions_url`. The committed source stays valid for GitHub. The output must be new and outside the source inputs: previous results are never recursively removed.
+2. Refresh the live status online (`node scripts/build-floor-data.mjs --root . --out .site/floor/data`, through the forge client), then Jekyll builds `.site` into `_site`. The builder disables the platform's separate relative-link rewriter. Its deferred `site.versions_url` global becomes the real live versions address in the following rendered pass, including prose and code displays.
+3. `finish --site _site --baseurl <base> [--versions <dir>]`: verify the generated source-ID plan, resolve actual authored HTML attributes after Jekyll, and refuse literal page URLs or unowned HTML. Then merge each verified pre-built docs snapshot under the documentation prefix's `v/<version>` directory, then crawl every internal link and check the complete artifact's policies. Run design coverage over the documentation this build rendered; immutable snapshots retain their own build's design judgement.
 
-A release snapshot is built at release time with `source --baseurl <base>/v/<version> --release <version>` (whole, floor data included), then Jekyll, and attached to the release; the Pages build only merges it.
+Build a snapshot with `source --release <version> --baseurl <base>/<docs prefix>/v/<version>` (the tag without its `v`), then Jekyll, then `resolve --site <built snapshot> --baseurl <same base> --release <version>` before packaging. The resolver is a mandatory link phase, not a qualification receipt. It contains documentation and assets; live root pages stay on the current site and are not copied. The finish step checks their destinations in the merged artifact. Release production and verified download remain responsibilities of the release and Pages workflows.
 
 `redirect --out <dir>` writes the organisation site's tree (`<owner>.github.io`), which answers the site's old address (`LEGACY_SITE_URL` in `scripts/floor/repository.mjs`, derived from the repository identity) once the repository is renamed. Each old pretty path gets a page that sends it in one hop, even without scripts, to where the plan's landing map (`landingPath`: the moved pages, the trackers' former home, the `.md` spellings) puts it on the current site, with that exact URL as its `rel=canonical`. A `404.html` runs the same map for every other path, and a `.nojekyll` makes Pages serve the tree as written. It refuses while the current site is the old URL or lies under it, because a redirect would loop; the comparison is of whole URLs.
 
@@ -51,7 +52,7 @@ So a burst of completions builds once, and no main build is cancelled. The statu
 
 ### The deploy order, and its one override
 
-A deploy publishes only a commit that is the live site's commit or descends from it (`scripts/floor/deploy-order.mjs`, run in the deploy queue). An ancestor of the live commit is skipped as superseded. A relation the check cannot establish is refused with a typed code: `site_deploy_history_rewritten` (GitHub no longer holds the live commit, as after the history rewrite of runbook P6), `site_deploy_diverged`, or `site_deploy_published_unknown` (no recent deployment published a site). The one way out is recorded: dispatch the Docs site workflow from `main` with `supersede_published` set to the exact commit the refusal names (or `unknown`). That run waits for the `pages-override` environment's reviewer, and its record holds who asked, for which commit, and why it was refused. An override naming any other commit is refused (`site_deploy_override_mismatch`). Use `layout: default`, `title`, `description`, and `permalink` on hand-written pages and `relative_url` for site links; do not hardcode `baseurl` or the repository name. One layout, one design layer: do not add a separate layout or token system.
+A deploy publishes only a commit that is the live site's commit or descends from it (`scripts/floor/deploy-order.mjs`, run in the deploy queue). An ancestor of the live commit is skipped as superseded. A relation the check cannot establish is refused with a typed code: `site_deploy_history_rewritten` (GitHub no longer holds the live commit, as after the history rewrite of runbook P6), `site_deploy_diverged`, or `site_deploy_published_unknown` (no recent deployment published a site). The one way out is recorded: dispatch the Docs site workflow from `main` with `supersede_published` set to the exact commit the refusal names (or `unknown`). That run waits for the `pages-override` environment's reviewer, and its record holds who asked, for which commit, and why it was refused. An override naming any other commit is refused (`site_deploy_override_mismatch`). Follow the shared page and link rules above. One layout, one design layer: do not add a separate layout or token system.
 
 ## Generated data
 
@@ -227,11 +228,11 @@ Behavior:
 ## Verification
 
 1. Build with the same Jekyll source the Pages workflow uses. Do not add a Gemfile only for these pages.
-2. Visit `/`, `/contribute/`, `/v/`, `/floor/`, `/floor/help/`, `/floor/roadmap/`, `/floor/promotion/`, `/floor/atlas/`, `/floor/evidence/`, and `/floor/status/`.
+2. Visit the root and every published source entry above through generated navigation. Check the documentation versions index, the live roadmap, claims and status, and a merged release snapshot.
 3. Test the atlas with valid data, no data, no filter matches, invalid JSON, a missing file, and an unknown schema.
 4. Test status with `github.available: true`, `false`, missing `promotion`, a stale `generatedAt`, and a missing file.
 5. Use keyboard only. Check focus, labels, `aria-live` counts, and the no-JavaScript fallback.
-6. Run `npm run docs:links` after `git add`; it reads tracked Markdown files and skips root-relative, absolute, and Liquid links. Manually check the rendered `relative_url` links or crawl the site.
+6. Run `npm run docs:links` and the complete source/build/finish flow. The rendered resolver refuses authored page URL literals; the final crawler parses actual HTML, including unquoted attributes and template contents, across the merged artifact.
 7. Confirm that no generated JSON contains a token, local path, host name, private fixture path, or unreviewed hold text.
 
 ## Claims to preserve

@@ -8,7 +8,7 @@
  *
  * Exits 1, naming each plant that passed or the clean page's findings.
  */
-import { createReadStream, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createReadStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { type ServerResponse } from "node:http";
 import { join, resolve } from "node:path";
@@ -17,6 +17,11 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
+import { sitePolicies, type SitePagePolicy } from "../../shared/site-page.ts";
+// @ts-expect-error -- exercise the existing JavaScript policy owner.
+import { sitePolicyResolver } from "../floor/site-pages.mjs";
+// @ts-expect-error -- fixture coordinates extend the existing identity owner.
+import { COORDINATES } from "../floor/repository.mjs";
 import { BRAND_MARK, strokePath } from "../../src/cockpit/shell/brand-mark.ts";
 import { instrumentContext, judgeFuture, judgeLoadStress, judgeStates, launchBrowser, navigate, openPage, serveSite, siteRestore } from "./judge.ts";
 import { tokenValues } from "../token-owner.ts";
@@ -74,7 +79,7 @@ button, input, textarea, select { font: inherit; }
 /** A page: what it adds to the clean one, and the rule that must name it. `only` judges it with exactly those rows (a row pending on every surface is proved this way). */
 /** `base`: the base path the page is judged as served under (the site's rows read it); the cockpit's own pages are at the root. */
 /** `stress`: judged as the load under stress (every font, image and stylesheet late, shifts counted from the start). */
-type Plant = Readonly<{ name: string; policy?: string; head?: string; body?: string; rule: string; only?: readonly string[]; base?: string; stress?: boolean }>;
+type Plant = Readonly<{ name: string; policy?: string; head?: string; body?: string; rule: string; only?: readonly string[]; base?: string; stress?: boolean; publicPolicy?: boolean }>;
 
 const cspMeta = (policy: string): string => `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
 
@@ -141,6 +146,9 @@ const BELOW = '<section style="height: 70vh"><p>Text a reader is reading, fillin
 
 /** Each break, and the rule that must name it. */
 const PLANTS: readonly Plant[] = [
+  { name: "a nested public cockpit with ordinary connection policy", policy: POLICIES, body: `<iframe title="Public example" src="${PROOF_BASE}/run/wrong-connections.html"></iframe>`, rule: "csp-meta", only: ["csp-meta"], base: PROOF_BASE, publicPolicy: true },
+  { name: "a nested public cockpit with its parent's base policy", policy: POLICIES, body: `<iframe title="Public example" src="${PROOF_BASE}/run/wrong-base.html"></iframe>`, rule: "csp-meta", only: ["csp-meta"], base: PROOF_BASE, publicPolicy: true },
+  { name: "an ordinary nested site page without image alt text", policy: POLICIES, body: `<iframe title="Ordinary page" src="${PROOF_BASE}/site-child.html"></iframe>`, rule: "alt-text", only: ["csp-meta", "alt-text"], base: PROOF_BASE, publicPolicy: true },
   { name: "a part hidden from another stylesheet, by element", head: "<style>svg circle { opacity: 0 }</style>", rule: "brand-mark" },
   { name: "a part filtered through :where", head: "<style>:where(svg) rect { filter: invert(1) }</style>", rule: "brand-mark" },
   { name: "a part recoloured through an attribute selector", head: '<style>[class~="brand"] path { stroke: red !important }</style>', rule: "brand-mark" },
@@ -265,6 +273,7 @@ const PLANTS: readonly Plant[] = [
 
 /** Near-misses each row must pass. */
 const CLEAN_TOO: readonly Plant[] = [
+  { name: "a nested source-declared cockpit policy keeps document-only pending rows pending", policy: POLICIES, body: `<iframe title="Public example" src="${PROOF_BASE}/run/index.html"></iframe>`, rule: "csp-meta", only: ["csp-meta", "alt-text"], base: PROOF_BASE, publicPolicy: true },
   { name: "under load stress, the clean page", rule: "layout-shift", stress: true },
   { name: "under load stress, a late image with its dimensions set", body: `<img alt="" src="${TALL_IMAGE_PATH}" width="400" height="320">${BELOW}`, rule: "layout-shift", stress: true },
   { name: "under load stress, a stylesheet in the head, which the first paint waits for", head: `<link rel="stylesheet" href="${LATE_SHEET_PATH}">`, body: BELOW, rule: "layout-shift", stress: true },
@@ -311,10 +320,10 @@ async function prove(executable: string | null): Promise<readonly string[]> {
       // Every page is judged as the site is: every row (as on the cockpit) in every site render state, once ready,
       // then through its future; the request rows listen for the whole visit.
       const states = RENDER_STATES.filter((s) => s.surfaces.includes("site"));
-      const judge = async (file: string, only?: readonly string[], base = "", stress = false): Promise<readonly string[]> => {
+      const judge = async (file: string, only?: readonly string[], base = "", stress = false, publicPolicy?: (path: string) => SitePagePolicy): Promise<readonly string[]> => {
         const context = await browser.newContext({ serviceWorkers: "block" });
         const requests: string[] = [];
-        await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding), base, stress);
+        await instrumentContext(context, "cockpit", origin, (finding) => requests.push(finding), base, stress, publicPolicy);
         const view = await openPage(context);
         await navigate(view, `${origin}/proof/${file}`);
         if (stress) {
@@ -327,14 +336,31 @@ async function prove(executable: string | null): Promise<readonly string[]> {
         await context.close();
         return findings;
       };
+      // A source route, not an iframe attribute or the child's own policy,
+      // declares the nested document's cockpit surface and closed network.
+      mkdirSync(join(dir, "docs", "_data"), { recursive: true });
+      mkdirSync(join(dir, "run"));
+      writeFileSync(join(dir, "docs", "README.md"), "# Proof documentation\n");
+      writeFileSync(join(dir, "docs", "_data", "page-routes.json"), JSON.stringify({
+        schemaVersion: "bridlewise-site-page-routes/v1", docsHome: "README.md", livePages: {},
+        artifacts: [{ sourceEntry: "run/index.html", outputPath: "/run/", connections: "none", surface: "cockpit" }],
+      }));
+      const publicDocument = (policies: readonly string[], body: string): string => `<!doctype html><html><head><meta charset="utf-8">${policies.map(cspMeta).join("")}<title>Nested public policy</title></head><body>${body}</body></html>`;
+      // Missing alt text is deliberate: that row is still pending on cockpit,
+      // but the ordinary nested-site control below must catch the same break.
+      writeFileSync(join(dir, "run", "index.html"), publicDocument(sitePolicies(`${PROOF_BASE}/run`, { connections: "none" }), "<p>Published example</p><img>"));
+      writeFileSync(join(dir, "site-child.html"), publicDocument(sitePolicies(PROOF_BASE), "<p>Ordinary site page</p><img>"));
+      writeFileSync(join(dir, "run", "wrong-connections.html"), publicDocument(sitePolicies(`${PROOF_BASE}/run`), "<p>Wrong connection policy</p>"));
+      writeFileSync(join(dir, "run", "wrong-base.html"), publicDocument(sitePolicies(PROOF_BASE, { connections: "none" }), "<p>Wrong base policy</p>"));
+      const publicPolicy = sitePolicyResolver({ root: dir, baseurl: PROOF_BASE, coordinates: { ...COORDINATES, siteOrigin: origin } }) as (path: string) => SitePagePolicy;
       const clean = await judge("clean.html");
       if (clean.length > 0) failures.push(`the clean page is not clean:\n    ${clean.join("\n    ")}`);
       for (const [i, plant] of PLANTS.entries()) {
-        const findings = await judge(`plant-${i}.html`, plant.only, plant.base, plant.stress);
+        const findings = await judge(`plant-${i}.html`, plant.only, plant.base, plant.stress, plant.publicPolicy === true ? publicPolicy : undefined);
         if (!findings.some((f) => f.includes(`[${plant.rule}]`))) failures.push(`${plant.name}: not caught by ${plant.rule} (found: ${findings.join("; ") || "nothing"})`);
       }
       for (const [i, plant] of CLEAN_TOO.entries()) {
-        const findings = await judge(`clean-${i}.html`, plant.only, plant.base, plant.stress);
+        const findings = await judge(`clean-${i}.html`, plant.only, plant.base, plant.stress, plant.publicPolicy === true ? publicPolicy : undefined);
         if (findings.length > 0) failures.push(`the clean page is not clean (${plant.name}): ${findings.join("; ")}`);
       }
     } finally {

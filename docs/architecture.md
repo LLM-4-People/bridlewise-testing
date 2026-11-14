@@ -15,7 +15,7 @@ Bridlewise is a local web application with four moving parts and one shared cont
 - a **Landlock guardian** that confines server-spawned shell commands and stdio MCP servers on Linux;
 - **shared wire contracts** that both sides import, so routes, schemas, and UI are projected from one declaration.
 
-Nothing in this document is a claim of production readiness. The engine is pre-admission. See [Security and limits]({{ '/security/' | relative_url }}).
+Nothing in this document is a claim of production readiness. The engine is pre-admission. See [Security and limits](security-and-limits.md).
 
 ## The shape
 
@@ -133,4 +133,4 @@ For contributors, this has a practical consequence: a change lands on `main` thr
 - It does not claim provider compatibility beyond the OpenAI-style protocols implemented here.
 - It does not claim the preview is ready for sensitive code.
 
-Those limits are part of the design, not footnotes to hide. Read [Security and limits]({{ '/security/' | relative_url }}) next.
+Those limits are part of the design, not footnotes to hide. Read [Security and limits](security-and-limits.md) next.

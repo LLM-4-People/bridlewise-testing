@@ -33,9 +33,13 @@ import { bootstrapProcess, isEntryPoint } from "../engine/src/runtime/cli-debug.
 import { syncServiceWorker } from "./service-worker-cache.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const FONT_DIR = join(ROOT, "public", "fonts");
+const FONT_DIRECTORY = "public/fonts";
+const FONT_DIR = join(ROOT, FONT_DIRECTORY);
 const LOCK_PATH = join(FONT_DIR, "fonts.lock.json");
 export const FONT_LOCK_SCHEMA = "bridlewise-font-lock/v1";
+const LICENCE_FILE = "OFL.txt";
+/** The notice every publisher carries beside these exact vendored font bytes. */
+export const FONT_LICENCE = Object.freeze({ source: `${FONT_DIRECTORY}/${LICENCE_FILE}`, file: LICENCE_FILE });
 
 export type FontLock = {
   schema: typeof FONT_LOCK_SCHEMA;

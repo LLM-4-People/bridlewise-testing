@@ -1,4 +1,4 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 /**
  * CLOSE AND SEND ARE MARKERS ON `.verb`, not sibling recipes.
  *
@@ -268,5 +268,100 @@ describe("close and send consume the verb recipe", () => {
     expect(/\.grip\s*\{[^}]*padding:\s*0/.test("<style>.grip { gap: var(--sp-1); }</style>")).toBe(
       false,
     );
+  });
+});
+
+
+/** Real selector matching and specificity; numerical contrast stays with the browser checks. */
+function verbStatePaints(
+  css: string,
+  tag: "button" | "a",
+  markers = "verb primary",
+  refusal: "native" | "aria" | null = null,
+  armed = false,
+): Record<"rest" | "hover" | "active", { color: string; background: string; border: string }> {
+  // The test runner owns the typed DOM and its lifecycle; this helper owns
+  // only the stylesheet and fixture it adds to that environment.
+  const style = document.createElement("style");
+  const cockpit = document.createElement("div");
+  try {
+    style.textContent = css;
+    document.head.append(style);
+    cockpit.className = "cockpit";
+    document.body.append(cockpit);
+    // Start jsdom's lazy event capture without caching a fresh control's
+    // untouched dynamic state before its mouse event.
+    cockpit.matches("*");
+    const paints = {} as Record<"rest" | "hover" | "active", { color: string; background: string; border: string }>;
+    for (const state of ["rest", "hover", "active"] as const) {
+      // A fresh real node per state avoids reusing a computed-style cache.
+      const control = document.createElement(tag);
+      control.className = markers;
+      control.textContent = "A shared action";
+      if (tag === "a") control.setAttribute("href", "/project");
+      if (refusal === "native") control.setAttribute("disabled", "");
+      if (refusal === "aria") control.setAttribute("aria-disabled", "true");
+      if (armed) control.setAttribute("data-state", "armed");
+      cockpit.append(control);
+      if (state !== "rest") control.dispatchEvent(new MouseEvent(
+        state === "active" ? "mousedown" : "mouseover",
+        { bubbles: true, buttons: state === "active" ? 1 : 0 },
+      ));
+      expect(control.matches(":hover"), `${tag} ${state} must enter its actual hover state`).toBe(state !== "rest");
+      expect(control.matches(":active"), `${tag} ${state} must enter its actual active state`).toBe(state === "active");
+      const computed = getComputedStyle(control);
+      paints[state] = { color: computed.color, background: computed.backgroundColor, border: computed.borderTopColor };
+    }
+    return paints;
+  } finally {
+    cockpit.remove();
+    style.remove();
+  }
+}
+
+describe("the shared primary action retains its inverse paint through pointer states", () => {
+  test.each(["button", "a"] as const)("%s keeps its foreground and paired fill on hover and press", (tag) => {
+    const paint = verbStatePaints(read(TOKENS), tag);
+    expect(paint.rest.color).not.toBe("");
+    expect(paint.hover.background).not.toBe("");
+    expect(paint.hover.color, "hover must retain the resting primary foreground").toBe(paint.rest.color);
+    expect(paint.active.color, "press must retain the resting primary foreground").toBe(paint.rest.color);
+    expect(paint.active.background, "press must retain the primary hover fill rather than the generic press layer").toBe(paint.hover.background);
+  });
+
+  test.each([
+    ["button", "native"],
+    ["button", "aria"],
+    ["a", "aria"],
+  ] as const)("%s with %s refusal does not regain interactive paint", (tag, refusal) => {
+    const paint = verbStatePaints(read(TOKENS), tag, "verb primary", refusal);
+    expect(paint.hover).toEqual(paint.rest);
+    expect(paint.active).toEqual(paint.rest);
+  });
+
+  test("ordinary verbs retain their generic hover and press layers", () => {
+    const paint = verbStatePaints(read(TOKENS), "button", "verb");
+    expect(paint.hover.color).toBe(paint.rest.color);
+    expect(paint.active.color).toBe(paint.rest.color);
+    expect(paint.hover.background).toBe("var(--layer-hover)");
+    expect(paint.active.background).toBe("var(--layer-press)");
+  });
+
+  test("the armed state retains its stronger foreground and edge on a primary action", () => {
+    const css = read(TOKENS);
+    const ordinary = verbStatePaints(css, "button", "verb", null, true);
+    const primary = verbStatePaints(css, "button", "verb primary", null, true);
+    for (const state of ["hover", "active"] as const) {
+      expect(primary[state].color).toBe(ordinary[state].color);
+      expect(primary[state].border).toBe(ordinary[state].border);
+    }
+  });
+
+  test("mutation: a generic hover ink that wins the cascade breaks the primary foreground", () => {
+    const css = read(TOKENS);
+    const baseline = verbStatePaints(css, "button");
+    const fault = verbStatePaints(css + "\n.cockpit .verb:hover:not(:disabled) { color: var(--ink-1); }", "button");
+    expect(fault.hover.color).not.toBe(baseline.rest.color);
+    expect(fault.active.color).not.toBe(baseline.rest.color);
   });
 });

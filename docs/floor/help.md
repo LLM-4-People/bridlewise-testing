@@ -3,7 +3,6 @@ layout: default
 page_class: floor
 title: "How to help"
 description: "Contribution lanes for the Bridlewise development floor: reproduce a bug, add prevention, improve the test floor, extend the harness, or review a change."
-permalink: /floor/help/
 ---
 
 # How to help
@@ -19,9 +18,9 @@ The development floor is where Bridlewise is tested, challenged, and made reprod
 | Lane | Good for | First step |
 |---|---|---|
 | **Reproduce** | Turning a report into a failing test | Find an issue labeled [`needs-evidence`]({{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3Aneeds-evidence) |
-| **Prevent** | Adding a guard that would have caught the failure | Read the [testing guide]({{ '/testing/' | relative_url }}) and pick a [`testing`]({{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3Atesting) issue |
-| **Make it reproducible** | Sharding, fixtures, corpus manifests, performance reports | Start with [M1 on the roadmap]({{ '/floor/roadmap/' | relative_url }}) |
-| **Extend** | Tools, blocks, providers, MCP, quality packs, embedding | Read [Building on the harness]({{ '/extending/' | relative_url }}) |
+| **Prevent** | Adding a guard that would have caught the failure | Read the [testing guide](../testing.md) and pick a [`testing`]({{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3Atesting) issue |
+| **Make it reproducible** | Sharding, fixtures, corpus manifests, performance reports | Start with [M1 on the roadmap](roadmap.md) |
+| **Extend** | Tools, blocks, providers, MCP, quality packs, embedding | Read [Building on the harness](../extending.md) |
 | **Document** | Making examples match the command output | Pick a [`documentation`]({{ site.repository_url }}/issues?q=is%3Aissue+is%3Aopen+label%3Adocumentation) issue |
 | **Review** | Reading for the failure mode, not the happy path | Use the [reviewer role's checklist](../process/ROLES.md#reviewer) |
 
@@ -55,18 +54,20 @@ The floor is throughput-bound and fixture-bound. Useful work includes:
 
 - Sharding the full suite and merging the results into one receipt.
 - A corpus manifest or sanitized subset with a pinned fetch step.
-- A reproducible performance profile with an idle-host contract.
+- A reproducible performance profile under the configured run caps, with each budget breach retained in the [same judgement as the checks](../decisions/UR-24-BUDGETS-a-budget-breach-joins-the-one-judgement.md).
 - Splitting a slow file without changing what it proves.
 - Verifying the supported shard manifest and running the shard workflow on a named runner class.
 - Repairing a missing fixture or an explicit, named exclusion.
 
-The goal is not a smaller test count. The goal is a complete, reproducible run that finishes sooner.
+Retain the original result and fix a demonstrated cause before a changed run qualifies. The [no-rerun-forgiveness decision](../decisions/UD-AUDIT-NO-FORGIVENESS-no-rerun-forgiveness-no-ambient-allowance.md) owns that evidence rule.
+
+The goal is a complete, reproducible run that finishes sooner while preserving what every check proves.
 
 ### An extension
 
 Tools, blocks, providers, MCP servers, quality checks, and embeddings are contracts. Add the declaration and the behavior together. Keep the refusal path typed and visible. Add a test for the configured path, the unconfigured path, and the malformed input.
 
-Read [Building on the harness]({{ '/extending/' | relative_url }}) first. If the extension point does not exist, open a design issue before building a parallel mechanism.
+Read [Building on the harness](../extending.md) first. If the extension point does not exist, open a design issue before building a parallel mechanism.
 
 ### A documentation change
 
