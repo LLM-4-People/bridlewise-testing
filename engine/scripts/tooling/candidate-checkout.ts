@@ -284,8 +284,8 @@ function syncCandidate(target: string, engineRelative: string, prune: readonly s
 }
 
 /** The runner of the candidate's declared commands: the source engine's native supervisor, as the configuration declares the runner. */
-function commandRunner(document: ReturnType<typeof loadPinnedConfigSnapshot>["document"], isolation: NonNullable<ReturnType<typeof loadPinnedConfigSnapshot>["document"]["workspaceIsolation"]>): CheckoutCommandRunner {
-  return configuredCheckoutCommandRunner(document, isolation, ensureTestProcessSupervisor(), (step) => process.stderr.write(`${canonicalJson({ setup: step })}\n`));
+function commandRunner(isolation: NonNullable<ReturnType<typeof loadPinnedConfigSnapshot>["document"]["workspaceIsolation"]>): CheckoutCommandRunner {
+  return configuredCheckoutCommandRunner(isolation, ensureTestProcessSupervisor(), (step) => process.stderr.write(`${canonicalJson({ setup: step })}\n`));
 }
 
 function converge(target: string, engineRelative: string, prune: readonly string[]): ConvergenceReport {
@@ -360,7 +360,7 @@ async function run(options: Options): Promise<unknown> {
       const { document } = loadPinnedConfigSnapshot();
       const isolation = document.workspaceIsolation;
       if (isolation === undefined) throw new InputError("workspaceIsolation is not configured; it declares the checkout setup", "candidate_setup_unconfigured");
-      const setup = options.setup ? await prepareCheckout(target, source, engineRelative, isolation, checkoutCommandRunner(target, commandRunner(document, isolation))) : [];
+      const setup = options.setup ? await prepareCheckout(target, source, engineRelative, isolation, checkoutCommandRunner(target, commandRunner(isolation))) : [];
       recordSetupOwed(target, isolation, setup);
       if (setup.some((step) => step.status === "fail")) {
         throw new HarnessError(`candidate setup failed: ${canonicalJson(setup)}`, "candidate_setup_failed");
@@ -375,7 +375,7 @@ async function run(options: Options): Promise<unknown> {
       const { document } = loadPinnedConfigSnapshot();
       const isolation = document.workspaceIsolation;
       if (isolation === undefined) throw new InputError("workspaceIsolation is not configured; it declares the checkout setup", "candidate_setup_unconfigured");
-      const setupRerun = await rerunChangedSetup(isolation, refreshed.map(({ path }) => path), checkoutCommandRunner(target, commandRunner(document, isolation)), undefined, new Set(readBase(target).setupOwed ?? []));
+      const setupRerun = await rerunChangedSetup(isolation, refreshed.map(({ path }) => path), checkoutCommandRunner(target, commandRunner(isolation)), undefined, new Set(readBase(target).setupOwed ?? []));
       recordSetupOwed(target, isolation, setupRerun);
       if (setupRerun.some((step) => step.status === "fail")) {
         throw new HarnessError(`candidate setup re-run failed: ${canonicalJson(setupRerun)}`, "candidate_setup_failed");

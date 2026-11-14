@@ -21,8 +21,10 @@ regression gate judged a profile report no step of the run had produced).
   gate that requires it, once per sequence however many gates require it; a
   gate whose producer failed is not run, and the phase fails: a gate never
   judges an artifact no step of its sequence produced. The workspace phases,
-  promotion and the landing all run through it, and `commandsRun` is what a
-  ceiling, a plan digest or a toolchain census of a sequence counts.
+  promotion and the landing all run through it. `commandInvocations` counts
+  every direct occurrence and each prerequisite once per sequence for ceilings;
+  each separate phase or convergence pass starts its own census. `commandsRun`
+  retains unique command identities for plan digests and toolchain censuses.
 - **The schema refuses what would make it ambiguous.** A producer is
   declared, is not the gate itself, requires nothing itself (one level), is
   never a judged (`ledger`) gate, and is named by no phase — a phase naming it

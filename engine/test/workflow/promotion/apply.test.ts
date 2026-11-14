@@ -27,11 +27,11 @@ import { DEFAULT_LOCK_TIMEOUT_MS } from "../../../src/workflow/workflow-config.t
 import { applyCeilingMs } from "../../../src/workflow/promotion/apply.ts";
 import { promotionRefs } from "../../../src/workflow/promotion/promotion-run.ts";
 import { resolvePromotionContext, type PromotionDocument } from "../../../src/workflow/promotion/context.ts";
-import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { TEST_GIT_IDENTITY } from "../../support/test-git-identity.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
-import { FIXTURE_ENGINE, FIXTURE_GENERATED, PROFILE_NAME, SOURCE, TARGET, promotionFixture, type PromotionFixture } from "./promotion-fixture.ts";
-import { apply, assertUntouched, candidates, committed, documentOf, folderOf, landing, receiptOf, refused, untouched, type Committed } from "./apply-support.ts";
+import { assertCancelledCheckoutFailure, runCancelledCheckoutScenario } from "../checkout-cancellation.ts";
+import { FIXTURE_ENGINE, FIXTURE_GENERATED, PROFILE_NAME, PROFILE_PATH, SOURCE, TARGET, promotionFixture, type PromotionFixture } from "./promotion-fixture.ts";
+import { apply, assertUntouched, candidates, committed, documentOf, folderOf, landing, receiptOf, refused, untouched, fixtureRun, type Committed } from "./apply-support.ts";
 
 
 test("happy build: ONE commit with parents [T, S], the trailers, the settled tree, the hook run in the candidate; pending + receipt refs; nothing published", async () => {
@@ -120,12 +120,10 @@ test("T-C5/T-C8: a gate that fails on the exact tree is promotion_gate_failed, n
   const fixture = landing("promotion-apply-gate");
   const before = untouched(fixture);
   fixture.mark("gate-mode", "exit1");
-  const waits: number[] = [];
-  const error = await refused(fixture, "promotion_gate_failed", { preserve: true, waits });
+  const error = await refused(fixture, "promotion_gate_failed", { preserve: true });
   assert.equal(error.facts["step"], "gate");
   assert.match(String(error.facts["tail"]), /gate: a real defect in the tree/u);
   assert.equal((fixture.commandOutput("gate-runs") ?? "").trim().split("\n").length, 1, "a failure is never re-run away");
-  assert.deepEqual(waits, []);
   const kept = candidates(fixture);
   assert.equal(kept.length, 1);
   assert.equal(error.facts["candidate"], join(folderOf(fixture), kept[0]!));
@@ -164,24 +162,51 @@ test("T-C7: a gate that writes a tracked file is promotion_undeclared_write (a g
   assertUntouched(fixture, before);
 });
 
-test("T-C9: a gate ended by the environment (ENOSPC reported, killed by a signal) is ERRORED: retried with the doubling backoff, then promotion_gate_errored (exit 4)", async () => {
+test("T-C9: a first environmental error, native signal or cancellation is a terminal promotion error (exit 4)", async () => {
   for (const mode of ["enospc", "kill"]) {
     const fixture = landing(`promotion-apply-errored-${mode}`);
     const before = untouched(fixture);
     fixture.mark("gate-mode", mode);
     const waits: number[] = [];
-    const error = await refused(fixture, "promotion_gate_errored", { retries: 2, waits });
+    // Deliberately planted old runtime data: the retired policy cannot turn
+    // the first failed native gate into two more physical attempts.
+    const runner = { ...fixtureRun(fixture).runner, retries: { retries: 2, backoffMs: 7, sleep: async (ms: number) => { waits.push(ms); } } };
+    const error = await refused(fixture, "promotion_gate_errored", { run: { runner } });
     assert.equal(promotionExitCode(error.promotionCode), 4);
-    assert.deepEqual(waits, [7, 14], `${mode}: two retries after 7 and 14 ms`);
-    assert.equal((fixture.commandOutput("gate-runs") ?? "").trim().split("\n").length, 3, `${mode}: three attempts`);
+    assert.deepEqual(waits, []);
+    assert.equal((fixture.commandOutput("gate-runs") ?? "").trim().split("\n").length, 1, `${mode}: the first physical attempt is terminal`);
     assertUntouched(fixture, before);
+  }
+  for (const phase of ["setup", "gate"] as const) {
+    const evidenceRoot = createTempDir(`promotion-apply-cancelled-${phase}-`);
+    const cancelled = runCancelledCheckoutScenario(evidenceRoot, `
+    const { default: assert } = await import("node:assert/strict");
+      const { landing, refused, untouched, assertUntouched } = await import(${JSON.stringify(new URL("./apply-support.ts", import.meta.url).href)});
+      const { promotionExitCode } = await import(${JSON.stringify(new URL("../../../src/workflow/promotion/codes.ts", import.meta.url).href)});
+      const phase = ${JSON.stringify(phase)};
+      const original = landing("promotion-apply-cancelled-" + phase);
+      const commands = { ...original.commands, [phase]: command };
+      const fixture = {
+        ...original,
+        commands,
+        document: { ...original.document, workspaceIsolation: { ...original.document.workspaceIsolation, commands } },
+      };
+      const before = untouched(fixture);
+      const expectedCode = phase === "setup" ? "promotion_setup_errored" : "promotion_gate_errored";
+      const error = await refused(fixture, expectedCode, { run: { runner } });
+      assertUntouched(fixture, before);
+      return { code: error.promotionCode, exitCode: promotionExitCode(error.promotionCode), facts: error.facts };
+    `) as Readonly<{ code: string; exitCode: number; facts: Readonly<Record<string, unknown>> }>;
+    assert.equal(cancelled.code, phase === "setup" ? "promotion_setup_errored" : "promotion_gate_errored");
+    assert.equal(cancelled.exitCode, 4);
+    assertCancelledCheckoutFailure(cancelled.facts["commandFailure"], cancelled.facts["commandEvidence"]);
   }
 });
 
 test("T-C9/T-C10: a gate past its ceiling is ERRORED, and nothing it started survives (its child and its detached grandchild are gone)", async () => {
   const fixture = landing("promotion-apply-timeout", {}, { gateTimeoutMs: 1_500 });
   fixture.mark("gate-mode", "sleep");
-  const error = await refused(fixture, "promotion_gate_errored", { retries: 0 });
+  const error = await refused(fixture, "promotion_gate_errored");
   assert.match(error.message, /ceiling/u);
   const pids = (fixture.commandOutput("gate-pids") ?? "").trim().split(" ").map(Number);
   assert.equal(pids.length, 2);
@@ -493,16 +518,84 @@ test("I-5: a sweep that fails after a failed landing never replaces the landing'
   await refused(fixture, "promotion_git_errored", { run: { git } });
 });
 
-test("N7: the derived ceiling counts the configured lock wait (the lock owner's default when undeclared), every errored retry, and one converge pass per generated output", () => {
+test("N7: the derived ceiling counts the lock wait, command invocations per possible build and one converge pass per generated output", () => {
   const fixture = landing("promotion-apply-ceiling");
   const context = (document: PromotionDocument) => resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, document);
-  const runner = (retries: number) => ({ supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries, backoffMs: 7 } });
-  const declared = context({ ...fixture.document, resourceLock: { timeoutMs: 0, pollIntervalMs: 50, staleMs: 60_000 } });
+  const declaredDocument = { ...fixture.document, resourceLock: { timeoutMs: 0, pollIntervalMs: 50, staleMs: 60_000 } };
+  const declared = context(declaredDocument);
   const { resourceLock: _dropped, ...undeclaredDocument } = fixture.document;
   const undeclared = context(undeclaredDocument);
-  assert.equal(applyCeilingMs(undeclared, runner(0), 2) - applyCeilingMs(declared, runner(0), 2), DEFAULT_LOCK_TIMEOUT_MS, "an undeclared lock section still waits the lock owner's default");
-  assert.ok(applyCeilingMs(declared, runner(1), 2) - applyCeilingMs(declared, runner(0), 2) >= fixture.commands["gate"]!.timeoutMs, "a retry adds each command's whole ceiling again");
-  const perPass = applyCeilingMs(declared, runner(0), 3) - applyCeilingMs(declared, runner(0), 2);
+  assert.equal(applyCeilingMs(undeclared, 2) - applyCeilingMs(declared, 2), DEFAULT_LOCK_TIMEOUT_MS, "an undeclared lock section still waits the lock owner's default");
+  const isolation = declaredDocument.workspaceIsolation!;
+  const gate = isolation.commands["gate"]!;
+  const shorter = context({ ...declaredDocument, workspaceIsolation: { ...isolation, commands: { ...isolation.commands, gate: { ...gate, timeoutMs: gate.timeoutMs - 1 } } } });
+  assert.equal(applyCeilingMs(declared, 2) - applyCeilingMs(shorter, 2), 2, "one millisecond of gate ceiling counts once in each of the two possible builds, including a remote replan");
+  const perPass = applyCeilingMs(declared, 3) - applyCeilingMs(declared, 2);
   const gen = fixture.commands["gen"]!.timeoutMs;
   assert.ok(perPass >= gen, `one more generated output adds a converge pass (${String(perPass)} >= ${String(gen)})`);
+});
+
+
+test("derived ceiling follows physical command occurrences across setup and verify, including a repeated phase entry", async () => {
+  const fixture = landing("promotion-apply-ceiling-phase-occurrences", {
+    phases: { setup: ["gate"], converge: ["gen"], verify: ["gate", "gate"] },
+  });
+  const built = committed(await apply(fixture));
+  const gateSteps = built.steps.filter((step) => step.step === "gate");
+  assert.equal(gateSteps.length, 3, "setup and verify each run their own list, including repeated direct entries");
+  assert.equal((fixture.commandOutput("gate-runs") ?? "").trim().split("\n").length, gateSteps.length, "the native fixture command records each physical invocation");
+  const document = documentOf(fixture, false);
+  const context = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, document);
+  const isolation = document.workspaceIsolation!;
+  const gate = isolation.commands["gate"]!;
+  const shorter = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, {
+    ...document,
+    workspaceIsolation: { ...isolation, commands: { ...isolation.commands, gate: { ...gate, timeoutMs: gate.timeoutMs - 1 } } },
+  });
+  assert.equal(applyCeilingMs(context, FIXTURE_GENERATED.size) - applyCeilingMs(shorter, FIXTURE_GENERATED.size), 2 * gateSteps.length, "each observed invocation has its ceiling in each possible build; names are not deduplicated across phases");
+});
+
+test("derived ceiling counts distinct lockfile transformations that use the same direct command", async () => {
+  const fixture = landing("promotion-apply-ceiling-lockfile-occurrences");
+  const profile = fixture.loaded().profile;
+  const manifest = profile.transforms.find((transform) => transform.kind === "package-manifest");
+  assert.ok(manifest?.kind === "package-manifest");
+  const sourceManifest = JSON.parse(fixture.git(["show", `${fixture.tip(SOURCE)}:package.json`])) as Record<string, unknown>;
+  const sourceLock = fixture.git(["show", `${fixture.tip(SOURCE)}:package-lock.json`]);
+  fixture.commit(SOURCE, {
+    [PROFILE_PATH]: `${JSON.stringify({
+      ...profile,
+      boundary: { ...profile.boundary, include: [...profile.boundary.include, "other/"] },
+      transforms: [...profile.transforms,
+        { ...manifest, path: "other/package.json" },
+        { kind: "lockfile", path: "other/package-lock.json", manifest: "other/package.json", command: "lockfile" },
+      ],
+    }, null, 2)}\n`,
+    "other/package.json": `${JSON.stringify({ ...sourceManifest, name: "other-fixture" })}\n`,
+    "other/package-lock.json": sourceLock,
+  }, "a second lockfile with distinct manifest inputs");
+  const commands = {
+    ...fixture.commands,
+    lockfile: { ...fixture.commands["lockfile"]!, requires: ["lock-prerequisite"] },
+    "lock-prerequisite": { cwd: ".", argv: [process.execPath, "-e", "throw new Error('current lockfile adapter does not execute prerequisites')"], timeoutMs: 60_000 },
+  };
+  // This binds the ceiling to the current direct adapter. The separate
+  // REQUIRES obligation must update this control with its executor repair.
+  // The explicit typed boundary below is not full harness/config admission.
+  const plan = await fixture.plan({ commands });
+  assert.deepEqual(plan.refusals, [], "both real lockfile derivations complete; their direct adapter did not run the prerequisite bait");
+  const physicalInvocations = fixture.lockfileAttempts();
+  assert.equal(physicalInvocations, 2, "distinct input digests cannot share the same command's memo");
+  const document = { ...fixture.document, workspaceIsolation: { ...fixture.document.workspaceIsolation!, commands } };
+  const context = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, document);
+  const shorter = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, {
+    ...document,
+    workspaceIsolation: { ...document.workspaceIsolation, commands: { ...commands, lockfile: { ...commands.lockfile, timeoutMs: commands.lockfile.timeoutMs - 1 } } },
+  });
+  assert.equal(applyCeilingMs(context, FIXTURE_GENERATED.size) - applyCeilingMs(shorter, FIXTURE_GENERATED.size), 2 * physicalInvocations, "the ceiling counts each real lockfile invocation in each possible build");
+  const shorterPrerequisite = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, {
+    ...document,
+    workspaceIsolation: { ...document.workspaceIsolation, commands: { ...commands, "lock-prerequisite": { ...commands["lock-prerequisite"], timeoutMs: commands["lock-prerequisite"].timeoutMs - 1 } } },
+  });
+  assert.equal(applyCeilingMs(context, FIXTURE_GENERATED.size), applyCeilingMs(shorterPrerequisite, FIXTURE_GENERATED.size), "an unexecuted lockfile prerequisite is not invented by the bound");
 });

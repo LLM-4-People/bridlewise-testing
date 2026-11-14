@@ -19,8 +19,8 @@
  * - `lockfile` — the source lockfile re-resolved against the derived
  *   manifest by the registry command the transform names (npm's
  *   `--package-lock-only`), run in a private scratch directory of its own
- *   through the ONE command runner (an errored run is retried by the runner; a
- *   cache miss is the machine's, not the change's). Memoized by the digest of
+ *   through the ONE command runner (the first native result is terminal; a
+ *   cache miss or interruption is infrastructure, not a defect in the change). Memoized by the digest of
  *   its inputs and the toolchain that ran it, so a re-plan of an unchanged
  *   manifest costs no install, and an upgraded tool re-derives.
  */
@@ -32,7 +32,7 @@ import { assertNoDuplicateJsonObjectKeys } from "../../kernel/json-integrity.ts"
 import { atomicWriteFile } from "../../filesystem/atomic-write.ts";
 import { createOwnedTemporaryDirectory, ensurePrivateStateDirectory, removeOwnedTemporaryDirectory } from "../../filesystem/private-state.ts";
 import { directoryOf, normalizeRepositoryPath } from "../reachability.ts";
-import { runCheckoutCommand, type CheckoutCommand, type CheckoutCommandRunner } from "../checkout-setup.ts";
+import { checkoutFailureSummary, runCheckoutCommand, type CheckoutCommand, type CheckoutCommandRunner } from "../checkout-setup.ts";
 import { PromotionError } from "./codes.ts";
 
 type Manifest = Readonly<Record<string, unknown>>;
@@ -403,7 +403,7 @@ function readMemo(memo: string): string | null {
   }
 }
 
-/** How the lockfile derivation runs its command: the ONE runner (its retry policy included), the toolchain it runs, and where its scratch and memo live. */
+/** How the lockfile derivation runs its command: the ONE single-attempt runner, the toolchain it runs, and where its scratch and memo live. */
 export type LockfileRun = Readonly<{
   runner: CheckoutCommandRunner;
   /** The version line of each tool a lockfile command runs (`npm` → `11.0.0`): part of the memo key, so an upgraded tool re-derives. */
@@ -419,9 +419,9 @@ export type LockfileRun = Readonly<{
  * a failure is in the refusal; a crashed call's is swept by the next; a
  * concurrent plan of the same inputs never shares it), memoized under
  * `<workDirectory>/lockfiles/<input digest>` (a memo used is marked used: the
- * build stage keeps only what its plan used). An errored run exhausted its
- * retries → `promotion_transform_errored`; a failed one →
- * `promotion_transform_failed` (the output tail names why).
+ * build stage keeps only what its plan used). An infrastructure error or
+ * witnessed stop is `promotion_transform_errored`; a genuine command failure
+ * is `promotion_transform_failed`, with the original cause and native evidence.
  */
 export async function deriveLockfile(
   path: string,
@@ -443,8 +443,8 @@ export async function deriveLockfile(
     }
     const outcome = await runCheckoutCommand(scratch, commandName, command, run.runner);
     if (outcome.status !== "pass") {
-      const code = outcome.failure === "errored" ? "promotion_transform_errored" : "promotion_transform_failed";
-      throw new PromotionError(code, `deriving ${path} (${commandName}) ${outcome.message}${outcome.details.length === 0 ? "" : `:\n${outcome.details.join("\n")}`}`, { path, command: commandName });
+      const failure = checkoutFailureSummary(outcome);
+      throw new PromotionError(`promotion_transform_${failure.class}`, `deriving ${path} (${commandName}) ${outcome.message}${outcome.details.length === 0 ? "" : `:\n${outcome.details.join("\n")}`}`, { path, command: commandName, ...failure.facts });
     }
     const derived = readFileSync(join(scratch, command.cwd, "package-lock.json"), "utf8");
     const memoWritten = atomicWriteFile(memo, derived);

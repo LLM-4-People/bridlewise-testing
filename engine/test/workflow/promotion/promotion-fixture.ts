@@ -301,7 +301,6 @@ function fixtureDocument(commands: WorkspaceIsolationConfig["commands"], workRoo
       phases: { setup: [], validate: ["gate"], regenerate: [], merge: [] },
     },
     promotion: { profileDirectory: PROFILE_DIRECTORY },
-    harness: { commandErroredRetries: 0, commandRetryBackoffMs: 1 },
   });
 }
 
@@ -329,7 +328,7 @@ function landingProfile(overrides: FixtureProfileOverrides): FixtureProfileOverr
 }
 
 /** The options of a fixture's plan (see {@link PromotionFixture}'s `plan`). */
-export type FixturePlanOptions = Readonly<{ source?: string; target?: string | null; lockfiles?: boolean; sleep?: (ms: number) => Promise<void>; retries?: number; toolchain?: Readonly<Record<string, string | null>>; commands?: WorkspaceIsolationConfig["commands"] }>;
+export type FixturePlanOptions = Readonly<{ source?: string; target?: string | null; lockfiles?: boolean; toolchain?: Readonly<Record<string, string | null>>; commands?: WorkspaceIsolationConfig["commands"] }>;
 
 /** What a fixture's folders give without creating anything (see the header): its commands, its configuration, its repository, its profile at a source, and its plan. */
 export type FixtureView = Readonly<{
@@ -372,7 +371,6 @@ export function fixtureView(folders: Readonly<{ root: string; commandsDirectory:
           supervisor: ensureTestProcessSupervisor(),
           killGraceMs: 1_000,
           outputCharacters: 4_000,
-          retries: { retries: planOptions.retries ?? 1, backoffMs: 1, ...(planOptions.sleep === undefined ? {} : { sleep: planOptions.sleep }) },
         },
         toolchain: planOptions.toolchain ?? { node: process.version },
         workDirectory,

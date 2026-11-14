@@ -241,14 +241,14 @@ function promotionStatus(context: PromotionContext): PromotionAnswer {
 }
 
 /**
- * The ONE command runner as the configuration declares it (its errored-class
- * retries included). The native supervisor's builder is loaded here, on
+ * The ONE single-attempt command runner. The native supervisor's builder
+ * is loaded here, on
  * first use, never by the boot graph (the engine bootstrap imports this
  * module).
  */
 async function commandRunner(context: PromotionContext): Promise<CheckoutCommandRunner> {
   const { ensureTestProcessSupervisor } = await import("../../../guardian/build.ts");
-  return configuredCheckoutCommandRunner(context.document, context.isolation, ensureTestProcessSupervisor());
+  return configuredCheckoutCommandRunner(context.isolation, ensureTestProcessSupervisor());
 }
 
 /** The lockfile runner of a context: the ONE command runner and the toolchain its lockfile commands run. */

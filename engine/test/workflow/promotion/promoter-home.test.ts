@@ -34,6 +34,7 @@ import type { PromotionRequest } from "../../../src/workflow/promotion/promote-a
 import { promotionFolder } from "../../../src/workflow/promotion/promotion-run.ts";
 import { checkoutCommandEnvironment, runCheckoutCommand } from "../../../src/workflow/checkout-setup.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
+import { assertCancelledCheckoutFailure, runCancelledCheckoutScenario } from "../checkout-cancellation.ts";
 import { ensureTestProcessSupervisor } from "../../../guardian/build.ts";
 import { PROFILE_NAME, SOURCE, promotionFixture, type FixtureOptions, type PromotionFixture } from "./promotion-fixture.ts";
 
@@ -52,7 +53,7 @@ function entry(copy: string): string {
   ].join("\n");
 }
 
-const RUNNER = () => ({ supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } });
+const RUNNER = () => ({ supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000 });
 
 /** A fixture whose `tool` folder is the engine, with a setup command the engine's inputs declare (failing while its marker exists) and one they do not; `options` as the fixture's (a remote, the trigger). */
 function hostedFixture(prefix: string, overrides: Readonly<Record<string, unknown>> = {}, options: FixtureOptions = {}): Readonly<{ fixture: PromotionFixture; engine: PromoterEngine; document: PromotionDocument; setupRuns: () => readonly string[] }> {
@@ -218,7 +219,7 @@ test("H1 (PROMO-3+4-FIX): an unattended run never waits for the home's lock: a l
   }
 });
 
-test("N1: a home whose setup FAILED is prepared again by the next run at the same S (and after S moved), never run half-prepared", async () => {
+test("N1: a home whose setup fails or is cancelled never runs half-prepared, and a later invocation prepares again", async () => {
   const { fixture, engine, document, setupRuns } = hostedFixture("promotion-home-retry");
   fixture.mark("tool-deps-fail");
   const first = homePlacement(fixture, engine, document);
@@ -243,6 +244,49 @@ test("N1: a home whose setup FAILED is prepared again by the next run at the sam
   const settled = homePlacement(fixture, engine, document);
   await runInPromoterHome(settled.context, settled.git, settled.placement, APPLY, RUNNER(), engine);
   assert.equal(setupRuns().length, 4, "once prepared, the same S re-runs nothing");
+
+  const evidenceRoot = createTempDir("promotion-home-cancelled-");
+  const cancelled = runCancelledCheckoutScenario(evidenceRoot, `
+    const { default: assert } = await import("node:assert/strict");
+    const { existsSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { configuredWorktreeGitPort } = await import(${JSON.stringify(new URL("../../../src/git/worktree-port.ts", import.meta.url).href)});
+    const { resolvePromotionContext } = await import(${JSON.stringify(new URL("../../../src/workflow/promotion/context.ts", import.meta.url).href)});
+    const { PromotionError, promotionExitCode } = await import(${JSON.stringify(new URL("../../../src/workflow/promotion/codes.ts", import.meta.url).href)});
+    const { promoterPlacement, runInPromoterHome } = await import(${JSON.stringify(new URL("../../../src/workflow/promotion/promoter-home.ts", import.meta.url).href)});
+    const { PROFILE_NAME, SOURCE, promotionFixture } = await import(${JSON.stringify(new URL("./promotion-fixture.ts", import.meta.url).href)});
+    const fixture = promotionFixture("promotion-home-cancelled");
+    const launched = join(${JSON.stringify(evidenceRoot)}, "promoter-ran");
+    const promoterSource = "import { writeFileSync } from 'node:fs'; writeFileSync(" + JSON.stringify(launched) + ", 'yes'); process.exit(97);";
+    fixture.commit(SOURCE, { "tool/promote.mjs": promoterSource, "tool/package.json": "{}" }, "the committed engine");
+    writeFileSync(join(fixture.root, "tool/promote.mjs"), "/* local edit */" + promoterSource);
+    const isolation = fixture.document.workspaceIsolation;
+    const document = {
+      ...fixture.document,
+      workspaceIsolation: {
+        ...isolation,
+        commands: { ...isolation.commands, "tool-deps": { ...command, cwd: "tool", inputs: ["tool/package.json"] } },
+        phases: { ...isolation.phases, setup: ["tool-deps"] },
+      },
+    };
+    const engine = { root: join(fixture.root, "tool"), entry: "promote.mjs", command: ["promote"] };
+    const git = configuredWorktreeGitPort(document);
+    const context = resolvePromotionContext(fixture.root, PROFILE_NAME, SOURCE, document);
+    const placement = promoterPlacement(context, git, engine, {});
+    assert.equal(placement.kind, "home");
+    try {
+      await runInPromoterHome(context, git, placement, { verb: "apply", noPublish: true }, runner, engine);
+      assert.fail("a cancelled preparation must not launch the promoter");
+    } catch (error) {
+      assert.ok(error instanceof PromotionError, String(error));
+      assert.equal(error.promotionCode, "promotion_home_setup_errored", error.message);
+      assert.equal(existsSync(launched), false, "the half-prepared home never launched its promoter");
+      return { code: error.promotionCode, exitCode: promotionExitCode(error.promotionCode), facts: error.facts };
+    }
+  `) as Readonly<{ code: string; exitCode: number; facts: Readonly<Record<string, unknown>> }>;
+  assert.equal(cancelled.code, "promotion_home_setup_errored");
+  assert.equal(cancelled.exitCode, 4);
+  assertCancelledCheckoutFailure(cancelled.facts["commandFailure"], cancelled.facts["commandEvidence"]);
 });
 
 test("N2: the home is prepared and used under its lock: a live holder refuses the run (promotion_locked) and the home is never made or moved under it", async () => {
@@ -285,14 +329,15 @@ test("T-K5: a child ended by a signal (or its ceiling) is promotion_promoter_err
   assert.equal(promotionExitCode(error.promotionCode), 4);
 });
 
-test("I-5: a failure of the home run that no code names (here: a runner the ceiling cannot be derived from) is promotion_unexpected, never an untyped exit", async () => {
+test("I-5: an unexpected supervisor lookup failure in the home run is promotion_unexpected, never an untyped exit", async () => {
   const { fixture, engine, document } = hostedFixture("promotion-home-unexpected");
   const prepared = homePlacement(fixture, engine, document);
   assert.equal((await runInPromoterHome(prepared.context, prepared.git, prepared.placement, APPLY, RUNNER(), engine)).code, "promotion_committed");
-  const { retries: _retries, ...broken } = RUNNER();
+  const broken = { ...RUNNER(), get supervisor(): string { throw new Error("fixture supervisor lookup failed"); } };
   const again = homePlacement(fixture, engine, document);
-  const error = await refusedWith(runInPromoterHome(again.context, again.git, again.placement, APPLY, broken as ReturnType<typeof RUNNER>, engine), "promotion_unexpected");
+  const error = await refusedWith(runInPromoterHome(again.context, again.git, again.placement, APPLY, broken, engine), "promotion_unexpected");
   assert.equal(error.facts["home"], again.placement.home);
+  assert.match(error.message, /fixture supervisor lookup failed/u);
 });
 
 test("M6: where the engine lives — git's answer that it is in no checkout is an installed engine (null); a git step the machine ended propagates, never a silent 'here'", () => {

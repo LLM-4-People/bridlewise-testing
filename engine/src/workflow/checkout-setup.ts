@@ -22,10 +22,10 @@
  * checkout, under the native supervisor (`src/process/supervised-run.ts`: the
  * command's `timeoutMs` is its hard ceiling, and it and every descendant die
  * with it — a process-group kill cannot reach a detached grandchild), with
- * its output kept to a bounded tail, an ERRORED run retried by the runner's own
- * policy (every consumer — workspace phases and gates, the candidate
- * checkout, the promotion's lockfiles — gets it from the one runner it is
- * handed), and every attempt logged once, here. A phase is fail-fast: the
+ * its output kept to a bounded tail and its first outcome returned with
+ * native evidence. Every consumer — workspace phases and gates, the candidate
+ * checkout and the promotion's lockfiles — uses this same terminal policy,
+ * and the attempt is logged once, here. A phase is fail-fast: the
  * first failing command ends it, and the commands after it are reported as
  * skipped — a red typecheck makes a suite run meaningless.
  *
@@ -57,26 +57,28 @@ import { trackedFiles } from "../git/repository-ownership.ts";
 import { CHECKOUT_COMMAND_ENVIRONMENT, projectEnvironment } from "../process/environment-projection.ts";
 import { superviseCommand, type SupervisedCommand } from "../process/supervised-run.ts";
 import { debugLog } from "../shared/debug/debug-system.ts";
-import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS, commandRetryPolicy } from "./workflow-config.ts";
+import { DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS } from "./workflow-config.ts";
 import { readAmbientLoadPerCpu } from "../shared/ambient-load.ts";
+import { assertNever } from "../shared/type-guards.ts";
 
 /**
- * Why a command failed: ERRORED — the environment ended it (its ceiling, a
- * signal or a stop, a supervisor that left no receipt) or its output reports
- * an environmental error (see {@link commandFailureClass}: no space, an npm
- * cache miss, a network reset) — or FAILED: any other non-zero exit, a real
- * defect of the tree it ran on. Only an errored command is retried (the
- * runner's {@link CommandRetryPolicy}); a failure is never re-run away.
+ * Why a command failed: CANCELLED — the supervisor witnessed an intentional
+ * stop — or ERRORED: the environment ended it (its ceiling, a signal or a
+ * supervisor that left no receipt) or its output reports an environmental
+ * error (see {@link commandFailureClass}: no space, an npm cache miss, a
+ * network reset) — or FAILED: any other non-zero exit, a real defect of the
+ * tree it ran on. Each outcome is terminal: its class explains the cause
+ * without scheduling another attempt or replacing the first evidence.
  */
-export type CheckoutFailureClass = "errored" | "failed";
+export type CheckoutFailureClass = "cancelled" | "errored" | "failed";
 
 /**
  * How a command ran (merge-door-final §7.4: what a receipt records of every
- * command): its argv and folder, how many attempts the errored-class retry
- * took, their total duration, and the machine's load and parallelism when it
- * ended — so a slow or errored run is judged against the load it met. `load`
- * is the one-minute leg of the shared ambient reading, or null when the
- * sample was unreadable — never a fabricated zero.
+ * command): its argv and folder, the attempt count and duration, and the
+ * machine's load and parallelism when it ended. The shared runner records
+ * one attempt; ambient measurements are observations, never permission to
+ * forgive a failure. `load` is the one-minute leg of the shared ambient
+ * reading, or null when the sample was unreadable — never a fabricated zero.
  */
 export type CommandEvidence = Readonly<{ argv: readonly string[]; cwd: string; attempts: number; durationMs: number; load: number | null; parallelism: number; invocationId?: string; terminal?: SupervisedCommand }>;
 
@@ -99,23 +101,13 @@ export type CheckoutPhase = keyof Isolation["phases"];
 type IsolationFiles = Pick<Isolation, "links">;
 type IsolationPhases = Pick<Isolation, "commands" | "phases">;
 
-/** How an errored command is retried: `retries` more attempts, the first after `backoffMs`, each next after twice the last wait. */
-export type CommandRetryPolicy = Readonly<{
-  retries: number;
-  backoffMs: number;
-  /** Waits `ms` (a test injects its own clock). */
-  sleep?: (ms: number) => Promise<void>;
-}>;
-
-/** How commands are run: the native supervisor binary, its kill grace, the output tail kept, and the errored-class retry policy. */
+/** How one command attempt runs: its native supervisor, shutdown grace and retained output. */
 export type CheckoutCommandRunner = Readonly<{
   /** The native supervisor (`ensureTestProcessSupervisor()`, built by the caller). */
   supervisor: string;
   killGraceMs: number;
   /** How many characters of a command's output (stdout and stderr, interleaved) are kept. */
   outputCharacters: number;
-  /** How an ERRORED run is retried (`harness.commandErroredRetries` / `commandRetryBackoffMs`: `commandRetryPolicy`, src/workflow/workflow-config.ts). */
-  retries: CommandRetryPolicy;
   /** Told when each command starts (an operator's progress line). */
   onStart?: (step: string, argv: readonly string[]) => void;
 }>;
@@ -124,11 +116,9 @@ export type CheckoutCommandRunner = Readonly<{
  * The ONE runner as the configuration declares it — the one construction
  * every consumer uses (the workspace CLI, the candidate checkout, the
  * promotion): the native supervisor the caller built, the isolation's kill
- * grace, the gate output tail, and the errored-class retry policy
- * (`harness.commandErroredRetries` / `commandRetryBackoffMs`).
+ * grace and the gate output tail. Every invocation preserves one attempt.
  */
 export function configuredCheckoutCommandRunner(
-  document: Parameters<typeof commandRetryPolicy>[0],
   isolation: Pick<Isolation, "killGraceMs">,
   supervisor: string,
   onStart?: CheckoutCommandRunner["onStart"],
@@ -137,7 +127,6 @@ export function configuredCheckoutCommandRunner(
     supervisor,
     killGraceMs: isolation.killGraceMs,
     outputCharacters: DEFAULT_MAXIMUM_GATE_OUTPUT_CHARACTERS,
-    retries: commandRetryPolicy(document),
     ...(onStart === undefined ? {} : { onStart }),
   });
 }
@@ -165,10 +154,37 @@ const ENVIRONMENTAL_CODES = ROOT_POLICY.workflow.commandRunner.environmentalErro
  */
 const ENVIRONMENTAL_LINE = new RegExp(`^(?:npm (?:ERR!|error) (?:code|errno) (?:${ENVIRONMENTAL_CODES})\\b|(?:Error|SystemError): (?:${ENVIRONMENTAL_CODES})\\b|.*: No space left on device$)`, "mu");
 
-/** The class of a failed run: errored when the environment ended it or a line of its tail reports an environmental error (see {@link CheckoutFailureClass}). */
+/** A witnessed intentional stop is cancelled before any environmental diagnostic is considered (see {@link CheckoutFailureClass}). */
 export function commandFailureClass(ending: SupervisedCommand["ending"], tail: string): CheckoutFailureClass {
+  if (ending === "stopped") return "cancelled";
   if (ending !== "exited") return "errored";
   return ENVIRONMENTAL_LINE.test(tail) ? "errored" : "failed";
+}
+
+/** The aggregate refusal class and original cause of a failed checkout step. */
+export type CheckoutFailureSummary = Readonly<{
+  class: "failed" | "errored";
+  facts: Readonly<{ commandFailure?: CheckoutFailureClass; commandEvidence?: CommandEvidence }>;
+}>;
+
+/** Preserve interruption as infrastructure at aggregate doors, without losing its native cancellation meaning. */
+export function checkoutFailureSummary(failed: Pick<CheckoutStep, "failure" | "evidence">): CheckoutFailureSummary {
+  const nativeFailure = failed.failure;
+  let classification: CheckoutFailureSummary["class"];
+  switch (nativeFailure) {
+    case undefined:
+    case "failed": classification = "failed"; break;
+    case "errored":
+    case "cancelled": classification = "errored"; break;
+    default: return assertNever(nativeFailure);
+  }
+  return Object.freeze({
+    class: classification,
+    facts: Object.freeze({
+      ...(nativeFailure === undefined ? {} : { commandFailure: nativeFailure }),
+      ...(failed.evidence === undefined ? {} : { commandEvidence: failed.evidence }),
+    }),
+  });
 }
 
 /**
@@ -201,12 +217,10 @@ export function checkoutCommandEnvironment(environment: NodeJS.ProcessEnv, invoc
 }
 
 /**
- * THE ONE COMMAND RUNNER (see the header). A command that exits 0 passes;
- * anything else — a non-zero exit, its ceiling, a signal, a supervisor that
- * left no receipt — fails, with the output tail as the detail. An ERRORED
- * failure is retried by `runner.retries` (a doubling backoff); a FAILED one,
- * a pass or a skip is answered at once. The last attempt's answer is
- * returned, its message naming how many attempts ran.
+ * THE ONE COMMAND RUNNER (see the header). Preserve the first attempt:
+ * success, failure, cancellation and infrastructure errors all return their
+ * native outcome and evidence. A changed cause requires a new invocation;
+ * a later success cannot replace the failure this invocation observed.
  */
 export async function runCheckoutCommand(
   checkoutRoot: string,
@@ -214,28 +228,7 @@ export async function runCheckoutCommand(
   command: CheckoutCommand,
   runner: CheckoutCommandRunner,
 ): Promise<CheckoutStep> {
-  return runWithRetries(checkoutRoot, name, command, runner);
-}
-
-/** One command with the errored-class retries (see {@link runCheckoutCommand}). */
-async function runWithRetries(checkoutRoot: string, name: string, command: CheckoutCommand, runner: CheckoutCommandRunner): Promise<CheckoutStep> {
-  const argv = command.argv;
-  const { retries, backoffMs } = runner.retries;
-  const sleep = runner.retries.sleep ?? ((ms: number): Promise<void> => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)));
-  let outcome = await runOnce(checkoutRoot, name, command, runner, argv, 1);
-  let durationMs = outcome.evidence!.durationMs;
-  for (let attempt = 1; attempt <= retries && outcome.failure === "errored"; attempt += 1) {
-    const wait = backoffMs * 2 ** (attempt - 1);
-    debugLog("workflow", "warn", `${name} errored; retrying after ${String(wait)}ms`, () => ({ command: name, attempt, of: retries + 1, waitMs: wait }));
-    await sleep(wait);
-    outcome = await runOnce(checkoutRoot, name, command, runner, argv, attempt + 1);
-    durationMs += outcome.evidence!.durationMs;
-    const evidence = { ...outcome.evidence!, durationMs };
-    outcome = outcome.status === "fail"
-      ? step(name, "fail", `${outcome.message} (attempt ${String(attempt + 1)} of ${String(retries + 1)})`, outcome.details, outcome.failure, evidence)
-      : Object.freeze({ ...outcome, evidence: Object.freeze(evidence) });
-  }
-  return outcome;
+  return runOnce(checkoutRoot, name, command, runner, command.argv, 1);
 }
 
 /**
@@ -400,9 +393,9 @@ export function unconsumedCommands(isolation: IsolationPhases, consumers: Iterab
 }
 
 /**
- * The commands a sequence of `names` runs ({@link runDeclaredCommands}): each
- * gate's producers before its first gate, every name once. What a ceiling,
- * a plan digest or a toolchain census of the sequence must count.
+ * The unique command identities consumed by `names`, including each gate's
+ * producers. A plan digest, toolchain or dead-command census needs identity,
+ * not execution multiplicity; ceilings use {@link commandInvocations}.
  */
 export function commandsRun(commands: Isolation["commands"], names: readonly string[]): readonly string[] {
   return Object.freeze([...new Set(names.flatMap((name) => [...(commands[name]?.requires ?? []), name]))]);
@@ -412,6 +405,35 @@ function declaredCommand(isolation: Pick<Isolation, "commands">, name: string): 
   const command = isolation.commands[name];
   if (command === undefined) throw new InputError(`a phase names an undeclared command ${name}`, "checkout_setup_command_undeclared");
   return command;
+}
+
+/** A producer remains eligible until the current sequence has observed its successful result. */
+function* unproducedProducers(command: CheckoutCommand, produced: ReadonlySet<string>): Generator<string> {
+  for (const producer of command.requires ?? []) {
+    if (!produced.has(producer)) yield producer;
+  }
+}
+
+/**
+ * Every invocation in a successful, unfiltered {@link runDeclaredCommands}
+ * sequence. Direct list entries keep their occurrences; prerequisite producers
+ * run once per sequence. A later phase or convergence pass starts a new census.
+ * A failure can shorten this population, never add another attempt.
+ */
+export function commandInvocations(commands: Isolation["commands"], names: readonly string[]): readonly string[] {
+  const isolation = { commands };
+  const invocations: string[] = [];
+  const produced = new Set<string>();
+  for (const name of names) {
+    const command = declaredCommand(isolation, name);
+    for (const producer of unproducedProducers(command, produced)) {
+      declaredCommand(isolation, producer);
+      invocations.push(producer);
+      produced.add(producer);
+    }
+    invocations.push(name);
+  }
+  return Object.freeze(invocations);
 }
 
 /**
@@ -443,8 +465,7 @@ export async function runDeclaredCommands(
       steps.push(step(name, "skip", `not run: ${failed} failed earlier in the ${phase} phase`));
       continue;
     }
-    for (const producer of command.requires ?? []) {
-      if (produced.has(producer)) continue;
+    for (const producer of unproducedProducers(command, produced)) {
       const made = await run(producer, declaredCommand(isolation, producer));
       steps.push(made);
       if (made.status === "fail") {
