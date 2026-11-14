@@ -46,8 +46,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { readDecisionRecords, readTrackerItems, type TrackerItem } from "../../engine/src/workflow/failure-owners.ts";
-import { itemStatuses } from "../../engine/src/workflow/tracker-status.ts";
-import { configuredRepositoryIdentity } from "../../engine/src/workflow/forge/repository-identity.ts";
+import { itemStatuses, type StatusFacts } from "../../engine/src/workflow/tracker-status.ts";
 import {
   EVIDENCE_PATH,
   ROADMAP_BLOCKS,
@@ -133,37 +132,44 @@ describe("docs/floor/roadmap.md status is generated from its owners", () => {
   });
 
   test("a close is a claim until linked evidence proves it: shipped only by a built decision, existing tests, a recorded evidence record or this repository's own PR, run or release (planted)", () => {
-    const facts = { decisions: [{ id: "D-BUILT", status: "in-force", implementation: "done" }, { id: "D-DESIGNED", status: "in-force", implementation: "pending" }], recordedEvidence: new Set(["runs/receipt.json"]), repositoryUrl: configuredRepositoryIdentity().webUrl };
-    const closed = (id: string, fields: Partial<TrackerItem> = {}): TrackerItem => planted(id, { state: "closed", resolution: "completed", closed: "2026-10-21", ...fields });
-    const states = itemStatuses([
-      closed("BARE"),
-      closed("UNRECORDED", { evidence: "evidence:nope/never.json" }),
-      closed("FOREIGN-URL", { evidence: "https://example.invalid/x" }),
-      closed("DOC-ANCHOR", { evidence: "docs/floor/evidence.md#guardian" }),
-      closed("OTHER-REPO-PR", { evidence: "https://github.com/someone/else/pull/1" }),
-      // A `repo:` reference to an address of this repository that is not a pull request, run or release proves nothing either.
-      closed("REPO-ISSUE", { evidence: "repo:issues/5" }),
-      closed("DESIGNED", { decisions: ["D-DESIGNED"] }),
-      closed("BY-DECISION", { decisions: ["D-BUILT"] }),
-      closed("BY-TESTS", { tests: ["tests/prevention/roadmap-status-owner.test.ts"] }),
-      closed("BY-RECORD", { evidence: "evidence:runs/receipt.json" }),
-      // A record names this repository's object through the identity (`repo:<path>`); a past absolute spelling is read as written.
-      closed("BY-PR", { evidence: "repo:pull/130" }),
-      closed("BY-RUN", { evidence: "repo:actions/runs/39690870022" }),
-      closed("BY-RELEASE", { evidence: `${facts.repositoryUrl}/releases/tag/v0.0.3-preview` }),
-    ], facts);
-    for (const id of ["BARE", "UNRECORDED", "FOREIGN-URL", "DOC-ANCHOR", "OTHER-REPO-PR", "REPO-ISSUE", "DESIGNED"]) expect(states.get(id), id).toEqual({ state: "claimed", because: "closed as completed; no linked evidence proves it" });
-    for (const id of ["BY-DECISION", "BY-TESTS", "BY-RECORD", "BY-PR", "BY-RUN", "BY-RELEASE"]) expect(states.get(id)?.state, id).toBe("shipped");
-    expect(states.get("BY-PR")?.because).toBe(`proven by this repository's pull request ${facts.repositoryUrl}/pull/130`);
-    expect(states.get("BY-RUN")?.because).toBe(`proven by this repository's run ${facts.repositoryUrl}/actions/runs/39690870022`);
-    // A hand-closed sub-item proves no progress; hand-closing every member of a milestone makes it claimed, never shipped.
-    const parent = planted("PARENT", { type: "Workstream" });
-    const progress = itemStatuses([parent, closed("CHILD", { parent: "PARENT", lane: "floor", milestone: null })], facts);
-    expect(progress.get("PARENT")?.state).toBe("planned");
-    const milestone = planted("MS", { type: "Milestone", state: null, lane: null, milestone: null });
-    const handClosed = itemStatuses([milestone, closed("A", { milestone: "MS" }), closed("B", { milestone: "MS" })], facts);
-    expect(handClosed.get("MS")?.state).toBe("claimed");
-    expect(itemStatuses([milestone, closed("A", { milestone: "MS", tests: ["x"] }), closed("B", { milestone: "MS", decisions: ["D-BUILT"] })], facts).get("MS")?.state).toBe("shipped");
+    for (const repositoryUrl of ["https://roadmap-one.invalid/first-owner/first-repository", "https://roadmap-two.invalid/second-owner/second-repository"]) {
+      const facts: StatusFacts = { decisions: [{ id: "D-BUILT", status: "in-force", implementation: "done" }, { id: "D-DESIGNED", status: "in-force", implementation: "pending" }], recordedEvidence: new Set(["runs/receipt.json"]), repositoryUrl };
+      const repository = new URL(facts.repositoryUrl);
+      const closed = (id: string, fields: Partial<TrackerItem> = {}): TrackerItem => planted(id, { state: "closed", resolution: "completed", closed: "2026-10-21", ...fields });
+      const states = itemStatuses([
+        closed("BARE"),
+        closed("UNRECORDED", { evidence: "evidence:nope/never.json" }),
+        closed("FOREIGN-URL", { evidence: "https://example.invalid/x" }),
+        closed("DOC-ANCHOR", { evidence: "docs/floor/evidence.md#guardian" }),
+        closed("FOREIGN-ORIGIN-PR", { evidence: `https://foreign-roadmap.invalid${repository.pathname}/pull/1` }),
+        closed("OTHER-REPO-PR", { evidence: `${repository.origin}/other-owner/other-repository/pull/1` }),
+        closed("PREFIX-LOOKALIKE-PR", { evidence: `${facts.repositoryUrl}-lookalike/pull/1` }),
+        // A `repo:` reference to an address of this repository that is not a pull request, run or release proves nothing either.
+        closed("REPO-ISSUE", { evidence: "repo:issues/5" }),
+        closed("DESIGNED", { decisions: ["D-DESIGNED"] }),
+        closed("BY-DECISION", { decisions: ["D-BUILT"] }),
+        closed("BY-TESTS", { tests: ["tests/prevention/roadmap-status-owner.test.ts"] }),
+        closed("BY-RECORD", { evidence: "evidence:runs/receipt.json" }),
+        // A record names this repository's object through the identity (`repo:<path>`); a past absolute spelling is read as written.
+        closed("BY-PR", { evidence: "repo:pull/130" }),
+        closed("BY-RUN", { evidence: "repo:actions/runs/39690870022" }),
+        closed("BY-ABSOLUTE-PR", { evidence: `${facts.repositoryUrl}/pull/131` }),
+        closed("BY-ABSOLUTE-RUN", { evidence: `${facts.repositoryUrl}/actions/runs/39690870023` }),
+        closed("BY-RELEASE", { evidence: `${facts.repositoryUrl}/releases/tag/v0.0.3-preview` }),
+      ], facts);
+      for (const id of ["BARE", "UNRECORDED", "FOREIGN-URL", "DOC-ANCHOR", "FOREIGN-ORIGIN-PR", "OTHER-REPO-PR", "PREFIX-LOOKALIKE-PR", "REPO-ISSUE", "DESIGNED"]) expect(states.get(id), id).toEqual({ state: "claimed", because: "closed as completed; no linked evidence proves it" });
+      for (const id of ["BY-DECISION", "BY-TESTS", "BY-RECORD", "BY-PR", "BY-RUN", "BY-ABSOLUTE-PR", "BY-ABSOLUTE-RUN", "BY-RELEASE"]) expect(states.get(id)?.state, id).toBe("shipped");
+      expect(states.get("BY-PR")?.because).toBe(`proven by this repository's pull request ${facts.repositoryUrl}/pull/130`);
+      expect(states.get("BY-RUN")?.because).toBe(`proven by this repository's run ${facts.repositoryUrl}/actions/runs/39690870022`);
+      // A hand-closed sub-item proves no progress; hand-closing every member of a milestone makes it claimed, never shipped.
+      const parent = planted("PARENT", { type: "Workstream" });
+      const progress = itemStatuses([parent, closed("CHILD", { parent: "PARENT", lane: "floor", milestone: null })], facts);
+      expect(progress.get("PARENT")?.state).toBe("planned");
+      const milestone = planted("MS", { type: "Milestone", state: null, lane: null, milestone: null });
+      const handClosed = itemStatuses([milestone, closed("A", { milestone: "MS" }), closed("B", { milestone: "MS" })], facts);
+      expect(handClosed.get("MS")?.state).toBe("claimed");
+      expect(itemStatuses([milestone, closed("A", { milestone: "MS", tests: ["x"] }), closed("B", { milestone: "MS", decisions: ["D-BUILT"] })], facts).get("MS")?.state).toBe("shipped");
+    }
   });
 
   test("no spelling of an item publishes markup: raw HTML, an unclosed fence, a kramdown attribute list and Liquid in a title or a body render as text (planted)", () => {
