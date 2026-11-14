@@ -193,7 +193,7 @@ test("commit guard: a success payload certifies only a successful native check p
     for (const controlled of observed) {
       const passes = controlled.status === 0 && controlled.allPassed;
       if (passes) {
-        assert.match(controlled.result.stderr, /staged generated facts .*: pass/u);
+        assert.ok(controlled.result.stderr.includes("[commit-guard] staged generated facts (harness check --skip-typecheck): pass ("));
       } else {
         assert.match(controlled.result.stderr, new RegExp(`harness check exit ${String(controlled.status)}`, "u"));
         if (!controlled.allPassed) assert.match(controlled.result.stderr, /synthetic-step: preserved diagnostic/u);
