@@ -29,6 +29,7 @@ The `engine/test/prevention/` folder of the development surface.
 - `hermetic-suites-have-no-skips.test.ts` — THE HERMETIC SUITES HAVE NO SKIPS: no `.skip`/`.skipIf`/`.runIf` call and no `skip` option in any engine canonical or web vitest source; what depends on the world outside the checkout lives in the one live suite (engine/live/). A remaining site passes only while an open task row names its file and this guard.
 - `git-freshness.test.ts` — the `git-freshness.test` module.
 - `gitignore-anchoring.test.ts` — nO IGNORE RULE REACHES FURTHER THAN THE PLACE IT NAMES. The rule and its wording live in `scripts/verification/gitignore-anchoring.ts`; this file….
+- `governed-zod-exports.test.ts` — exercises the canonical AST gate's bounded direct Zod builder chains, local receiver and forged-import refusals, unsupported or data-returning methods, and recursive effect inspection.
 - `guard-dossier.test.ts` — tHE DOCUMENTED-MUTATION INDEX — the engine estate's half of the gate.
 - `integration-awareness-arch-owner.test.ts` — test/prevention/integration-awareness-arch-owner.test.ts.
 - `integration-backend-owner-1.test.ts` — the `integration-backend-owner-1.test` module.
