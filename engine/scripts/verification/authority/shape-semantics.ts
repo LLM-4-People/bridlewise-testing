@@ -6,8 +6,8 @@ import {
   astNodeArray,
   identifierResolvesToImport,
   type AstNode,
-  type ModuleFacts,
-} from "./typescript-adapter.ts";
+} from "../../../src/quality-packs/prevention/ast-helpers.ts";
+import type { ModuleFacts } from "./typescript-adapter.ts";
 
 export type ShapeField = Readonly<{
   valueType: string;

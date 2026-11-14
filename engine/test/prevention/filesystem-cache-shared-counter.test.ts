@@ -713,7 +713,7 @@ test("governed-source violations cache ignores entries keyed before the analyzer
 
 test("architecture analysis cache rejects malformed erased-reference entries", () => {
   const cache = createFilesystemCache({ directory: "harness-arch-cache", maxEntries: DEFAULT_ARCHITECTURE_SOURCE_FILESYSTEM_CACHE_MAX_ENTRIES });
-  const semantics = analysisSemanticsId(new URL("../../scripts/verification/architecture.ts", import.meta.url), new URL("../../scripts/verification/effect-surface.ts", import.meta.url), new URL("../../scripts/verification/authority/typescript-adapter.ts", import.meta.url));
+  const semantics = analysisSemanticsId(new URL("../../scripts/verification/architecture.ts", import.meta.url), new URL("../../scripts/verification/effect-surface.ts", import.meta.url), new URL("../../src/quality-packs/prevention/ast-helpers.ts", import.meta.url));
   for (const [index, malformed] of [[1], [null], ["src/types.ts", {}]].entries()) {
     const path = `src/erased-cache-${index}.ts`;
     const source = 'import type { T } from "./types.ts";';
@@ -813,7 +813,7 @@ const sourcePath = 'src/cache-availability.ts';
 const source = owner === 'governed' ? 'const value = process.env.HOME; eval("x");' : 'export const VALUE = { selected: 1 };';
 const native = {readFileSync:fs.readFileSync, existsSync:fs.existsSync};
 const denied = path.join(root, failure === 'own' ? relativeOwner :
-  failure === 'scope' ? 'scripts/verification/authority/typescript-adapter.ts' : relativeDependency);
+  failure === 'scope' ? 'src/quality-packs/prevention/ast-helpers.ts' : relativeDependency);
 let deny = true, attempts = 0, resultReads = 0, slices = 0;
 const signatures = [];
 const clear = () => { mod.clearArchitectureSourceCache?.(); mod.clearStaticModuleShapeCache?.(); mod.clearGovernedSourceParseCache?.(); mod.clearVerifyS1StructureCache?.(); };

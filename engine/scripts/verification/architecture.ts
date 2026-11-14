@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { join, posix, relative, resolve } from "node:path";
 
-import { astChildren, astNode, astNodeArray, parseSourceModule, type AstNode } from "../../src/quality-packs/prevention/ast-helpers.ts";
+import { astChildren, astNode, astNodeArray, identifierResolvesToDeclaration, moduleScopeFacts, parseSourceModule, type AstNode, type ModuleScopeFacts } from "../../src/quality-packs/prevention/ast-helpers.ts";
 
 import {
   ARCHITECTURE_MANIFEST,
@@ -40,9 +40,6 @@ import {
   type FilesystemOpenMode,
 } from "./effect-surface.ts";
 import { analyzeStaticModuleShape } from "./static-source.ts";
-import {
-  identifierResolvesToDeclaration, moduleScopeFacts, type ModuleScopeFacts,
-} from "./authority/typescript-adapter.ts";
 
 export type ArchitectureSource = Readonly<{ path: string; source: string }>;
 export type ArchitectureVerification = Readonly<{
@@ -203,7 +200,7 @@ export function clearArchitectureSourceCache(): void {
 
 export function analyzeArchitectureSource(path: string, source: string): ArchitectureSourceFacts {
   const contentHash = sha256(Buffer.from(source, "utf8"));
-  const semanticsId = analysisSemanticsId(import.meta.url, new URL("./effect-surface.ts", import.meta.url), new URL("./authority/typescript-adapter.ts", import.meta.url));
+  const semanticsId = analysisSemanticsId(import.meta.url, new URL("./effect-surface.ts", import.meta.url), new URL("../../src/quality-packs/prevention/ast-helpers.ts", import.meta.url));
   const cacheKey = semanticsId === undefined ? undefined : `${path}\u0000${contentHash}\u0000${semanticsId}`;
   const cached = cacheKey === undefined ? undefined : architectureSourceCache.get(cacheKey);
   if (cached !== undefined) return cached;

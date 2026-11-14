@@ -1,7 +1,8 @@
 import type { AuthorityOccurrence } from "./contracts.ts";
 import { compareTuple } from "./shared.ts";
 import { utf8ByteOffset } from "../../../src/text/utf8-offsets.ts";
-import { astNode, type AstNode, type ModuleFacts } from "./typescript-adapter.ts";
+import { astNode, type AstNode } from "../../../src/quality-packs/prevention/ast-helpers.ts";
+import type { ModuleFacts } from "./typescript-adapter.ts";
 
 /** Stable selector over UTF-8 bytes, independent of UTF-16 parser offsets. */
 export function selectorForNode(module: ModuleFacts, node: AstNode, fallback: string): string {

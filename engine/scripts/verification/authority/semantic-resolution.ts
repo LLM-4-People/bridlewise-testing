@@ -6,7 +6,8 @@ import {
   zodShape,
   type Shape,
 } from "./shape-semantics.ts";
-import type { AstNode, ModuleFacts } from "./typescript-adapter.ts";
+import type { AstNode } from "../../../src/quality-packs/prevention/ast-helpers.ts";
+import type { ModuleFacts } from "./typescript-adapter.ts";
 
 export type ResolvedAuthority = Readonly<{
   route: AuthorityRoute;

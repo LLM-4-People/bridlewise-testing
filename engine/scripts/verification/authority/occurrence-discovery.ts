@@ -42,9 +42,8 @@ import {
   identifierResolvesToImport,
   isIdentifierReference,
   type AstNode,
-  type ImportBinding,
-  type ModuleFacts,
-} from "./typescript-adapter.ts";
+} from "../../../src/quality-packs/prevention/ast-helpers.ts";
+import type { ImportBinding, ModuleFacts } from "./typescript-adapter.ts";
 
 type ShapeCandidate = Readonly<{
   path: string;

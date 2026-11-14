@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
+import { astNode, bindingNames, isIdentifierReference, identifierResolvesToImport, moduleScopeFacts, parseSourceModule, walkAst, type AstNode } from "../../src/quality-packs/prevention/ast-helpers.ts";
+
 import * as authorityGraphPublic from "../../scripts/verification/authority-graph.ts";
 import {
   AUTHORITY_EXTERNAL_PROBE_COVERAGE,
@@ -59,10 +61,11 @@ test("[AG-B001] authority graph exposes one public facade and acyclic cohesive i
 
   const uniqueImplementations = [
     "resolveAuthorities", "staticString", "zodShape", "objectShape", "typeShape",
+    "astNode", "astNodeArray", "astChildren", "moduleScopeFacts", "identifierResolvesToDeclaration",
     "identifierResolvesToImport", "isIdentifierReference", "isZodStrictObjectCall",
     "discoverAuthorityOccurrences", "compareAuthorityOccurrences",
   ];
-  const allSource = [...sources.values()].join("\n");
+  const allSource = [...sources.values(), readFileSync(new URL("../../src/quality-packs/prevention/ast-helpers.ts", import.meta.url), "utf8")].join("\n");
   for (const name of uniqueImplementations) {
     const declarations = [...allSource.matchAll(new RegExp(`function\\s+${name}\\s*\\(`, "gu"))];
     assert.equal(declarations.length, 1, `${name} has ${declarations.length} implementations`);
@@ -91,4 +94,46 @@ test("[AG-B001] authority graph exposes one public facade and acyclic cohesive i
       assert.ok(AUTHORITY_TEST_FAMILY_IDS.includes(id), `${probeScenario} references unknown ${id}`);
     }
   }
+});
+
+
+test("shared scope facts skip token and comment metadata while retaining real parent identities", () => {
+  const first: AstNode = { type: "Identifier", name: "first" };
+  const last: AstNode = { type: "Identifier", name: "last" };
+  const token: AstNode = { type: "Identifier", name: "not-a-reference" };
+  const comment: AstNode = { type: "Identifier", name: "not-a-declaration" };
+  const program: AstNode = { type: "Program", body: [first, last], tokens: [token], comments: [comment], leadingComments: [comment] };
+  const scope = moduleScopeFacts(program);
+  assert.deepEqual(scope.nodes, [program, last, first], "scope traversal retains its LIFO sibling order");
+  assert.equal(scope.parents.get(first), program);
+  assert.equal(scope.parents.get(last), program);
+  assert.equal(scope.parents.has(token), false);
+  assert.equal(scope.parents.has(comment), false);
+  assert.equal(astNode(Object.assign([], { type: "Identifier", name: "tagged-array" })), undefined, "authority AST admission stays record-only");
+  assert.deepEqual(bindingNames({ type: "Identifier" }), [], "a malformed node never invents an undefined binding");
+});
+
+test("shared binding owner retains TypeScript parameter-property shadowing of imported identities", () => {
+  const program = parseSourceModule("scope.ts", 'import { source } from "./owner.ts"; class Owner { constructor(public source: unknown) { source; } } source;');
+  const scope = moduleScopeFacts(program);
+  const parameter = scope.nodes.find((node) => node.type === "TSParameterProperty");
+  assert.ok(parameter);
+  assert.deepEqual(bindingNames(parameter), ["source"]);
+  const binding = { declaration: program };
+  const module = { ...scope, imports: new Map([["source", binding]]) };
+  const references = scope.nodes.filter((node) => node.type === "Identifier" && node.name === "source" && isIdentifierReference(node, scope));
+  assert.equal(references.length, 2, "both local and imported reads must be present");
+  assert.deepEqual(references.map((node) => identifierResolvesToImport(node, module, binding)).toSorted(), [false, true]);
+});
+
+
+test("shared AST walk preserves the committed optional leave callback after each subtree", () => {
+  const first: AstNode = { type: "Identifier", name: "first" };
+  const last: AstNode = { type: "Identifier", name: "last" };
+  const program: AstNode = { type: "Program", body: [first, last] };
+  const entered: AstNode[] = [];
+  const left: AstNode[] = [];
+  walkAst(program, (node) => entered.push(node), (node) => left.push(node));
+  assert.deepEqual(entered, [program, first, last]);
+  assert.deepEqual(left, [first, last, program]);
 });
