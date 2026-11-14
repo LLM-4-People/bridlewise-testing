@@ -114,6 +114,30 @@ bar](docs/process/AGENTS.md#evidence).
 
 ## Commit and pull request style
 
+Before committing, inspect the effective author and committer in your checkout:
+
+```bash
+git var GIT_AUTHOR_IDENT
+git var GIT_COMMITTER_IDENT
+```
+
+Git records these roles separately. To choose your identity for future commits
+in this repository, use:
+
+```bash
+git config --local user.name "Your Name"
+git config --local user.email "you@example.com"
+```
+
+These repository defaults are shared by linked worktrees; worktree-specific
+settings and environment variables can override them. Recheck both `git var`
+values after a change. Use `--global` instead of `--local` only to change your
+account's defaults for other repositories too; repository-local settings take
+precedence over global settings. These commands do
+not change existing commits. Agents must preserve both identities Git resolves
+and the original author's attribution, without adding agent co-author trailers
+or overriding signing settings.
+
 - **Sign off every commit** with the [Developer Certificate of
   Origin](https://developercertificate.org/): `git commit -s` adds
   your configured committer identity as a `Signed-off-by` trailer for a local
@@ -123,10 +147,11 @@ bar](docs/process/AGENTS.md#evidence).
   branch; do not rewrite shared history or certify work you are not entitled
   to submit.
   GitHub's web editor requires a DCO sign-off, but the current Commit records judge does not accept those commits. Use the local commit workflow above.
-- **Sign your commits** with your chosen signing identity. Follow
-  [GitHub's signing setup](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)
-  and check that GitHub verifies the signature. Signing is separate from
-  the DCO sign-off; neither replaces the other.
+- **Cryptographic signing** follows the
+  [forge stage policy](engine/src/workflow/forge/forge-config.ts). It is separate
+  from the DCO sign-off; neither replaces the other. When a signature is required,
+  follow [GitHub's signing setup](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)
+  and check that GitHub verifies it.
 - Conventional prefixes: `feat:`, `fix:`, `docs:`, `test:`, `ci:`, `refactor:`, `chore:`.
 - One logical change per pull request. Describe what changed, how it was
   verified and what could not be verified.
