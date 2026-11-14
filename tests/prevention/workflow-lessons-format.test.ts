@@ -18,12 +18,15 @@
  * depends on the calendar: a lesson's age belongs to the report, not the gate.
  */
 import { describe, expect, test } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readEntries } from "../../engine/src/workflow/failure-owners.ts";
-import { LESSONS_DIRECTORY, lessonViolations } from "../../engine/scripts/verification/tracker-entries.ts";
-import { lessonsReport } from "../../engine/scripts/tooling/lessons.ts";
+import { LESSON_KINDS, LESSON_STATUSES, LESSONS_DIRECTORY, lessonId, lessonViolations } from "../../engine/scripts/verification/tracker-entries.ts";
+import { createLesson, lessonsCommand, lessonsReport, renderLesson, type LessonDraft } from "../../engine/scripts/tooling/lessons.ts";
+import { modulePath } from "../helpers/module-resolver.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
+
+import { sha256 } from "../../engine/src/kernel/integrity.ts";
 
 const ROOT = process.cwd();
 
@@ -87,5 +90,125 @@ describe("workflow lessons", () => {
     let refusal: unknown;
     try { lessonsReport(["stale"], new Date()); } catch (error) { refusal = error; }
     expect((refusal as { code?: unknown } | undefined)?.code).toBe("lessons_usage");
+  });
+});
+
+
+const DRAFT: LessonDraft = {
+  name: "2026-01-01-generated.md", source: "local fixture", kind: "tooling", status: "pending", route: "WF-1",
+  observation: "Metadata was handwritten.", lesson: "Use its existing schema.", change: "Generate and validate before writing.",
+};
+
+function creationRoot(): string {
+  const root = createTempDir("lessons-create-");
+  mkdirSync(join(root, LESSONS_DIRECTORY), { recursive: true });
+  return root;
+}
+
+function createArgs(root: string): string[] {
+  return ["create", "--root", root, "--name", DRAFT.name, "--source", DRAFT.source, "--kind", DRAFT.kind,
+    "--status", DRAFT.status, "--route", "WF-1", "--observation", DRAFT.observation, "--lesson", DRAFT.lesson,
+    "--change", DRAFT.change, "--preimage-sha256", sha256("")];
+}
+
+describe("workflow lesson creation", () => {
+  test("the renderer derives identity and path and accepts the canonical kinds and status-specific fields", () => {
+    for (const kind of LESSON_KINDS) {
+      const rendered = renderLesson({ ...DRAFT, kind });
+      expect(rendered.id).toBe(lessonId(DRAFT.name));
+      expect(rendered.path).toBe(LESSONS_DIRECTORY + "/" + DRAFT.name);
+      expect(lessonViolations(DRAFT.name, rendered.content)).toEqual([]);
+      expect(rendered.content).toContain("date: 2026-01-01\n");
+      expect(rendered.content).toContain("kind: " + kind + "\n");
+    }
+    const { route: _route, ...base } = DRAFT;
+    const states: readonly LessonDraft[] = [DRAFT,
+      { ...base, status: "acted", actedIn: [modulePath("lessons.ts")] },
+      { ...base, status: "wontfix", reason: "Already covered by its owner." },
+    ];
+    expect(states.map((state) => state.status)).toEqual(LESSON_STATUSES);
+    for (const draft of states) expect(lessonViolations(draft.name, renderLesson(draft).content)).toEqual([]);
+    expect(renderLesson({ ...base, status: "acted", actedIn: ["unheld.ts"] }).content).toContain("acted_in: [unheld.ts]");
+    expect(() => renderLesson({ ...base, status: "acted", actedIn: ["unheld.ts"] }, new Set())).toThrow(/not a path git holds/u);
+  });
+
+  test("invalid enum, name, state, metadata encoding and body inputs refuse before any write", () => {
+    const root = createTempDir("lessons-invalid-");
+    const invalid = [
+      { ...DRAFT, kind: "fix" }, { ...DRAFT, kind: "code" }, { ...DRAFT, status: "done" },
+      { ...DRAFT, name: "../2026-01-01-escape.md" }, { ...DRAFT, source: "" },
+      { ...DRAFT, status: "acted", actedIn: ["engine/a.ts"] },
+      { ...DRAFT, route: undefined }, { ...DRAFT, source: "s\n---\nkind: code" },
+      { ...DRAFT, source: "s\rkind: code" }, { ...DRAFT, source: 42 }, { ...DRAFT, observation: null },
+      { ...DRAFT, route: undefined, status: "acted", actedIn: ["engine/a,b.ts"] },
+      { ...DRAFT, route: undefined, status: "acted", actedIn: [" engine/a.ts"] },
+    ] as unknown as readonly LessonDraft[];
+    for (const draft of invalid) {
+      expect(() => createLesson(root, draft, sha256(""))).toThrowError(expect.objectContaining({ code: "lessons_metadata_invalid" }));
+      expect(readdirSync(root)).toEqual([]);
+    }
+  });
+
+  test("creation requires the explicit empty preimage and an existing lesson directory", () => {
+    const root = createTempDir("lessons-preimage-");
+    expect(() => createLesson(root, DRAFT, sha256("other"))).toThrowError(expect.objectContaining({ code: "lessons_preimage_invalid" }));
+    expect(readdirSync(root)).toEqual([]);
+    expect(createLesson(root, DRAFT, sha256("")).edit.success).toBe(false);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("the normal editor creates canonical output once and refuses another creation", () => {
+    const root = creationRoot();
+    const result = createLesson(root, DRAFT, sha256(""));
+    expect(result.edit.success).toBe(true);
+    const target = join(root, result.path);
+    const bytes = readFileSync(target);
+    expect(result.edit.postimageHash).toBe(sha256(bytes.toString("utf8")));
+    expect(lessonViolations(DRAFT.name, bytes.toString("utf8"))).toEqual([]);
+    expect(createLesson(root, { ...DRAFT, observation: "Changed" }, sha256("")).edit.success).toBe(false);
+    expect(readFileSync(target)).toEqual(bytes);
+  });
+
+  test("empty, nonempty, symlink and directory entries cannot be overwritten", () => {
+    for (const kind of ["empty", "nonempty", "symlink", "directory"] as const) {
+      const root = creationRoot();
+      const target = join(root, LESSONS_DIRECTORY, DRAFT.name);
+      const sentinel = join(root, "sentinel");
+      writeFileSync(sentinel, "preserve sentinel\n");
+      if (kind === "directory") mkdirSync(target);
+      else if (kind === "symlink") symlinkSync(sentinel, target);
+      else writeFileSync(target, kind === "empty" ? "" : "preserve record\n");
+      const before = lstatSync(target);
+      const bytes = kind === "directory" ? null : readFileSync(target);
+      expect(createLesson(root, DRAFT, sha256("")).edit.success).toBe(false);
+      const after = lstatSync(target);
+      expect([after.dev, after.ino, after.mode]).toEqual([before.dev, before.ino, before.mode]);
+      if (bytes !== null) expect(readFileSync(target)).toEqual(bytes);
+      expect(readFileSync(sentinel, "utf8")).toBe("preserve sentinel\n");
+    }
+  });
+
+  test("CLI help exposes canonical choices and invalid options leave the destination unchanged", () => {
+    const root = creationRoot();
+    const help = JSON.parse(lessonsCommand(["create", "--help"], new Date()));
+    expect(help.kinds).toEqual(LESSON_KINDS);
+    expect(help.statuses).toEqual(LESSON_STATUSES);
+    expect(help.preimageSha256).toBe(sha256(""));
+    const normal = createArgs(root);
+    const invalid = [
+      [...normal, "--unknown", "x"], [...normal, "--source", "duplicate"], [...normal, "--reason"],
+      normal.filter((part, index) => part !== "--preimage-sha256" && normal[index - 1] !== "--preimage-sha256"),
+      normal.map((part, index) => normal[index - 1] === "--kind" ? "code" : part),
+    ];
+    for (const args of invalid) {
+      expect(() => lessonsCommand(args, new Date())).toThrowError(expect.objectContaining({ code: "lessons_usage" }));
+      expect(readdirSync(join(root, LESSONS_DIRECTORY))).toEqual([]);
+    }
+    const output = JSON.parse(lessonsCommand(normal, new Date()));
+    expect(output.created.id).toBe(lessonId(DRAFT.name));
+    const text = readFileSync(join(root, output.created.path), "utf8");
+    expect(lessonViolations(DRAFT.name, text)).toEqual([]);
+    expect(output.created.postimageHash).toBe(sha256(text));
+    expect(() => lessonsCommand(normal, new Date())).toThrowError(expect.objectContaining({ code: "lessons_write_refused" }));
   });
 });
