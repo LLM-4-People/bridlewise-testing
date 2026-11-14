@@ -21,37 +21,16 @@
  * URL includes the deployment base path (`/<repository>/...`) while the
  * built files do not, so the crawler strips `--baseurl` before resolving.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, posix, resolve, sep } from "node:path";
-import { decodeHtmlEntities, htmlWithout } from "../../shared/markup.ts";
-import { SERVED_HTML } from "../../shared/site-page.ts";
-import { isEntryPoint } from "../../engine/src/runtime/entry-point.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { join, posix, resolve } from "node:path";
+import { decodeHtmlEntities } from "../../shared/markup.ts";
+import { bootstrapProcess, isEntryPoint } from "../../engine/src/runtime/cli-debug.ts";
+import { siteDocumentLinks } from "./site-html.mjs";
+import { siteLinkPath } from "../../engine/src/workflow/site-sources.ts";
+import { existingSiteFiles, htmlPages } from "./files.mjs";
+export { candidateSiteFiles, existingSiteFiles, htmlPages } from "./files.mjs";
 
-const HTML_TAG = /<[a-zA-Z][^>]*>/gu;
-const LINK_ATTRIBUTE = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/giu;
 const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu;
-
-function toPosix(path) {
-  return path.split(sep).join("/");
-}
-
-/** Every page Pages serves as HTML under `siteRoot` (`shared/site-page.ts` SERVED_HTML, any case), as site-relative POSIX paths. */
-export function htmlPages(siteRoot) {
-  const root = resolve(siteRoot);
-  const out = [];
-  const visit = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const full = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(full);
-      } else if (entry.isFile() && SERVED_HTML.test(entry.name)) {
-        out.push(toPosix(full.slice(root.length)).replace(/^\/+/u, ""));
-      }
-    }
-  };
-  visit(root);
-  return out.sort();
-}
 
 /**
  * The URL a built page answers at. `index.html` is the directory page, so the
@@ -68,11 +47,20 @@ export function pageUrlForSitePath(sitePath) {
  * Resolve one href against the page URL. Answers a classification plus, for
  * an internal URL, the site-root-relative path (base path removed).
  */
-export function resolveSiteHref(href, pageUrl, { baseurl = "" } = {}) {
-  const raw = decodeHtmlEntities(href.trim());
+export function resolveSiteHref(href, pageUrl, { baseurl = "", siteOrigin = null } = {}) {
+  return resolveDecodedSiteHref(decodeHtmlEntities(href), pageUrl, { baseurl, siteOrigin });
+}
+
+function resolveDecodedSiteHref(href, pageUrl, { baseurl = "", siteOrigin = null } = {}) {
+  let raw = href.trim();
   if (raw.length === 0) return { kind: "empty" };
   if (raw.startsWith("#")) return { kind: "anchor" };
-  if (EXTERNAL.test(raw)) return { kind: "external" };
+  if (EXTERNAL.test(raw)) {
+    if (siteOrigin === null || !/^(?:https?:|\/\/)/iu.test(raw)) return { kind: "external" };
+    const url = new URL(raw, siteOrigin);
+    if (url.origin !== new URL(siteOrigin).origin) return { kind: "external" };
+    raw = `${url.pathname}${url.search}${url.hash}`;
+  }
 
   const hashIndex = raw.indexOf("#");
   const withoutHash = hashIndex === -1 ? raw : raw.slice(0, hashIndex);
@@ -80,12 +68,7 @@ export function resolveSiteHref(href, pageUrl, { baseurl = "" } = {}) {
   const pathPart = queryIndex === -1 ? withoutHash : withoutHash.slice(0, queryIndex);
   if (pathPart.length === 0) return { kind: "anchor" };
 
-  let decoded;
-  try {
-    decoded = decodeURIComponent(pathPart);
-  } catch {
-    decoded = pathPart;
-  }
+  const decoded = siteLinkPath(pathPart).path;
 
   let sitePath;
   if (decoded.startsWith("/")) {
@@ -104,44 +87,21 @@ export function resolveSiteHref(href, pageUrl, { baseurl = "" } = {}) {
   return { kind: "internal", path: sitePath };
 }
 
-/** Candidate built files for a site-root-relative URL. Never escapes `siteRoot`. */
-export function candidateSiteFiles(siteRoot, sitePath) {
-  const root = resolve(siteRoot);
-  const relativePath = sitePath.replace(/^\/+/u, "");
-  const segments = relativePath.split("/").filter((segment) => segment.length > 0);
-  if (segments.some((segment) => segment === "..")) return [];
-  const exact = resolve(root, ...segments);
-  if (exact !== root && !exact.startsWith(`${root}${sep}`)) return [];
-  if (relativePath.length === 0 || sitePath.endsWith("/")) return [join(exact, "index.html")];
-  return [exact, join(exact, "index.html"), `${exact}.html`];
-}
-
-function isFile(path) {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Crawl the built site. Answers every internal link inspected and the ones
  * that resolve to nothing; an empty `unresolved` is the pass.
  */
-export function crawlSiteLinks({ siteRoot, baseurl = "" }) {
+export function crawlSiteLinks({ siteRoot, baseurl = "", siteOrigin = null }) {
   const pages = htmlPages(siteRoot);
   const unresolved = [];
   let links = 0;
   for (const page of pages) {
     const pageUrl = pageUrlForSitePath(page);
-    const html = htmlWithout(readFileSync(join(resolve(siteRoot), ...page.split("/")), "utf8"), { comments: true });
-    // Attributes are read from real tags only: prose or inline code can SHOW
-    // the text `href="/src/x"` without linking it (a design essay quotes one),
-    // and scanning the raw text would invent a broken link that is not one.
-    for (const tag of html.matchAll(HTML_TAG)) {
-      for (const match of tag[0].matchAll(LINK_ATTRIBUTE)) {
-        const href = match[1] ?? match[2] ?? "";
-        const resolved = resolveSiteHref(href, pageUrl, { baseurl });
+    const html = readFileSync(join(resolve(siteRoot), ...page.split("/")), "utf8");
+    // Parse actual HTML, including unquoted/recovered attributes and template
+    // contents; source examples and script text do not become invented links.
+    for (const href of siteDocumentLinks(html)) {
+        const resolved = resolveDecodedSiteHref(href, pageUrl, { baseurl, siteOrigin });
         if (resolved.kind !== "internal") {
           if (resolved.kind === "unresolved") {
             unresolved.push({ page, href, resolved: resolved.reason });
@@ -149,22 +109,21 @@ export function crawlSiteLinks({ siteRoot, baseurl = "" }) {
           continue;
         }
         links += 1;
-        const candidates = candidateSiteFiles(siteRoot, resolved.path);
-        if (candidates.length === 0 || !candidates.some((candidate) => isFile(candidate))) {
+        if (existingSiteFiles(siteRoot, resolved.path).length === 0) {
           unresolved.push({ page, href, resolved: resolved.path });
         }
-      }
     }
   }
   return { pages: pages.length, links, unresolved };
 }
 
 function parseArgs(argv) {
-  const options = { site: "_site", baseurl: "" };
+  const options = { site: "_site", baseurl: "", siteOrigin: null };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--site") options.site = argv[++index];
     else if (arg === "--baseurl") options.baseurl = argv[++index] ?? "";
+    else if (arg === "--site-origin") options.siteOrigin = argv[++index];
     else throw new Error(`unknown argument: ${arg}`);
   }
   if (!existsSync(options.site)) throw new Error(`site root does not exist: ${options.site}`);
@@ -172,9 +131,10 @@ function parseArgs(argv) {
 }
 
 if (isEntryPoint(import.meta.url)) {
+  bootstrapProcess({ role: "cli" });
   try {
     const options = parseArgs(process.argv.slice(2));
-    const result = crawlSiteLinks({ siteRoot: options.site, baseurl: options.baseurl });
+    const result = crawlSiteLinks({ siteRoot: options.site, baseurl: options.baseurl, siteOrigin: options.siteOrigin });
     if (result.unresolved.length === 0) {
       process.stdout.write(
         `site links: clean (${result.pages} page(s), ${result.links} internal link(s))\n`,

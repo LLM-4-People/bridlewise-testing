@@ -24,7 +24,7 @@ This page shows the last generated snapshot of the floor and its promotion pair.
   </div>
 
   <div class="callout warning" data-status-state="error" role="alert" hidden>
-    <p><strong>Status unavailable.</strong> The page could not read or validate the generated snapshot. There is no current status to report. This is not a green state. Check the deployment and run the <a href="{{ '/floor/evidence/' | relative_url }}">evidence commands</a>.</p>
+    <p><strong>Status unavailable.</strong> The page could not read or validate the generated snapshot. There is no current status to report. This is not a green state. Check the deployment and run the <a href="evidence.md">evidence commands</a>.</p>
   </div>
 
   <div class="callout" data-status-state="empty" role="status" hidden>
@@ -103,7 +103,7 @@ This page shows the last generated snapshot of the floor and its promotion pair.
 
   <noscript>
     <div class="callout warning">
-      <p><strong>The status page needs JavaScript.</strong> The generated JSON is available at <a href="{{ '/floor/data/status.json' | relative_url }}"><code>{{ '/floor/data/status.json' | relative_url }}</code></a>. The <a href="{{ '/floor/evidence/' | relative_url }}">evidence commands</a> do not depend on it.</p>
+      <p><strong>The status page needs JavaScript.</strong> The generated JSON is available at <a href="{{ '/floor/data/status.json' | relative_url }}"><code>{{ '/floor/data/status.json' | relative_url }}</code></a>. The <a href="evidence.md">evidence commands</a> do not depend on it.</p>
     </div>
   </noscript>
 </div>
@@ -181,4 +181,4 @@ The generator runs where the promotion refs exist. If the public Pages build doe
 - An empty field is unknown. It is never silently filled with a default.
 - A page that loads is not a service that is up. There is no hosted Bridlewise service.
 
-If the snapshot and a command disagree, the command wins. Use the [evidence commands]({{ '/floor/evidence/' | relative_url }}) for the claim you need to repeat.
+If the snapshot and a command disagree, the command wins. Use the [evidence commands](evidence.md) for the claim you need to repeat.

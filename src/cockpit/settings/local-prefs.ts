@@ -342,6 +342,15 @@ function declFor(id: string): LocalDecl | undefined {
   return LOCAL_DECL.find((d) => d.id === id);
 }
 
+function requireLocalPreference(id: string): Readonly<{ row: SettingRow; decl: LocalDecl }> {
+  const row = LOCAL_ROWS.find((r) => r.id === id);
+  const decl = declFor(id);
+  if (row === undefined || decl === undefined) {
+    throw new ClientError("unknown_setting", `no cockpit preference named "${id}" exists`);
+  }
+  return { row, decl };
+}
+
 /** Read a local preference's current value. Null for an unknown id. */
 export function localValue(id: string): string | number | null {
   return declFor(id)?.atom.get() ?? null;
@@ -379,6 +388,17 @@ function judgedNumber(
   return { ok: true, num };
 }
 
+function parsedEnum(row: SettingRow, value: string): string {
+  if (!(row.options ?? []).some((o) => o.value === value)) {
+    throw new ClientError(
+      "invalid_value",
+      `"${value}" is not one of this preference's choices ` +
+        `(${(row.options ?? []).map((o) => o.words).join(" · ")}). refused unchanged`,
+    );
+  }
+  return value;
+}
+
 /** The throwing door. the local WRITE path refuses in plain words. */
 function parsedNumber(row: SettingRow, value: string): number {
   const judged = judgedNumber(row, value);
@@ -409,11 +429,7 @@ function parsedNumber(row: SettingRow, value: string): number {
  * never claims a refusal this function would contradict.
  */
 export function setLocalPref(id: string, value: string): void {
-  const row = LOCAL_ROWS.find((r) => r.id === id);
-  const decl = declFor(id);
-  if (row === undefined || decl === undefined) {
-    throw new ClientError("unknown_setting", `no cockpit preference named "${id}" exists`);
-  }
+  const { row, decl } = requireLocalPreference(id);
   if (decl.kind === "number") {
     const num = parsedNumber(row, value);
     const previous = decl.atom.get();
@@ -428,13 +444,7 @@ export function setLocalPref(id: string, value: string): void {
     bumpLocal();
     return;
   }
-  if (!(row.options ?? []).some((o) => o.value === value)) {
-    throw new ClientError(
-      "invalid_value",
-      `"${value}" is not one of this preference's choices ` +
-        `(${(row.options ?? []).map((o) => o.words).join(" · ")}). refused unchanged`,
-    );
-  }
+  parsedEnum(row, value);
   const previous = decl.atom.get();
   decl.atom.set(value);
   decl.apply(value);
@@ -464,21 +474,36 @@ function storageRefusal(settingId: string): ClientError {
   );
 }
 
+/**
+ * Apply a surface default to one preference without storing a choice. A valid
+ * value already kept in this page's persistence scope always wins.
+ */
+export function applyLocalPrefDefault(id: string, value: string): void {
+  const { row, decl } = requireLocalPreference(id);
+  restoreLocalPreference(decl, { row, value });
+  bumpLocal();
+}
+
+/** One restore path for the ordinary defaults and a surface's explicit fallback. */
+function restoreLocalPreference(decl: LocalDecl, fallback?: Readonly<{ row: SettingRow; value: string }>): void {
+  if (decl.kind === "enum") {
+    const defaultValue = fallback === undefined ? decl.defaultValue : parsedEnum(fallback.row, fallback.value);
+    const raw = persistGet(decl.storageKey);
+    const value = raw !== null && decl.values.includes(raw) ? raw : defaultValue;
+    decl.atom.set(value);
+    decl.apply(value);
+    return;
+  }
+  const defaultValue = fallback === undefined ? decl.defaultValue : parsedNumber(fallback.row, fallback.value);
+  const num = storedNumber(decl.storageKey, decl.id) ?? defaultValue;
+  decl.atom.set(num);
+  applyTokenOverride(decl.cssVar, decl.cssUnit, num, decl.defaultValue);
+}
+
 /** Restore + apply the kept preferences. Runs at module load; exported so
  * tests can re-run it against a fresh DOM. */
 export function applyStoredCockpitPrefs(): void {
-  for (const decl of LOCAL_DECL) {
-    if (decl.kind === "enum") {
-      const raw = persistGet(decl.storageKey);
-      const value = raw !== null && decl.values.includes(raw) ? raw : decl.defaultValue;
-      decl.atom.set(value);
-      decl.apply(value);
-      continue;
-    }
-    const num = storedNumber(decl.storageKey, decl.id) ?? decl.defaultValue;
-    decl.atom.set(num);
-    applyTokenOverride(decl.cssVar, decl.cssUnit, num, decl.defaultValue);
-  }
+  for (const decl of LOCAL_DECL) restoreLocalPreference(decl);
   bumpLocal();
 }
 

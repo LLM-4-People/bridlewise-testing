@@ -3,7 +3,6 @@ layout: default
 page_class: floor
 title: "Promotion contract"
 description: "How the product branch is computed from main: the projection boundary, the overlay, deterministic gates, manual decisions, and release step."
-permalink: /floor/promotion/
 ---
 
 # Promotion contract
@@ -16,7 +15,7 @@ This is the contract between `main` and the `product` branch of the one reposito
 
 ## The rule
 
-The product branch is not edited directly and is not merged into. A source commit is checked on the floor, then carried through the promotion door. The rule is recorded as [UR-12]({{ '/decisions/UR-12-master-changes-only-through-the-promotion-door/' | relative_url }}) in the decision set.
+The product branch is not edited directly and is not merged into. A source commit is checked on the floor, then carried through the promotion door. The rule is recorded as [UR-12](../decisions/UR-12-master-changes-only-through-the-promotion-door.md) in the decision set.
 
 The profile is [`promotion/main-to-product.json`](../../promotion/main-to-product.json). It declares:
 
@@ -82,12 +81,12 @@ The product release workflow calls a reusable floor gate pinned by commit. The g
 
 ## What requires a person
 
-- **The first promotion.** It was reviewed before it was applied. The record is [PROMO-FIRST]({{ '/decisions/PROMO-FIRST-the-first-promotion-reviewed/' | relative_url }}) in the decision set.
+- **The first promotion.** It was reviewed before it was applied. The record is [PROMO-FIRST](../decisions/PROMO-FIRST-the-first-promotion-reviewed.md) in the decision set.
 - **Overrides.** Accepting target edits, allowing a deletion past the budget, or releasing a hold requires the exact paths or a reason. The override is recorded in the receipt and, for accepted edits, in the commit trailers.
 - **Source refusals.** A boundary error, a missing script, or a target edit is fixed on the source. Rerunning the promoter does not repair it.
 - **Rollback and hold.** A rollback is a new commit that restores a prior promotion, not a history rewrite. It sets a hold. Releasing the hold is a person's decision with a reason.
 - **The full suites.** The 4.1 GB corpus, the performance report, the live provider suite, and the browser E2E suite have prerequisites that are not published. They are manual or scheduled work, not a per-push gate.
-- **The release.** A maintainer tags the product repository. The product release workflow repeats the build gate and publishes the release assets and checksums. The release is still a preview and is not a production endorsement. The [shipping page]({{ '/shipping/' | relative_url }}) lists the assets and the rollback path.
+- **The release.** A maintainer tags the product repository. The product release workflow repeats the build gate and publishes the release assets and checksums. The release is still a preview and is not a production endorsement. The [shipping page](../shipping.md) lists the assets and the rollback path.
 - **Security review.** No third-party audit, penetration test, or certification exists.
 
 ## From a test to a release
@@ -129,4 +128,4 @@ The full catalogue and the one remedy for each code live in the [promotion sourc
 - A release asset with a checksum is not a signed installer, a reproducible build proof, or a security audit.
 - A rollback restores a prior tree. It does not erase the cause of the defect.
 
-Use the [evidence commands]({{ '/floor/evidence/' | relative_url }}) to inspect the refusal and the release. Read the [status snapshot]({{ '/floor/status/' | relative_url }}) for the last generated state, with its fallback states.
+Use the [evidence commands](evidence.md) to inspect the refusal and the release. Read the [status snapshot](status.md) for the last generated state, with its fallback states.

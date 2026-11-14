@@ -33,7 +33,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 
 import {
+  applyLocalPrefDefault,
   applyStoredCockpitPrefs,
+  cockpitTheme,
+  THEME_ID,
   cockpitEditorSplit,
   cockpitLocalEpoch,
   cockpitMotion,
@@ -407,4 +410,58 @@ describe("the hosts really consume the splitter against the owned numbers", () =
     expect(src).toMatch(/applyEditorSplit\(next\)/);
     void cockpitEditorSplit;
   });
+});
+
+
+describe("surface defaults use the existing local preference owner", () => {
+  function withFreshStorage(run: () => void): void {
+    const saved = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!).map((key) => [key, localStorage.getItem(key)!] as const);
+    try { localStorage.clear(); applyStoredCockpitPrefs(); run(); }
+    finally {
+      vi.restoreAllMocks();
+      localStorage.clear();
+      for (const [key, value] of saved) localStorage.setItem(key, value);
+      applyStoredCockpitPrefs();
+    }
+  }
+
+  test("a first-visit fallback paints Logbook without persisting a user choice", () => withFreshStorage(() => {
+    expect(cockpitTheme.get()).toBe(LOCAL_ROWS.find((row) => row.id === THEME_ID)!.defaultValue);
+    const write = vi.spyOn(Storage.prototype, "setItem");
+    applyLocalPrefDefault(THEME_ID, "logbook");
+    expect(cockpitTheme.get()).toBe("logbook");
+    expect(document.documentElement.getAttribute("data-cockpit-theme")).toBe("light");
+    expect(write).not.toHaveBeenCalled();
+    applyStoredCockpitPrefs();
+    expect(cockpitTheme.get()).toBe(LOCAL_ROWS.find((row) => row.id === THEME_ID)!.defaultValue);
+  }));
+
+  test("an explicit stored theme wins on every later visit without another write", () => withFreshStorage(() => {
+    setLocalPref(THEME_ID, "carbon");
+    const write = vi.spyOn(Storage.prototype, "setItem");
+    applyLocalPrefDefault(THEME_ID, "logbook");
+    expect(cockpitTheme.get()).toBe("carbon");
+    expect(document.documentElement.getAttribute("data-cockpit-theme")).toBeNull();
+    expect(write).not.toHaveBeenCalled();
+    write.mockRestore();
+    setLocalPref(THEME_ID, "logbook");
+    const kept = vi.spyOn(Storage.prototype, "setItem");
+    applyLocalPrefDefault(THEME_ID, "carbon");
+    expect(cockpitTheme.get()).toBe("logbook");
+    expect(kept).not.toHaveBeenCalled();
+  }));
+
+  test("defaults share the numeric domain and refuse unknown or invalid values unchanged", () => withFreshStorage(() => {
+    const spacing = SPACING_DEFAULT + 1;
+    applyLocalPrefDefault(SPACING_ID, String(spacing));
+    expect(cockpitSpacing.get()).toBe(spacing);
+    expect(rootStyle().getPropertyValue("--sp-unit")).toBe(String(spacing) + "px");
+    const epoch = cockpitLocalEpoch.get(), theme = cockpitTheme.get();
+    expect(() => applyLocalPrefDefault(THEME_ID, "not-a-theme")).toThrowError(ClientError);
+    expect(() => applyLocalPrefDefault("missing.preference", "value")).toThrowError(ClientError);
+    expect(() => applyLocalPrefDefault(SPACING_ID, "not-a-number")).toThrowError(ClientError);
+    expect(cockpitLocalEpoch.get()).toBe(epoch);
+    expect(cockpitTheme.get()).toBe(theme);
+    expect(cockpitSpacing.get()).toBe(spacing);
+  }));
 });

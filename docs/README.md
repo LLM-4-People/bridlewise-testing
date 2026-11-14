@@ -1,7 +1,6 @@
 ---
 title: "Documentation map"
 description: "Every documentation collection in the repository, with what each one covers."
-permalink: /contents/
 ---
 
 # Documentation
@@ -31,6 +30,16 @@ This is the curated documentation set of the Bridlewise development floor. It is
 | [Product architecture](architecture.md) | The public architecture page |
 
 Some records are historical. They may name the private development branches (`testing`, `master`), files that are not in the public snapshot, or measurements taken on a different machine. They are published as evidence of the reasoning, not as a description of the public release topology.
+
+## Maintaining published pages
+
+Write page links relative to their source files, as they resolve on GitHub. Navigation names the same source files through `page` keys. The [publish plan](../scripts/floor/site-pages.mjs) resolves navigation before Jekyll and resolves actual page links after it renders. The finalizer refuses missing pages, URL collisions and literal page URLs. Assets can retain their build-relative paths.
+
+The [route declaration](_data/page-routes.json) names the live pages and the documentation home. The repository identity supplies the documentation prefix. Release snapshots contain documentation and assets; links to live pages continue to the current site. The versions index and JSON live under the documentation prefix's `v` directory. A source `docs/v` directory is reserved for these generated outputs.
+
+Before a placement change, capture the previous plan with `node scripts/build-site.mjs capture-urls`. The command creates a new history file and refuses to overwrite an existing one. Preserve the [captured history](_data/site-url-history.json): one generated map supplies the legacy aliases and repository redirect targets. Removing or hiding a recorded page refuses publication until its source identity is reconciled; silently dropping old URLs is not supported.
+
+Build into a new output directory. The builder refuses existing output and source-input directories so a build cannot delete previous results or authored work. After Jekyll renders, the finish step verifies the generated source-ID projection, resolves real link attributes, and crawls the complete site, including release snapshots, and checks each page's declared policies. A missing live destination therefore fails even when its link comes from a snapshot.
 
 ## What is not here
 

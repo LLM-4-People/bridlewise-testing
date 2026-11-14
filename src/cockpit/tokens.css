@@ -238,7 +238,7 @@
     "SF Mono", "Cascadia Code", monospace;
 
   /* Scale. --f-micro is THE engraved label: 11px w560 track .08em UPPERCASE
-   * ink-3 — every instrument's name, never a bold heading. */
+   * ink-2 — every instrument's name, never a bold heading. */
   --f-micro-size: 0.8125rem;
   --f-micro-weight: 560;
   --f-micro-track: 0;
@@ -484,6 +484,8 @@
   --fold-max-h: 240px; /* reasoning fold */
   --cell-max-h: 320px; /* tool input/output cells */
   --diff-max-h: 400px; /* effect diff */
+  --demo-flow-h: 400px; /* embedded public record window; independent of its iframe viewport */
+  --demo-step-min-inline: 12ch; /* public journey label measure; grows with text before the grid chooses its column count */
   --menu-max-h: 160px; /* grammar menu */
   --verbs-max-w: 320px; /* right-aligned verb column */
   --gauge-bar-h: 3px; /* desk gauge bar */
@@ -1000,6 +1002,31 @@
   padding: var(--sp-3) var(--sp-4);
   font-family: var(--face-mono);
   font-size: var(--f-data-size);
+}
+
+/* A scope host can opt into its available content width. This leaves the
+ * normal conversation's content-hugging bubbles alone. MdBlocks still owns
+ * the running-prose measure; only the instrumental containers fill. The
+ * explicit scope mode outranks the default opened-tool width recipe. */
+.cockpit .beat-scope[data-content-width="available"] :is(.bubble, .beat-card, .prose, .code-block) {
+  width: 100%;
+  max-width: var(--rail);
+}
+.cockpit .beat-scope[data-content-width="available"] .prose {
+  align-items: stretch;
+}
+
+/* Both depth surfaces use native summary markers. Flex display hides the
+ * browser's disclosure arrow and turns a useful control into a blank strip. */
+.cockpit .record-grip {
+  display: list-item;
+  min-height: var(--hit-min);
+  align-content: center;
+  font-family: var(--face-mono);
+  cursor: pointer;
+}
+.cockpit .record-grip:hover {
+  color: var(--ink-1);
 }
 
 /* ── THE ARTIFACT CARD — the one instrument whose expand gesture buys
@@ -1553,12 +1580,13 @@ button {
  * wears its own `data-state` and reads `--outcome-ink`, which the outcome
  * mapping already re-points — a class for it would be a second spelling of
  * the same fact. */
+/* Labels are small text: ink-2 clears the text floor in both themes. */
 .cockpit .engraved {
   font-size: var(--f-micro-size);
   font-weight: var(--f-micro-weight);
   letter-spacing: var(--f-micro-track);
   text-transform: none;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* The engraved register's two honest VARIANTS — the deviations the tree
@@ -1580,7 +1608,7 @@ button {
   font-size: var(--f-nano-size);
   letter-spacing: var(--f-micro-track);
   text-transform: none;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 /* The flip side of the same register: an engraved word that carries a
  * SENTENCE rather than a name (the path to pick, the unwired reason) steps
@@ -2121,7 +2149,9 @@ button {
 
 /* Open faces: one term, one action edge, one persistent result. */
 .cockpit .verb.primary { color: var(--ground-0); background: var(--accent); border-color: transparent; min-height: var(--hit-min); padding: var(--sp-2) var(--sp-4); font: var(--f-micro-weight) var(--f-ui-size) / var(--lh-readout) var(--face-sans); }
-.cockpit .verb.primary:hover:enabled:not([aria-disabled="true"]) { background: color-mix(in srgb, var(--accent) 82%, var(--ink-1)); }
+/* Keep the inverse ink and its fill together in both pointer states, including
+ * link verbs. Zero-specificity refusal guards preserve the armed/feedback marks. */
+.cockpit .verb.primary:is(:hover, :active):where(:not(:disabled):not([aria-disabled="true"])) { color: var(--ground-0); background: color-mix(in srgb, var(--accent) 82%, var(--ink-1)); }
 .cockpit .verb.primary:disabled, .cockpit .verb.primary[aria-disabled="true"] { color: var(--ink-2); background: var(--ground-2); border-color: var(--line-2); }
 .cockpit .verb.add:not(.primary), .cockpit .verb.ok:not(.primary):not(.mark) { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .cockpit .verb.commit { justify-content: space-between; gap: var(--sp-4); text-align: left; }

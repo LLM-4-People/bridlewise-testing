@@ -50,6 +50,7 @@ import {
 } from "../client-config.ts";
 import { refusalReason } from "./absence.ts";
 import { ClientError, ClientTimeoutError } from "./errors.ts";
+import { assertClientNetwork } from "./network-access.ts";
 // THE CONNECTION IS DECIDED HERE, at the one door every request already
 // passes through, and nowhere else. See src/data/connection.ts for why
 // reachability cannot be a per-call-site judgement.
@@ -103,6 +104,7 @@ export async function fetchJson<T>(
   // one raw `fetch` and the CSRF header stay INSIDE the one named choke
   // point the client-api guard certifies.
   for (let attempt = 0; ; attempt += 1) {
+    assertClientNetwork();
     const controller = new AbortController();
     const timeoutMs = init?.timeoutMs ?? requestBudgetMs(DEFAULT_REQUEST_TIMEOUT_MS);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -574,6 +576,7 @@ function issue<T>(
  * standing (see `issue`).
  */
 export async function read<T>(block: string, opts: ReadOptions = {}): Promise<T> {
+  assertClientNetwork();
   // The ambient head is folded in BEFORE anything else happens: the key, the
   // path, the provenance record and the conditional request all have to
   // describe the same instant, and the only way to guarantee that is to
@@ -875,6 +878,7 @@ export async function action<T>(
   // every button: a control that slipped through still cannot change the
   // world. Refused BEFORE the ledger record, because nothing happened —
   // recording a refused write would put an act in the record that never ran.
+  assertClientNetwork();
   assertLiveForWrite();
   const requestedAt = Date.now();
   try {

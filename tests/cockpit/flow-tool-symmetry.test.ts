@@ -516,24 +516,30 @@ describe("the outcome colours — success green, error red, warning yellow", () 
   // neighboring data fields already wear. This arm pins it END TO END: the
   // consumed token is read from the COMPONENT source (so a re-point back to
   // ink-4 is the mutation it catches), resolved through tokens.css per
-  // theme, and held to 3:1 against both grounds a beat row can sit on.
-  const HINT_SURFACES: ReadonlyArray<readonly [string, string, string]> = [
-    [TOOL_BEAT, "result-hint", "the open card's output preview"],
-    [TOOL_BEAT, "arrow", "the input→output separator glyph"],
-    [BEAT, "ghost-out", "the compressed row's output hint"],
-    [BEAT, "reason", "the focused compressed beat's explanation"],
-    ["src/cockpit/render/JsonNode.svelte", "twisty", "the JSON tree's fold control"],
+  // theme, and held to its actual text or graphical-object requirement.
+  const HINT_SURFACES: ReadonlyArray<readonly [string, string, string, number]> = [
+    [TOOL_BEAT, ".result-hint", "the open card's output preview", 4.5],
+    [TOOL_BEAT, ".arrow", "the input→output separator glyph", 3],
+    [BEAT, ".ghost-out", "the compressed row's output hint", 4.5],
+    [BEAT, ".reason", "the focused compressed beat's explanation", 4.5],
+    ["src/cockpit/render/JsonNode.svelte", ".twisty", "the JSON tree's fold control", 3],
+    ["src/cockpit/render/JsonNode.svelte", ".more", "the JSON string disclosure", 4.5],
+    ["src/cockpit/render/JsonNode.svelte", ".summary", "the JSON container summary", 4.5],
+    ["src/cockpit/flow/BeatScope.svelte", ".when", "the inspected fact's timestamp", 4.5],
+    ["src/cockpit/flow/BeatDepth.svelte", ".when", "the inline fact's timestamp", 4.5],
+    ["src/cockpit/flow/TurnBeat.svelte", ".footer", "the message's measured metadata", 4.5],
+    ["src/cockpit/render/ToolInput.svelte", "dt", "the recorded tool argument name", 4.5],
   ];
 
   /** The `color: var(--ink-*)` one selector's rule block consumes. */
   function consumedInk(source: string, selector: string): string | null {
-    const m = source.match(new RegExp(`\\.${selector}\\s*\\{[^}]*?color:\\s*var\\((--ink-\\d)\\)`));
+    const m = source.match(new RegExp(`${selector.replaceAll(".", "\\.")}\\s*\\{[^}]*?color:\\s*var\\((--ink-\\d)\\)`));
     return m === null ? null : m[1]!;
   }
 
-  test("every data-hint surface clears 3:1 on both beat grounds, in both themes", () => {
+  test("small data text clears 4.5:1 and graphics clear 3:1 on every beat ground, in both themes", () => {
     const failures: string[] = [];
-    for (const [file, selector, what] of HINT_SURFACES) {
+    for (const [file, selector, what, minimum] of HINT_SURFACES) {
       const source = read(file);
       const ink = consumedInk(source, selector);
       if (ink === null) {
@@ -549,11 +555,11 @@ describe("the outcome colours — success green, error red, warning yellow", () 
           failures.push(`${selector} (${what}): ${ink} is not a declared hex in the ${theme} theme`);
           continue;
         }
-        for (const ground of ["--ground-1", "--ground-2"]) {
+        for (const ground of ["--ground-0", "--ground-1", "--ground-2", "--ground-3"]) {
           const ratio = contrastRatio(hex, table.get(ground)!);
-          if (ratio < 3) {
+          if (ratio < minimum) {
             failures.push(
-              `${what} (.${selector}) — ${theme} ${ink} on ${ground}: ${ratio.toFixed(2)}:1`,
+              `${what} (${selector}) — ${theme} ${ink} on ${ground}: ${ratio.toFixed(2)}:1`,
             );
           }
         }

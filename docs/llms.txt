@@ -15,15 +15,15 @@ tests are the authority.
 ## The one-page orientation
 
 - [Landing page](index.md): the concept,
-  the three doors, and the warning.
-- [Run record]({{ site.url }}{{ site.baseurl }}/run/): an
-  illustrative, synthetic causal record. It is not a live model run.
-- [Policy lab]({{ site.url }}{{ site.baseurl }}/policy-lab/): an
+  the working example, project setup and current limits.
+- [Guided demo](../src/demo/index.html): the production interface over
+  a published example, with a goal, changes, checks and review. It is offline.
+- [Policy lab](policy-lab/index.html): an
   illustrative governance console. Toggling a switch does not admit a real
   capability.
 - [Architecture](architecture.md):
   cockpit, loopback server, engine, guardian, timeline, and memory.
-- [Security and limits](security.md):
+- [Security and limits](security-and-limits.md):
   the safety floor, the confinement model, and what is not defended.
 - [Glossary](glossary.md): the
   vocabulary the product uses precisely.

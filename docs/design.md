@@ -2,14 +2,13 @@
 layout: default
 title: "Design"
 description: "The Bridlewise cockpit's design principles, surfaces, carbon and logbook tokens, typography, accessibility, and motion rules."
-permalink: /design/
 ---
 
 # Design
 
 Bridlewise's cockpit is not a chat window with panels around it. It is an instrument panel for a recorded run. The visual system is called **instrument glass over a paper logbook**: cool carbon grounds, engraved micro-labels, a single electron-beam hue for what is actually live, and a light theme that behaves like paper rather than an inverted dark theme.
 
-This page describes the intended system and the tokens that own it. It is a design document, not a certification that every surface has passed every check. The cockpit's own tests and the [design records]({{ '/design/records/' | relative_url }}) are the evidence.
+This page describes the intended system and the tokens that own it. It is a design document, not a certification that every surface has passed every check. The cockpit's own tests and the [design records](design/README.md) are the evidence.
 
 ## Three principles
 
@@ -143,6 +142,6 @@ The docs site is a separate static surface. It shares the palette and type syste
 - The cockpit is not a general-purpose IDE, a terminal emulator, or a debugger.
 - The screenshots are real captures of a pre-1.0 surface. They document the current cockpit, not a finished product.
 - The design system is enforced in the cockpit's token owner and tests; the docs site is a separate implementation and does not prove cockpit behavior.
-- A beautiful record is not a safe harness. Read [Security and limits]({{ '/security/' | relative_url }}).
+- A beautiful record is not a safe harness. Read [Security and limits](security-and-limits.md).
 
-The design records, audits, and cutover plans live in the [design records]({{ '/design/records/' | relative_url }}). The token source of truth is `src/cockpit/tokens.css` in the product tree.
+The design records, audits, and cutover plans live in the [design records](design/README.md). The token source of truth is `src/cockpit/tokens.css` in the product tree.

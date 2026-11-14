@@ -54,13 +54,19 @@
  * getToolManifest, accessing TOOL_HANDLERS outside the executor, drifting
  * WebToolEntry/ToolKind) makes the relevant assertion FAIL.
  */
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { walk, read } from "../helpers/source-scan.ts";
 
 import { getToolManifest } from "../../server/tools/tools-bridge.ts";
 import { TOOL_KINDS } from "../../shared/web-ui-types.ts";
+import * as toolPresentation from "../../shared/tool-presentation.ts";
+import { fileEffectToolNames, toolHasFileEffect, toolManifest, setTools } from "../../src/state/tools.ts";
+import { TOOL_OUTPUT_SHAPES } from "../../engine/src/tools/tool-output-shape.ts";
+import { editorToolEntries, normalizeToolInputSchema } from "../../server/tools/tool-manifest-data.ts";
+import { createEditorToolDefinitions, EDIT_TOOL_LABEL } from "../../engine/src/editor/edit-tools.ts";
+import { editorState } from "../../engine/src/shared/exposure/registrations/editor.ts";
 // The run path is FIVE modules since the executor was split out of the GET
 // handler that used to be it. This guard asks about the run path, not about
 // whichever file happened to hold the answer when it was written.
@@ -573,10 +579,24 @@ describe("tool-registry-owner: the frontend derives tool labels + file-effect fr
     // The single derivation reads the manifest entry's declared label.
     expect(src, "tools.ts owns toolLabel, reading the served entry").toMatch(/export\s+function\s+toolLabel/);
     expect(src, "toolLabel reads the manifest entry's label").toMatch(/\blabel\b/);
-    // The file-effect classification is derived from capabilities, not named.
-    expect(src, "tools.ts derives the file-effect set from capabilities").toMatch(
-      /capabilities\.includes\(\s*"write"\s*\)/,
-    );
+  });
+
+  test("live file-effect consumers use the shared classifier contract", () => {
+    const previous = toolManifest.get();
+    const entry = getToolManifest().find((tool) => tool.capabilities.includes("write"))!;
+    const classify = vi.spyOn(toolPresentation, "toolChangesFile").mockReturnValue(false);
+    try {
+      setTools([entry]);
+      expect(fileEffectToolNames().has(entry.name)).toBe(false);
+      expect(toolHasFileEffect(entry.name)).toBe(false);
+      expect(classify).toHaveBeenCalledTimes(2);
+      expect(classify).toHaveBeenLastCalledWith(entry);
+      classify.mockReturnValue(true);
+      expect(fileEffectToolNames().has(entry.name)).toBe(true);
+      expect(toolHasFileEffect(entry.name)).toBe(true);
+    } finally { classify.mockRestore(); setTools(previous); }
+    expect(toolPresentation.toolChangesFile({ capabilities: ["write"] })).toBe(true);
+    expect(toolPresentation.toolChangesFile({ capabilities: ["read"] })).toBe(false);
   });
 
   test("the served manifest carries a label for every tool that has one declared (rename-safe)", () => {
@@ -642,10 +662,31 @@ describe("tool-registry-owner: the frontend derives tool labels + file-effect fr
     for (const entry of manifest) {
       if (entry.outputShape !== undefined) {
         expect(
-          ["file", "command", "search"],
+          TOOL_OUTPUT_SHAPES,
           `${entry.name}: outputShape '${entry.outputShape}' is not a shape the renderer knows`,
         ).toContain(entry.outputShape);
       }
     }
   });
+});
+
+
+test("the live editor registry consumes the same normalized canonical registration data", () => {
+  const definitions = createEditorToolDefinitions(), data = editorToolEntries();
+  expect(data.map((entry) => entry.name)).toEqual(definitions.map((definition) => definition.function.name));
+  for (const entry of data) {
+    const definition = definitions.find((item) => item.function.name === entry.name)!;
+    expect(entry.inputSchema).toBe(definition.function.parameters);
+    expect(entry.label).toBe(EDIT_TOOL_LABEL);
+    const normalized = normalizeToolInputSchema(entry);
+    expect(normalizeToolInputSchema(normalized)).toBe(normalized);
+    const served = getToolManifest().find((item) => item.name === entry.name);
+    if (editorState.unifiedEditEnabled) {
+      expect(served).toBeDefined();
+      expect(served!.inputSchema).toEqual(normalized.inputSchema);
+      expect(served!.capabilities).toEqual(normalized.capabilities);
+      expect(served!.label).toBe(normalized.label);
+      expect(Object.hasOwn(served!, "saveToMemory")).toBe(false);
+    } else expect(served).toBeUndefined();
+  }
 });

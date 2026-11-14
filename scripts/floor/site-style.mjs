@@ -71,11 +71,13 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
 import * as csstree from "css-tree";
-import { parse as parseHtml } from "parse5";
+import { parseSiteHtml as parseHtml } from "./site-html.mjs";
 
 import { PALETTE_BURN_DOWN, SERVED_HTML, sitePolicies } from "../../shared/site-page.ts";
 import { readTokenOwner } from "../../shared/token-reader.ts";
 import { SITE_TOKEN_SHEET } from "./site-design.mjs";
+import { COORDINATES } from "./repository.mjs";
+import { SITE_SOURCE_ROOT, sitePolicyResolver } from "./site-pages.mjs";
 
 export const STYLE_EXTENSIONS = Object.freeze([".css", ".scss", ".sass"]);
 
@@ -351,17 +353,19 @@ export function judgeSiteStyles({ root, sourceRoot }) {
  * `.xhtml`), and whether it carries the site's two policies first: the
  * head's first element is `<meta charset>`, the next two are the origin and
  * path policies exactly (`shared/site-page.ts` `sitePolicies`), and the
- * document holds no other policy tag. A snapshot under `v/<version>/` is
- * scoped to its own base path. This is an allow-list on the output, so no
+ * document holds no other policy tag. A verified docs snapshot and each
+ * declared live artifact receive their own trusted scope and capabilities.
+ * This is an allow-list on the output, so no
  * spelling of a layout-less page escapes it.
  */
-export function builtPolicyViolations({ siteRoot, baseurl, versions = [] }) {
+export function builtPolicyViolations({ siteRoot, baseurl, versions = [], coordinates = COORDINATES, root = SITE_SOURCE_ROOT }) {
   const findings = [];
+  const expectedPolicy = sitePolicyResolver({ root, baseurl, versions, coordinates });
   const files = readdirSync(siteRoot, { recursive: true }).map((path) => String(path).split(sep).join("/"))
     .filter((path) => SERVED_HTML.test(path) && statSync(join(siteRoot, path)).isFile()).sort();
   for (const path of files) {
-    const version = versions.find((name) => path.startsWith(`v/${name}/`));
-    const [origin, scoped] = sitePolicies(version === undefined ? baseurl : `${baseurl.replace(/\/+$/u, "")}/v/${version}`);
+    const expected = expectedPolicy(path);
+    const [origin, scoped] = sitePolicies(expected.baseurl, { connections: expected.connections });
     // Scripting off: a policy or a link inside <noscript> counts as the no-script reader gets it.
     const document = parseHtml(readFileSync(join(siteRoot, ...path.split("/")), "utf8"), { scriptingEnabled: false });
     const policies = [];

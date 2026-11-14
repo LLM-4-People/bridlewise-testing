@@ -17,6 +17,7 @@
  * writes words and the semantic markup they sit in.
  */
 import { escapeHtml } from "../../../shared/markup.ts";
+import { InputError } from "../../src/kernel/errors.ts";
 import type { Claim, DecisionState } from "./claims.ts";
 import type { Words } from "./words.ts";
 
@@ -55,6 +56,11 @@ const md = (text: string): string => text.replace(/([\\`*_[\]|<>])/gu, "\\$1");
 /** A repository file as a page the site serves links it: through `site.repository_url`, never a spelled address. */
 const siteBlob = (path: string): string => (path.startsWith("https://") ? path : `{{ site.repository_url }}/blob/main/${path}`);
 const blob = (m: Words, path: string): string => (path.startsWith("https://") ? path : `${m.repositoryUrl}/blob/main/${path}`);
+const pageUrl = (m: Words, path: string): string => {
+  const url = m.pageUrls[path];
+  if (url === undefined) throw new InputError(`The site does not publish ${path}`, "brand_page_missing");
+  return url;
+};
 
 /** The README's front block: the promise, the summary, the preview warning, and the claims with their proof. */
 export function readmeHero(m: Words, claims: readonly Claim[], decisions: ReadonlyMap<string, DecisionState>): string {
@@ -77,7 +83,7 @@ export function readmeHero(m: Words, claims: readonly Claim[], decisions: Readon
     "|---|---|---|",
     ...holds.map((c) => c.kind === "holds-when-green" ? `| ${md(c.text)} | ${c.checks.map(code).join(", ")} | ${c.evidence === null ? "" : `[${md(c.evidence)}](${blob(m, c.evidence)})`} |` : ""),
     "",
-    `A claim whose check is red is struck out on the [live claims page](${m.siteUrl}floor/claims/) until it passes again.`,
+    `A claim whose check is red is struck out on the [live claims page](${pageUrl(m, "docs/floor/claims.md")}) until it passes again.`,
     "",
     "**Designed, not built yet:** " + designed.map((c) => c.kind === "designed" ? `${md(c.text)} ([${c.decision}](${blob(m, decisions.get(c.decision)?.path ?? "docs/decisions/README.md")}))` : "").join("; ") + ".",
     "",
@@ -96,8 +102,8 @@ export function orgProfile(m: Words, claims: readonly Claim[]): string {
     "",
     `> ${md(m.status)}`,
     "",
-    `- [The roadmap](${m.siteUrl}floor/roadmap/): what is done, what is next, and why; no dates promised.`,
-    `- [The claims](${m.siteUrl}floor/claims/): ${holds} claims, each with the check that backs it; ${designed} designed but not built yet.`,
+    `- [The roadmap](${pageUrl(m, "docs/floor/roadmap.md")}): what is done, what is next, and why; no dates promised.`,
+    `- [The claims](${pageUrl(m, "docs/floor/claims.md")}): ${holds} claims, each with the check that backs it; ${designed} designed but not built yet.`,
     `- [The source](${m.repositoryUrl}) (${md(m.license)}).`,
     "",
     `*${md(m.about.word)}* (${md(m.about.partOfSpeech)}): ${md(m.about.definition)}. ([${md(m.about.source)}](${m.about.sourceUrl})) ${md(m.about.line)}`,
@@ -113,17 +119,15 @@ export function readmeFront(m: Words, claims: readonly Claim[], decisions: Reado
 /** The site home's hero text (written by `harness sync` between {@link FRONT_DOORS}' site markers, inside the page's hero section), in the site's own components. */
 export function siteFront(m: Words): string {
   return [
-    `  <p class="eyebrow">${h(m.name)} <span class="dot" aria-hidden="true"></span> ${h(m.license)} <span class="dot" aria-hidden="true"></span> Developer preview</p>`,
-    `  <h1>${h(m.promise)}</h1>`,
-    `  <p class="lede">${h(m.summary)}</p>`,
-    `  <p class="lede">${h(m.repository)}</p>`,
-    `  <div class="actions">`,
-    `    <a class="button primary" href="{{ '/quickstart/' | relative_url }}">Start with a disposable copy</a>`,
-    `    <a class="button" href="{{ '/floor/claims/' | relative_url }}">Check every claim</a>`,
-    `    <a class="button" href="{{ '/floor/roadmap/' | relative_url }}">Read the roadmap</a>`,
-    `    <a class="button" href="{{ site.repository_url }}">Read the source</a>`,
+    `  <div class="hero-intro">`,
+    `    <h1>${h(m.promise)}</h1>`,
+    `    <p class="lede">${h(m.summary)}</p>`,
+    `    <div class="actions">`,
+    `      <a class="button primary" href="{{ site.data.navigation.demo.href }}" data-site-source="{{ site.data.navigation.demo.sourceRef }}">Try the demo</a>`,
+    `      <a class="button" href="quickstart.md">Use your own project</a>`,
+    `    </div>`,
+    `    <p class="hero-note">An interactive example. No account or installation.</p>`,
     `  </div>`,
-    `  <p class="hero-note">${h(m.status)}</p>`,
   ].join("\n");
 }
 
@@ -160,7 +164,7 @@ export function releaseHeader(m: Words): string {
     `> [!WARNING]`,
     `> **${md(m.status)}** Every release is a preview: the files are attached for inspection, not for deployment.`,
     "",
-    `${md(m.promise)} This release's checks and receipts: the promotion receipt and \`SHA256SUMS\` attached below, and the [claims page](${m.siteUrl}floor/claims/).`,
+    `${md(m.promise)} This release's checks and receipts: the promotion receipt and \`SHA256SUMS\` attached below, and the [claims page](${pageUrl(m, "docs/floor/claims.md")}).`,
   ].join("\n");
 }
 

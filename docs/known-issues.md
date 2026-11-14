@@ -2,7 +2,6 @@
 layout: default
 title: "Known issues and current gaps"
 description: "The honest gap register for the Bridlewise developer preview: pre-admission, missing audit, unpublished corpus, dependency queues, Linux-only confinement, and more."
-permalink: /known-issues/
 ---
 
 # Known issues and current gaps
@@ -22,7 +21,7 @@ This is a gap register, not a roadmap promise. Every item below is known, stated
 | [Provider coverage](#7-provider-coverage) | Only OpenAI-style protocols are verified; native Anthropic and Gemini adapters are not | Partial |
 | [No signed releases](#8-no-signed-releases) | Checksums and provenance help, but no OS-signed installer or independent audit | Partial |
 | [Social preview is manual](#9-social-preview-is-manual) | The repository card can drift from the current UI | Partial |
-| [No hosted demo](#10-no-hosted-demo) | Evaluation requires a clone, Node 24, and a provider | By design |
+| [Hosted live execution](#10-hosted-live-execution-remains-open) | Recorded example available; own tasks require local setup | Open |
 
 ## 1. Pre-admission
 
@@ -38,7 +37,7 @@ This is a gap register, not a roadmap promise. Every item below is known, stated
 
 Read the capability decisions, not just the boolean. Use a disposable copy. Treat the preview as an inspection environment.
 
-**Status:** Open, by design for the preview. See [CLI reference]({{ '/cli/' | relative_url }}#preflight) and [Architecture]({{ '/architecture/' | relative_url }}#pre-admission).
+**Status:** Open, by design for the preview. See [CLI reference](cli.md#preflight) and [Architecture](architecture.md#pre-admission).
 
 ## 2. No security audit
 
@@ -46,7 +45,7 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 **Impact.** The controls may have bugs. The threat model may miss an actor. There is no external assurance to point at, and no compliance posture (SOC 2, ISO 27001, HIPAA, GDPR program).
 
-**Mitigation.** The [security page]({{ '/security/' | relative_url }}) states the assets, actors, controls, and non-protections. Secret scanning, CodeQL, dependency review, and the guardian tests exist, but none is an audit. Do not use the preview with proprietary, regulated, client-confidential, or production code.
+**Mitigation.** The [security page](security-and-limits.md) states the assets, actors, controls, and non-protections. Secret scanning, CodeQL, dependency review, and the guardian tests exist, but none is an audit. Do not use the preview with proprietary, regulated, client-confidential, or production code.
 
 **Status:** Open. No audit is scheduled or promised.
 
@@ -58,7 +57,7 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 **Mitigation.** The public smoke suites, the guardian tests, and the CI gate are reproducible. The development floor documents every prerequisite. If you need the complete suite, you need the full corpus and the report; the project does not pretend otherwise.
 
-**Status:** By design for now. See [Testing]({{ '/testing/' | relative_url }}#development-floor-setup) and the [development floor]({{ '/floor/' | relative_url }}).
+**Status:** By design for now. See [Testing](testing.md#development-floor-setup) and the [development floor](floor/index.md).
 
 ## 4. Dependency alerts can return
 
@@ -76,7 +75,7 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 **Impact.** A dismissed finding is not a fixed finding unless the comment says so. A green CodeQL workflow proves the analyzer ran, not that the code is clean. The preview does not claim a clean scan.
 
-**Mitigation.** Use the [Security tab]({{ site.repository_url }}/security), sort by severity, and read the path and query. Treat the queue as a finding list, not a score. The [evidence page]({{ '/evidence/' | relative_url }}#codeql) gives the inspection command.
+**Mitigation.** Use the [Security tab]({{ site.repository_url }}/security), sort by severity, and read the path and query. Treat the queue as a finding list, not a score. The [evidence page](evidence.md#codeql) gives the inspection command.
 
 **Status:** Closed for the current analysis. The security-query queue reports **0 open alerts**; test-only, benchmark, and false-positive findings are dismissed with path-specific reasons. Re-run CodeQL for a fresh receipt; a dismissal is not a fix, and a new commit can introduce a new finding.
 
@@ -86,7 +85,7 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 **Impact.** The cockpit and server can run on other platforms, but the OS-level confinement story does not travel with them. Native Linux is the supported path for confinement today. A container or Codespace may or may not expose the kernel path.
 
-**Mitigation.** Run on native Linux with a kernel that exposes Landlock. Keep the project disposable. Do not assume a non-Linux host is confined because the UI loaded. Read [Landlock: what it does and does not do]({{ '/security/' | relative_url }}#landlock-what-it-does-and-does-not-do).
+**Mitigation.** Run on native Linux with a kernel that exposes Landlock. Keep the project disposable. Do not assume a non-Linux host is confined because the UI loaded. Read [Landlock: what it does and does not do](security-and-limits.md#landlock-what-it-does-and-does-not-do).
 
 **Status:** By design. Cross-platform confinement is research, not a shipped feature.
 
@@ -96,7 +95,7 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 **Impact.** A provider that works in another tool may fail here, or behave differently on tool calls, streaming, and limits. There is no bundled provider, default key, or fallback.
 
-**Mitigation.** Test the endpoint with a disposable project. Use the typed refusals (`provider_not_configured`, `model_not_chosen`, `provider_key_missing`) as diagnostics. If you add an adapter, follow [Building on the harness]({{ '/extending/' | relative_url }}#add-a-provider) and bring compatibility evidence.
+**Mitigation.** Test the endpoint with a disposable project. Use the typed refusals (`provider_not_configured`, `model_not_chosen`, `provider_key_missing`) as diagnostics. If you add an adapter, follow [Building on the harness](extending.md#add-a-provider) and bring compatibility evidence.
 
 **Status:** Partial. The OpenAI-style path is exercised; native adapters are not verified.
 
@@ -108,7 +107,7 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 **Mitigation.** Build from source and compare what you run. For `v0.0.2-preview`, all five checksummed assets passed `sha256sum -c`, the release is marked prerelease with six assets, and `gh attestation verify` exited `0` for all five attested assets. Review the commit and the workflow. Do not treat the release as a deployment artifact.
 
-**Status:** Partial. Provenance and SBOM are added for new releases; OS signing and independent audit remain absent. See [Shipping and releases]({{ '/shipping/' | relative_url }}) and [Evidence]({{ '/evidence/' | relative_url }}#5-the-release).
+**Status:** Partial. Provenance and SBOM are added for new releases; OS signing and independent audit remain absent. See [Shipping and releases](shipping.md) and [Evidence](evidence.md#5-the-release).
 
 ## 9. Social preview is manual
 
@@ -116,19 +115,21 @@ Read the capability decisions, not just the boolean. Use a disposable copy. Trea
 
 **Impact.** The card shown when the repository is shared can drift from the current UI. A stale preview is a small credibility leak, not a security issue.
 
-**Mitigation.** Recapture the social preview when a cockpit surface changes materially, and upload it in repository settings. The [design page]({{ '/design/' | relative_url }}#captures) documents the capture surfaces. This remains a manual step.
+**Mitigation.** Recapture the social preview when a cockpit surface changes materially, and upload it in repository settings. The [design page](design.md#captures) documents the capture surfaces. This remains a manual step.
 
 **Status:** Partial. The asset exists; the update path is manual.
 
-## 10. No hosted demo
+<a id="10-no-hosted-demo"></a>
 
-**What it is.** There is no hosted demo, SaaS account, cloud execution, or one-click trial. Running Bridlewise requires a clone, Node `>=24.18 <25`, both dependency installs, and a model provider you configure.
+## 10. Hosted live execution remains open
 
-**Impact.** Evaluation has friction. A visitor cannot click a link and see a live run against a real repository. The [interactive run]({{ '/run/' | relative_url }}) and [policy lab]({{ '/policy-lab/' | relative_url }}) are illustrations, not a hosted harness.
+**What it is.** The public guided example is hosted and uses the production interface. Own-prompt provider execution still requires a connected workspace, Node `>=24.18 <25`, the dependency installs and a configured model provider. Hosted live execution remains unqualified.
 
-**Mitigation.** Follow the [Quickstart]({{ '/quickstart/' | relative_url }}), use a disposable project, and try fixture mode to exercise the interface without a live model call. The snapshot includes a [devcontainer for a disposable workspace]({{ '/codespaces/' | relative_url }}); it is not a hosted service and does not replace the security boundary.
+**Impact.** Evaluation has friction. A visitor cannot click a link and see a live run against a real repository. The [guided demo](../src/demo/index.html) provides a recorded example; the [policy lab](policy-lab/index.html) provides an authored governance illustration. Neither starts a model or tool.
 
-**Status:** By design. A hosted demo would require a security model the preview does not have.
+**Mitigation.** Follow the [Quickstart](quickstart.md), use a disposable project, and try fixture mode to exercise the interface without a live model call. The snapshot includes a [devcontainer for a disposable workspace](codespaces.md); it is not a hosted service and does not replace the security boundary.
+
+**Status:** Open. A connected hosted workspace needs qualified authentication, provider execution and runtime boundaries. The offline example does not complete that work.
 
 ## Tracked work
 
@@ -145,7 +146,7 @@ An issue is a finding with an owner-shaped next step, not a promise. The [milest
 
 ## What is not on this list
 
-This register does not include private vulnerability reports, undisclosed findings, or every item on the [roadmap]({{ '/floor/roadmap/' | relative_url }}). It is not a complete threat model; that is the [security page]({{ '/security/' | relative_url }}). It is not a promise to fix anything by a date.
+This register does not include private vulnerability reports, undisclosed findings, or every item on the [roadmap](floor/roadmap.md). It is not a complete threat model; that is the [security page](security-and-limits.md). It is not a promise to fix anything by a date.
 
 If you find a gap that is not here, open a reproducible issue with the revision, environment, command, and typed error — after removing secrets and private code. Use the [issue list]({{ site.repository_url }}/issues) and the [bug template]({{ site.repository_url }}/issues/new/choose). Security reports belong in the private channel described in [SECURITY.md](../SECURITY.md), not in a public issue.
 

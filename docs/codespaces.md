@@ -2,7 +2,6 @@
 layout: default
 title: Open it in a Codespace
 description: The one-click GitHub Codespaces workspace for the Bridlewise developer preview, what it boots, and what it deliberately does not configure.
-permalink: /codespaces/
 page_class: article
 ---
 
@@ -48,8 +47,8 @@ npm run test:public
 
 Open the forwarded `5173` URL. If `preflight` refuses a capability, that is
 the product working: the refusal names the missing admission gate or adapter.
-Read [Run record]({{ '/run/' | relative_url }}) for what the cockpit records,
-and [Policy lab]({{ '/policy-lab/' | relative_url }}) for the governance posture
+Read [Run record](../src/demo/index.html) for what the cockpit records,
+and [Policy lab](policy-lab/index.html) for the governance posture
 the demo illustrates.
 
 ## What it does not configure
@@ -69,6 +68,6 @@ is idle. A public repository does not make compute free. Delete the Codespace
 when you are done; the repository does not need a long-lived workspace.
 
 If the container cannot build the guardian on your architecture, use the
-[quickstart]({{ '/quickstart/' | relative_url }}) on a Linux host and open an
+[quickstart](quickstart.md) on a Linux host and open an
 issue with the exact failure. A dev container that hides a broken native build
 would be worse than no dev container.

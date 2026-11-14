@@ -88,7 +88,10 @@ import {
   type Beat,
   type BeatVerb,
 } from "./types.ts";
-import { fileEffectToolNames, toolLabel, toolManifest } from "../../state/tools.ts";
+import { toolHasFileEffect, toolLabel, toolManifest } from "../../state/tools.ts";
+import type { ToolPresentationContext } from "../../../shared/tool-presentation.ts";
+import { summarizePatch } from "../render/diff.ts";
+import { MICRO_DIFF_LINES } from "../render/render-config.ts";
 import { performedActions } from "../../state/lens.ts";
 import { resetWait } from "./wait-stage.ts";
 import {
@@ -101,6 +104,12 @@ import { resetThinkingFolds } from "./thinking-fold.ts";
 import { uiSchema } from "../../state/schema-store.ts";
 import { computeTurnRollup, computeContextProjection, asFinding } from "../computer/findings.ts";
 import { proposeDeskLine, admitAtSeam, type Candidate } from "../computer/admission.ts";
+
+/** Explicit recorded facts use the same projection as live history without reading its tool manifest. */
+export type RecordedProjectionContext = Readonly<{
+  tools: ToolPresentationContext;
+  effects: ReadonlyMap<string, string>;
+}>;
 
 export type IngestOptions = Readonly<{
   /** Verb factories — injected so the wiring lives in verbs.ts and tests can
@@ -152,7 +161,7 @@ type IngestState = {
   wasStreaming: boolean;
   /**
    * The tool-manifest array reference this workspace's beats were last
-   * folded against. The effect fold reads `fileEffectToolNames()`, which
+   * folded against. The effect fold reads the tool presentation owner, which
    * derives from the manifest store — a beat folded while the manifest was
    * absent stays effect-less forever unless the fold re-runs when the
    * manifest arrives. The reference (not a deep compare) is the change
@@ -246,7 +255,8 @@ function computeTurnIndex(list: readonly ChatMessage[], i: number): number {
   return Math.max(0, users - 1);
 }
 
-function beatIdFor(msg: ChatMessage): string {
+/** The canonical address shared by transcript projection and recorded hosts. */
+export function beatIdFor(msg: Pick<ChatMessage, "id">): string {
   return `b-${msg.id}`;
 }
 
@@ -260,6 +270,7 @@ function beatFromMessage(
   turnIndex: number,
   parentId: string | null,
   streaming: boolean,
+  context?: RecordedProjectionContext,
 ): Beat {
   const id = beatIdFor(msg);
   const base = {
@@ -291,7 +302,7 @@ function beatFromMessage(
       // What the STREAM said about when this turn's output began. Absent for a
       // turn re-read from the database (turn-timing.ts is a live measurement,
       // not a persisted one), and absence renders as absence.
-      const timing = turnTimingFor(msg.id);
+      const timing = context === undefined ? turnTimingFor(msg.id) : undefined;
       // A turn the reconcile settled carries its ending on the record; the
       // beat is abnormal with it, exactly as an error-role row is — the
       // reader must not carry on believing an answer is coming.
@@ -303,7 +314,7 @@ function beatFromMessage(
         bleed: false,
         turn: {
           who: "model",
-          sourceId: msg.id,
+          ...(context === undefined ? { sourceId: msg.id } : {}),
           text: msg.content,
           streaming,
           ...(msg.reasoning !== undefined ? { reasoning: msg.reasoning } : {}),
@@ -339,7 +350,7 @@ function beatFromMessage(
         bleed: true,
         tool: {
           name: tc?.name ?? "unknown tool",
-          label: toolLabel(tc?.name ?? "unknown tool"),
+          label: toolLabel(tc?.name ?? "unknown tool", context?.tools),
           status: tc?.status ?? "running",
           input: tc?.input,
           output: tc?.output,
@@ -449,14 +460,15 @@ function maybeAppendEffect(toolBeat: Beat): void {
  * run streams, and interleaved into a page of older beats being prepended
  * (§4). One rule for what an effect IS, two callers deciding where it goes.
  */
-function effectBeatFor(toolBeat: Beat): Beat | null {
+function effectBeatFor(toolBeat: Beat, context?: RecordedProjectionContext, sourceMessageId?: string): Beat | null {
   if (toolBeat.tool === undefined) return null;
-  if (toolBeat.tool.status !== "done") return null;
-  if (!fileEffectToolNames().has(toolBeat.tool.name)) return null;
+  if (toolBeat.tool.status !== "done" || toolBeat.tool.refused === true) return null;
+  if (!toolHasFileEffect(toolBeat.tool.name, context?.tools)) return null;
   const path = effectPathOf(toolBeat.tool.input);
   if (path === null) return null;
+  const patch = sourceMessageId === undefined ? undefined : context?.effects.get(sourceMessageId);
   const effectId = `${toolBeat.id}-fx`;
-  if (beatById(effectId) !== undefined) return null;
+  if (context === undefined && beatById(effectId) !== undefined) return null;
   return {
     id: effectId,
     kind: "effect",
@@ -484,7 +496,7 @@ function effectBeatFor(toolBeat: Beat): Beat | null {
     abnormal: false,
     bleed: true,
     verbs: [],
-    effect: { path, producedBy: toolBeat.id },
+    effect: { path, producedBy: toolBeat.id, ...(patch === undefined ? {} : { patch, ...summarizePatch(patch, MICRO_DIFF_LINES) }) },
   };
 }
 
@@ -591,6 +603,34 @@ function someEffectBeatMissing(state: IngestState): boolean {
  * it must be — which keeps every DIFFERENCE (the only thing the fisheye and
  * the grouping ever read) exactly right, and touches nothing already drawn.
  */
+/** Recorded pages and public fixtures share one causal transcript projection. */
+export function projectRecordedTranscript(list: readonly ChatMessage[], turnOffset = 0, context?: RecordedProjectionContext): readonly Beat[] {
+  const built: Beat[] = [];
+  const consumedEffects = context === undefined ? null : new Set<string>();
+  let openModelBeatId: string | null = null;
+  let lastUserBeatId: string | null = null;
+  let users = 0;
+  for (const msg of list) {
+    if (msg.role === "user") users += 1;
+    let parentId: string | null = null;
+    if (msg.role === "assistant") parentId = lastUserBeatId;
+    else if (msg.role === "tool" || msg.role === "event" || msg.role === "error") parentId = openModelBeatId;
+    const beat = beatFromMessage(msg, turnOffset + Math.max(0, users - 1), parentId, false, context);
+    built.push(beat);
+    if (msg.role === "user") lastUserBeatId = beat.id;
+    if (beat.kind === "turn" && beat.turn?.who === "model") openModelBeatId = beat.id;
+    const effect = effectBeatFor(beat, context, msg.id);
+    if (effect !== null) {
+      built.push(effect);
+      if (context?.effects.has(msg.id)) consumedEffects!.add(msg.id);
+    }
+  }
+  if (context !== undefined && [...context.effects.keys()].some((id) => !consumedEffects!.has(id))) {
+    throw new TypeError("Recorded effects must belong to successful file-writing messages");
+  }
+  return built;
+}
+
 function ingestPrefix(
   state: IngestState,
   list: readonly ChatMessage[],
@@ -606,30 +646,11 @@ function ingestPrefix(
   const usersInPrefix = prefix.filter((m) => m.role === "user").length;
   const turnOffset = headTurn - usersInPrefix;
 
-  const built: Beat[] = [];
-  const synced: Synced[] = [];
-  let openModelBeatId: string | null = null;
-  let lastUserBeatId: string | null = null;
-  for (let i = 0; i < prefix.length; i += 1) {
-    const msg = prefix[i]!;
-    let parentId: string | null = null;
-    if (msg.role === "assistant") parentId = lastUserBeatId;
-    else if (msg.role === "tool" || msg.role === "event" || msg.role === "error") {
-      parentId = openModelBeatId;
-    }
-    // `streaming` is FALSE for every beat of an older page without needing a
-    // test: a page fetched from the database is a page of finished facts, and
-    // the only beat that may be streaming is the last of the whole list,
-    // which by construction is not in a prefix.
-    void streaming;
-    const beat = beatFromMessage(msg, turnOffset + computeTurnIndex(prefix, i), parentId, false);
-    built.push(beat);
-    synced.push({ msg, beatId: beat.id });
-    if (msg.role === "user") lastUserBeatId = beat.id;
-    if (beat.kind === "turn" && beat.turn?.who === "model") openModelBeatId = beat.id;
-    const effect = effectBeatFor(beat);
-    if (effect !== null) built.push(effect);
-  }
+  // A recorded prefix never owns the stream's tail. Its projection is also
+  // the public replay's projection, including parentage and effect folding.
+  void streaming;
+  const built = projectRecordedTranscript(prefix, turnOffset);
+  const synced: Synced[] = prefix.map((msg) => ({ msg, beatId: beatIdFor(msg) }));
 
   batch(() => {
     // Bare beats FIRST, verbs second — the same two steps the append path

@@ -20,7 +20,7 @@
  * predicates, never firings.
  */
 
-import { adoptingForeignWrite } from "../../state/persistence.ts";
+import { adoptingForeignWrite, rawStorageKeyFor } from "../../state/persistence.ts";
 
 import type { SweepEvent, SweepMark } from "./types";
 
@@ -128,7 +128,7 @@ function loadJson<T>(key: string, validate: (v: unknown) => v is T): T[] {
   const s = storageOrNull();
   if (s === null) return [];
   try {
-    const raw = s.getItem(key);
+    const raw = s.getItem(rawStorageKeyFor(key));
     if (raw === null) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -212,7 +212,7 @@ function writeJson(key: string, value: readonly unknown[]): boolean {
     return false;
   }
   try {
-    s.setItem(key, JSON.stringify(value));
+    s.setItem(rawStorageKeyFor(key), JSON.stringify(value));
     storageDegradedReason = null;
     return true;
   } catch (err) {
@@ -247,7 +247,7 @@ export function saveArmsMerged(
   }
   // A persisted string that will not parse has no facts to preserve — the
   // merged write repairs it with this tab's own snapshot.
-  const persisted = parseArms(s.getItem(ARMS_STORAGE_KEY)) ?? [];
+  const persisted = parseArms(s.getItem(rawStorageKeyFor(ARMS_STORAGE_KEY))) ?? [];
   const byId = new Map<string, ArmedTrigger>();
   for (const row of mine) byId.set(row.id, row);
   for (const row of persisted) {
@@ -280,7 +280,7 @@ export function saveMarksMerged(
     storageDegradedReason = "browser storage unavailable";
     return mine;
   }
-  const persisted = parseMarks(s.getItem(MARKS_STORAGE_KEY)) ?? [];
+  const persisted = parseMarks(s.getItem(rawStorageKeyFor(MARKS_STORAGE_KEY))) ?? [];
   const byId = new Map<string, SweepMark>();
   for (const m of mine) byId.set(m.id, m);
   for (const m of persisted) {

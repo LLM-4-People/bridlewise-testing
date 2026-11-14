@@ -48,7 +48,7 @@
    * ink, and the engraved ink remains — an absence of state renders as
    * absence, never as a green tick nobody measured (§1.1). */
   .kind {
-    color: var(--outcome-ink, var(--ink-3));
+    color: var(--outcome-ink, var(--ink-2));
     flex: none;
   }
   .text { overflow-wrap: anywhere; min-width: 0; }

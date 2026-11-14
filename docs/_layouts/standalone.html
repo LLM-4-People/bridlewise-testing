@@ -24,6 +24,6 @@
   {%- endfor %}
 </head>
 <body{% if page.body_id %} id="{{ page.body_id }}"{% endif %}>
-{{ content }}
+{% include page-content.html content=content %}
 </body>
 </html>

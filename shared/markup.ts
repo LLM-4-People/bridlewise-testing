@@ -161,7 +161,7 @@ export function stripTags(text: string): string {
  * element (any case) runs to its closing tag (`</name` + optional
  * whitespace + `>`, any case) or to the end of the input when unclosed.
  */
-export function htmlWithout(html: string, options: Readonly<{ comments?: boolean; elements?: readonly string[] }>): string {
+export function htmlWithout(html: string, options: Readonly<{ comments?: boolean; elements?: readonly string[]; preserveOffsets?: boolean }>): string {
   const elements = (options.elements ?? []).map((name) => name.toLowerCase());
   const lower = html.toLowerCase();
   let out = "";
@@ -185,9 +185,12 @@ export function htmlWithout(html: string, options: Readonly<{ comments?: boolean
       index = lower.indexOf("<", index + 1);
       continue;
     }
-    out += `${html.slice(kept, index)} `;
+    out += html.slice(kept, index) + (options.preserveOffsets === true ? html.slice(index, end).replace(/[^\r\n]/gu, (value) => " ".repeat(value.length)) : " ");
     kept = end;
     index = lower.indexOf("<", end);
   }
   return out + html.slice(kept);
 }
+
+/** HTML file suffixes served by the site, shared with source admission and the browser judges. */
+export const SERVED_HTML = /\.(?:x?html?)$/iu;

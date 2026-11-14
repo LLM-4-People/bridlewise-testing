@@ -12,6 +12,26 @@
 import { clientLog } from "../client-debug";
 
 const PREFIX = "bridlewise:";
+let namespace: string | null = null;
+let keyResolved = false;
+
+/** A standalone host selects its own storage scope before loading product state. */
+export function selectPersistenceNamespace(name: string): void {
+  if (typeof name !== "string" || !/^[a-zA-Z0-9_-]+$/u.test(name)) throw new TypeError("A persistence namespace needs a safe nonempty name");
+  if (namespace !== null || keyResolved) throw new TypeError("The persistence scope is already fixed for this page");
+  namespace = name;
+}
+
+/** Legacy raw keys retain their exact addresses in the normal application. */
+export function rawStorageKeyFor(key: string): string {
+  return scopedStorageKey(key, "raw");
+}
+
+function scopedStorageKey(key: string, lane: "logical" | "raw"): string {
+  keyResolved = true;
+  if (namespace === null) return lane === "logical" ? PREFIX + key : key;
+  return `${PREFIX}scope:${namespace}:${lane}:${key}`;
+}
 
 /**
  * The raw storage key a logical key is stored under.
@@ -22,7 +42,7 @@ const PREFIX = "bridlewise:";
  * here, rather than being re-spelled by the listener.
  */
 export function storageKeyFor(key: string): string {
-  return PREFIX + key;
+  return scopedStorageKey(key, "logical");
 }
 
 function storage(): Storage | null {
@@ -46,7 +66,7 @@ export function persistGet(key: string): string | null {
   const s = storage();
   if (s === null) return null;
   try {
-    return s.getItem(PREFIX + key);
+    return s.getItem(storageKeyFor(key));
   } catch (err) {
     // See storage — a read failure degrades to a cache miss. Routed
     // through the client debug owner.
@@ -95,8 +115,8 @@ export function persistSet(key: string, value: string | null | (() => string)): 
   const s = storage();
   if (s === null) return;
   try {
-    if (value === null) s.removeItem(PREFIX + key);
-    else s.setItem(PREFIX + key, typeof value === "function" ? value() : value);
+    if (value === null) s.removeItem(storageKeyFor(key));
+    else s.setItem(storageKeyFor(key), typeof value === "function" ? value() : value);
   } catch (err) {
     // localStorage quota exceeded or privacy mode — the in-memory store
     // remains the source of truth; persistence is a best-effort cache.
@@ -150,7 +170,7 @@ export function restoreJsonLists<T>(prefix: string): ReadonlyMap<string, readonl
   const result = new Map<string, readonly T[]>();
   const s = storage();
   if (s === null) return result;
-  const rawPrefix = PREFIX + prefix;
+  const rawPrefix = storageKeyFor(prefix);
   try {
     for (let i = s.length - 1; i >= 0; i -= 1) {
       const key = s.key(i);
@@ -245,7 +265,7 @@ export function persistTabGet(key: string): string | null {
   const s = tabStorage();
   if (s !== null) {
     try {
-      const own = s.getItem(PREFIX + key);
+      const own = s.getItem(storageKeyFor(key));
       if (own !== null) return own;
     } catch (err) {
       clientLog("persistence", "sessionStorage read failed:", err);
@@ -263,8 +283,8 @@ export function persistTabSet(key: string, value: string | null): void {
   const s = tabStorage();
   if (s !== null) {
     try {
-      if (value === null) s.removeItem(PREFIX + key);
-      else s.setItem(PREFIX + key, value);
+      if (value === null) s.removeItem(storageKeyFor(key));
+      else s.setItem(storageKeyFor(key), value);
     } catch (err) {
       clientLog("persistence", "sessionStorage write failed:", err);
     }
@@ -286,7 +306,7 @@ export function persistTabOnlyGet(key: string): string | null {
   const s = tabStorage();
   if (s === null) return null;
   try {
-    return s.getItem(PREFIX + key);
+    return s.getItem(storageKeyFor(key));
   } catch (err) {
     clientLog("persistence", "sessionStorage read failed:", err);
     return null;
@@ -297,8 +317,8 @@ export function persistTabOnlySet(key: string, value: string | null): boolean {
   const s = tabStorage();
   if (s === null) return false;
   try {
-    if (value === null) s.removeItem(PREFIX + key);
-    else s.setItem(PREFIX + key, value);
+    if (value === null) s.removeItem(storageKeyFor(key));
+    else s.setItem(storageKeyFor(key), value);
     return true;
   } catch (err) {
     clientLog("persistence", "sessionStorage write failed:", err);
@@ -336,13 +356,13 @@ function removePrefixed(
   keep?: (logicalKey: string) => boolean,
 ): number {
   if (s === null) return 0;
-  const raw = PREFIX + prefix;
+  const raw = storageKeyFor(prefix);
   let removed = 0;
   try {
     for (let i = s.length - 1; i >= 0; i -= 1) {
       const key = s.key(i);
       if (key === null || !key.startsWith(raw)) continue;
-      if (keep !== undefined && keep(key.slice(PREFIX.length))) continue;
+      if (keep !== undefined && keep(key.slice(storageKeyFor("").length))) continue;
       s.removeItem(key);
       removed += 1;
     }

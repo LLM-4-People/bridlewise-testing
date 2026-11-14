@@ -38,10 +38,13 @@
  * here, and a swept name the wheel does not declare reds the other way.
  */
 import { describe, expect, test } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import ts from "typescript5";
 import { callArgumentsOf } from "../helpers/function-scope.ts";
 
-import { read, relpath, walk } from "../helpers/source-scan.ts";
+import { read, sourceFiles } from "../helpers/source-scan.ts";
+import { createTempDir } from "../helpers/temp-dir.ts";
 import { modulePathMatching } from "../helpers/module-resolver.ts";
 // @ts-expect-error -- a .mjs module has no declaration file in the TS program (as in floor-site-links.test.ts).
 import { SHARED_CSS } from "../../scripts/floor/design-coverage.mjs";
@@ -120,11 +123,12 @@ describe("no-dead-css-tokens — every declared token has a consumer, every refe
     expect(declared.size, "tokens.css declares the vocabulary").toBeGreaterThan(150);
   });
 
-  // The scanned population: every cockpit source (components + state
-  // modules), index.html, the token file itself (internal composition), and
-  // the public site's stylesheets, which read the same owner through the
-  // generated token sheet (scripts/floor/site-design.mjs).
-  const svelteFiles = walk("src/cockpit", { exts: [".svelte", ".ts"] });
+  // The template program declares src/**/*.ts + src/**/*.svelte as the
+  // interface, including sibling surfaces and state modules. Use that same
+  // source-kind contract through the ownership/index-checked shared walk;
+  // tests and their fixture strings are outside this production root.
+  // Public styles still come from their existing shared-sheet declaration.
+  const frontendFiles = sourceFiles("src");
   const siteSheets = (SHARED_CSS as readonly string[]).map((path) => `docs/${path}`);
   const consumers = new Map<string, Set<string>>();
   const consume = (name: string, where: string): void => {
@@ -132,7 +136,7 @@ describe("no-dead-css-tokens — every declared token has a consumer, every refe
     consumers.get(name)!.add(where);
   };
   // var() reads across the tree
-  const allSources = [TOKENS, CATEGORIES, "index.html", ...svelteFiles.map(relpath), ...siteSheets];
+  const allSources = [TOKENS, CATEGORIES, "index.html", ...frontendFiles, ...siteSheets];
   for (const f of allSources) {
     const src = read(f);
     for (const name of consumedVars(src)) consume(name, `${f} (var)`);
@@ -199,6 +203,31 @@ describe("no-dead-css-tokens — every declared token has a consumer, every refe
   });
 
   // ── MUTATION SELF-CHECKS ───────────────────────────────────────────────
+
+  test("a sibling interface consumer affects both guards; test fixture strings do not keep tokens alive", () => {
+    const root = createTempDir("token-consumer-scope-");
+    const cockpit = join(root, "src", "cockpit");
+    const sibling = join(root, "src", "new-surface");
+    const fixtures = join(root, "tests");
+    for (const folder of [cockpit, sibling, fixtures]) mkdirSync(folder, { recursive: true });
+    writeFileSync(join(cockpit, "Existing.svelte"), '<div></div><style>div { width: var(--existing); }</style>');
+    const pane = join(sibling, "Pane.svelte");
+    writeFileSync(pane, '<div></div><style>div { width: var(--sibling); height: var(--dangling); }</style>');
+    writeFileSync(join(fixtures, "fake.ts"), 'export const example = "var(--test-only)";');
+    const vocabulary = declaredTokens(":root {\n  --existing: 1px;\n  --sibling: 2px;\n  --test-only: 3px;\n}");
+    const refs = (folder: string): Set<string> => new Set(sourceFiles(folder).flatMap((file) => [...consumedVars(read(file))]));
+    const interfaceRefs = refs(join(root, "src"));
+    expect([...vocabulary].filter((name) => !interfaceRefs.has(name))).toEqual(["--test-only"]);
+    expect([...interfaceRefs].filter((name) => !vocabulary.has(name))).toEqual(["--dangling"]);
+    // The old cockpit-only population misses a real sibling consumer.
+    const cockpitRefs = refs(cockpit);
+    expect([...vocabulary].filter((name) => !cockpitRefs.has(name))).toEqual(["--sibling", "--test-only"]);
+    // Removing that actual read makes the declaration dead; an unrelated
+    // fixture spelling cannot repair the missing production consumption.
+    writeFileSync(pane, '<div></div><style>div { width: 2px; height: var(--dangling); }</style>');
+    const removedRefs = refs(join(root, "src"));
+    expect([...vocabulary].filter((name) => !removedRefs.has(name))).toEqual(["--sibling", "--test-only"]);
+  });
 
   test("mutation: a dead declaration is caught", () => {
     const decl = declaredTokens(":root {\n  --real: 1px;\n  --never-read: 2px;\n}");

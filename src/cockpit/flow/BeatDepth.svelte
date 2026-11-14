@@ -135,7 +135,7 @@
     margin: 0;
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
     font-variant-numeric: tabular-nums;
   }
   .cause {
@@ -164,7 +164,7 @@
   }
   .cause-text {
     font-size: var(--f-ui-size);
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   /* The verb row's recipe is owned by tokens.css (.cockpit .verbs); the
    * open card's verbs wrap and breathe wider than a row cluster. */
@@ -172,16 +172,7 @@
     gap: var(--sp-2);
     flex-wrap: wrap;
   }
-  .record-grip {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--hit-min);
-    font-family: var(--face-mono);
-    cursor: pointer;
-  }
-  .record-grip:hover {
-    color: var(--ink-1);
-  }
+  /* Native record disclosure affordances are shared in tokens.css. */
   .record-rows {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -191,7 +182,7 @@
     font-size: var(--f-data-size);
   }
   .record-rows dt {
-    color: var(--ink-3);
+    color: var(--ink-2);
     white-space: nowrap;
   }
   .record-rows dd {

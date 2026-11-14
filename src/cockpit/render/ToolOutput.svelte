@@ -35,6 +35,8 @@
    * because it is stderr — both are true of a "successful" call that wrote to
    * stderr, and neither moves when the tool's status changes.
    */
+  import { getContext } from "svelte";
+  import { TOOL_PRESENTATION_CONTEXT, type ToolPresentationContext } from "../../../shared/tool-presentation.ts";
   import CodeBlock from "./CodeBlock.svelte";
   import StreamText from "./StreamText.svelte";
   import CopyButton from "./CopyButton.svelte";
@@ -67,7 +69,8 @@
    * read off the served manifest — the registry's own answer, so the renderer
    * never re-derives it from the tool's name.
    */
-  const declared = $derived(toolByName.get().get(name)?.outputShape);
+  const presentation = getContext<ToolPresentationContext | undefined>(TOOL_PRESENTATION_CONTEXT);
+  const declared = $derived(presentation === undefined ? toolByName.get().get(name)?.outputShape : presentation.get(name)?.outputShape);
   const shape = $derived(classifyOutput(input, output, declared));
 
   let textExpanded = $state(false);

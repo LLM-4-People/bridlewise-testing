@@ -8,7 +8,7 @@
   <p class="docs-nav-heading">{{ section.title }}</p>
   <ul>
     {%- for link in section.links %}
-    <li><a href="{{ link.path | relative_url }}"{% if page.url == link.path %} aria-current="page"{% elsif link.path != "/" and page.url contains link.path %} aria-current="true"{% endif %}>{{ link.title }}</a></li>
+    <li><a href="{{ link.href }}"{% if page.site_href == link.href %} aria-current="page"{% elsif link.permalink != "/" and page.url contains link.permalink %} aria-current="true"{% endif %}>{{ link.title }}</a></li>
     {%- endfor %}
   </ul>
   {%- endfor %}

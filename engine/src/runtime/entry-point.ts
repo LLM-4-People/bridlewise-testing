@@ -12,11 +12,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
  * (`test/runtime/cli-debug.test.ts`) refuses any other spelling, so every
  * entry point is found and runs the process bootstrap first.
  *
- * A LEAF MODULE (node built-ins only), so the dependency-free CI utilities
- * (the docs-link check, the built-site link crawler, the shard toolchain),
- * which run in jobs that install no package, ask the same question as every
- * other entry point. `src/runtime/cli-debug.ts` re-exports it beside the
- * process bootstrap.
+ * A LEAF MODULE (node built-ins only), so entry points that run before
+ * dependency installation can ask the same question as every other entry
+ * point. `test/runtime/cli-debug.test.ts` proves the declared cold utilities
+ * stay package-free. Installed entry points use `src/runtime/cli-debug.ts`,
+ * which re-exports it beside the process bootstrap.
  */
 export function isEntryPoint(moduleUrl: string, argv1: string | undefined = process.argv[1]): boolean {
   if (argv1 === undefined || argv1.length === 0) return false;

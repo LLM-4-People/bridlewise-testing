@@ -51,13 +51,14 @@ test("a released snapshot is judged by its own build, not by today's stylesheets
     writeFileSync(join(work, "assets/css/style.css"), ".styled { color: red; }\n");
     writeFileSync(join(work, "assets/floor/floor.css"), "");
     const page = (cls) => `<!doctype html><html><body><main id="main"><p class="${cls}">x</p></main></body></html>\n`;
-    for (const [path, cls] of [["index.html", "styled"], ["v/0.1.0/index.html", "old-component"], ["v/0.1.0/a/index.html", "old-component"], ["vx/index.html", "stray"], ["v/index.html", "styled"]]) {
+    for (const [path, cls] of [["index.html", "styled"], ["docs/v/0.1.0/index.html", "old-component"], ["docs/v/0.1.0/a/index.html", "old-component"], ["docs/vx/index.html", "stray"], ["docs/v/0.1.0-other/index.html", "stray"], ["docs/v/index.html", "styled"]]) {
       mkdirSync(join(work, dirname(path)), { recursive: true });
       writeFileSync(join(work, path), page(cls));
     }
-    const result = coverage(work, { exclude: ["/v/0.1.0/"] });
-    assert.equal(result.pages, 3, "the snapshot's two pages are excluded; /v/index.html and /vx/ are not");
+    const result = coverage(work, { exclude: ["/docs/v/0.1.0/"] });
+    assert.equal(result.pages, 4, "only the snapshot's two pages are excluded; the versions index and sibling prefixes remain judged");
     assert.deepEqual([...result.missing.keys()], ["stray"]);
+    assert.deepEqual([...result.missing.get("stray")].sort(), ["/docs/v/0.1.0-other/index.html", "/docs/vx/index.html"]);
     assert.deepEqual([...coverage(work).missing.keys()].sort(), ["old-component", "stray"]);
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -81,7 +82,7 @@ test("the built site passes the design coverage guard", (t) => {
   assert.equal(result.missing.size, 0, `unstyled content classes: ${[...result.missing.keys()].join(", ")}`);
   assert.equal(result.unused.size, 0, `unused floor.css rules: ${[...result.unused.keys()].join(", ")}`);
 
-  const roadmap = readFileSync(join(built, "floor/roadmap/index.html"), "utf8");
+  const roadmap = readFileSync(join(built, "roadmap/index.html"), "utf8");
   assert.doesNotMatch(roadmap, /<p>\|\s/u, "every generated Markdown table must render as a table, not paragraph text");
   const focusStart = roadmap.indexOf('id="now--next--later"');
   assert.ok(focusStart > 0, "the Now / next / later heading must exist");

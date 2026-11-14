@@ -498,7 +498,7 @@
     max-width: var(--rail-open);
   }
   .name { color: var(--ink-1); }
-  .meta { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .meta { color: var(--ink-2); font-variant-numeric: tabular-nums; }
   /* Same register as the turn footer's measured row: mono, tabular, wrap.
    * The rail's reserved boxes already keep it from resizing the card as
    * the channel word changes. */
@@ -511,7 +511,7 @@
     font-family: var(--face-mono);
     font-size: var(--f-data-size);
     font-variant-numeric: tabular-nums;
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   /* The status chip's recipe + state hue are owned by tokens.css
    * (`.cockpit .chip` reading `--outcome-ink`). */
@@ -581,12 +581,6 @@
     flex: 1 1 auto;
   }
   .arg-hint { color: var(--ink-2); }
-  /* THE OUTPUT PREVIEW IS RECORDED DATA, not retired furniture: ink-4 (the
-   * faintest register — placeholders, spent rail cells, retired rows) measured
-   * 2.16:1 in Carbon and 2.23:1 in Logbook on the card's ground, under the
-   * 3:1 floor for informative text (UIE-046). ink-3 is the register the
-   * neighboring data fields already wear (ghost-meta, the status mark), and
-   * it clears 3:1 on every ground in both themes — the input/output
-   * relationship is preserved one step apart (ink-2 vs ink-3). */
-  .result-hint { color: var(--ink-3); }
+  /* A preview is small readable text: use the 4.5:1 text register. */
+  .result-hint { color: var(--ink-2); }
 </style>

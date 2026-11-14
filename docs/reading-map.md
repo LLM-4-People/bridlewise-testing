@@ -2,7 +2,6 @@
 layout: default
 title: "Choose your own audit"
 description: "Five ways into Bridlewise, from ninety seconds to a security review, with what each path should let you conclude."
-permalink: /reading-map/
 ---
 
 # Choose your own audit
@@ -19,9 +18,9 @@ Not every visitor needs the same depth. Pick a path, follow four to six links, a
 
 ## 90 seconds: the shape
 
-1. [The landing page]({{ '/' | relative_url }}) — the warning, the cockpit, and the run-record idea in one screen.
-2. [The interactive run]({{ '/run/' | relative_url }}) — a synthetic record of a run, not a live model call.
-3. [Security and limits]({{ '/security/' | relative_url }}) — the short version, including what is not protected.
+1. [The landing page](index.md) — the warning, the cockpit, and the run-record idea in one screen.
+2. [The interactive run](../src/demo/index.html) — a synthetic record of a run, not a live model call.
+3. [Security and limits](security-and-limits.md) — the short version, including what is not protected.
 4. [The preview release]({{ site.repository_url }}/releases/tag/v0.0.3-preview) — what actually ships: source, cockpit, engine bundle, checksums, no installer.
 
 **You should conclude:** this is a local-first coding cockpit that records a run as a causal stream; it is a developer preview, pre-admission, unaudited, and not for sensitive code. The release is an inspection artifact, not a deployment.
@@ -29,28 +28,28 @@ Not every visitor needs the same depth. Pick a path, follow four to six links, a
 ## 10 minutes: the claims
 
 1. [The README]({{ site.repository_url }}#readme) — the 90-second tour, the eight beats, and the warning.
-2. [The repository is a run record]({{ '/github/' | relative_url }}) — how GitHub surfaces map to intent, boundary, tool, effect, check, finding, decision, and release.
-3. [Evidence, not vibes]({{ '/evidence/' | relative_url }}) — the commands and the expected output.
+2. [The repository is a run record](github.md) — how GitHub surfaces map to intent, boundary, tool, effect, check, finding, decision, and release.
+3. [Evidence, not vibes](evidence.md) — the commands and the expected output.
 4. [The latest CI run]({{ site.repository_url }}/actions/workflows/ci.yml) — job name, conclusion, steps.
 5. [Code scanning (Security tab)]({{ site.repository_url }}/security) — what is open, not just what is green.
-6. [Known issues]({{ '/known-issues/' | relative_url }}) — the gaps the badges do not show.
+6. [Known issues](known-issues.md) — the gaps the badges do not show.
 
 **You should conclude:** the project publishes checks that can be rerun, and it also publishes the places where those checks do not settle the question. The evidence is real; the assurance is not complete.
 
 ## An afternoon: the machinery
 
-1. [Architecture]({{ '/architecture/' | relative_url }}) — cockpit, loopback server, engine, guardian, shared contracts, and the life of a run.
-2. [Quickstart]({{ '/quickstart/' | relative_url }}) — install, first account, provider, project, first run.
-3. [CLI reference]({{ '/cli/' | relative_url }}) — `preflight`, the 22 `harness` verbs, the lifecycle scripts, and the ledger tools.
-4. [The policy lab]({{ '/policy-lab/' | relative_url }}) — an illustrative governance console, not a live policy engine.
-5. [Testing]({{ '/testing/' | relative_url }}) — the public smoke suite, the development floor, and the corpus prerequisites.
+1. [Architecture](architecture.md) — cockpit, loopback server, engine, guardian, shared contracts, and the life of a run.
+2. [Quickstart](quickstart.md) — install, first account, provider, project, first run.
+3. [CLI reference](cli.md) — `preflight`, the 22 `harness` verbs, the lifecycle scripts, and the ledger tools.
+4. [The policy lab](policy-lab/index.html) — an illustrative governance console, not a live policy engine.
+5. [Testing](testing.md) — the public smoke suite, the development floor, and the corpus prerequisites.
 6. [Decision records](decisions) — the durable “why” behind the rules, one file per decision.
 
 **You should conclude:** a run is claimed once, recorded as typed beats, and projected into a chat and a cockpit; tool calls pass through one registry and executor; the guardian confines filesystem access on Linux; the full test floor is in a second repository and is not reproducible from a fresh product clone.
 
 ## A security review: the boundary
 
-1. [Security and limits]({{ '/security/' | relative_url }}) — assets, actors, controls, and the explicit non-protections.
+1. [Security and limits](security-and-limits.md) — assets, actors, controls, and the explicit non-protections.
 2. [SECURITY.md](../SECURITY.md) — reporting, scope, and the one-page model.
 3. [Code scanning (Security tab)]({{ site.repository_url }}/security) — CodeQL and Scorecard alerts, including the open ones.
 4. [Dependabot (Security tab)]({{ site.repository_url }}/security) — the dependency alert queue and its triage state.
@@ -63,8 +62,8 @@ Not every visitor needs the same depth. Pick a path, follow four to six links, a
 
 1. [CONTRIBUTING.md](../CONTRIBUTING.md) — setup, checks, and the evidence bar.
 2. [The development floor]({{ site.repository_url }}) — where the larger suites, benchmarks, and decisions live.
-3. [Testing]({{ '/testing/' | relative_url }}) — how to add a test at the right layer and why a skip is not a pass.
-4. [Building on the harness]({{ '/extending/' | relative_url }}) — blocks, tools, providers, MCP servers, embedding, quality packs.
+3. [Testing](testing.md) — how to add a test at the right layer and why a skip is not a pass.
+4. [Building on the harness](extending.md) — blocks, tools, providers, MCP servers, embedding, quality packs.
 5. [Decision records](decisions) — cite the rule, do not restate it in a scratch plan.
 6. [Issues]({{ site.repository_url }}/issues) and [Discussions]({{ site.repository_url }}/discussions) — a reproducible finding or a question.
 
@@ -72,8 +71,8 @@ Not every visitor needs the same depth. Pick a path, follow four to six links, a
 
 ## If you only read one thing
 
-Read [Security and limits]({{ '/security/' | relative_url }}).
+Read [Security and limits](security-and-limits.md).
 
 It is the page that states the assets, the actors, the controls that exist, and the protections that do not. It tells you the local user is inside the boundary, the provider receives the prompt, Landlock is not a sandbox in the general sense, and the timeline is not an audit log. If that page is acceptable for your use, the rest of the documentation is a way to inspect the machinery. If it is not, no amount of green CI should change your mind.
 
-The second-best single link is [Evidence, not vibes]({{ '/evidence/' | relative_url }}): it turns the claims into commands and says what the commands still do not prove.
+The second-best single link is [Evidence, not vibes](evidence.md): it turns the claims into commands and says what the commands still do not prove.

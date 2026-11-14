@@ -128,6 +128,7 @@ import {
 import { resolveStatus } from "../shared/errors.ts";
 import { fetchJson, fireInvalidation, onInvalidation } from "./data/broker.ts";
 import { ClientError, ClientTimeoutError } from "./data/errors.ts";
+import { assertClientNetwork } from "./data/network-access.ts";
 import { absenceReason, refusalReason } from "./data/absence.ts";
 import {
   noteChatHistoryPending,
@@ -2130,6 +2131,7 @@ export type LivenessHandlers = Readonly<{
  * left open retries forever by design.
  */
 export function openLivenessStream(handlers: LivenessHandlers): () => void {
+  assertClientNetwork();
   const es = new EventSource(LIVE_STREAM_PATH);
 
   // THE PROTOCOL'S OWN OPEN EVENT. No hello frame is needed or sent: the
@@ -2211,6 +2213,7 @@ export type LivenessDiagnosis =
 const SSE_REFUSED_STATUS = resolveStatus("sse_connection_limit");
 
 export async function diagnoseLivenessConnection(): Promise<LivenessDiagnosis> {
+  assertClientNetwork();
   const startedAt = Date.now();
   const abort = new AbortController();
   let res: Response;
@@ -2263,6 +2266,7 @@ export function openRunStream(
   runId: string,
   handlers: StreamHandlers,
 ): StreamController {
+  assertClientNetwork();
   const url = `${API_BASE}/run/${encodeURIComponent(runId)}/stream`;
   const es = new EventSource(url);
 

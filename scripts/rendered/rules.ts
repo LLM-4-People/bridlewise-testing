@@ -47,16 +47,16 @@
  */
 import { readFileSync } from "node:fs";
 
-import { PALETTE_BURN_DOWN, scopeBase, SITE_FONT_PATH, SITE_THEME_SELECTORS, sitePolicies } from "../../shared/site-page.ts";
+import { PALETTE_BURN_DOWN, scopeBase, SITE_FONT_PATH, SITE_THEME_SELECTORS, sitePolicies, type SitePagePolicy } from "../../shared/site-page.ts";
 import { concreteColor, readTokenOwner, resolveToken, themeColor, themeTokens, THEMES } from "../../shared/token-reader.ts";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
 import { TOKEN_THEMES, TOKENS_PATH, tokenValues, type TokenTheme } from "../token-owner.ts";
 import { vendoredFaces } from "../vendor-fonts.ts";
 
-export type Surface = "cockpit" | "site";
+export type Surface = SitePagePolicy["surface"];
 
 /** Which pages a row's input is built for: their surface, and the base path they are served under ("" at the root). */
-export type Scope = Readonly<{ surface: Surface; base: string }>;
+export type Scope = Readonly<{ surface: Surface; base: string; publicPage?: SitePagePolicy }>;
 
 /** What the page recorded as it ran (judge.ts keeps it in Node, so a frame or worker that is gone still counts). */
 export type Recorded = Readonly<{
@@ -87,6 +87,8 @@ export type PageRule = Readonly<{
   surfaces: readonly Surface[];
   /** Surfaces it does not hold on yet, each with the reason and who flips it. */
   pending?: Readonly<Partial<Record<Surface, string>>>;
+  /** Source-declared public policies can require a row on another render surface. */
+  appliesTo?: (scope: Scope) => boolean;
   /** The row's input, built in Node for the judged pages' scope. */
   input: (scope: Scope) => unknown;
   /**
@@ -138,7 +140,7 @@ const markThemes = (surface: Surface): readonly Readonly<{ selector: string; col
     .sort((a, b) => Number(a.selector !== ":root") - Number(b.selector !== ":root"))
     .map(({ theme, selector }) => ({ selector, colors: tokenValues(theme, [...new Set(markParts().map((part) => part.token))]) }));
 /** The vendored faces, each file as the surface serves it (the site serves them under its base path). */
-const servedFaces = (scope: Scope): readonly VendoredFace[] => vendoredFaces().map((face) => (scope.surface !== "site" ? face : {
+const servedFaces = (scope: Scope): readonly VendoredFace[] => vendoredFaces().map((face) => (scope.surface !== "site" && scope.publicPage === undefined ? face : {
   family: face.family,
   files: face.files.map((file) => `${scopeBase(scope.base)}/${SITE_FONT_PATH}/${file.split("/").pop() ?? file}`),
 }));
@@ -755,12 +757,13 @@ export const RENDERED_RULES: readonly RenderedRule[] = [
   {
     kind: "page",
     id: "csp-meta",
-    holds: "Every page carries exactly two Content-Security-Policy meta tags, first in its head after the charset, saying exactly sitePolicies(base) (shared/site-page.ts): the origin policy and the base-path policy.",
+    holds: "Every source-declared public document carries exactly two Content-Security-Policy meta tags, first in its head after the charset, saying exactly sitePolicies(base, connections) from its trusted publish-plan policy.",
     surfaces: ["site"],
     pending: {
       cockpit: "the cockpit sends no Content-Security-Policy yet (#319); its owner adds \"cockpit\" here when it does",
     },
-    input: (scope: Scope) => ({ policies: sitePolicies(scope.base) }),
+    appliesTo: (scope: Scope) => scope.surface === "site" || scope.publicPage?.cspRequired === true,
+    input: (scope: Scope) => ({ policies: sitePolicies(scope.base, { connections: scope.publicPage?.connections ?? "site" }) }),
     judge: judgeCspMeta as PageRule["judge"],
   },
   {

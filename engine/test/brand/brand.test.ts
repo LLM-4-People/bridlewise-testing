@@ -21,6 +21,8 @@ import { readWords, type Words } from "../../scripts/brand/words.ts";
 import { CLAIMS_PAGE_BLOCK, claimsPage, FRONT_DOORS, judgeClaims, orgProfile, readmeHero, releaseHeader, siteFront } from "../../scripts/brand/render.ts";
 // @ts-expect-error -- the floor's status owner is plain Node ESM with no declaration file (as scripts/brand/words.ts reads repository.mjs).
 import { STATUS_CHECKS } from "../../../scripts/floor/status.mjs";
+// @ts-expect-error -- the one site publish plan is plain Node ESM.
+import { sitePlan } from "../../../scripts/floor/site-pages.mjs";
 
 const REPOSITORY_ROOT = join(import.meta.dirname, "..", "..", "..");
 const COMMIT = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -35,7 +37,7 @@ const SOURCE: Messaging = {
   about: { word: "bridle-wise", partOfSpeech: "adjective", definition: "trained to obey the reins", source: "Collins", sourceUrl: "https://example.test/d", line: "The harness holds the reins." },
 };
 /** The words a surface renders: the source plus the addresses package.json declares. */
-const MESSAGING: Words = { ...SOURCE, repositoryUrl: "https://github.com/o/r", siteUrl: "https://o.github.io/r/" };
+const MESSAGING: Words = { ...SOURCE, repositoryUrl: "https://github.com/o/r", siteUrl: "https://o.github.io/r/", pageUrls: { "docs/floor/claims.md": "https://o.github.io/r/projected/ledger/", "docs/floor/roadmap.md": "https://o.github.io/r/projected/work/" } };
 const CLAIMS: Claim[] = [
   { id: "green", kind: "holds-when-green", text: "Green <claim>", checks: ["ci"], evidence: "tests/a.test.ts" },
   { id: "two", kind: "holds-when-green", text: "Two checks", checks: ["ci", "codeql"], evidence: null },
@@ -77,7 +79,7 @@ test("the claims register: the three kinds pass; every violation is named, in mo
 test("the messaging source: complete and honest, or refused", () => {
   assert.deepEqual(messagingViolations({ schema: "bridlewise-messaging/v1", ...SOURCE }), []);
   // The addresses are the repository identity's (package.json carries its generated copy), never restated in the words.
-  assert.deepEqual(messagingViolations({ schema: "bridlewise-messaging/v1", ...MESSAGING }), ["repositoryUrl is not a field of the messaging source", "siteUrl is not a field of the messaging source"]);
+  assert.deepEqual(messagingViolations({ schema: "bridlewise-messaging/v1", ...MESSAGING }), ["repositoryUrl is not a field of the messaging source", "siteUrl is not a field of the messaging source", "pageUrls is not a field of the messaging source"]);
   assert.equal(readWords(REPOSITORY_ROOT).repositoryUrl, JSON.parse(readFileSync(join(REPOSITORY_ROOT, "package.json"), "utf8")).repository.url.replace(/\.git$/u, ""));
   const problems = messagingViolations({ ...SOURCE, schema: "x", status: "Production ready.", description: "x".repeat(351), topics: ["agent-harness"], promise: "Ship 10x faster, guaranteed.", tagline: "!", about: { ...SOURCE.about, sourceUrl: "ftp://x" } });
   for (const expected of [/schema must be/u, /status must say it is a developer preview/u, /description is 351 characters/u, /topics is not a field/u, /promise makes a promise or names a date/u, /tagline is not a field/u, /about\.sourceUrl must be/u]) {
@@ -121,11 +123,13 @@ test("every surface renders from the sources: escaped, honest, the retraction vi
   assert.match(hero, /\[UR-17\]\(https:\/\/github\.com\/o\/r\/blob\/main\/docs\/decisions\/UR-17-no-fallbacks\.md\)/u);
   assert.match(orgProfile(MESSAGING, CLAIMS), /2 claims, each with the check that backs it; 1 designed but not built yet/u);
   assert.match(releaseHeader(MESSAGING), /^> \[!WARNING\]\n> \*\*Developer preview\./u);
+  for (const surface of [hero, orgProfile(MESSAGING, CLAIMS), releaseHeader(MESSAGING)]) assert.ok(surface.includes("](https://o.github.io/r/projected/ledger/)"), "surfaces consume the plan's supplied URL rather than reconstructing a path");
+  assert.ok(orgProfile(MESSAGING, CLAIMS).includes("](https://o.github.io/r/projected/work/)"));
   const judged = judgeClaims(CLAIMS, [{ id: "ci", status: "fail", headSha: COMMIT, runUrl: "https://example.test/run/1" }], COMMIT);
   const page = claimsPage(MESSAGING, judged, COMMIT, decisions);
   // The page is the site's own shell; its block is the only part the publish writes, and it spells no address.
   const shell = readFileSync(join(REPOSITORY_ROOT, CLAIMS_PAGE_BLOCK.path), "utf8");
-  assert.ok(shell.split("\n").includes("permalink: /floor/claims/"));
+  assert.equal(sitePlan({ root: REPOSITORY_ROOT }).pages.get(CLAIMS_PAGE_BLOCK.path).permalink, "/claims/");
   assert.equal(withFrontBlock(shell, CLAIMS_PAGE_BLOCK.begin, CLAIMS_PAGE_BLOCK.end, page)?.includes(page), true);
   assert.ok(!page.includes(MESSAGING.repositoryUrl), "a page the site serves reads site.repository_url, never a spelled address");
   assert.match(page, /<tr data-verdict="retracted"><td class="floor-claim">Green &lt;claim&gt;<\/td>/u);
@@ -142,18 +146,30 @@ test("the front doors: this repository's are current, and harness sync is the on
   assert.equal(withFrontBlock("<!-- B --><!-- E --><!-- B -->", "<!-- B -->", "<!-- E -->", "x"), null, "a second block is refused");
   assert.match(siteFront(MESSAGING), /<h1>Every claim comes with a receipt\.<\/h1>/u);
   assert.match(siteFront(MESSAGING), /A cockpit &lt;for&gt; runs\./u);
+  assert.ok(siteFront(MESSAGING).includes('class="button primary" href="{{ site.data.navigation.demo.href }}"'));
+  assert.match(siteFront(MESSAGING), /href="quickstart\.md">Use your own project<\/a>/u);
+  assert.doesNotMatch(siteFront(MESSAGING), /eyebrow|Start with a disposable copy/u, "the first action starts the example and leaves setup reachable");
 });
 
 test("mutation: a broken source, a missing block or a hand edit fails the front-door check", () => {
   // A copy of the sources, the decision records and the front doors, in a scratch tree.
   const root = createTempDir("front-doors-");
-  for (const path of ["package.json", "docs/brand", "docs/decisions", ...new Set(FRONT_DOORS.map((d) => d.path))]) cpSync(join(REPOSITORY_ROOT, path), join(root, path), { recursive: true });
+  for (const path of ["package.json", "docs", "README.md"]) cpSync(join(REPOSITORY_ROOT, path), join(root, path), { recursive: true });
+  for (const artifact of sitePlan({ root: REPOSITORY_ROOT }).artifacts) {
+    mkdirSync(join(root, artifact.sourceEntry, ".."), { recursive: true });
+    cpSync(join(REPOSITORY_ROOT, artifact.sourceEntry), join(root, artifact.sourceEntry));
+  }
   const claims = JSON.parse(readFileSync(join(REPOSITORY_ROOT, "docs/brand/claims.json"), "utf8")) as { claims: { evidence?: string | null }[] };
   for (const c of claims.claims) if (typeof c.evidence === "string" && !c.evidence.startsWith("https://")) {
     mkdirSync(join(root, c.evidence.replace(/#.*$/u, ""), ".."), { recursive: true });
     writeFileSync(join(root, c.evidence.replace(/#.*$/u, "")), "");
   }
   assert.equal(syncFrontDoors(root, false).status, "current");
+  const securityPage = sitePlan({ root }).pages.get("docs/security-and-limits.md");
+  const duplicate = join(root, "docs/duplicate-route.md");
+  writeFileSync(duplicate, `---\npermalink: ${securityPage.pretty}\n---\n# Duplicate\n`);
+  assert.throws(() => readWords(root), (error: unknown) => error instanceof InputError && error.message.includes("valid site publish plan"));
+  rmSync(duplicate);
   // A hand edit inside the README block is stale; sync rewrites it.
   const readme = join(root, "README.md");
   writeFileSync(readme, readFileSync(readme, "utf8").replace("**Every claim comes with a receipt.**", "**A hand-written promise.**"));

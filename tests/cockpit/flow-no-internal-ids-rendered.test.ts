@@ -291,20 +291,18 @@ describe("the recorded documents fold", () => {
   const RECORDED = FIXTURES["a recorded harness event"]!;
   const EVENT_ID = RECORDED.event!.eventId!;
 
-  /**
-   * Open (or reopen) a fold the way a real browser does: set the state,
-   * then fire the `toggle` event the state change produces. (jsdom does not
-   * synthesize `toggle` for a programmatic `open` set; the event is the
-   * contract the component listens for, not the property mutation.)
-   */
-  function openFold(details: HTMLDetailsElement): void {
-    details.open = true;
-    details.dispatchEvent(new Event("toggle"));
-  }
-
-  function closeFold(details: HTMLDetailsElement): void {
-    details.open = false;
-    details.dispatchEvent(new Event("toggle"));
+  /** Change the real disclosure state and consume its native event before
+   * continuing. Installed jsdom queues toggle for this property change;
+   * manually dispatching another event duplicates it and can leave a queued
+   * callback alive after the test has removed the component. */
+  async function setFoldOpen(details: HTMLDetailsElement, open: boolean): Promise<void> {
+    if (details.open === open) return;
+    const toggled = new Promise<Event>((resolve) => {
+      details.addEventListener("toggle", (event) => resolve(event), { once: true });
+    });
+    details.open = open;
+    const event = await toggled;
+    expect(event.isTrusted, "the disclosure must produce its native toggle, not a synthetic duplicate").toBe(true);
   }
 
   /** A reader that records calls and answers from a script. */
@@ -341,12 +339,41 @@ describe("the recorded documents fold", () => {
     try {
       const { container } = render(BeatScope, { props: { beat: RECORDED, projectPath: null } });
       const fold = [...container.querySelectorAll("details")].find((element) => element.querySelector("summary")?.textContent?.includes("the recorded documents"))!;
-      openFold(fold);
+      await setFoldOpen(fold, true);
       await waitFor(() => expect(fold.querySelectorAll(".document")).toHaveLength(4));
       for (const document of [...fold.querySelectorAll(".document")].slice(0, 3)) {
         expect(document.textContent).not.toContain("recorded no content");
       }
       expect(fold.querySelectorAll(".document")[3]!.textContent).toContain("recorded no content");
+    } finally { setEventDocumentsReader(previous); }
+  });
+
+  test("a guided host can expose technical folds later without changing the beat or eagerly reading documents", async () => {
+    const reader = scriptedReader([[{ name: "finding", content: { blocked: true } }]]);
+    const previous = setEventDocumentsReader(reader as never);
+    try {
+      const view = render(BeatScope, { props: { beat: RECORDED, projectPath: null, showRecordDetails: false, fillAvailable: true } });
+      const foldNamed = (name: string) => [...view.container.querySelectorAll("details")].find((fold) => fold.querySelector("summary")?.textContent === name);
+      expect(foldNamed("the precise record")).toBeUndefined();
+      expect(foldNamed("the recorded documents")).toBeUndefined();
+      expect(visibleText(view.container)).toContain(RECORDED.event!.text);
+      expect(reader.calls).toHaveLength(0);
+
+      await view.rerender({ beat: RECORDED, projectPath: null, showRecordDetails: true, fillAvailable: true });
+      const documents = foldNamed("the recorded documents")!;
+      expect(documents).toBeDefined();
+      expect(documents.open).toBe(false);
+      expect(foldNamed("the precise record")).toBeDefined();
+      expect(reader.calls, "exposing closed technical folds performs no read").toHaveLength(0);
+      await setFoldOpen(documents, true);
+      await waitFor(() => expect(documents.querySelectorAll(".document")).toHaveLength(1));
+      expect(reader.calls).toHaveLength(1);
+
+      await view.rerender({ beat: RECORDED, projectPath: null, showRecordDetails: false, fillAvailable: true });
+      expect(foldNamed("the precise record")).toBeUndefined();
+      expect(foldNamed("the recorded documents")).toBeUndefined();
+      expect(visibleText(view.container)).toContain(RECORDED.event!.text);
+      expect(reader.calls, "returning to the guide does not reread the same record").toHaveLength(1);
     } finally { setEventDocumentsReader(previous); }
   });
 
@@ -386,7 +413,7 @@ describe("the recorded documents fold", () => {
       (d.querySelector("summary")?.textContent ?? "").includes("the recorded documents"),
     )!;
 
-    openFold(fold);
+    await setFoldOpen(fold, true);
     await waitFor(() => {
       expect(fold.textContent).toContain("finding");
       expect(fold.textContent).toContain("verdict");
@@ -409,7 +436,7 @@ describe("the recorded documents fold", () => {
     const fold = [...container.querySelectorAll("details")].find((d) =>
       (d.querySelector("summary")?.textContent ?? "").includes("the recorded documents"),
     )!;
-    openFold(fold);
+    await setFoldOpen(fold, true);
     await waitFor(() => {
       expect(fold.textContent).toContain("not reachable");
     });
@@ -423,14 +450,14 @@ describe("the recorded documents fold", () => {
     const fold = [...container.querySelectorAll("details")].find((d) =>
       (d.querySelector("summary")?.textContent ?? "").includes("the recorded documents"),
     )!;
-    openFold(fold);
+    await setFoldOpen(fold, true);
     await waitFor(() => {
       expect(fold.textContent).toContain("network down");
       expect(fold.textContent).toContain("retry");
     });
     // The honest retry: reopen (close + open) re-reads the failed fold.
-    closeFold(fold);
-    openFold(fold);
+    await setFoldOpen(fold, false);
+    await setFoldOpen(fold, true);
     await waitFor(() => {
       expect(fold.textContent).toContain("finding");
       expect(fold.textContent).toContain("recorded no content");

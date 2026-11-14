@@ -4,6 +4,7 @@
 // finding), and the text it sets meets WCAG 2.2 AA in both themes. Each arm
 // is proved with planted violations and with near-misses that must pass.
 import assert from "node:assert/strict";
+import { contrastRatio as contrast } from "../../shared/color-contrast.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,8 @@ import { SITE_BASEURL } from "../../scripts/floor/repository.mjs";
 import { sitePlan } from "../../scripts/floor/site-pages.mjs";
 import { declaredTokens, judgeSiteStyles, siteMarkupFiles, siteMarkupViolations, siteStyleViolations } from "../../scripts/floor/site-style.mjs";
 import { BRAND_MARK } from "../../src/cockpit/shell/brand-mark.ts";
-import { MARKDOWN_STYLE_ATTRIBUTES, PALETTE_BURN_DOWN, SITE_THEME_STORAGE, sitePolicies } from "../../shared/site-page.ts";
+import { MARKDOWN_STYLE_ATTRIBUTES, PALETTE_BURN_DOWN, SERVED_HTML, SITE_THEME_STORAGE, sitePolicies } from "../../shared/site-page.ts";
+import { SERVED_HTML as MARKUP_SERVED_HTML } from "../../shared/markup.ts";
 import { readNames, readTokenOwner, themeColor, THEMES, tokenSheet } from "../../shared/token-reader.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -43,6 +45,10 @@ function scratch(run) {
   }
 }
 
+test("source admission and site policy share one HTML suffix matcher", () => {
+  assert.equal(SERVED_HTML, MARKUP_SERVED_HTML);
+});
+
 test("the site build judges every stylesheet it hands Jekyll, and they read only the owner's tokens", async () => {
   const directory = mkdtempSync(join(tmpdir(), "site-style-build-"));
   try {
@@ -53,7 +59,7 @@ test("the site build judges every stylesheet it hands Jekyll, and they read only
     assert.deepEqual(findings, []);
     for (const path of ["assets/css/style.css", "assets/floor/floor.css", ...PALETTE_BURN_DOWN.keys()]) assert.ok(sheets.includes(path), `the build input lists ${path}`);
     assert.ok(!sheets.includes("assets/css/tokens.css"), "the generated token sheet is the owner's projection, judged by its generator");
-    for (const path of ["_layouts/default.html", "_includes/design-head.html", "_includes/brand-mark.svg", "run/index.html", "policy-lab/index.html"]) assert.ok(markup.includes(path), `the build input lists ${path}`);
+    for (const path of ["_layouts/default.html", "_includes/design-head.html", "_includes/brand-mark.svg", "policy-lab/index.html"]) assert.ok(markup.includes(path), `the build input lists ${path}`);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -253,15 +259,16 @@ test("the shell's stylesheets compile into a token sheet: every name they read i
   assert.throws(() => tokenSheet(OWNER, [...used, "--site-only-colour"], { themeAttribute: "data-theme", lead: "logbook", fontUrl: (url) => url, banner: "test" }), /token_undeclared/u);
 });
 
-/** WCAG 2.2 relative luminance contrast of two `#rrggbb` colours. */
-function contrast(foreground, background) {
-  const luminance = (hex) => {
-    const [r, g, b] = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255).map((channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4));
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-  const [light, dark] = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
-  return (light + 0.05) / (dark + 0.05);
-}
+test("the shared contrast owner accepts native sRGB triplets and refuses undefined colours", () => {
+  assert.equal(contrast("#000000", "#ffffff"), 21);
+  assert.equal(contrast([0, 0, 0], [255, 255, 255]), 21);
+  assert.equal(contrast([255, 255, 255], [0, 0, 0]), 21);
+  assert.equal(contrast([16, 18, 22], "#101216"), 1);
+  assert.equal(contrast("#101216", "#e8ebef"), contrast([16, 18, 22], [232, 235, 239]));
+  for (const value of ["", "#fff", "transparent", "#zzzzzz", null, {}, [], new Array(3), [0, 0], [0, 0, 0, 255], [0, 0, 256], [0, -1, 0], [0, 0, NaN]]) {
+    assert.throws(() => contrast(value, "#ffffff"), TypeError);
+  }
+});
 
 /** Every ink the site sets text in, and every ground it sets text on. */
 const TEXT_INKS = ["--ink-1", "--ink-2", "--accent", "--ok", "--warn", "--alarm", "--syn-string", "--syn-number", "--syn-keyword", "--syn-type", "--syn-func", "--syn-punct", "--syn-meta"];
@@ -316,12 +323,14 @@ test("the layout draws no mark and holds no colour: the mark comes from its one 
 test("every navigation entry names a page the site publishes", () => {
   const navigation = parse(read("docs/_data/navigation.yml"));
   const plan = sitePlan({ root: ROOT });
-  const paths = [...navigation.primary, ...navigation.sections.flatMap((section) => section.links)].map((entry) => entry.path);
-  assert.ok(paths.length >= 20, "the navigation lists the site");
-  const missing = paths.filter((path) => !plan.byPermalink.has(path)
-    && !existsSync(join(ROOT, "docs", path, "index.html"))
-    && !existsSync(join(ROOT, "docs", path)));
-  assert.deepEqual(missing, []);
+  const entries = [...navigation.primary, ...navigation.sections.flatMap((section) => section.links)];
+  assert.ok(entries.length >= 20, "the navigation lists the site");
+  const missing = entries.filter((entry) => {
+    if (typeof entry.asset === "string") return !existsSync(join(ROOT, "docs", entry.asset.replace(/^\//u, "")));
+    const page = plan.bySource.get(typeof entry.artifact === "string" ? entry.artifact : `docs/${entry.page}`);
+    return page === undefined || page.permalink === null || (typeof entry.artifact === "string") !== (page.artifact === true);
+  });
+  assert.deepEqual(missing, [], "navigation uses the same page/artifact identities as the publish plan");
   const layout = read("docs/_layouts/default.html");
   assert.match(layout, /site\.data\.navigation\.primary/u);
   assert.match(layout, /site\.data\.navigation\.sections/u);

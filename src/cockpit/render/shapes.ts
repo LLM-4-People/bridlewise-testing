@@ -1,3 +1,4 @@
+import type { ToolOutputShape } from "../../../engine/src/tools/tool-output-shape.ts";
 /**
  * COCKPIT RENDER — what shape is this tool's recorded output? (pure).
  *
@@ -356,7 +357,7 @@ export function parseJsonContainer(text: string): unknown | null {
  * hand-added its name). A tool whose entry declares no shape falls through
  * to the value's own structure.
  */
-export type DeclaredOutputShape = "file" | "command" | "search";
+export type DeclaredOutputShape = ToolOutputShape;
 
 export type OutputShape =
   | Readonly<{ kind: "empty" }>

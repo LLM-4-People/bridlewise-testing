@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
+import { SERVED_HTML } from "../../shared/markup.ts";
 
 const SKIP_DIRECTORIES = new Set([
   ".git",
@@ -42,6 +43,24 @@ export function walkFiles(root, keep) {
   return out;
 }
 
+/** Every page Pages serves as HTML under `siteRoot` (`shared/markup.ts` SERVED_HTML, any case), as site-relative POSIX paths. */
+export function htmlPages(siteRoot) {
+  const root = resolve(siteRoot);
+  const out = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(full);
+      } else if (entry.isFile() && SERVED_HTML.test(entry.name)) {
+        out.push(toPosix(full.slice(root.length)).replace(/^\/+/u, ""));
+      }
+    }
+  };
+  visit(root);
+  return out.sort();
+}
+
 export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -56,6 +75,23 @@ export function toPosix(value) {
 
 export function relativePosix(root, file) {
   return toPosix(relative(root, file));
+}
+
+/** Candidate built files for a site-root-relative URL. Never escapes `siteRoot`. */
+export function candidateSiteFiles(siteRoot, sitePath) {
+  const root = resolve(siteRoot);
+  const relativePath = sitePath.replace(/^\/+/u, "");
+  const segments = relativePath.split("/").filter((segment) => segment.length > 0);
+  if (segments.some((segment) => segment === "..")) return [];
+  const exact = resolve(root, ...segments);
+  if (exact !== root && !exact.startsWith(`${root}${sep}`)) return [];
+  if (relativePath.length === 0 || sitePath.endsWith("/")) return [join(exact, "index.html")];
+  return [exact, join(exact, "index.html"), `${exact}.html`];
+}
+
+/** Existing file candidates; probing below an exact-file permalink is an ordinary miss. */
+export function existingSiteFiles(siteRoot, sitePath) {
+  return candidateSiteFiles(siteRoot, sitePath).filter(isFile);
 }
 
 export function stableValue(value) {
@@ -136,10 +172,12 @@ export function repoInfo(root) {
   }
 }
 
+/** A missing file or non-directory parent is a miss; other stat failures remain errors. */
 export function isFile(file) {
   try {
     return statSync(file).isFile();
-  } catch {
-    return false;
+  } catch (error) {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return false;
+    throw error;
   }
 }

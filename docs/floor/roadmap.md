@@ -84,9 +84,9 @@ This is the dated public-baseline audit. It is a point-in-time record, not a liv
 | Full-suite time | The 10-shard `ubuntu-24.04` receipt at `d47909de` measured `testPhaseMs` 86.7s and `testPhaseCpuMs` 636.8s: 2.81x the 244.0s single-host supported run. The 10x line is not met on this runner class. This row records that audit; later receipts, including the re-measured shard weights, are on the status page |
 | Readiness | Pre-admission. `preflight` reports `harnessReady: false` |
 | Security review | None |
-| Contribution path | Documented in [How to help]({{ '/floor/help/' | relative_url }}) and [CONTRIBUTING.md](../../CONTRIBUTING.md) |
+| Contribution path | Documented in [How to help](help.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md) |
 
-The snapshot is dated by the [status page]({{ '/floor/status/' | relative_url }}) and the [atlas]({{ '/floor/atlas/' | relative_url }}). This page names the direction; those pages carry the generated evidence.
+The snapshot is dated by the [status page](status.md) and the [atlas](atlas.md). This page names the direction; those pages carry the generated evidence.
 
 ## How to read a milestone
 
@@ -375,4 +375,4 @@ A milestone, workstream, exit criterion, not-planned statement or task changes i
 
 The generated blocks are not hand-editable. The site build also refuses a page whose emitted classes have no rule in the shared stylesheet (`npm run design:coverage`), and a built-page assertion checks that this page's tables are tables rather than paragraphs, so a generator change that breaks rendering fails the deploy rather than the reader. A guard (`tests/prevention/roadmap-status-owner.test.ts`) fails when the page differs from the renderer's output, when an open roadmap item names no milestone, or when an item's evidence points at a missing file or anchor.
 
-The [decision records]({{ '/decisions/' | relative_url }}) hold the durable reasoning. The [status page]({{ '/floor/status/' | relative_url }}) holds the generated snapshot. This page holds the direction and the plan. If an item is blocked, its row says so. A visible block is better than a quiet omission.
+The [decision records](../decisions/README.md) hold the durable reasoning. The [status page](status.md) holds the generated snapshot. This page holds the direction and the plan. If an item is blocked, its row says so. A visible block is better than a quiet omission.

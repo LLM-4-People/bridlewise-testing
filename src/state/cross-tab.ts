@@ -51,7 +51,7 @@
 
 import { atom } from "nanostores";
 
-import { storageKeyFor, withForeignAdoption } from "./persistence";
+import { rawStorageKeyFor, storageKeyFor, withForeignAdoption } from "./persistence";
 import { registerReset } from "./store-registry";
 import { clientWarn } from "../client-debug";
 
@@ -102,7 +102,8 @@ export function onForeignWrite(logicalKey: string, adopt: ForeignWrite): () => v
  * rather than making the prefix a parameter, so a caller cannot accidentally
  * register for an unprefixed key that will never fire.
  */
-export function onForeignRawWrite(rawKey: string, adopt: ForeignWrite): () => void {
+export function onForeignRawWrite(key: string, adopt: ForeignWrite): () => void {
+  const rawKey = rawStorageKeyFor(key);
   const list = adopters.get(rawKey) ?? [];
   list.push(adopt);
   adopters.set(rawKey, list);

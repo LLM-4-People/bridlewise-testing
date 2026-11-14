@@ -3,7 +3,8 @@
  * names, and the assembly of a release folder from the built inputs
  * (github-only §9.4): the product source tarball (`git archive` of the
  * product commit), the engine bundle, the guardian binary of the platform
- * that built it, the SBOM, the pre-built documentation site for `/v/<version>/`
+ * that built it, the SBOM, the pre-built documentation site under the repository
+ * identity's documentation prefix at `v/<version>/`
  * (P4.3), and `SHA256SUMS` over all of them. The release workflow builds the
  * inputs, assembles them here, attests each asset and publishes the release
  * immutable; the names come only from {@link releaseAssetNames}.

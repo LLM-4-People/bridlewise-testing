@@ -121,6 +121,12 @@ const nodeTests = testFiles.filter((path) => !browserTestSet.has(path));
 
 
 export default mergeConfig(BUILD_CONFIG, defineConfig({
+  // The production builder supplies this generated module. Tests resolve
+  // its identity here; the boot-order test supplies only its sentinel data.
+  plugins: [{
+    name: "public-replay-test-resolution",
+    resolveId(id) { return id === "virtual:bridlewise-public-replay" ? id : undefined; },
+  }],
   test: {
     // Default to the node environment (fast — no DOM setup). Files that
     // render Svelte components opt in via `// @vitest-environment jsdom`.

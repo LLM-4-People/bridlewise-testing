@@ -120,7 +120,7 @@ ALL TESTS PASS
 
 The suite reports **40/40** when the host cannot create a private mount namespace. Tests 35 and 36 — the bind-mount alias attacks — are skipped in that case, and the script says so. A host that can run `unshare -rm` adds four assertions from those two tests and reports **PASS 44/44**. Do not turn either number into “all kernel paths pass”: an exit code of 3 (`landlock_unavailable`) is a skip, not a pass.
 
-The guardian confines filesystem access on Linux. It is not a VM, a network firewall, a seccomp profile, or a user-namespace boundary. The [security page]({{ '/security/' | relative_url }}) states the limits.
+The guardian confines filesystem access on Linux. It is not a VM, a network firewall, a seccomp profile, or a user-namespace boundary. The [security page](security-and-limits.md) states the limits.
 
 ## 4. The security surfaces
 
@@ -263,4 +263,4 @@ observed:
 interpretation:
 ```
 
-That is the same discipline the harness applies to a run: a claim without a command is a story. The [reading map]({{ '/reading-map/' | relative_url }}) offers shorter and longer audit paths. The [known issues]({{ '/known-issues/' | relative_url }}) page lists the gaps this evidence cannot close.
+That is the same discipline the harness applies to a run: a claim without a command is a story. The [reading map](reading-map.md) offers shorter and longer audit paths. The [known issues](known-issues.md) page lists the gaps this evidence cannot close.

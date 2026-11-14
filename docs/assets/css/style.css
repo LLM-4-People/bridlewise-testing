@@ -148,6 +148,7 @@ html:not(.js) .js-only {
 
 .site-header-inner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-5);
   min-height: var(--page-header-h);
@@ -172,6 +173,8 @@ html:not(.js) .js-only {
 }
 
 .site-nav {
+  min-width: 0;
+  max-width: 100%;
   margin-inline-start: auto;
 }
 
@@ -186,6 +189,7 @@ html:not(.js) .js-only {
 
 .site-nav ul {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-1);
 }
 
@@ -213,6 +217,9 @@ html:not(.js) .js-only {
 
 .site-tools {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   gap: var(--sp-1);
 }
@@ -1098,6 +1105,121 @@ main blockquote > :last-child {
   font-size: var(--f-hero-size);
   line-height: var(--f-hero-lh);
   letter-spacing: var(--f-hero-track);
+}
+
+.hero-demo {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr);
+  align-items: start;
+  gap: var(--sp-7);
+  padding-block: var(--sp-6);
+}
+
+.hero-intro,
+.hero-workspace {
+  min-width: 0;
+}
+
+.hero-demo h1 {
+  font-size: min(var(--f-hero-size), calc(var(--f-page-h1) * 1.5));
+  max-width: 13ch;
+  text-wrap: balance;
+}
+
+.hero-demo .lede {
+  margin-top: var(--sp-4);
+  font-size: var(--f-page-size);
+}
+
+.hero-demo .actions {
+  margin-top: var(--sp-5);
+}
+
+.hero-demo .hero-note {
+  font-family: var(--face-sans);
+  margin-top: var(--sp-3);
+}
+
+.hero-workspace {
+  border-top: var(--rule-w) solid var(--ink-1);
+}
+
+.hero-workspace-note {
+  font-size: var(--f-micro-size);
+}
+
+
+.hero-demo-frame {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--hit-min) * 8);
+  border: 0;
+  background: var(--ground-1);
+}
+
+.hero-workspace-note {
+  margin: var(--sp-3) 0 0;
+  color: var(--ink-2);
+}
+
+.home-paths {
+  border-top: var(--rule-w) solid var(--ink-1);
+}
+
+.home-path {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--sp-6);
+  padding-block: var(--sp-5);
+  border-bottom: var(--hairline-w) solid var(--line-1);
+}
+
+.home-path h3,
+.home-path p {
+  margin: 0;
+}
+
+.home-path h3 {
+  font-size: var(--f-page-h3);
+}
+
+.home-path p + p {
+  margin-top: var(--sp-3);
+}
+
+.home-path p {
+  max-width: var(--page-measure);
+  color: var(--ink-2);
+}
+
+.home-path p a {
+  display: inline-block;
+  padding-block: var(--sp-1);
+}
+
+@media (max-width: 1100px) {
+  .hero-demo {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: var(--sp-5);
+  }
+
+  .hero-demo h1 {
+    font-size: min(var(--f-hero-size), calc(var(--f-page-h1) * 1.2));
+  }
+}
+
+@media (max-width: 760px) {
+  .hero-demo,
+  .home-path {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-5);
+  }
+
+  .hero-demo h1 {
+    max-width: 16ch;
+    font-size: var(--f-hero-size);
+  }
+
 }
 
 .lede {

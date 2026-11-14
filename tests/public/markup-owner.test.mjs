@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { ownedFiles } from "../../engine/src/git/repository-ownership.ts";
 
 import {
   decodeHtmlEntities,
@@ -64,6 +64,16 @@ import ts from "typescript5";
  */
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+test("HTML removal preserves UTF-16 source offsets and line boundaries when requested", () => {
+  const source = '<!-- 🐎 hidden -->\n<p>Visible</p>\n<script>hidden\ntext</script>';
+  const masked = htmlWithout(source, { comments: true, elements: ["script"], preserveOffsets: true });
+  assert.equal(masked.length, source.length);
+  assert.deepEqual([...masked.matchAll(/\n/gu)].map((match) => match.index), [...source.matchAll(/\n/gu)].map((match) => match.index));
+  assert.ok(masked.includes("<p>Visible</p>"));
+  assert.ok(!masked.includes("hidden"));
+});
+
 /** The owner, and the one file that proves it (its assertions spell entities). */
 const OWNER_FILES = new Set(["shared/markup.ts", "tests/public/markup-owner.test.mjs"]);
 const SOURCE = /\.(?:[cm]?[jt]s|svelte)$/u;
@@ -119,7 +129,6 @@ const READS = new Set(["match", "matchAll", "search"]);
 const DECLARED = new Map([
   ["engine/src/quality/languages/c-cpp/parser.ts", "strips the `<`, `>` and `\"` delimiters of a C `#include` path, which is C syntax, not markup"],
   ["engine/verification/benchmarks/shared/qualification-authority-audit.mjs", "extracts the exact `<!-- authority-claims:v1 BEGIN -->` marker block from a Markdown record; it reads, never sanitizes"],
-  ["scripts/floor/site-links.mjs", "reads every tag of the BUILT site to crawl its href/src attributes; it reads, never sanitizes"],
   ["tests/cockpit/cockpit-mouse-path-owner.test.ts", "reads the tags of this repository's own Svelte components to find their pointer controls"],
   ["tests/cockpit/editor-surface-owner.test.ts", "reads the tags of this repository's own Svelte components to find the editor surface"],
   ["engine/src/shared/source-structure.ts", "the source-structure owner locates `<script>` blocks of Svelte sources for its parser; it reads, never sanitizes"],
@@ -371,15 +380,15 @@ function violations(path, text) {
     .map((violation) => violation.replace(".svelte.ts:", ".svelte:")))];
 }
 
-function trackedSources() {
-  return execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" })
-    .split("\0")
-    .filter((path) => SOURCE.test(path));
+function ownedSources() {
+  const files = ownedFiles(ROOT);
+  assert.notEqual(files, undefined, "the guard requires a repository ownership answer");
+  return files.filter((path) => SOURCE.test(path));
 }
 
-test("no tracked source outside the owner hand-rolls an escape, decode, strip or tag filter", () => {
-  const files = trackedSources();
-  assert.ok(files.length > 1000, `git ls-files found only ${String(files.length)} source files`);
+test("no owned source outside the owner hand-rolls an escape, decode, strip or tag filter", () => {
+  const files = ownedSources();
+  assert.ok(files.length > 1000, `ownership found only ${String(files.length)} source files`);
   for (const folder of ["engine/src/", "server/", "src/", "scripts/", "tests/", "shared/"]) {
     assert.ok(files.some((path) => path.startsWith(folder)), `the scan reached nothing under ${folder}`);
   }
