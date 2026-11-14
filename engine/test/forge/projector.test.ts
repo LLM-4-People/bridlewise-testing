@@ -95,22 +95,33 @@ test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a p
   writeFileSync(entry, "export function projectText(input: string): string { const bytes = Number(input); const kept: Uint8Array[] = []; for (let done = 0; done < bytes; done += 1 << 20) kept.push(new Uint8Array(1 << 20).fill(1)); return String(kept.length); }");
   const script = join(directory, "memory.mjs");
   writeFileSync(script, [
+    `process.stderr.write(JSON.stringify({ phase: "started", rss: process.memoryUsage().rss }) + "\\n");`,
     `const { confinedCall } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/workflow/forge/projector/confined.ts"))});`,
     `const { ownCgroupFile, ownCgroupPath } = await import(${JSON.stringify(join(ENGINE_ROOT, "src/process/process-facts.ts"))});`,
     `const { emptyKeepOutFacts } = await import(${JSON.stringify(join(ENGINE_ROOT, "test/support/keep-out-facts.ts"))});`,
+    `const observe = (phase) => {`,
+    `  let facts;`,
+    `  try { facts = { scope: ownCgroupPath(), memoryMax: ownCgroupFile("memory.max"), memoryEvents: ownCgroupFile("memory.events") }; }`,
+    `  catch (error) { facts = { observationError: { code: error?.code, message: error instanceof Error ? error.message : String(error) } }; }`,
+    `  process.stderr.write(JSON.stringify({ phase, rss: process.memoryUsage().rss, ...facts }) + "\\n");`,
+    `};`,
     `const module = { entry: ${JSON.stringify(entry)}, roots: [${JSON.stringify(directory)}], exportName: "projectText" };`,
     `const confinement = { harnessRoot: ${JSON.stringify(ENGINE_ROOT)}, keepOut: emptyKeepOutFacts(), cpuSeconds: 120, run: { lockPath: ${JSON.stringify(join(directory, "instrument.lock"))}, perRun: { memoryMaxPercent: 1, cpuWeight: 100 } } };`,
+    `observe("before-admission");`,
     // The probe: an admitted run of these caps; this process stays in its scope after it, so the scope's own memory.max is the cap.
     `confinedCall(module, "0", confinement);`,
+    `observe("probed");`,
     `const scope = ownCgroupPath();`,
     `const max = Number(ownCgroupFile("memory.max"));`,
     `if (!Number.isSafeInteger(max) || max <= 0) { process.stdout.write(\`NO-CAP \${ownCgroupFile("memory.max")}\\n\`); process.exit(0); }`,
     `let ending;`,
+    `observe("before-allocation");`,
     `try { confinedCall(module, String(3 * max), confinement); ending = "ANSWERED"; } catch (error) { ending = \`REFUSED \${error.code}\`; }`,
+    `observe("after-allocation");`,
     `process.stdout.write(\`\${ending} scope=\${scope} max=\${max}\\n\`);`,
   ].join("\n"));
   const ran = spawnSync(process.execPath, ["--experimental-strip-types", script], { cwd: ENGINE_ROOT, encoding: "utf8", env: process.env });
-  assert.equal(ran.status, 0, ran.stderr);
+  assert.equal(ran.status, 0, JSON.stringify({ status: ran.status, signal: ran.signal, error: ran.error === undefined ? null : { message: ran.error.message, code: (ran.error as NodeJS.ErrnoException).code }, stdout: ran.stdout, stderr: ran.stderr }));
   // No swap under the cap: three times memory.max cannot be held, so the kernel ends the program and the admission owner refuses the run, typed.
   assert.match(ran.stdout, /^REFUSED projection_memory_exhausted scope=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope max=[1-9]\d*$/mu, `${ran.stdout} ${ran.stderr}`);
 });
