@@ -1,8 +1,10 @@
-import { mkdirSync, opendirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, opendirSync, readdirSync, readFileSync, statSync, unlinkSync, type BigIntStats } from "node:fs";
 import { enableCompileCache, getCompileCacheDir } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
 import { InputError } from "../../src/kernel/errors.ts";
+import { atomicWriteFile } from "../../src/filesystem/atomic-write.ts";
+import { pinnedPathIdentity, samePinnedPathIdentity, sameStablePinnedPathIdentity, type PinnedPathIdentity } from "../../src/filesystem/pinned-path-internal.ts";
 import { parseJsonExact } from "../../src/kernel/json-integrity.ts";
 import { bestEffort } from "../../src/shared/best-effort.ts";
 import { debugLog, reportAlwaysOn } from "../../src/shared/debug/debug-system.ts";
@@ -255,88 +257,215 @@ export type CompileCachePruneResult = Readonly<{
   survivorBytes: number;
   /** True when, after pruning everything allowed, the cache is still over `maxBytes`: the rest is in use. */
   overBoundInUse: boolean;
-  /** True when the deletion cap stopped this prune with prunable entries left: the next enabler continues. */
+  /** True when the cap or a changed/failed selected entry left work requiring a fresh plan. */
   workLeft: boolean;
+  /** The configured deletion cap left initially selected policy victims for another invocation. */
+  deletionCapReached: boolean;
+  /** Selected paths whose root, directory, type or native identity changed before unlink. */
+  changedEntries: number;
+  /** Selected entries observed in use at the final last-use check; never unlinked. */
+  recentlyUsedEntries: number;
   /** Entries whose unlink failed (each a survivor), said in the summary line. */
   unlinkFailures: number;
 }>;
 
-type CacheEntry = { readonly path: string; readonly bytes: number; readonly lastUsedMs: number };
+/** Read-only aggregate decisions from the exact selector used by the ordinary prune. */
+export type CompileCachePrunePlan = Readonly<{
+  root: string;
+  rootIdentity: PinnedPathIdentity | null;
+  scannedEntries: number;
+  scannedBytes: number;
+  protectedEntries: number;
+  protectedBytes: number;
+  prunableEntries: number;
+  prunableBytes: number;
+  selectedEntries: number;
+  selectedBytes: number;
+  survivorBytes: number;
+  workLeft: boolean;
+  overBoundInUse: boolean;
+}>;
 
-/**
- * Prune the cache rooted at `root` (its version subdirectories) under
- * `policy`, as of `nowMs`. Exported with the root injectable so the exact
- * survivor set is DRIVEN over a planted fixture and asserted — a deletion
- * routine no test drives is the routine whose in-use-entry-eating mutant
- * survives every guard.
- *
- * One collection walk (path, size, last use), then deletion of the
- * PRUNABLE set in least-recently-used order: every entry unused for
- * `maxEntryAgeHours`, then — while the total is over `maxBytes` — the least
- * recently used, never one used within `inUseMinutes`; at most
- * `maxDeletionsPerPrune` of them, the oldest first, so a prune that stops
- * early has removed the right ones.
- */
-export function pruneCompileCache(root: string, policy: CompileCachePruningPolicy, nowMs: number): CompileCachePruneResult {
-  const entries: CacheEntry[] = [];
-  let subdirectories: readonly string[] = [];
-  try {
-    subdirectories = readdirSync(root, { withFileTypes: true }).filter((one) => one.isDirectory()).map((one) => join(root, one.name));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+/** A deterministic observation seam; production passes no hook. Checks always run after it. */
+export type CompileCachePruneHooks = Readonly<{ beforeUnlink?: (path: string) => void }>;
+
+type CacheEntry = Readonly<{
+  path: string;
+  directory: string;
+  identity: BigIntStats;
+  bytes: number;
+  lastUsedMs: number;
+}>;
+
+type CollectedCachePlan = Readonly<{
+  root: string;
+  rootIdentity: BigIntStats | null;
+  directories: ReadonlyMap<string, BigIntStats>;
+  selected: readonly CacheEntry[];
+  inUseCutoff: number;
+  report: CompileCachePrunePlan;
+}>;
+
+function cacheLastUsedMs(identity: BigIntStats): number {
+  return Math.max(Number(identity.mtimeNs), Number(identity.atimeNs)) / 1_000_000;
+}
+
+function stableCacheDirectory(path: string, expected: BigIntStats): boolean {
+  const current = lstatSync(path, { bigint: true, throwIfNoEntry: false });
+  return current !== undefined && current.isDirectory() && !current.isSymbolicLink() &&
+    sameStablePinnedPathIdentity(expected, current);
+}
+
+function cacheRootIdentity(root: string): BigIntStats | null {
+  const identity = lstatSync(root, { bigint: true, throwIfNoEntry: false });
+  if (identity === undefined) return null;
+  if (!identity.isDirectory() || identity.isSymbolicLink()) {
+    throw new InputError("the compile cache root is not a real directory", "compile_cache_root_unsafe");
   }
-  for (const directory of subdirectories) {
-    const handle = opendirSync(directory);
-    try {
-      for (;;) {
-        const entry = handle.readSync();
-        if (entry === null) break;
-        if (!entry.isFile()) continue;
-        const path = join(directory, entry.name);
-        const facts = statSync(path, { throwIfNoEntry: false });
-        if (facts === undefined) continue; // vanished mid-walk: not ours to prune
-        entries.push({ path, bytes: facts.size, lastUsedMs: Math.max(facts.mtimeMs, facts.atimeMs) });
+  return identity;
+}
+
+/** One collection and LRU/age selector. A public report is descriptive, never deletion authority. */
+function collectCompileCachePlan(root: string, policy: CompileCachePruningPolicy, nowMs: number): CollectedCachePlan {
+  const rootIdentity = cacheRootIdentity(root);
+  const directories = new Map<string, BigIntStats>();
+  const entries: CacheEntry[] = [];
+  if (rootIdentity !== null) {
+    for (const one of readdirSync(root, { withFileTypes: true })) {
+      if (!one.isDirectory()) continue;
+      const directory = join(root, one.name);
+      const directoryIdentity = lstatSync(directory, { bigint: true, throwIfNoEntry: false });
+      if (directoryIdentity === undefined || !directoryIdentity.isDirectory() || directoryIdentity.isSymbolicLink()) continue;
+      directories.set(directory, directoryIdentity);
+      const handle = opendirSync(directory);
+      try {
+        for (;;) {
+          const entry = handle.readSync();
+          if (entry === null) break;
+          if (!entry.isFile()) continue;
+          const path = join(directory, entry.name);
+          const identity = lstatSync(path, { bigint: true, throwIfNoEntry: false });
+          if (identity === undefined || !identity.isFile() || identity.isSymbolicLink()) continue;
+          const bytes = Number(identity.size);
+          if (!Number.isSafeInteger(bytes) || bytes < 0) {
+            throw new InputError("a compile cache entry has an unrepresentable byte count", "compile_cache_entry_size_invalid");
+          }
+          entries.push({ path, directory, identity, bytes, lastUsedMs: cacheLastUsedMs(identity) });
+        }
+      } finally {
+        handle.closeSync();
       }
-    } finally {
-      handle.closeSync();
+      if (!stableCacheDirectory(root, rootIdentity) || !stableCacheDirectory(directory, directoryIdentity)) {
+        throw new InputError("the compile cache directory changed during inspection", "compile_cache_directory_changed");
+      }
+    }
+    if (!stableCacheDirectory(root, rootIdentity)) {
+      throw new InputError("the compile cache root changed during inspection", "compile_cache_root_changed");
     }
   }
   const scannedBytes = entries.reduce((total, entry) => total + entry.bytes, 0);
-  // THE PRUNABLE SET, oldest first: aged out, or LRU while over the bound; never in use.
   const ageCutoff = nowMs - policy.maxEntryAgeHours * 3_600_000;
   const inUseCutoff = nowMs - policy.inUseMinutes * 60_000;
-  const byAge = entries.toSorted((a, b) => a.lastUsedMs - b.lastUsedMs);
+  const byAge = entries.toSorted((left, right) => left.lastUsedMs - right.lastUsedMs);
   const prunable: CacheEntry[] = [];
   let remaining = scannedBytes;
+  let protectedEntries = 0;
+  let protectedBytes = 0;
   for (const entry of byAge) {
-    if (entry.lastUsedMs >= inUseCutoff) break;
+    if (entry.lastUsedMs >= inUseCutoff) {
+      protectedEntries += 1;
+      protectedBytes += entry.bytes;
+      continue;
+    }
     if (entry.lastUsedMs < ageCutoff || remaining > policy.maxBytes) {
       prunable.push(entry);
       remaining -= entry.bytes;
     }
   }
+  const selected = prunable.slice(0, policy.maxDeletionsPerPrune);
+  const selectedBytes = selected.reduce((total, entry) => total + entry.bytes, 0);
+  const workLeft = selected.length < prunable.length;
+  const survivorBytes = scannedBytes - selectedBytes;
+  const report: CompileCachePrunePlan = Object.freeze({
+    root,
+    rootIdentity: rootIdentity === null ? null : pinnedPathIdentity(rootIdentity),
+    scannedEntries: entries.length,
+    scannedBytes,
+    protectedEntries,
+    protectedBytes,
+    prunableEntries: prunable.length,
+    prunableBytes: scannedBytes - remaining,
+    selectedEntries: selected.length,
+    selectedBytes,
+    survivorBytes,
+    workLeft,
+    overBoundInUse: !workLeft && survivorBytes > policy.maxBytes,
+  });
+  return { root, rootIdentity, directories, selected, inUseCutoff, report };
+}
+
+/** No cache enablement, stamp, directory creation or unlink. Totals are logical scan observations. */
+export function planCompileCachePrune(root: string, policy: CompileCachePruningPolicy, nowMs: number): CompileCachePrunePlan {
+  return collectCompileCachePlan(root, policy, nowMs).report;
+}
+
+/**
+ * Execute a fresh internal plan, rechecking root/version identity and leaf identity/last use.
+ * These checks are not an atomic compare-and-unlink or a live instrument admission fence.
+ * No serialized public plan is accepted as effect authority, and changed candidates are not refilled.
+ */
+export function pruneCompileCache(root: string, policy: CompileCachePruningPolicy, nowMs: number, hooks?: CompileCachePruneHooks): CompileCachePruneResult {
+  const plan = collectCompileCachePlan(root, policy, nowMs);
   let prunedEntries = 0;
   let prunedBytes = 0;
+  let changedEntries = 0;
+  let recentlyUsedEntries = 0;
   let unlinkFailures = 0;
-  for (const entry of prunable.slice(0, policy.maxDeletionsPerPrune)) {
+  for (const entry of plan.selected) {
+    hooks?.beforeUnlink?.(entry.path);
+    const directoryIdentity = plan.directories.get(entry.directory)!;
+    if (plan.rootIdentity === null || !stableCacheDirectory(root, plan.rootIdentity) ||
+      !stableCacheDirectory(entry.directory, directoryIdentity)) {
+      changedEntries += 1;
+      continue;
+    }
+    const current = lstatSync(entry.path, { bigint: true, throwIfNoEntry: false });
+    if (current === undefined || !current.isFile() || current.isSymbolicLink() ||
+      !sameStablePinnedPathIdentity(entry.identity, current) || current.size !== entry.identity.size ||
+      current.nlink !== entry.identity.nlink) {
+      changedEntries += 1;
+      continue;
+    }
+    if (cacheLastUsedMs(current) >= plan.inUseCutoff) {
+      recentlyUsedEntries += 1;
+      continue;
+    }
+    if (!samePinnedPathIdentity(entry.identity, current)) {
+      changedEntries += 1;
+      continue;
+    }
     try {
       unlinkSync(entry.path);
       prunedEntries += 1;
       prunedBytes += entry.bytes;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") unlinkFailures += 1; // ENOENT: another prune took it
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") changedEntries += 1;
+      else unlinkFailures += 1;
     }
   }
-  const survivorBytes = scannedBytes - prunedBytes;
-  const workLeft = prunable.length > policy.maxDeletionsPerPrune;
+  const survivorBytes = plan.report.scannedBytes - prunedBytes;
+  const workLeft = plan.report.workLeft || changedEntries > 0 || recentlyUsedEntries > 0 || unlinkFailures > 0;
   return {
-    scannedEntries: entries.length,
-    scannedBytes,
+    scannedEntries: plan.report.scannedEntries,
+    scannedBytes: plan.report.scannedBytes,
     prunedEntries,
     prunedBytes,
     survivorBytes,
     overBoundInUse: !workLeft && survivorBytes > policy.maxBytes,
     workLeft,
+    deletionCapReached: plan.report.workLeft,
+    changedEntries,
+    recentlyUsedEntries,
     unlinkFailures,
   };
 }
@@ -395,10 +524,12 @@ export function pruneSummary(result: CompileCachePruneResult, policy: CompileCac
     `(${gib(result.prunedBytes)} of ${gib(result.scannedBytes)}) removed; ${gib(result.survivorBytes)} kept ` +
     `(bound: ${gib(policy.maxBytes)}, unused ${String(policy.maxEntryAgeHours)}h pruned, used within ${String(policy.inUseMinutes)}min kept)`;
   const notes: string[] = [];
-  if (result.workLeft) notes.push(`the deletion cap (${String(policy.maxDeletionsPerPrune)}) left prunable entries: the next enabler continues`);
+  if (result.deletionCapReached) notes.push(`the deletion cap (${String(policy.maxDeletionsPerPrune)}) left prunable entries: the next enabler continues`);
+  if (result.changedEntries > 0) notes.push(`${String(result.changedEntries)} selected entr(ies) changed and were preserved; totals remain scan-based`);
+  if (result.recentlyUsedEntries > 0) notes.push(`${String(result.recentlyUsedEntries)} selected entr(ies) became in use and were preserved`);
   if (result.overBoundInUse) notes.push("STILL OVER THE BOUND: the rest is in use");
   if (result.unlinkFailures > 0) notes.push(`${String(result.unlinkFailures)} entr(ies) could not be removed`);
-  return { line: notes.length === 0 ? base : `${base} — ${notes.join("; ")}`, loud: result.overBoundInUse || result.unlinkFailures > 0 };
+  return { line: notes.length === 0 ? base : `${base} — ${notes.join("; ")}`, loud: result.overBoundInUse || result.unlinkFailures > 0 || result.changedEntries > 0 || result.recentlyUsedEntries > 0 };
 }
 
 /**
@@ -407,12 +538,24 @@ export function pruneSummary(result: CompileCachePruneResult, policy: CompileCac
  * and stamp (with whether work is left). Answers the summary, or null when
  * the interval has not passed and no work was left.
  */
-export function pruneCompileCacheAtEnablement(policy: CompileCachePruningPolicy, root: string = COMPILE_CACHE_DIRECTORY, nowMs: number = Date.now()): ReturnType<typeof pruneSummary> | null {
+export function pruneCompileCacheAtEnablement(policy: CompileCachePruningPolicy, root: string = COMPILE_CACHE_DIRECTORY, nowMs: number = Date.now(), hooks?: CompileCachePruneHooks): ReturnType<typeof pruneSummary> | null {
+  const rootIdentity = cacheRootIdentity(root);
+  if (rootIdentity === null) throw new InputError("the compile cache root is absent", "compile_cache_root_missing");
   const stampPath = join(root, PRUNE_STAMP);
-  const last = statSync(stampPath, { throwIfNoEntry: false }) === undefined ? undefined : parsePruneStamp(readFileSync(stampPath, "utf8"));
+  const stampIdentity = lstatSync(stampPath, { bigint: true, throwIfNoEntry: false });
+  if (stampIdentity !== undefined && (!stampIdentity.isFile() || stampIdentity.isSymbolicLink())) {
+    throw new InputError("the compile cache prune stamp is not a regular file", "compile_cache_prune_stamp_unsafe");
+  }
+  const last = stampIdentity === undefined ? undefined : parsePruneStamp(readFileSync(stampPath, "utf8"));
   if (last !== undefined && !last.workLeft && nowMs - last.prunedAtMs < policy.intervalMinutes * 60_000) return null;
-  const result = pruneCompileCache(root, policy, nowMs);
-  writeFileSync(stampPath, pruneStampText(pruneStamp(nowMs, result.workLeft)));
+  const result = pruneCompileCache(root, policy, nowMs, hooks);
+  if (!stableCacheDirectory(root, rootIdentity)) {
+    throw new InputError("the compile cache root changed before stamping", "compile_cache_root_changed");
+  }
+  const stampWrite = atomicWriteFile(stampPath, pruneStampText(pruneStamp(nowMs, result.workLeft)), { createParentDirectories: false });
+  if (!stampWrite.success) {
+    throw stampWrite.error ?? new InputError("the compile cache prune stamp could not be published", "compile_cache_prune_stamp_write_failed");
+  }
   return pruneSummary(result, policy);
 }
 
