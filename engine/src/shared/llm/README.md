@@ -56,6 +56,7 @@ and no module re-implements a provider adapter.
   and the runtime ModelEvent adapter. Native events and final resources survive;
   executable function completion is released only after validated response.completed.
 - `responses-disposition.ts` — classifies complete native output using the exact admitted tools and selector, with an injected host authority resolver; unbound actions produce typed refusal before any local work.
+- `usage-contracts.ts` — canonical count validation and declared usage schemas shared by Responses and host-selected observation; keeps count authority separate from string metadata and whole-instance validity.
 - `queue.ts` — the canonical request-admission, ordering, and
   concurrency-bounding queue.
 - `circuit-breaker.ts` — the circuit breaker for consecutive failures.

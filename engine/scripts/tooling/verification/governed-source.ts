@@ -206,6 +206,7 @@ type ImportedAstBinding = Readonly<{
   source: string;
   importedName: string;
   fromPath: string;
+  typeOnly: boolean;
 }>;
 type StaticAstBinding = ConstantAstBinding | ImportedAstBinding;
 type StaticAstScope = {
@@ -310,7 +311,10 @@ function predeclareAstStatement(statement: TypeScriptAstNode, scope: StaticAstSc
       if (importedName === undefined) {
         registerDynamicAstBinding(scope, String(local.name));
       } else {
-        scope.bindings.set(String(local.name), { kind: "import", source, importedName, fromPath });
+        scope.bindings.set(String(local.name), {
+          kind: "import", source, importedName, fromPath,
+          typeOnly: declaration.importKind === "type" || specifier.importKind === "type",
+        });
       }
     }
   }
@@ -538,6 +542,7 @@ function isExplicitlyTrustedUnknownExport(
   const expression = unwrapAstExpression(initializer);
   if (!expression) return false;
   if (isFunctionAstNode(expression) || expression.type === "ClassExpression") return true;
+  if (isZodConstruction(expression, scope, "schema")) return true;
   if (expression.type !== "CallExpression" && expression.type !== "OptionalCallExpression") {
     return false;
   }
@@ -560,6 +565,52 @@ function isExplicitlyTrustedUnknownExport(
   const binding = resolveStaticAstBinding(scope, String(receiver.name));
   return binding !== undefined && binding !== DYNAMIC_AST_BINDING && binding.kind === "import" &&
     binding.source === "zod" && binding.importedName === "z";
+}
+
+// Supported schema-producing grammar from Zod's classic schemas declarations.
+// Direct namespace-call trust above stays compatible; it is deliberately NOT
+// used as schema provenance (z.parse, for example, returns data). Unknown
+// factories/methods, local object aliases and parser/metadata results cannot
+// propagate builder trust. Const binds a name, not an immutable schema object.
+const ZOD_SCHEMA_FACTORIES = new Set(["enum", "json", "number", "object", "string"]);
+const ZOD_SCHEMA_BUILDERS = new Set([
+  "catchall", "int", "nonnegative", "nullable", "optional", "safe", "superRefine",
+]);
+
+function isZodConstruction(
+  expression: TypeScriptAstNode,
+  scope: StaticAstScope,
+  expected: "namespace" | "schema",
+  active = new Set<TypeScriptAstNode>(),
+  depth = 0,
+): boolean {
+  if (depth > AST_EVALUATION_MAXIMUM_DEPTH) return false;
+  const node = unwrapAstExpression(expression);
+  if (!node || active.has(node)) return false;
+  active.add(node);
+  try {
+    if (node.type === "Identifier") {
+      const name = String(node.name);
+      if (scope.mutatedNames.has(name)) return false;
+      const binding = resolveStaticAstBinding(scope, name);
+      if (binding === undefined || binding === DYNAMIC_AST_BINDING) return false;
+      return expected === "namespace" && binding.kind === "import" && !binding.typeOnly &&
+        binding.source === "zod" && binding.importedName === "z";
+    }
+    if (expected !== "schema" ||
+      (node.type !== "CallExpression" && node.type !== "OptionalCallExpression")) return false;
+    const callee = unwrapAstExpression(astNode(node.callee));
+    if (!callee || !isMemberAstNode(callee)) return false;
+    const name = staticAstMemberName(callee, scope);
+    const receiver = astNode(callee.object);
+    if (!receiver || name === UNKNOWN_AST_VALUE) return false;
+    return (ZOD_SCHEMA_FACTORIES.has(name) &&
+      isZodConstruction(receiver, scope, "namespace", active, depth + 1)) ||
+      (ZOD_SCHEMA_BUILDERS.has(name) &&
+      isZodConstruction(receiver, scope, "schema", active, depth + 1));
+  } finally {
+    active.delete(node);
+  }
 }
 
 function isFunctionAstNode(node: TypeScriptAstNode): boolean {
