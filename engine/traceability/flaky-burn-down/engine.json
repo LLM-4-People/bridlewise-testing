@@ -28,6 +28,14 @@
     {
       "identity": "test/s1-scenarios/b12.test.ts::S1-B12-CONTROL",
       "owner": "FLAKY-PUBLIC-S1-B12-CONTROL"
+    },
+    {
+      "identity": "test/forge/projector.test.ts::memory is the admitted run's cgroup cap (the one memory-bounds owner): a program allocating three times its run's memory.max, read from the run's own cgroup, is refused typed projection_memory_exhausted",
+      "owner": "PROJECTOR-NATIVE-TERMINATION-BURN-DOWN"
+    },
+    {
+      "identity": "test/process/bounded-run.test.ts::the endings no budget decides, each pinned: SIGXCPU is `cpu-rlimit`; a poller doing any CPU work is progressing, never stalled; a run past the wall backstop is hung",
+      "owner": "BOUNDED-SIGXCPU-STALL-BURN-DOWN"
     }
   ]
 }

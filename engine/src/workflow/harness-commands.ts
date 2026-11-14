@@ -1680,7 +1680,7 @@ async function bundleFreshnessStep(root: string): Promise<CheckStepResult> {
  * landed through every required check and left the suite running nothing
  * (#417). Asked here, it is refused before it lands.
  */
-async function candidateFormatStep(root: string): Promise<CheckStepResult> {
+export async function candidateFormatStep(root: string): Promise<CheckStepResult> {
   let answer: ScriptAnswer;
   try {
     answer = await runScriptSubprocess(root, "scripts/verification/candidate-manifest.ts", ["--root", ".", "--verdict"]);
