@@ -26,7 +26,7 @@
  * exercised by being satisfied has never been shown to be capable of failing.
  */
 import { describe, expect, test } from "vitest";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -202,6 +202,7 @@ function publicRunnerFiles(root: string): ReadonlySet<string> {
 function nodeTestRun(
   root: string,
   file: string,
+  launch: (command: string, args: readonly string[], options: SpawnSyncOptionsWithStringEncoding) => SpawnSyncReturns<string> = spawnSync,
 ): Readonly<{ status: number | null; output: string; passedNames: readonly string[] }> {
   // THE HANG BOUND IS NOT OPTIONAL, AND VITEST'S OWN CANNOT SUBSTITUTE FOR IT.
   // `spawnSync` blocks the thread, so a child that never exits is a run that
@@ -212,7 +213,7 @@ function nodeTestRun(
   // judged by its class (tests/setup/test-cpu-class.ts). `SIGKILL` rather
   // than the default `SIGTERM`: a spinning child never reaches a handler,
   // which this workspace has already measured once.
-  const result = spawnSync(
+  const result = launch(
     "node",
     ["--experimental-strip-types", "--test", "--test-reporter=tap", file],
     {
@@ -223,14 +224,18 @@ function nodeTestRun(
       killSignal: "SIGKILL",
     },
   );
+  const stdout = result.stdout ?? "";
+  const stderr = result.stderr ?? "";
   if (result.error !== undefined) {
     throw new Error(
-      `node --test ${file} in ${root} did not complete: ${result.error.message}. A killed or ` +
-        `un-launched child produces no TAP, and reading "no passing names" off one would be a ` +
-        `crash reported as a domain answer.`,
+      `node --test ${file} in ${root} did not complete: ${result.error.message} ` +
+        `(status ${String(result.status)}, signal ${String(result.signal)}). Partial child output ` +
+        `is diagnostic evidence, never passing-name evidence for an incomplete run.\n` +
+        `stdout:\n${stdout}\nstderr:\n${stderr}`,
+      { cause: result.error },
     );
   }
-  const output = `${result.stdout}${result.stderr}`;
+  const output = `${stdout}${stderr}`;
   const passedNames = output
     .split("\n")
     .map((line) => /^ok \d+ - (?<name>.+?)(?: # .*)?$/u.exec(line)?.groups?.["name"])
@@ -316,6 +321,26 @@ describe("every test file this repository holds is executed by something", () =>
           `file loading and not about anything being checked:\n${run.output}`,
       ).toBe(true);
     }
+  });
+
+  test("a native launch error retains partial child stdout and stderr without accepting TAP", () => {
+    const error = Object.assign(new Error("spawnSync node ETIMEDOUT"), { code: "ETIMEDOUT" });
+    const stdout = "TAP version 13\nok 1 - partial-child-proof\n";
+    const stderr = "original child refusal before its process stopped\n";
+    const launch = (): SpawnSyncReturns<string> => ({
+      pid: 0, output: [null, stdout, stderr], stdout, stderr,
+      status: null, signal: "SIGKILL", error,
+    });
+    let thrown: unknown;
+    try { nodeTestRun(WEB_ROOT, "partial-child.test.mjs", launch); }
+    catch (failure) { thrown = failure; }
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) throw new Error("the native launch failure was lost");
+    expect(thrown.cause).toBe(error);
+    expect(thrown.message).toContain(stdout);
+    expect(thrown.message).toContain(stderr);
+    expect(thrown.message).toContain("status null, signal SIGKILL");
+    expect(thrown.message).toContain("did not complete");
   });
 
   test("PLANT: the runner this arm uses reports a FAILING orphan rather than passing it", () => {
