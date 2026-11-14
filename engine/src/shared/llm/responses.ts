@@ -1,15 +1,14 @@
-/** Responses wire contracts. Unknown JSON fields survive projection and replay.
- * Spec and provider evidence: research/responses-api/contract.md.
- */
+/** Responses wire contracts. Unknown JSON fields survive projection and replay. */
 import { z } from "zod";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { isPlainObject } from "../type-guards.ts";
 import { InvalidResponseError } from "./errors.ts";
+import { USAGE_COUNT_SCHEMA as count, RESPONSE_USAGE_SCHEMA, type ResponseUsage } from "./usage-contracts.ts";
+export { RESPONSE_USAGE_SCHEMA, isResponseUsageValue, type ResponseUsage } from "./usage-contracts.ts";
 
 const json = z.json();
 const object = z.record(z.string(), json);
 const string = z.string().min(1);
-const count = z.number().int().nonnegative().safe();
 const nullableBoolean = z.boolean().nullable().optional();
 const nullableString = z.string().nullable().optional();
 
@@ -111,30 +110,6 @@ export const RESPONSES_REQUEST_SCHEMA = requestControlsSchema.extend({
 }).superRefine(validateConversation);
 export type ResponsesRequest = Readonly<z.infer<typeof RESPONSES_REQUEST_SCHEMA>>;
 
-export const RESPONSE_USAGE_SCHEMA = z.object({
-  input_tokens: count, output_tokens: count, total_tokens: count,
-  input_tokens_details: z.object({ cached_tokens: count.optional(), cache_write_tokens: count.optional() }).catchall(json).optional(),
-  output_tokens_details: z.object({ reasoning_tokens: count.optional() }).catchall(json).optional(),
-}).catchall(json).superRefine((usage, context) => {
-  if (usage.total_tokens !== usage.input_tokens + usage.output_tokens) {
-    context.addIssue({ code: "custom", message: "Usage totals are inconsistent" });
-  }
-  if ((usage.input_tokens_details?.cached_tokens ?? 0) > usage.input_tokens ||
-      (usage.output_tokens_details?.reasoning_tokens ?? 0) > usage.output_tokens) {
-    context.addIssue({ code: "custom", message: "Usage details exceed their totals" });
-  }
-});
-export type ResponseUsage = Readonly<z.infer<typeof RESPONSE_USAGE_SCHEMA>>;
-/** Observation may retain declared telemetry, never arbitrary JSON extension fields. */
-export function isResponseUsageValue(path: readonly (string | number)[], value: unknown): boolean {
-  let schema: z.ZodType = RESPONSE_USAGE_SCHEMA;
-  for (const key of path) {
-    while (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) schema = schema.unwrap() as z.ZodType;
-    if (!(schema instanceof z.ZodObject) || typeof key !== "string" || !Object.hasOwn(schema.shape, key)) return false;
-    schema = schema.shape[key];
-  }
-  return schema.safeParse(value).success;
-}
 const resourceSchema = z.object({
   id: string, object: z.literal("response"), model: string,
   output: z.array(RESPONSE_ITEM_SCHEMA), status: RESPONSE_STATUS_SCHEMA.optional(),

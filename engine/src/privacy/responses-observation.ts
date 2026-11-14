@@ -12,6 +12,7 @@ import { isSensitiveHeaderName, isSensitiveKeyName } from "./secret-signals.ts";
 import { responseObservationSlot, responseObservationLocation, isResponseObservationResource } from "./responses-redaction.ts";
 import { rememberableDeclaredValue } from "./secret-intelligence.ts";
 import { isResponseUsageValue, parseResponseResource, projectResponse, type ResponseProjection, type ResponseStatus } from "../shared/llm/responses.ts";
+import { RESPONSE_USAGE_SCHEMA, isUsageObservationSchema, isUsageObservationValue, type UsageObservationSchema } from "../shared/llm/usage-contracts.ts";
 
 /** `limits` is REQUIRED: the configured `runtime.responses` transport, never a code fallback (a2-design M5). */
 export type ResponseObservationOptions = Readonly<{ policy?: PrivacyPolicy; limits: ResponsesTransportConfigInput; heldCredentials?: HeldSet; detection?: Omit<DetectionOptions, "learningScope"> }>;
@@ -21,6 +22,8 @@ export type ResponseEnvelopeOptions = ResponseObservationOptions & Readonly<{
   selectedHeaders?: readonly string[]; status?: ResponseStatus; kind?: "error";
   /** Host-declared usage objects relative to the response body, never paths supplied by its payload. */
   usageRoots?: readonly (readonly (string | number)[])[];
+  /** Complete trusted source contract for those roots; absent keeps native Responses semantics. */
+  usageSchema?: UsageObservationSchema;
 }>;
 export function observeResponseProtocol(value: unknown, options: ResponseObservationOptions): SnapshotJsonValue {
   return observe(value, options, false) as SnapshotJsonValue;
@@ -33,6 +36,13 @@ function observe(value: unknown, options: ResponseEnvelopeOptions, envelope: boo
   const limits = resolveResponsesTransportConfig(options.limits), policy = options.policy ?? DEFAULT_PRIVACY_POLICY;
   const structural = { maximumDepth: limits.maximumDepth, maximumNodes: limits.maximumNodes };
   let usageRoots: readonly (readonly (string | number)[])[] | undefined;
+  let usageSchema: UsageObservationSchema = RESPONSE_USAGE_SCHEMA;
+  if (envelope && options.usageSchema !== undefined) {
+    if (!isUsageObservationSchema(options.usageSchema)) {
+      throw new InputError("Response usage schema must be a trusted object contract", "responses_observation_usage_schema_invalid");
+    }
+    usageSchema = options.usageSchema;
+  }
   if (envelope && options.usageRoots !== undefined) {
     const roots = snapshotJsonValue(options.usageRoots, structural, "responses_observation_usage_roots_invalid");
     if (!Array.isArray(roots) || roots.some(root => !Array.isArray(root) || root.some((key: unknown) =>
@@ -71,7 +81,7 @@ function observe(value: unknown, options: ResponseEnvelopeOptions, envelope: boo
   const numeric = (item: unknown, location: StringValueLocation) => headerTelemetry(item, location) || options.kind !== "error" && isNativeUsage(item, locationOf(location))
     || usageRoots !== undefined && location.path[0] === "response" && usageRoots.some(root =>
       location.path.length > root.length + 1 && root.every((key, index) => key === location.path[index + 1])
-      && isResponseUsageValue(location.path.slice(root.length + 1), item));
+      && isUsageObservationValue(usageSchema, location.path.slice(root.length + 1), item));
   const sensitive = (item: unknown, location: StringValueLocation) => typeof location.path.at(-1) === "string"
     && (header(location) ? isSensitiveHeaderName(String(location.path.at(-1))) : isSensitiveKeyName(String(location.path.at(-1)))) && !numeric(item, location);
   const eventType = record && typeof record.type === "string" ? record.type : undefined;
