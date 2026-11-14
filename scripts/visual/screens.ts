@@ -28,9 +28,10 @@ import { parseArgs } from "node:util";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
+import { sha256 } from "../../engine/src/kernel/integrity.ts";
 import { escapeHtml } from "../../shared/markup.ts";
 import { SITE_THEME_STORAGE } from "../../shared/site-page.ts";
-import { BROWSER_ARGS, FREEZE_CSS, gate, shotName, shots, VOLATILE_SELECTORS, type Comparison, type Shot } from "./plan.ts";
+import { BROWSER_ARGS, FREEZE_CSS, gate, shotName, shots, VOLATILE_SELECTORS, type Comparison, type ImageEvidence, type Shot } from "./plan.ts";
 
 export class VisualRefusal extends Error {
   readonly code: string;
@@ -105,6 +106,13 @@ async function settle(page: Page, origin: string, base: string, path: string): P
 async function picture(page: Page): Promise<Buffer> {
   const masks = page.locator(VOLATILE_SELECTORS.join(", "));
   return page.screenshot({ fullPage: true, animations: "disabled", mask: [masks], maskColor: "#808080" });
+}
+
+/** Persist an image once and bind the report's reference to those exact bytes. */
+function saveShot(out: string, name: string, content: Buffer): ImageEvidence {
+  const path = `shots/${name}`;
+  writeFileSync(join(out, path), content);
+  return { path, bytes: content.byteLength, sha256: sha256(content) };
 }
 
 /** Changed pixels between two PNGs, counted (and a diff painted) in the browser's canvas. */
@@ -184,15 +192,24 @@ export async function run(options: RunOptions): Promise<Readonly<{ comparisons: 
       await ctx.close();
       // Only a shot that needs a reader's eyes is kept: an unchanged page has
       // nothing to show.
-      if (before === null || !before.equals(first) || !first.equals(second)) {
-        writeFileSync(join(options.out, "shots", `head--${name}`), first);
-        if (before !== null) writeFileSync(join(options.out, "shots", `base--${name}`), before);
-      }
-      if (!first.equals(second)) {
-        comparisons.push({ name, verdict: "unstable", changedPixels: 0, totalPixels: 0 });
+      const unstable = !first.equals(second);
+      const unchanged = before !== null && before.equals(first);
+      const keep = !unchanged || unstable;
+      if (keep && !unstable) writeFileSync(join(options.out, "shots", `head--${name}`), first);
+      if (keep && before !== null) writeFileSync(join(options.out, "shots", `base--${name}`), before);
+      if (unstable) {
+        const { changed, total, diff } = await difference(differ, first, second);
+        comparisons.push({
+          name, verdict: "unstable", changedPixels: changed, totalPixels: total,
+          stability: {
+            first: saveShot(options.out, `head--${name}`, first),
+            second: saveShot(options.out, `head-repeat--${name}`, second),
+            diff: saveShot(options.out, `unstable-diff--${name}`, Buffer.from(diff, "base64")),
+          },
+        });
       } else if (before === null) {
         comparisons.push({ name, verdict: "added", changedPixels: 0, totalPixels: 0 });
-      } else if (before.equals(first)) {
+      } else if (unchanged) {
         comparisons.push({ name, verdict: "same", changedPixels: 0, totalPixels: 0 });
       } else {
         const { changed, total, diff } = await difference(differ, before, first);
@@ -229,9 +246,11 @@ function summary(comparisons: readonly Comparison[], verdict: { pass: boolean; r
 function report(comparisons: readonly Comparison[], verdict: { pass: boolean; reasons: readonly string[] }): string {
   const h = escapeHtml;
   const card = (c: Comparison): string => {
-    const images = c.verdict === "changed"
-      ? ["base", "head", "diff"].map((kind) => `<figure><img loading="lazy" alt="${h(`${kind}: ${c.name}`)}" src="shots/${kind}--${h(c.name)}"><figcaption>${kind}</figcaption></figure>`).join("")
-      : `<figure><img loading="lazy" alt="${h(`head: ${c.name}`)}" src="shots/head--${h(c.name)}"><figcaption>head</figcaption></figure>`;
+    const images = c.stability !== undefined
+      ? Object.entries(c.stability).map(([kind, image]) => `<figure><img loading="lazy" alt="${h(`${kind}: ${c.name}`)}" src="${h(image.path)}"><figcaption>${h(kind)} · ${String(image.bytes)} bytes · SHA-256 <code>${h(image.sha256)}</code></figcaption></figure>`).join("")
+      : c.verdict === "changed"
+        ? ["base", "head", "diff"].map((kind) => `<figure><img loading="lazy" alt="${h(`${kind}: ${c.name}`)}" src="shots/${kind}--${h(c.name)}"><figcaption>${kind}</figcaption></figure>`).join("")
+        : `<figure><img loading="lazy" alt="${h(`head: ${c.name}`)}" src="shots/head--${h(c.name)}"><figcaption>head</figcaption></figure>`;
     return `<section data-verdict="${h(c.verdict)}"><h2>${h(c.name)} <small>${h(c.verdict)}${c.totalPixels === 0 ? "" : ` · ${(100 * c.changedPixels / c.totalPixels).toFixed(2)}% of pixels`}</small></h2><div class="row">${images}</div></section>`;
   };
   const ordered = comparisons.filter((c) => c.verdict !== "same");

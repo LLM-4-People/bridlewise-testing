@@ -98,12 +98,25 @@ export function shotName(shot: Shot): string {
 
 export type Verdict = "same" | "changed" | "added" | "removed" | "unstable";
 
+/** One retained image, bound to the exact bytes the report displays. */
+export interface ImageEvidence {
+  readonly path: string;
+  readonly bytes: number;
+  readonly sha256: string;
+}
+
 /** A compared shot, as the report and the gate read it. */
 export interface Comparison {
   readonly name: string;
   readonly verdict: Verdict;
   readonly changedPixels: number;
   readonly totalPixels: number;
+  /** Both same-head captures and their pixel diff; an unstable verdict remains a refusal. */
+  readonly stability?: Readonly<{
+    first: ImageEvidence;
+    second: ImageEvidence;
+    diff: ImageEvidence;
+  }>;
 }
 
 /**
