@@ -280,9 +280,14 @@ export function writeTestInventoryTransaction(
   options: TestInventoryBuildOptions = {},
 ): void {
   const root = resolve(candidateRoot);
-  const inventoryPath = join(root, INVENTORY_PATH);
   const nextInventory = parseTestInventoryDocument(inventory);
   assertInventoryMatchesBoundProjection(root, nextInventory, options);
+  commitTestInventory(root, nextInventory, onPhase);
+}
+
+/** The one inventory journal publication body; callers establish their own complete projection first. */
+function commitTestInventory(root: string, nextInventory: TestInventory, onPhase: (phase: string) => void): void {
+  const inventoryPath = join(root, INVENTORY_PATH);
   commitJournaled(root, TRANSACTION_JOURNAL, [
     { path: INVENTORY_PATH, bytes: Buffer.from(`${canonicalJson(nextInventory)}\n`, "utf8"), mode: existsSync(inventoryPath) ? statSync(inventoryPath).mode & 0o7777 : INVENTORY_FILE_MODE },
   ], { onPhase });
@@ -370,7 +375,15 @@ function assertInventoryMatchesSnapshotHashes(
       throw new Error("test inventory snapshot source hash is invalid");
     }
   }
-  const current = readTestSourceSnapshotForScope(root, snapshot.scope);
+  assertSameTestSourceSnapshotHashes(snapshot, readTestSourceSnapshotForScope(root, snapshot.scope));
+}
+
+/** Shared hash-only comparison, after each caller has obtained the appropriate current bound scope. */
+function assertSameTestSourceSnapshotHashes(snapshot: TestInventorySourceSnapshot, current: TestSourceSnapshot): void {
+  if (canonicalHash(current.scope) !== canonicalHash(snapshot.scope) ||
+    canonicalHash(current.recognizablePaths) !== canonicalHash(snapshot.recognizablePaths)) {
+    throw new Error("test inventory source scope is stale");
+  }
   const currentHashes = new Map(current.sources.map((source) => [source.sourceId, source.sourceHash]));
   if (currentHashes.size !== snapshot.sourceHashes.size) {
     throw new Error("test inventory source scope is stale");
@@ -454,6 +467,43 @@ function assertSameTestInventoryProjection(inventory: TestInventory, expected: T
   }
 }
 
+/** Inputs outside the canonical source bytes that bind the production CLI's one complete build. */
+type TestInventoryProductionInputs = Readonly<{
+  policySha256: string;
+  dispositionManifestSha256: string;
+  gitRecognizable: readonly string[] | null;
+}>;
+
+function testInventoryProductionInputs(
+  root: string,
+  gitRecognizable: readonly string[] | undefined,
+): TestInventoryProductionInputs {
+  return deepFreeze({
+    policySha256: sha256(readSafeRepositoryFile(root, ROOT_POLICY_PATH, TEST_DISCOVERY.maximumSourceBytes).bytes),
+    dispositionManifestSha256: sha256(readSafeRepositoryFile(root, TEST_DISCOVERY.dispositionRegistry.manifestPath, TEST_DISCOVERY.maximumInventoryBytes).bytes),
+    gitRecognizable: gitRecognizable ?? null,
+  });
+}
+
+/**
+ * Only the CLI calls this with its private, fully discovered build product. A fresh bound snapshot
+ * proves source bytes, population and manifest-derived scope without discovering names a second time.
+ * The public transaction writer above still rebuilds arbitrary caller-supplied inventories in full.
+ */
+function assertProductionInventorySnapshotCurrent(
+  root: string,
+  snapshot: TestSourceSnapshot,
+  inputs: TestInventoryProductionInputs,
+): void {
+  const current = readTestSourceSnapshot(root);
+  assertSameTestSourceSnapshotHashes(testInventorySnapshotHashes(snapshot), current);
+  const gitRecognizable = gitTrackedRecognizableTestPaths(root);
+  if (canonicalHash(testInventoryProductionInputs(root, gitRecognizable)) !== canonicalHash(inputs)) {
+    throw new Error("test inventory production policy, manifest or tracked source inputs changed during discovery");
+  }
+  if (gitRecognizable !== undefined) assertTestSurfaceConservation(gitRecognizable, current.scope);
+}
+
 /**
  * The current test-surface scope, read the way the generator reads it. Kept
  * separate from `buildTestInventory` so the conservation refusal runs BEFORE
@@ -490,7 +540,9 @@ function main(argv: readonly string[]): number {
     ? ({ kind: "unavailable", reason: "root is not a git working tree" } as const)
     : { kind: "verified", ...assertTestSurfaceConservation(gitRecognizable, scopeForConservation(root)) } as const;
   const transactionPresent = existsSync(journalPathFor(root, TRANSACTION_JOURNAL));
-  const inventory = buildTestInventory(root);
+  const productionInputs = argv[0] === "--write" ? testInventoryProductionInputs(root, gitRecognizable) : undefined;
+  const sourceSnapshot = readTestSourceSnapshot(root);
+  const inventory = buildTestInventoryFromSnapshot(sourceSnapshot);
   const inventoryBytes = `${canonicalJson(inventory)}\n`;
   const inventoryPath = join(root, INVENTORY_PATH);
   // THE INVENTORY IS A CACHE OF THE TREE (#221): it is not committed, so its absence or staleness is no drift of
@@ -524,7 +576,11 @@ function main(argv: readonly string[]): number {
   }
 
   if (transactionPresent) throw new Error("test inventory transaction recovery is required");
-  if (!inventoryMatches) writeTestInventoryTransaction(root, inventory);
+  if (productionInputs === undefined) throw new Error("test inventory production inputs are unavailable");
+  // This product was fully discovered above and never crosses a public trust boundary.
+  // A cache hit also rechecks inputs before reporting current; neither path discovers names twice.
+  assertProductionInventorySnapshotCurrent(root, sourceSnapshot, productionInputs);
+  if (!inventoryMatches) commitTestInventory(root, inventory, () => undefined);
   process.stdout.write(`${canonicalJson({
     generatorRevision: GENERATOR_REVISION,
     inventoryHash: inventory.inventoryHash,

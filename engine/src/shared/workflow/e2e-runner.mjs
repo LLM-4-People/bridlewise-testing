@@ -41,6 +41,22 @@ const TEST_RE = /\.test\.(mjs|js|ts|mts|cts)$/;
 const TS_TEST_RE = /\.test\.(ts|mts|cts)$/;
 
 /**
+ * Clone an explicit environment for a standalone node-test runner. The parent
+ * test protocol never belongs to that child; callers select the other markers
+ * they already omit without changing unrelated runtime routing.
+ * @param {Readonly<Record<string, string | undefined>>} environment
+ * @param {Readonly<{omitWorkerId?: boolean, omitLegacyContext?: boolean}>} [omit]
+ * @returns {Record<string, string | undefined>}
+ */
+export function standaloneNodeTestEnvironment(environment, { omitWorkerId = false, omitLegacyContext = false } = {}) {
+  const childEnvironment = { ...environment };
+  delete childEnvironment.NODE_TEST_CONTEXT;
+  if (omitWorkerId) delete childEnvironment.NODE_TEST_WORKER_ID;
+  if (omitLegacyContext) delete childEnvironment.NODE_IN_TEST_CONTEXT;
+  return childEnvironment;
+}
+
+/**
  * Recursively collect test files (*.test.{mjs,js,ts,mts,cts}) under `dir`.
  * @param {string} dir
  * @returns {string[]}
@@ -93,7 +109,7 @@ export function supportsStripTypes() {
  *   (test/prevention/entrypoint-recording-wiring.test.ts), so it holds no default of its own.
  * @param {boolean} [opts.stripTypes] override strip-types detection
  * @param {number} [opts.concurrency] override test-concurrency (default: 4, or 1 when only 1 file)
- * @returns {Promise<{passed: boolean, testCount: number, failCount: number, passCount: number, summary: string, files: string[], failures: string[]}>}
+ * @returns {Promise<{passed: boolean, testCount: number, failCount: number, passCount: number, summary: string, files: string[], failures: {file: string | null, name: string}[], skipCount?: number, timedOut?: boolean, exitCode?: number, stripTypes?: boolean, tsFiles?: boolean, concurrency?: number}>}
  */
 export async function runE2e({ integrationDir, timeoutMs, stripTypes, concurrency } = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -135,9 +151,7 @@ export async function runE2e({ integrationDir, timeoutMs, stripTypes, concurrenc
   // Strip test-runner env vars so the child `node --test` uses the default
   // (pretty) output format, not the TAP format inherited from a parent
   // `node --test` process (NODE_TEST_CONTEXT=child-v8 changes the format).
-  const childEnv = { ...process.env };
-  delete childEnv.NODE_TEST_CONTEXT;
-  delete childEnv.NODE_IN_TEST_CONTEXT;
+  const childEnv = standaloneNodeTestEnvironment(process.env, { omitLegacyContext: true });
   const stripFlag = useStrip ? "--experimental-strip-types --no-warnings=ExperimentalWarning" : "";
   const concurrencyFlag = useConcurrency > 1 ? `--test-concurrency=${useConcurrency}` : "";
   const cmd = `node --test ${stripFlag} ${concurrencyFlag} ${files.map((f) => `"${f}"`).join(" ")}`;

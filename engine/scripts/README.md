@@ -59,6 +59,14 @@ nothing here is imported by the runtime source.
   `recursive-test-inventory.test.ts` checks every canonical test source
   against this rule, so a violation names its file in a targeted run instead
   of stopping the full-suite auto-heal.
+  The public `writeTestInventoryTransaction` rebuilds the canonical inventory
+  before accepting a supplied document. The CLI's `--write` retains its own
+  complete build and discovers names once per canonical source. Before it
+  writes or reports a current cache, it rechecks source bytes, recognizable
+  paths, freshly bound scope, and raw policy and disposition-manifest hashes.
+  In a Git working tree it also rechecks the tracked test set and independent
+  conservation. Both paths use the same journal publication operation; retaining
+  a build is private to the producer and preserves validation for public callers.
 
 ## The subfolders
 
