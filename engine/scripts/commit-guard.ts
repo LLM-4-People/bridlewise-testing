@@ -494,7 +494,7 @@ async function refuseStaleGeneratedFacts(engineRoot: string): Promise<void> {
     throw new Error(`harness check produced no result payload (status ${String(check.status)}): ${`${stdout}${stderr}`.trim().split("\n").slice(-8).join("\n")}`);
   }
   const steps = Object.values(result).filter((step): step is Readonly<{ step?: unknown; status?: unknown }> => typeof step === "object" && step !== null && "step" in step);
-  if (result.allPassed === true) {
+  if (check.status === 0 && result.allPassed === true) {
     // A pass is said too (PROMO2-F1): a promotion's answer shows which legs certified the tree.
     process.stderr.write(`\n[commit-guard] staged generated facts (harness check --skip-typecheck): pass (${String(steps.filter((step) => step.status === "pass").length)} step(s) passed, ${String(steps.filter((step) => step.status === "skip").length)} skipped)\n`);
     return;
@@ -503,7 +503,7 @@ async function refuseStaleGeneratedFacts(engineRoot: string): Promise<void> {
     typeof step === "object" && step !== null && (step as { status?: unknown }).status === "fail"
       ? [`  - ${String((step as { step?: unknown }).step)}: ${String((step as { message?: unknown }).message)}`] : []);
   process.stderr.write(
-    `\nCOMMIT REFUSED — the STAGED engine's generated facts do not match its staged sources:\n${failing.join("\n")}\n\n` +
+    `\nCOMMIT REFUSED — the STAGED engine's generated facts are not certified (harness check exit ${String(check.status)}):\n${failing.join("\n")}\n\n` +
       `Regenerate them (cd engine && node src/cli.ts harness sync --with-bundle), review the diff, and stage the ` +
       `regenerated outputs TOGETHER WITH every source they were generated from (git add -- <paths>).\n\n`,
   );
