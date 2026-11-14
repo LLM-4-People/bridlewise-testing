@@ -60,8 +60,15 @@ export const GIT_NETWORK_ENVIRONMENT: readonly string[] = Object.freeze([
   ...COMMAND_ENVIRONMENT, "XDG_CONFIG_HOME", "SSH_AUTH_SOCK", "SSH_AGENT_PID", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS",
 ]);
 
+/**
+ * Routing to the existing user manager, shared by management commands that
+ * launch capped work. A run's admission comes from its cgroup lineage, never
+ * an environment token. Model-run commands do not inherit these addresses.
+ */
+const USER_MANAGER_ENVIRONMENT: readonly string[] = Object.freeze(["XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]);
+
 /** What `systemd-run --user` needs to reach the user's manager (the long task runner). */
-export const SYSTEMD_RUN_ENVIRONMENT: readonly string[] = Object.freeze([...MINIMAL_CHILD_ENVIRONMENT, "HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]);
+export const SYSTEMD_RUN_ENVIRONMENT: readonly string[] = Object.freeze([...MINIMAL_CHILD_ENVIRONMENT, "HOME", ...USER_MANAGER_ENVIRONMENT]);
 
 /** The harness's own environment namespace: never forwarded, never allowlisted. */
 const HARNESS_NAMESPACE = "HARNESS_";
@@ -80,12 +87,14 @@ const TEMPORARY_DIRECTORY_VARIABLES: readonly string[] = Object.freeze(["TMPDIR"
  * A CHECKOUT COMMAND's inherited set (`workflow/checkout-setup.ts`'s one
  * runner: a workspace's setup, a promotion's phases, a promoter home's
  * setup, all of them code from the tree they run in): a model-run command's
- * set, plus the temp-folder variables. The runners refuse a temp root inside
+ * set, the temp-folder variables and routing to the existing user manager
+ * for qualification's capped work. The runners refuse a temp root inside
  * the safety floor, and the operator points it away from a shared tmpfs, so
  * a checkout's suites keep the operator's temp root. No credential, no
- * `HARNESS_*` variable.
+ * `HARNESS_*` variable. Socket access remains the execution boundary's job;
+ * forwarding an address does not establish admission.
  */
-export const CHECKOUT_COMMAND_ENVIRONMENT: readonly string[] = Object.freeze([...COMMAND_ENVIRONMENT, ...TEMPORARY_DIRECTORY_VARIABLES]);
+export const CHECKOUT_COMMAND_ENVIRONMENT: readonly string[] = Object.freeze([...COMMAND_ENVIRONMENT, ...TEMPORARY_DIRECTORY_VARIABLES, ...USER_MANAGER_ENVIRONMENT]);
 
 /** `environment` with every temp-folder variable pointed at `temporaryDirectory`. */
 export function withPrivateTemporary(environment: Readonly<Record<string, string | undefined>> | undefined, temporaryDirectory: string): Record<string, string> {
