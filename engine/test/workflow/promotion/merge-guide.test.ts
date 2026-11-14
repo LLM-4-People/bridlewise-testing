@@ -13,6 +13,7 @@ import test from "node:test";
 
 import { PROMOTION_CODES, promotionExitCode, type PromotionCode } from "../../../src/workflow/promotion/codes.ts";
 import { parseProse, type InlineNode } from "../../../../shared/markdown.ts";
+import { escapeMarkdownTableCell } from "../../../../shared/markup.ts";
 
 const GUIDE = new URL("../../../../docs/process/MERGE-GUIDE.md", import.meta.url);
 
@@ -82,7 +83,7 @@ test("guide remedy comparison rejects stale words and lost inline meaning while 
   const mutants = [
     ["stale words", markdown.replace("Inspect", "Ignore")],
     ["lost emphasis", markdown.replace("**native**", "native")],
-    ["lost code span", markdown.replace("`first\\|attempt`", "first\\|attempt")],
+    ["lost code span", markdown.replace("`first\\|attempt`", escapeMarkdownTableCell("first|attempt"))],
     ["changed link target", markdown.replace("https://example.invalid/first", "https://example.invalid/second")],
     ["changed text spacing", markdown.replace("output via", "output  via")],
   ];
