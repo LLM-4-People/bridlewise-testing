@@ -6,7 +6,9 @@ import { ALL_ERROR_TYPES, LLMError } from "../../src/shared/llm/errors.ts";
 import { heldValues } from "../../src/privacy/held-set.ts";
 import type { LLMConfig } from "../../src/shared/llm/config.ts";
 import { knownSecretLabels, forgetKnownSecret, registerKnownSecret, knownSecretSpans, knownSecretRegistryGeneration } from "../../src/privacy/secret-intelligence.ts";
-import { observeResponseProtocol, observeResponseEnvelope } from "../../src/privacy/responses-observation.ts";
+import { observeResponseProtocol, observeResponseEnvelope, type ResponseEnvelopeOptions } from "../../src/privacy/responses-observation.ts";
+import { createPrivacyPolicy, redactionReplacement } from "../../src/privacy/privacy-policy.ts";
+import { InputError } from "../../src/kernel/errors.ts";
 import { RequestQueue } from "../../src/shared/llm/queue.ts";
 import { LLMStatsCollector } from "../../src/shared/llm/stats.ts";
 import { classifyProviderFailure } from "../../src/shared/llm/provider-failure.ts";
@@ -237,6 +239,93 @@ test("Observation preserves canonical native usage fields and masks arbitrary nu
   // A numeric or boolean value under a credential key is masked like a string.
   assert.equal(observed.metadata.api_key, "[REDACTED:token]"); assert.equal(observed.metadata.authorization, "[REDACTED:token]");
   assert.equal((observeResponseProtocol({ object: "response.input_tokens", input_tokens: 12 }, { limits: TEST_TRANSPORT }) as any).input_tokens, 12);
+});
+
+test("Trusted envelope usage roots preserve partial canonical telemetry without changing generic error defaults", () => {
+  const usage = { input_tokens: 10, output_tokens: 4, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 3 }, output_tokens_details: { reasoning_tokens: 0 } };
+  const body = { message: { usage, api_key: 123456789 }, input_tokens: 17, metadata: { input_tokens: 19 } };
+  const before = JSON.stringify(body), usageRoots = [["message", "usage"]] as const, rootsBefore = JSON.stringify(usageRoots);
+  const strict = { message: { usage: { input_tokens: "[REDACTED:token]", output_tokens: "[REDACTED:token]", input_tokens_details: "[REDACTED:token]", output_tokens_details: "[REDACTED:token]" }, api_key: "[REDACTED:token]" }, input_tokens: "[REDACTED:token]", metadata: { input_tokens: "[REDACTED:token]" } };
+  for (const kind of [undefined, "error"] as const) {
+    const options = { limits: TEST_TRANSPORT, ...(kind === undefined ? {} : { kind }) };
+    assert.deepEqual(observeResponseEnvelope({ headers: {}, response: body }, options).response, strict);
+    assert.deepEqual(observeResponseEnvelope({ headers: {}, response: body }, { ...options, usageRoots: [] }).response, strict);
+    const view = observeResponseEnvelope({ headers: {}, response: body }, { ...options, usageRoots });
+    assert.deepEqual(view.response, { ...strict, message: { usage, api_key: "[REDACTED:token]" } });
+    assert.equal(Object.isFrozen(view.response), true);
+    assert.equal(Object.isFrozen(view.response.message.usage.input_tokens_details), true);
+    assert.equal(view.display, undefined, "partial legacy telemetry is not a fabricated native resource");
+  }
+  assert.equal(JSON.stringify(body), before); assert.equal(JSON.stringify(usageRoots), rootsBefore);
+});
+
+test("Usage context never comes from payload claims or grants sibling and lookalike paths", () => {
+  const body = { usageRoots: [["message", "usage"]], kind: "error", schema: "trusted", message: { usage: { input_tokens: 7 }, content: { input_tokens: 8 } },
+    usage: { input_tokens: 9 }, metadata: { usage: { input_tokens: 10 } }, tool: { arguments: JSON.stringify({ input_tokens: 11 }) } };
+  const strict = observeResponseEnvelope({ headers: {}, response: body }, { limits: TEST_TRANSPORT, kind: "error" });
+  const view = observeResponseEnvelope({ headers: { "x-custom-input-tokens": "12" }, response: body, evidence: [{ message: { usage: { input_tokens: 13 } } }] },
+    { limits: TEST_TRANSPORT, kind: "error", usageRoots: [["message", "usage"]] });
+  assert.deepEqual(view.response, { ...(strict.response as Record<string, unknown>), message: { usage: { input_tokens: 7 }, content: { input_tokens: "[REDACTED:token]" } } });
+  assert.equal(view.headers["x-custom-input-tokens"], "[REDACTED:token]");
+  assert.equal(Object.hasOwn(view, "evidence"), false);
+  const protocolOptions: ResponseEnvelopeOptions = { limits: TEST_TRANSPORT, kind: "error", usageRoots: [["message", "usage"]] };
+  assert.deepEqual(observeResponseProtocol(body, protocolOptions), strict.response);
+});
+
+test("Declared usage roots compare complete body-relative typed paths without event normalization", () => {
+  const body = { type: "response.completed", sequence_number: 1, message: { usage: { input_tokens: 7 } }, response: { message: { usage: { input_tokens: 11 } } }, messages: [{ usage: { input_tokens: 13 } }] };
+  const strict = observeResponseEnvelope({ headers: {}, response: body }, { limits: TEST_TRANSPORT, kind: "error" }).response as typeof body;
+  for (const root of [["message", "us"], ["response", "message", "usage", "extra"], ["messages", "0", "usage"], ["message.usage"]]) {
+    assert.deepEqual(observeResponseEnvelope({ headers: {}, response: body }, { limits: TEST_TRANSPORT, kind: "error", usageRoots: [root] }).response, strict);
+  }
+  assert.deepEqual(observeResponseEnvelope({ headers: {}, response: body }, { limits: TEST_TRANSPORT, kind: "error", usageRoots: [["message", "usage"], ["messages", 0, "usage"]] }).response,
+    { ...strict, message: body.message, messages: body.messages });
+  assert.deepEqual(observeResponseEnvelope({ headers: {}, response: { input_tokens: 0 } }, { limits: TEST_TRANSPORT, kind: "error", usageRoots: [[]] }).response, { input_tokens: 0 });
+});
+
+test("Explicit usage context masks invalid counts and unknown sensitive extensions without coercion", () => {
+  for (const invalid of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, "12", true, false, {}, []]) {
+    const body = { message: { usage: { input_tokens: invalid, output_tokens: null } } }, before = JSON.stringify(body);
+    assert.deepEqual(observeResponseEnvelope({ headers: {}, response: body }, { limits: TEST_TRANSPORT, kind: "error", usageRoots: [["message", "usage"]] }).response,
+      { message: { usage: { input_tokens: "[REDACTED:token]", output_tokens: null } } });
+    assert.equal(JSON.stringify(body), before);
+  }
+  const usage = { input_tokens: 0, cache_creation_input_tokens: 5, session_token: 6,
+    input_tokens_details: { cached_tokens: 0, cache_write_tokens: 1, unknown_tokens: 9, api_key: 10 }, output_tokens_details: { reasoning_tokens: 2, bearer_token: 11 } };
+  assert.deepEqual(observeResponseEnvelope({ headers: {}, response: { message: { usage } } }, { limits: TEST_TRANSPORT, kind: "error", usageRoots: [["message", "usage"]] }).response,
+    { message: { usage: { input_tokens: 0, cache_creation_input_tokens: "[REDACTED:token]", session_token: "[REDACTED:token]",
+      input_tokens_details: { cached_tokens: 0, cache_write_tokens: 1, unknown_tokens: "[REDACTED:token]", api_key: "[REDACTED:token]" },
+      output_tokens_details: { reasoning_tokens: 2, bearer_token: "[REDACTED:token]" } } } });
+  for (const invalid of ["container", 12, false, [], { cached_tokens: -1 }]) {
+    assert.deepEqual(observeResponseEnvelope({ headers: {}, response: { usage: { input_tokens_details: invalid } } }, { limits: TEST_TRANSPORT, kind: "error", usageRoots: [["usage"]] }).response,
+      { usage: { input_tokens_details: "[REDACTED:token]" } });
+  }
+  for (const invalid of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => observeResponseEnvelope({ headers: {}, response: { usage: { input_tokens: invalid } } }, { limits: TEST_TRANSPORT, kind: "error", usageRoots: [["usage"]] }),
+      error => error instanceof InputError && error.code === "responses_observation_structure_invalid");
+  }
+});
+
+test("Malformed trusted usage paths refuse through configured structural and typed path bounds", () => {
+  const invalidRoots: readonly unknown[] = [null, "message.usage", ["message", "usage"], [["message", null]], [["message", true]], [["message", {}]], [["message", -1]], [["message", 0.5]], [["message", Number.MAX_SAFE_INTEGER + 1]], [["message", NaN]], [["message", Infinity]]];
+  for (const usageRoots of invalidRoots) {
+    assert.throws(() => observeResponseEnvelope({ headers: {}, response: {} }, { limits: TEST_TRANSPORT, usageRoots: usageRoots as NonNullable<ResponseEnvelopeOptions["usageRoots"]> }),
+      error => error instanceof InputError && error.code === "responses_observation_usage_roots_invalid");
+  }
+  assert.throws(() => observeResponseEnvelope({ headers: {}, response: {} }, { limits: { ...TEST_TRANSPORT, maximumDepth: 1 }, usageRoots: [["message", "usage"]] }),
+    error => error instanceof InputError && error.code === "responses_observation_usage_roots_invalid");
+});
+
+test("Trusted usage context retains configured redaction and semantic privacy floors", () => {
+  const policy = createPrivacyPolicy({ redactionPrefix: "<MASK:", redactionSuffix: ">" }), marker = redactionReplacement("token", policy), held = "context-held-credential";
+  const body = { message: { usage: { input_tokens: 0, input_tokens_details: { cached_tokens: 0, access_token: held } }, api_key: held }, text: held };
+  const view = observeResponseEnvelope({ headers: {}, response: body }, { limits: TEST_TRANSPORT, kind: "error", policy, heldCredentials: heldValues("test", [held]), usageRoots: [["message", "usage"]] });
+  assert.deepEqual(view.response, { message: { usage: { input_tokens: 0, input_tokens_details: { cached_tokens: 0, access_token: marker } }, api_key: marker }, text: marker });
+  const native = responseResource({ content: "visible" });
+  const opaqueIndex = (native.output as unknown[]).length;
+  (native.output as unknown[]).push({ type: "reasoning", encrypted_content: { usage: { input_tokens: 17 } }, summary: [] });
+  const nativeView = observeResponseEnvelope({ headers: {}, response: native }, { limits: TEST_TRANSPORT, usageRoots: [["output", opaqueIndex, "encrypted_content", "usage"]] });
+  assert.equal(JSON.stringify(nativeView).includes('"input_tokens":17'), false, "declared telemetry cannot override an opaque ancestor");
 });
 
 test("Observation key aliases remain finite, collision-free and credential-free", () => {

@@ -34,6 +34,12 @@ The privacy domain: PII and secret detection, classification, the data-egress po
 - `text-normalize.ts` — NORMALISE BEFORE MATCHING — the fix that is invisible until it is not.
 - `value-intrinsic.ts` — the value-intrinsic module.
 
+## Response observation telemetry
+
+`observeResponseEnvelope` accepts optional host-owned `usageRoots`: arrays of exact string or numeric path components relative to the response body. An admitted source/schema adapter may declare a legacy usage object such as `message.usage` while retaining `kind: "error"` and the original body shape. Payload fields never grant this context; callers must establish source provenance before choosing roots.
+
+Only nonempty descendant slots accepted by the shared Responses usage schema retain telemetry. Partial legacy usage need not invent absent totals; preserving a declared slot does not certify whole-object consistency. Unknown sensitive extension fields, invalid counts, credential and opaque ancestors, key aliases and configured redaction keep their existing treatment. Headers and evidence cannot inherit body context. Paths are bounded by the existing structural limits and compare component types and complete boundaries. Without the option, observations retain their existing behavior; protocol observations do not accept this context.
+
 ## Operational text projection
 
 The domain redaction engine owns full-text detection and context candidate adjustment. Ordinary context keeps its existing overlap order. The operational infrastructure requests unselected candidates, authenticates complete encrypted-field tokens, subtracts only those proven intervals and then reuses the shared overlap/application owners. This redacts secrets in adjacent plaintext while preserving authenticated ciphertext, even when the detection candidates overlap. Invalid tags, malformed padding and an `enc:` prefix alone grant no protection. No public redaction option accepts arbitrary safe ranges. Nothing here decrypts the ledger's sealed originals: their one door is the timeline store's `originalDocuments` (opened with the store key, verified against the recorded digest), which rollback uses to restore a masked pre-image exactly.
