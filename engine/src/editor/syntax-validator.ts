@@ -10,6 +10,7 @@ import {
 } from "../intelligence/language-registry.ts";
 import { initTreeSitterBackend, isLanguageReady, parseSync } from "../intelligence/tree-sitter-backend.ts";
 import { extractExtension } from "../shared/path-utils.ts";
+import { babelParserPluginsForSourcePath } from "../quality-packs/prevention/ast-helpers.ts";
 
 /**
  * Syntax validator for the transactional editor.
@@ -51,8 +52,6 @@ export type SyntaxValidatorRegistry = Readonly<{
 }>;
 
 const BABEL_PLUGINS = [
-  "typescript",
-  "jsx",
   "objectRestSpread",
   "classProperties",
   "classPrivateProperties",
@@ -92,10 +91,10 @@ export function createSyntaxValidatorRegistry(): SyntaxValidatorRegistry {
 export function createDefaultSyntaxValidatorRegistry(): SyntaxValidatorRegistry {
   const registry = createSyntaxValidatorRegistry();
   for (const ext of TS_EXTENSIONS) {
-    registry.register(ext, (content) => validateTypeScript(content, "module", true));
+    registry.register(ext, (content) => validateTypeScript(content, "module", true, ext));
   }
   for (const ext of JS_EXTENSIONS) {
-    registry.register(ext, (content) => validateTypeScript(content, "module", false));
+    registry.register(ext, (content) => validateTypeScript(content, "module", false, ext));
   }
   for (const ext of JSON_EXTENSIONS) {
     registry.register(ext, validateJson);
@@ -235,14 +234,14 @@ export function validateSyntax(
   return validator(content);
 }
 
-function validateTypeScript(content: string, sourceType: "module" | "script", isTypeScript: boolean): SyntaxValidationResult {
-  const plugins: readonly string[] = isTypeScript
-    ? ["typescript", ...BABEL_PLUGINS.filter((p) => p !== "typescript")]
-    : [...BABEL_PLUGINS.filter((p) => p !== "typescript")];
+function validateTypeScript(content: string, sourceType: "module" | "script", isTypeScript: boolean, extension: string): SyntaxValidationResult {
+  // JSX changes the meaning of TypeScript angle brackets, so the source
+  // dialect comes from the same extension owner as the other Babel readers.
+  const plugins = [...babelParserPluginsForSourcePath(extension), ...BABEL_PLUGINS];
   try {
     parseTypeScriptAst(content, {
       sourceType,
-      plugins: [...plugins] as never,
+      plugins: plugins as never,
       errorRecovery: false,
     });
     return deepFreeze({
