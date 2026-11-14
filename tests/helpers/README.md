@@ -25,6 +25,7 @@ The `tests/helpers/` folder of the development surface.
 - `freshness-exemption.ts` — the one owner of `@freshness-exempt <reason>` quality: the marker shape and the refusal of empty, placeholder, and content-free reasons, plus the two required halves (the artifact that would be stale AND the command, producer, or property that establishes its currency), shared by the freshness census and the dossier ratchet.
 - `fresh-mtime.ts` — sINGLE-PARTY OWNER of "write a file, then force its mtime so an mtime-keyed cache observes the write". ── The defect this exists to make impossible….
 - `function-scope.ts` — sTRUCTURAL SCOPES FOR SOURCE ASSERTIONS — this suite's door to the shared owner, which is `integration/src/shared/source-structure.ts`. The matcher….
+- `github-workflow-expression.mjs` — uses the official GitHub Actions expression parser and a bounded evaluator for workflow boundary tests.
 - `git-spawn-owner.ts` — wHO CAN MAKE GIT RUN — derived from the owner's own source, not spelled. ── WHY THIS EXISTS ──────────────────────────────────────────────────────….
 - `global-boundary.ts` — sINGLE-PARTY OWNER of the per-file global boundary under `isolate: false`. ── The defect this exists to make impossible ────────────────────────────….
 - `history-page.ts` — tHE PAGE FACTS A FAKE `/history`.

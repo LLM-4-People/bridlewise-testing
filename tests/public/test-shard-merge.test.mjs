@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
+import { parse } from "yaml";
+
+import { evaluateAlwaysJobCondition, evaluateJobEnvironmentValue } from "../helpers/github-workflow-expression.mjs";
+import { withTempDir } from "../../engine/test/support/temp-dir.ts";
 import { mergeShardReports } from "../../scripts/test-shard-merge.mjs";
 import {
   WEIGHTS_SCHEMA,
@@ -535,4 +540,122 @@ test("a shard without a measured timing window is refused by default", () => {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+});
+
+const SHARD_WORKFLOW = new URL("../../.github/workflows/test-shards.yml", import.meta.url);
+const TERMINAL_RESULTS = ["success", "failure", "cancelled", "skipped"];
+const shardWorkflow = () => parse(readFileSync(SHARD_WORKFLOW, "utf8"));
+
+function requireUnforgiven(node, label) {
+  assert.ok(node["continue-on-error"] === undefined || node["continue-on-error"] === false, `${label} cannot forgive a terminal failure`);
+}
+
+/** Drive the actual first guard only, using the SDK for its actual job/env expressions. */
+function runPrerequisiteGuard(workflow, results, work) {
+  const job = workflow.jobs.merge;
+  assert.deepEqual([...job.needs].sort(), ["prepare", "shard"], "this receipt consumes the plan and web shard producers");
+  requireUnforgiven(job, "the required merge job");
+  for (const dependency of job.needs) {
+    const producer = workflow.jobs[dependency];
+    requireUnforgiven(producer, `producer ${dependency}`);
+    for (const step of producer.steps) requireUnforgiven(step, `producer ${dependency}'s ${step.name}`);
+  }
+  const context = { needs: Object.fromEntries(Object.entries(results).map(([job, result]) => [job, { result }])) };
+  assert.equal(evaluateAlwaysJobCondition(job.if, context), true, "the required job must report after every producer result");
+  const guard = job.steps[0];
+  assert.equal(typeof guard.run, "string", "the first step must refuse bad producers before downloading or merging reports");
+  requireUnforgiven(guard, "the prerequisite guard");
+  if (guard.if !== undefined) assert.equal(evaluateAlwaysJobCondition(guard.if, context), true, "the prerequisite guard cannot be skipped");
+  const env = Object.fromEntries(Object.entries(guard.env).map(([name, value]) => [name, evaluateJobEnvironmentValue(value, context)]));
+  return spawnSync("/bin/bash", ["-e", "-o", "pipefail", "-c", guard.run], { cwd: work, env: { PATH: process.env.PATH, ...env }, encoding: "utf8" });
+}
+
+/** Reuse the real plan and wrapper before asking the real merger to accept green assertion JSON. */
+function greenReportFixture(work) {
+  const fixture = planFixture(work, ["tests/unit/a.test.ts", "tests/unit/b.test.ts"], { shardCount: 2 });
+  const reports = fixture.plan.shards.map(({ index }) => {
+    const vitestPath = join(work, `raw-${index}.json`);
+    const outPath = join(work, `wrapped-${index}.json`);
+    writeJson(vitestPath, shardReport(plannedFiles(work, fixture, index), { tests: 2 }));
+    wrapShardReport({ root: work, planPath: fixture.planPath, shard: index, vitestPath, outPath,
+      startedAt: "1970-01-01T00:00:01.000Z", finishedAt: "1970-01-01T00:00:02.000Z" });
+    return outPath;
+  });
+  const receipt = merge(work, fixture, reports);
+  assert.equal(receipt.passedTests, receipt.testCount);
+  assert.equal(receipt.failedTests, 0);
+  assert.equal(receipt.fileCount, 2);
+  rmSync(join(work, "receipt.json"));
+  return { fixture, reports };
+}
+
+function assertTerminalBoundary(workflow, work, { fixture, reports }) {
+  for (const prepare of TERMINAL_RESULTS) for (const shard of TERMINAL_RESULTS) {
+    rmSync(join(work, "receipt.json"), { force: true });
+    const guard = runPrerequisiteGuard(workflow, { prepare, shard }, work);
+    const succeeded = prepare === "success" && shard === "success";
+    if (guard.status === 0) merge(work, fixture, reports);
+    const label = `prepare=${prepare}, shard=${shard}`;
+    assert.equal(guard.status, succeeded ? 0 : 1, `${label}: producer outcomes, not green assertion JSON, decide whether a receipt may be produced`);
+    assert.equal(existsSync(join(work, "receipt.json")), succeeded, `${label}: receipt existence must follow the terminal prerequisite`);
+  }
+}
+
+test("the receipt prerequisite requires both successful producer results even with valid green reports", () => withTempDir("shard-terminal-", (work) => {
+  const reports = greenReportFixture(work);
+  assertTerminalBoundary(shardWorkflow(), work, reports);
+  const bracketed = shardWorkflow();
+  bracketed.jobs.merge.if = "${{ (always()) }}";
+  bracketed.jobs.merge.steps[0].env.SHARD_RESULT = "${{ needs['shard']['result'] }}";
+  assertTerminalBoundary(bracketed, work, reports);
+}));
+
+test("the terminal guard's causal controls reject missing result checks, substitutions, skipping and forgiveness", () => withTempDir("shard-terminal-controls-", (work) => {
+  const reports = greenReportFixture(work);
+  const mutant = (change, expected) => {
+    const workflow = shardWorkflow();
+    change(workflow);
+    assert.throws(() => assertTerminalBoundary(workflow, work, reports), expected);
+  };
+  mutant((workflow) => { workflow.jobs.merge.steps[0].run = 'test "$PREPARE_RESULT" = "success"'; }, /prepare=success, shard=failure/u);
+  mutant((workflow) => { workflow.jobs.merge.steps[0].env.SHARD_RESULT = "${{ needs.prepare.result }}"; }, /prepare=success, shard=failure/u);
+  mutant((workflow) => { workflow.jobs.merge.steps[0].env.SHARD_RESULT = "success"; }, /prepare=success, shard=failure/u);
+  mutant((workflow) => { workflow.jobs.merge.if = "true"; }, /must call always/u);
+  mutant((workflow) => { workflow.jobs.merge.if = "needs.prepare.result == 'success' && needs.shard.result == 'success'"; }, /must call always/u);
+  mutant((workflow) => { workflow.jobs.merge.steps[0].if = "needs.shard.result == 'success'"; }, /must call always/u);
+  mutant((workflow) => { workflow.jobs.merge["continue-on-error"] = true; }, /cannot forgive/u);
+  mutant((workflow) => { workflow.jobs.merge.steps[0]["continue-on-error"] = true; }, /cannot forgive/u);
+  for (const dependency of ["prepare", "shard"]) {
+    mutant((workflow) => { workflow.jobs[dependency]["continue-on-error"] = true; }, /cannot forgive/u);
+    mutant((workflow) => { workflow.jobs[dependency].steps[0]["continue-on-error"] = true; }, /cannot forgive/u);
+  }
+}));
+
+test("a failed command retaining green JSON is refused while a prepare-only mutant can still write a green receipt", () => withTempDir("shard-failed-command-", (work) => {
+  const { fixture, reports } = greenReportFixture(work);
+  const command = spawnSync(process.execPath, ["-e", "process.exitCode = 1;"], { cwd: work, env: { PATH: process.env.PATH }, encoding: "utf8" });
+  assert.equal(command.status, 1, "the local fixture command really exits nonzero after the green files exist");
+  const results = { prepare: "success", shard: command.status === 0 ? "success" : "failure" };
+  const fixed = runPrerequisiteGuard(shardWorkflow(), results, work);
+  assert.equal(fixed.status, 1, fixed.stderr);
+  assert.equal(existsSync(join(work, "receipt.json")), false);
+  const prepareOnly = shardWorkflow();
+  prepareOnly.jobs.merge.steps[0].run = 'test "$PREPARE_RESULT" = "success"';
+  assert.equal(runPrerequisiteGuard(prepareOnly, results, work).status, 0);
+  const unsafe = merge(work, fixture, reports);
+  assert.equal(unsafe.failedTests, 0);
+  assert.equal(unsafe.passedTests, unsafe.testCount, "valid JSON remains green despite the actual failed command");
+}));
+
+test("the shared SDK evaluator keeps literals literal and refuses unsupported scheduler or template semantics", () => {
+  const context = { needs: { prepare: { result: "success" }, shard: { result: "failure" } } };
+  assert.equal(evaluateAlwaysJobCondition("always()", context), true);
+  assert.equal(evaluateAlwaysJobCondition("${{ (always()) }}", context), true);
+  assert.equal(evaluateJobEnvironmentValue("${{ needs['shard']['result'] }}", context), "failure");
+  assert.equal(evaluateJobEnvironmentValue("${{ format('{0}', needs.shard.result) }}", context), "failure");
+  assert.equal(evaluateJobEnvironmentValue("success", context), "success");
+  assert.equal(evaluateJobEnvironmentValue(" needs.shard.result ", context), " needs.shard.result ");
+  for (const condition of ["true", "'always()'", "success()", "cancelled()", "always() || true"]) assert.throws(() => evaluateAlwaysJobCondition(condition, context));
+  for (const value of ["prefix ${{ needs.shard.result }}", " ${{ needs.shard.result }} ", "${{ needs.shard.result", "${{ cancelled() }}"])
+    assert.throws(() => evaluateJobEnvironmentValue(value, context));
 });
