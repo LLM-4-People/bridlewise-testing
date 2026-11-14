@@ -8,6 +8,7 @@
  * own path, or no entry of its name in its list). A kind that can list its
  * objects (`names`) lets the plan report the ones nobody declared.
  */
+import { isPlainObject } from "../../shared/type-guards.ts";
 import { FORGE_APPS, type ForgeAppRole } from "./app-registry.ts";
 import { ForgeError, isForgeError } from "./codes.ts";
 import { rulesetWithGithubDefaults, type ForgeObject, type ForgeObjectKind, type ForgeScope } from "./forge-state.ts";
@@ -456,16 +457,80 @@ async function attachExactly(context: LiveContext, object: ForgeObject, desired:
 }
 
 type ProjectOption = Readonly<{ id: string; name: string; color: string; description: string }>;
-type ProjectField = Readonly<{ id?: string; name?: string; dataType?: string; options?: readonly ProjectOption[] }>;
-type ProjectNode = Readonly<{ id: string; title: string; public: boolean; fields: { nodes: readonly ProjectField[] }; items?: Readonly<{ totalCount?: unknown }> }>;
+type ProjectField = Readonly<{ id: string; name: string; dataType: string; options?: readonly ProjectOption[] }>;
+type ProjectIdentity = Readonly<{ id: string; title: string; public: boolean; owner: Readonly<{ id: string }> }>;
+type ProjectNode = ProjectIdentity & Readonly<{ fields: { nodes: readonly ProjectField[] }; items?: Readonly<{ totalCount?: unknown }> }>;
 type ProjectDesired = Readonly<{ title: string; public: boolean; status: readonly string[]; fields: readonly Readonly<{ name: string; dataType: string; options?: readonly string[] }>[] }>;
 type ProjectOptionInput = Readonly<{ id?: string; name: string; color: string; description: string }>;
 
-const PROJECT_QUERY = `query($login: String!, $title: String!) { organization(login: $login) { id projectsV2(first: 20, query: $title) { nodes { id title public items(first: 1, archivedStates: [ARCHIVED, NOT_ARCHIVED], query: "") { totalCount } fields(first: 50) { nodes { ... on ProjectV2FieldCommon { id name dataType } ... on ProjectV2SingleSelectField { options { id name color description } } } } } } } }`;
+// GitHub permits at most 100 connection entries per query; the configured maxPages bounds each traversal.
+const PROJECTS_QUERY = `query ProjectDiscovery($login: String!, $after: String) { organization(login: $login) { id projectsV2(first: 100, after: $after) { nodes { id title public owner { id } } pageInfo { hasNextPage endCursor } } } }`;
+const PROJECT_NODE_QUERY = `query ProjectById($login: String!, $projectId: ID!, $after: String) { organization(login: $login) { id } node(id: $projectId) { __typename ... on ProjectV2 { id title public owner { id } items(first: 1, archivedStates: [ARCHIVED, NOT_ARCHIVED], query: "") { totalCount } fields(first: 100, after: $after) { nodes { ... on ProjectV2FieldCommon { id name dataType } ... on ProjectV2SingleSelectField { options { id name color description } } } pageInfo { hasNextPage endCursor } } } } }`;
 
-async function projectOf(context: LiveContext, title: string): Promise<Readonly<{ organizationId: string; project: ProjectNode | undefined }>> {
-  const data = await context.client.graphql<{ organization: { id: string; projectsV2: { nodes: readonly ProjectNode[] } } }>(PROJECT_QUERY, { login: context.organization, title });
-  return { organizationId: data.organization.id, project: data.organization.projectsV2.nodes.find((node) => node.title === title) };
+/** One bounded connection owner for discovery and fields; a partial, cyclic or malformed population never means absence. */
+async function projectConnection<Node extends Readonly<{ id: string }>>(context: LiveContext, subject: string, load: (after: string | null) => Promise<unknown>, decode: (node: unknown) => Node): Promise<readonly Node[]> {
+  if (!Number.isSafeInteger(context.maxPages) || context.maxPages < 1) throw new ForgeError("forge_request_invalid", "A Project connection requires a positive safe page bound.", { connection: subject });
+  const nodes: Node[] = [], identities = new Set<string>(), cursors = new Set<string>();
+  let after: string | null = null;
+  for (let page = 0; page < context.maxPages; page++) {
+    const connection = await load(after);
+    if (!isPlainObject(connection) || !Array.isArray(connection.nodes) || !isPlainObject(connection.pageInfo) || typeof connection.pageInfo.hasNextPage !== "boolean") throw new ForgeError("github_response_invalid", `The ${subject} connection answered no complete page.`, { connection: subject, page: page + 1 });
+    const { hasNextPage, endCursor } = connection.pageInfo;
+    if (endCursor !== null && (typeof endCursor !== "string" || endCursor.length === 0)) throw new ForgeError("github_response_invalid", `The ${subject} connection answered an invalid cursor.`, { connection: subject, page: page + 1 });
+    const current = connection.nodes.map(decode);
+    for (const node of current) {
+      if (identities.has(node.id)) throw new ForgeError("github_response_invalid", `The ${subject} connection repeated a native identity.`, { connection: subject, page: page + 1 });
+      identities.add(node.id); nodes.push(node);
+    }
+    if (typeof endCursor === "string" && cursors.has(endCursor)) throw new ForgeError("github_response_invalid", `The ${subject} connection repeated a cursor.`, { connection: subject, page: page + 1 });
+    if (!hasNextPage) return nodes;
+    if (current.length === 0 || typeof endCursor !== "string" || endCursor === after) throw new ForgeError("github_response_invalid", `The ${subject} connection did not advance.`, { connection: subject, page: page + 1 });
+    cursors.add(endCursor); after = endCursor;
+  }
+  throw new ForgeError("forge_list_oversized", `The ${subject} connection exceeds its configured page bound.`, { connection: subject, maxPages: context.maxPages });
+}
+
+function projectOrganization(data: unknown, expectedId?: string): Record<string, unknown> & Readonly<{ id: string }> {
+  if (!isPlainObject(data) || !isPlainObject(data.organization) || typeof data.organization.id !== "string" || data.organization.id.length === 0 || (expectedId !== undefined && data.organization.id !== expectedId)) throw new ForgeError("github_response_invalid", "The Project organization answered no stable native identity.", {});
+  return data.organization as Record<string, unknown> & Readonly<{ id: string }>;
+}
+
+function projectIdentity(value: unknown, organizationId: string): ProjectIdentity {
+  if (!isPlainObject(value) || typeof value.id !== "string" || value.id.length === 0 || typeof value.title !== "string" || value.title.length === 0 || typeof value.public !== "boolean" || !isPlainObject(value.owner) || value.owner.id !== organizationId) throw new ForgeError("github_response_invalid", "A Project answered malformed identity or belongs to another owner.", { organizationId });
+  return { id: value.id, title: value.title, public: value.public, owner: { id: organizationId } };
+}
+
+/** Discovery reads only identity, and completes the caller-visible population before deciding absence or uniqueness. */
+async function projectOf(context: LiveContext, title: string): Promise<Readonly<{ organizationId: string; project: ProjectIdentity | undefined }>> {
+  let organizationId: string | undefined;
+  const projects = await projectConnection(context, "organization Projects", async (after) => {
+    const data = await context.client.graphql<unknown>(PROJECTS_QUERY, { login: context.organization, after });
+    const organization = projectOrganization(data, organizationId); organizationId = organization.id;
+    return organization.projectsV2;
+  }, (node) => projectIdentity(node, organizationId!));
+  const matches = projects.filter((node) => node.title === title);
+  if (matches.length > 1) throw new ForgeError("github_response_invalid", `Project title ${title} is not unique; no Project was selected.`, { matches: matches.length });
+  return { organizationId: organizationId!, project: matches[0] };
+}
+
+/** Once selected or created, only this native node can satisfy prewrite and readback; titles never redirect the operation. */
+async function projectById(context: LiveContext, title: string, projectId: string, expectedOrganizationId?: string): Promise<ProjectNode> {
+  let organizationId = expectedOrganizationId, identity: ProjectIdentity | undefined, items: Readonly<{ totalCount?: unknown }> | undefined;
+  const fields = await projectConnection(context, `Project ${projectId} fields`, async (after) => {
+    const data = await context.client.graphql<unknown>(PROJECT_NODE_QUERY, { login: context.organization, projectId, after });
+    const organization = projectOrganization(data, organizationId); organizationId = organization.id;
+    if (!isPlainObject(data) || !isPlainObject(data.node) || data.node.__typename !== "ProjectV2") throw new ForgeError("github_response_invalid", `Project ${projectId} disappeared or changed type.`, { projectId });
+    const current = projectIdentity(data.node, organizationId);
+    if (current.id !== projectId || current.title !== title || (identity !== undefined && current.public !== identity.public)) throw new ForgeError("github_response_invalid", `Project ${projectId} changed identity or metadata while its fields were read.`, { projectId });
+    identity = current;
+    items = isPlainObject(data.node.items) ? { totalCount: data.node.items.totalCount } : undefined;
+    return data.node.fields;
+  }, (node) => {
+    if (!isPlainObject(node) || typeof node.id !== "string" || node.id.length === 0 || typeof node.name !== "string" || node.name.length === 0 || typeof node.dataType !== "string" || node.dataType.length === 0) throw new ForgeError("github_response_invalid", `Project ${projectId} answered a field with no native identity.`, { projectId });
+    return node as ProjectField;
+  });
+  if (identity === undefined) throw new ForgeError("github_response_invalid", `Project ${projectId} did not read back.`, { projectId });
+  return { ...identity, fields: { nodes: fields }, ...(items === undefined ? {} : { items }) };
 }
 
 /** A field's name and ID must be unambiguous before it can be updated. Unmanaged fields are never rewritten. */
@@ -505,9 +570,8 @@ function projectOptions(names: readonly string[], live: readonly ProjectOption[]
 type ProjectOptionUpdate = Readonly<{ name: string; id: string; options: readonly ProjectOptionInput[] }>;
 
 /** A successful HTTP mutation is not preservation: read back actual option IDs, names and presentation, including newly assigned identities. */
-async function verifyProjectOptions(context: LiveContext, object: ForgeObject, projectId: string, expected: readonly ProjectOptionUpdate[]): Promise<void> {
-  const { project: after } = await projectOf(context, object.key);
-  if (after?.id !== projectId) throw new ForgeError("github_response_invalid", `Project ${projectId} changed identity during option updates.`, { projectId });
+async function verifyProjectOptions(context: LiveContext, object: ForgeObject, projectId: string, expected: readonly ProjectOptionUpdate[], organizationId: string): Promise<void> {
+  const after = await projectById(context, object.key, projectId, organizationId);
   for (const item of expected) {
     const field = projectField(after, item.name);
     if (field?.id !== item.id || !Array.isArray(field.options)) throw new ForgeError("github_response_invalid", `Project ${projectId}: field ${item.name} identity did not read back.`, { projectId, field: item.name });
@@ -520,12 +584,12 @@ async function verifyProjectOptions(context: LiveContext, object: ForgeObject, p
 }
 
 /** One update owner for normal reconciliation and the private capability returned by this module's create flow. */
-async function updateProject(context: LiveContext, object: ForgeObject, body: unknown, found: LiveObject, createdProjectId?: string): Promise<void> {
+async function updateProject(context: LiveContext, object: ForgeObject, body: unknown, found: LiveObject, createdProjectId?: string, organizationId?: string): Promise<void> {
   const desired = body as ProjectDesired, projectId = found.id;
-  const { project: current } = await projectOf(context, object.key);
-  if (typeof projectId !== "string" || projectId.length === 0 || current?.id !== projectId || (createdProjectId !== undefined && createdProjectId !== projectId)) {
+  if (typeof projectId !== "string" || projectId.length === 0 || (createdProjectId !== undefined && createdProjectId !== projectId)) {
     throw new ForgeError("github_response_invalid", `Project ${createdProjectId ?? String(projectId)} changed identity or disappeared before initialization.`, { projectId: createdProjectId ?? String(projectId) });
   }
+  const current = await projectById(context, object.key, projectId, organizationId);
   const initializing = createdProjectId !== undefined;
   if (initializing && (!Number.isSafeInteger(current.items?.totalCount) || current.items?.totalCount !== 0)) {
     throw new ForgeError("forge_declaration_invalid", `New Project ${projectId} is not verified empty, including archived items; initialization was refused.`, { projectId });
@@ -556,13 +620,14 @@ async function updateProject(context: LiveContext, object: ForgeObject, body: un
       expected.push({ name: field.name, id: existing.id!, options });
     }
   }
-  if (expected.length > 0) await verifyProjectOptions(context, object, projectId, expected);
+  if (expected.length > 0) await verifyProjectOptions(context, object, projectId, expected, current.owner.id);
 }
 
 const project: KindAdapter = {
   read: async (context, object) => {
-    const { project: found } = await projectOf(context, object.key);
-    if (found === undefined) return undefined;
+    const { organizationId, project: selected } = await projectOf(context, object.key);
+    if (selected === undefined) return undefined;
+    const found = await projectById(context, object.key, selected.id, organizationId);
     const statusField = projectField(found, "Status");
     const namesOf = (field: ProjectField): readonly string[] | undefined => {
       if (field.options === undefined) return undefined;
@@ -580,14 +645,13 @@ const project: KindAdapter = {
     }) } };
   },
   create: async (context, object, body) => {
-    const { organizationId } = await projectOf(context, object.key);
+    const { organizationId, project: existing } = await projectOf(context, object.key);
+    if (existing !== undefined) throw new ForgeError("github_response_invalid", `Project ${object.key} already exists; creation was refused.`, { projectId: existing.id });
     const created = await context.client.graphql<{ createProjectV2: { projectV2: { id?: unknown } } }>(`mutation($ownerId: ID!, $title: String!) { createProjectV2(input: { ownerId: $ownerId, title: $title }) { projectV2 { id } } }`, { ownerId: organizationId, title: (body as ProjectDesired).title });
     const createdProjectId = created.createProjectV2?.projectV2?.id;
     if (typeof createdProjectId !== "string" || createdProjectId.length === 0) throw new ForgeError("github_response_invalid", "The created Project answered no identity; no initialization was attempted.", { creationMayHaveOccurred: true });
     try {
-      const found = await project.read(context, object);
-      if (found === undefined) throw new ForgeError("github_response_invalid", `New Project ${createdProjectId} did not read back; no initialization was attempted.`, { projectId: createdProjectId });
-      await updateProject(context, object, body, found, createdProjectId);
+      await updateProject(context, object, body, { id: createdProjectId, live: undefined }, createdProjectId, organizationId);
     } catch (error) {
       // Creation has already happened. Preserve that native identity even when a later read/write fails, including the original typed budget/refusal facts.
       if (isForgeError(error)) throw new ForgeError(error.forgeCode, error.message, { ...error.facts, createdProjectId, creationMayHaveOccurred: true });
