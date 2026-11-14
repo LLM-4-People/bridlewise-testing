@@ -22,7 +22,7 @@ const context = resolvePromotionContext(root, PROFILE_NAME, SOURCE, view.documen
 try {
   const result = await applyPromotion(context, { acceptTargetEdits: null, allowDeletions: false, releaseHold: false, reason: null, noPublish: false, noPush: false, auto: false }, {
     git: configuredWorktreeGitPort(view.document),
-    runner: { supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } },
+    runner: { supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000 },
     generatedOutputs: () => FIXTURE_GENERATED,
     buildOutputs: () => ["build/out.txt"],
     engineRelative: FIXTURE_ENGINE,

@@ -66,7 +66,7 @@ import { ROOT_POLICY } from "../../kernel/root-policy.ts";
 import { gitOutput, resolveRevision, writeBlob } from "../../git/tree-reader.ts";
 import type { CommitIdentity, WorktreeGitPort } from "../../git/worktree-port.ts";
 import { auditEvent, debugLog } from "../../shared/debug/debug-system.ts";
-import { checkoutCommandRunner, commandsRun, convergeBound, type CheckoutCommandRunner, type CheckoutStep } from "../checkout-setup.ts";
+import { checkoutCommandRunner, commandInvocations, convergeBound, type CheckoutStep } from "../checkout-setup.ts";
 import { configuredLockOptions } from "../resource-lock.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { commitCandidate, createCandidate, landingGitOperationCount, runLandingPhase, settleCandidate, sweepCandidates, type SettleReport } from "../tree-landing.ts";
@@ -86,23 +86,27 @@ const PROMOTION_RECEIPT_SCHEMA = schemaId("promotion-receipt", 1);
 
 /**
  * The worst case of one `apply` over `context` (the ceiling a supervisor puts
- * on a re-executed one): the lock wait, every registry command the profile
- * runs — the converge commands once per pass of their bound — each with every
- * errored retry and its wait, the commit, the landing's git operations
+ * on a re-executed one): the lock wait, every invocation in each setup and
+ * verify sequence, each lockfile transform's direct command, the converge
+ * sequence once per pass of its bound, the
+ * commit, the landing's git operations
  * (`LANDING_GIT_OPERATIONS`, each at the slowest local git ceiling), and the
  * remote's (two fetches or listings and a push per attempt; a rejected push
  * re-plans once). Derived from the configuration, so a slower command
  * declared tomorrow raises it.
  */
-export function applyCeilingMs(context: PromotionContext, runner: CheckoutCommandRunner, generatedOutputs: number): number {
+export function applyCeilingMs(context: PromotionContext, generatedOutputs: number): number {
   const { profile } = context.loaded;
-  const { retries, backoffMs } = runner.retries;
-  const attempts = (names: readonly string[]): number => commandsRun(context.isolation.commands, names).reduce((sum, name) => sum + context.isolation.commands[name]!.timeoutMs * (retries + 1) + backoffMs * (2 ** retries - 1), 0);
-  const lockfiles = profile.transforms.flatMap((transform) => transform.kind === "lockfile" ? [transform.command] : []);
+  const commandCeilings = (names: readonly string[]): number => commandInvocations(context.isolation.commands, names).reduce((sum, name) => sum + context.isolation.commands[name]!.timeoutMs, 0);
+  // deriveLockfile invokes its command directly; separate transforms may use
+  // the same command with distinct inputs. A memo hit only reduces this work.
+  const lockfileCeiling = profile.transforms.reduce((sum, transform) => sum + (transform.kind === "lockfile" ? context.isolation.commands[transform.command]!.timeoutMs : 0), 0);
   const passes = convergeBound(generatedOutputs);
   const timeouts = worktreeOperationTimeouts(context.document);
-  const oneBuild = attempts([...profile.phases.setup, ...profile.phases.verify, ...lockfiles])
-    + passes * attempts(profile.phases.converge)
+  const oneBuild = commandCeilings(profile.phases.setup)
+    + commandCeilings(profile.phases.verify)
+    + lockfileCeiling
+    + passes * commandCeilings(profile.phases.converge)
     + timeouts.mergeMs
     + landingGitOperationCount(passes) * Math.max(timeouts.worktreeMs, timeouts.inspectMs)
     + (profile.remote === null ? 0 : 2 * timeouts.fetchMs + timeouts.pushMs);

@@ -97,7 +97,7 @@ export async function runWorkspaceCli(
   const checkoutRoot = git.toplevel(root, timeouts.inspectMs);
   // Built on the first command run: a subcommand that runs none never compiles the supervisor.
   let runner: CheckoutCommandRunner | null = null;
-  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(snapshot.document, isolation, ensureTestProcessSupervisor(),
+  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(isolation, ensureTestProcessSupervisor(),
     (step: string, commandArguments: readonly string[]) => progress(`run ${step}: ${commandArguments.join(" ")}`));
   // The integrator's commits (a workspace merge) are the harness's, so they are the project's agent identity
   // from the one declared source, never whatever user.name and user.email the checkout or the host carries.

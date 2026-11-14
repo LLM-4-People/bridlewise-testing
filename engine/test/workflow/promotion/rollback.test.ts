@@ -27,7 +27,7 @@ const REFS = promotionRefs(PROFILE_NAME);
 function runOf(fixture: PromotionFixture): ApplyRun {
   return {
     git: configuredWorktreeGitPort(fixture.document),
-    runner: { supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000, retries: { retries: 0, backoffMs: 1 } },
+    runner: { supervisor: ensureTestProcessSupervisor(), killGraceMs: 500, outputCharacters: 4_000 },
     generatedOutputs: () => FIXTURE_GENERATED,
     buildOutputs: () => [],
     engineRelative: FIXTURE_ENGINE,
