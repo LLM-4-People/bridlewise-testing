@@ -17,7 +17,11 @@ import { isResponseUsageValue, parseResponseResource, projectResponse, type Resp
 export type ResponseObservationOptions = Readonly<{ policy?: PrivacyPolicy; limits: ResponsesTransportConfigInput; heldCredentials?: HeldSet; detection?: Omit<DetectionOptions, "learningScope"> }>;
 export type ResponseDisplay = Readonly<Omit<ResponseProjection, "response" | "toolCalls"> & { toolCalls: readonly Readonly<{ id: string; type: "function"; function: Readonly<{ name: string; arguments: string }> }>[] }>;
 export type ResponseObservationEnvelope = Readonly<{ headers: Readonly<Record<string, string>>; response?: SnapshotJsonValue; display?: ResponseDisplay; diagnostic?: Readonly<{ message?: string; code?: string; type?: string }> }>;
-export type ResponseEnvelopeOptions = ResponseObservationOptions & Readonly<{ selectedHeaders?: readonly string[]; status?: ResponseStatus; kind?: "error" }>;
+export type ResponseEnvelopeOptions = ResponseObservationOptions & Readonly<{
+  selectedHeaders?: readonly string[]; status?: ResponseStatus; kind?: "error";
+  /** Host-declared usage objects relative to the response body, never paths supplied by its payload. */
+  usageRoots?: readonly (readonly (string | number)[])[];
+}>;
 export function observeResponseProtocol(value: unknown, options: ResponseObservationOptions): SnapshotJsonValue {
   return observe(value, options, false) as SnapshotJsonValue;
 }
@@ -28,6 +32,15 @@ export function observeResponseEnvelope(value: Readonly<{ headers: Readonly<Reco
 function observe(value: unknown, options: ResponseEnvelopeOptions, envelope: boolean): SnapshotJsonValue | ResponseObservationEnvelope {
   const limits = resolveResponsesTransportConfig(options.limits), policy = options.policy ?? DEFAULT_PRIVACY_POLICY;
   const structural = { maximumDepth: limits.maximumDepth, maximumNodes: limits.maximumNodes };
+  let usageRoots: readonly (readonly (string | number)[])[] | undefined;
+  if (envelope && options.usageRoots !== undefined) {
+    const roots = snapshotJsonValue(options.usageRoots, structural, "responses_observation_usage_roots_invalid");
+    if (!Array.isArray(roots) || roots.some(root => !Array.isArray(root) || root.some((key: unknown) =>
+      typeof key !== "string" && !(typeof key === "number" && Number.isSafeInteger(key) && key >= 0)))) {
+      throw new InputError("Response usage roots must be typed body-relative paths", "responses_observation_usage_roots_invalid");
+    }
+    usageRoots = roots as readonly (readonly (string | number)[])[];
+  }
   // One structural snapshot budgets the two subtrees together. The trusted
   // wrapper contributes one derived node/depth level, excluded from provider limits.
   const input = value as Readonly<{ headers: unknown; response?: unknown; evidence?: readonly unknown[] }>;
@@ -55,7 +68,10 @@ function observe(value: unknown, options: ResponseEnvelopeOptions, envelope: boo
   // Location, Link or Referer is sensitive); every other key by the key-name rule.
   const header = (location: StringValueLocation) => envelope && location.path.length === 2 && location.path[0] === "headers";
   const headerTelemetry = (item: unknown, location: StringValueLocation) => header(location) && typeof item === "string" && isRateLimitHeaderValue(String(location.path[1]), item);
-  const numeric = (item: unknown, location: StringValueLocation) => headerTelemetry(item, location) || options.kind !== "error" && isNativeUsage(item, locationOf(location));
+  const numeric = (item: unknown, location: StringValueLocation) => headerTelemetry(item, location) || options.kind !== "error" && isNativeUsage(item, locationOf(location))
+    || usageRoots !== undefined && location.path[0] === "response" && usageRoots.some(root =>
+      location.path.length > root.length + 1 && root.every((key, index) => key === location.path[index + 1])
+      && isResponseUsageValue(location.path.slice(root.length + 1), item));
   const sensitive = (item: unknown, location: StringValueLocation) => typeof location.path.at(-1) === "string"
     && (header(location) ? isSensitiveHeaderName(String(location.path.at(-1))) : isSensitiveKeyName(String(location.path.at(-1)))) && !numeric(item, location);
   const eventType = record && typeof record.type === "string" ? record.type : undefined;
@@ -144,7 +160,7 @@ function observe(value: unknown, options: ResponseEnvelopeOptions, envelope: boo
     ...(display === undefined ? {} : { display }), ...(diagnostic === undefined ? {} : { diagnostic }) });
 }
 
-/** Sensitive-key vocabulary includes token counts; only native count slots keep numbers. */
+/** Sensitive-key vocabulary includes token counts; native count slots use the canonical protocol schema. */
 function isNativeUsage(value: unknown, { path, ancestors }: StringValueLocation): boolean {
   const root = ancestors[0];
   if (!root || typeof root !== "object" || !("object" in root)) return false;
