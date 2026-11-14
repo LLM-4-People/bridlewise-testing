@@ -33,7 +33,7 @@ The current bounded-run recurrence remains a blocking failure against the target
 
 ## Current recurrence and separate arbitration defect
 
-At author head 9f20863ffcaf413d5993814f0175b24c7458c285, [the current Engine job](https://github.com/LLM-4-People/bridlewise-testing/actions/runs/43615214562/job/132508659040) again reported cpu-rlimit expected and stalled received at line 149. The original SIGXCPU stop/native-exit ordering and terminator result remain unknown. This recurrence is retained as a failed current producer.
+At author head 9f20863ffcaf413d5993814f0175b24c7458c285, [the current Engine job][repo:actions/runs/43615214562/job/132508659040] again reported cpu-rlimit expected and stalled received at line 149. The original SIGXCPU stop/native-exit ordering and terminator result remain unknown. This recurrence is retained as a failed current producer.
 
 A separate controlled generic case reproduces an arbitration gap: the leader has exited naturally with status zero, the owned group is empty when a stall is requested, and the actual terminator reports GONE, yet the old classifier returns stalled. The paired control with a quiet live member in the same group passes and confirms that remaining owned work must still be bounded and cleaned up. This is a different, observed natural-exit branch; it is not a reproduction of the original line-149 SIGXCPU ordering.
 
@@ -46,3 +46,7 @@ Both this Task and PROJECTOR-NATIVE-TERMINATION-BURN-DOWN remain open with their
 Under the same controlled protocol, the old empty-group case is red while the live-group companion is green; with the narrow correction both cases pass (2/2). A separately authorized complete run of engine/test/process/bounded-run.test.ts passes all 18 cases, including its two SIGXCPU cases, under unchanged caps without name filtering, a private preload or an extra probe. These results qualify the changed private subject on that host.
 
 This evidence does not establish the original line-149 stop/native-exit ordering, turn its retained failure into a pass, or give qualification credit to the separate unplanned incident. The original entry stays owned and open. A new recurrence on a later current subject still blocks until the normal judgement establishes otherwise. No Flake-cause, budget forgiveness, broader goal closure or additional execution gate is introduced.
+
+<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
+[repo:actions/runs/43615214562/job/132508659040]: https://github.com/LLM-4-People/bridlewise-testing/actions/runs/43615214562/job/132508659040
+<!-- END GENERATED: repository links -->

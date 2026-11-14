@@ -477,7 +477,7 @@ test("HarnessCommands: architecture and registrar share one fresh observation af
       `syncBuiltinESMExports();`,
       `const observe = (onProgress, skipArchitecture = false) => {`,
       `  reads = 0;`,
-      `  const result = runArchitectureChecks(root, { onProgress, skipArchitecture });`,
+      "  const result = runArchitectureChecks(root, { onProgress, skipArchitecture });",
       `  return { reads, architecture: result.architecture.status, registrar: result.moduleRegistrar.status, shared: result.architecture.details?.moduleRegistrar === result.moduleRegistrar.details };`,
       `};`,
       `const stable = observe();`,

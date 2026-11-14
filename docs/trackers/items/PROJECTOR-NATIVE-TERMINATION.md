@@ -36,7 +36,7 @@ Older pull requests contain the same assertion failure, but that alone does not 
 
 ## Current recurrence and bounded repair
 
-At author head 9f20863ffcaf413d5993814f0175b24c7458c285, [the current Engine job](https://github.com/LLM-4-People/bridlewise-testing/actions/runs/43615214562/job/132508659040) again failed the outer status assertion. This time the retained diagnostic reports status null, signal SIGKILL, no spawn error and empty stdout. It records the phases started, before-admission, probed and before-allocation. The last marker precedes renewed admission and linking as well as allocation. No later phase or post-termination memory-event counters were retained. SIGKILL is observed; its underlying cause remains unknown.
+At author head 9f20863ffcaf413d5993814f0175b24c7458c285, [the current Engine job][repo:actions/runs/43615214562/job/132508659040] again failed the outer status assertion. This time the retained diagnostic reports status null, signal SIGKILL, no spawn error and empty stdout. It records the phases started, before-admission, probed and before-allocation. The last marker precedes renewed admission and linking as well as allocation. No later phase or post-termination memory-event counters were retained. SIGKILL is observed; its underlying cause remains unknown.
 
 A separate admission-order control found that confinedCall linked modules before obtaining its admitted hold. The repair admits before linkProgram and performs linking inside the existing owned release/error path. The non-allocating real-adapter guard passes with the repair and fails with the old order because no admitted hold exists at linking. It also checks the original exception and registry release. This establishes the order defect; it does not establish the cause of the hosted SIGKILL.
 
@@ -45,3 +45,7 @@ The first changed-subject execution of the original memory case passed on the lo
 ## Open lifetime goal
 
 Keep the broader surviving-owner and delegated-child design open under this Bug. It must preserve the normal aggregate cap and admission of every descendant while an authoritative outer owner survives the payload's failure domain, retains owned payload-lifetime facts and proves cleanup. The planned outer aggregate/coordinator leaf and owned delegated payload subgroup still need capability, process-placement and lifecycle proof through the existing admission owners. Holding cgroup descriptors alone did not preserve readable facts after scope collection in a separate natural-exit control. The minimal admission-order repair does not implement or close this broader goal.
+
+<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->
+[repo:actions/runs/43615214562/job/132508659040]: https://github.com/LLM-4-People/bridlewise-testing/actions/runs/43615214562/job/132508659040
+<!-- END GENERATED: repository links -->

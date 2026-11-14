@@ -55,7 +55,7 @@ const POSITIVE_BOUNDS = ["cpuBudgetMs", "stallMs", "hangBackstopMs", "pollMs", "
  * Refuses bounds no run can keep (`cpu_bounds_invalid`), before anything runs: a missing bound compares false
  * forever and a run under it would never stop, so no fallback value is ever chosen.
  */
-export function assertSubprocessBounds(bounds: SubprocessBounds | undefined): asserts bounds is SubprocessBounds {
+function assertSubprocessBounds(bounds: SubprocessBounds | undefined): asserts bounds is SubprocessBounds {
   const invalid = POSITIVE_BOUNDS.filter((name) => {
     const value = (bounds as Readonly<Record<string, unknown>> | undefined)?.[name];
     return typeof value !== "number" || !Number.isFinite(value) || value <= 0;
