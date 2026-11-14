@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { readEntries } from "../../engine/src/workflow/failure-owners.ts";
 import { LESSON_KINDS, LESSON_STATUSES, LESSONS_DIRECTORY, lessonId, lessonViolations } from "../../engine/scripts/verification/tracker-entries.ts";
 import { createLesson, lessonsCommand, lessonsReport, renderLesson, type LessonDraft } from "../../engine/scripts/tooling/lessons.ts";
+import { modulePath } from "../helpers/module-resolver.ts";
 import { createTempDir } from "../helpers/temp-dir.ts";
 
 import { sha256 } from "../../engine/src/kernel/integrity.ts";
@@ -122,7 +123,7 @@ describe("workflow lesson creation", () => {
     }
     const { route: _route, ...base } = DRAFT;
     const states: readonly LessonDraft[] = [DRAFT,
-      { ...base, status: "acted", actedIn: ["engine/scripts/tooling/lessons.ts"] },
+      { ...base, status: "acted", actedIn: [modulePath("lessons.ts")] },
       { ...base, status: "wontfix", reason: "Already covered by its owner." },
     ];
     expect(states.map((state) => state.status)).toEqual(LESSON_STATUSES);
