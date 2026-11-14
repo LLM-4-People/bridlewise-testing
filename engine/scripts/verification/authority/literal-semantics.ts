@@ -1,5 +1,5 @@
 import { isRecord } from "./shared.ts";
-import { astNode, astNodeArray, type AstNode } from "./typescript-adapter.ts";
+import { astNode, astNodeArray, type AstNode } from "../../../src/quality-packs/prevention/ast-helpers.ts";
 
 /** Deterministic, execution-free evaluation of the supported string subset. */
 export function staticString(

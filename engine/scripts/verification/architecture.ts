@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { join, posix, relative, resolve } from "node:path";
 
-import { astChildren, astNode, astNodeArray, parseSourceModule, type AstNode } from "../../src/quality-packs/prevention/ast-helpers.ts";
+import { astChildren, astNode, astNodeArray, identifierResolvesToDeclaration, moduleScopeFacts, parseSourceModule, type AstNode, type ModuleScopeFacts } from "../../src/quality-packs/prevention/ast-helpers.ts";
 
 import {
   ARCHITECTURE_MANIFEST,
@@ -89,6 +89,9 @@ type ModuleBindingState = Readonly<{
   carrierReasons: Map<string, string>;
   constantInitializers: ReadonlyMap<string, AstNode>;
   mutatedNames: ReadonlySet<string>;
+  mutatedFlagObjects: ReadonlySet<string>;
+  declarations: ReadonlyMap<string, AstNode>;
+  scope: ModuleScopeFacts;
 }>;
 type ModuleDeclarator = Readonly<{ declarator: AstNode; mutable: boolean }>;
 
@@ -197,7 +200,7 @@ export function clearArchitectureSourceCache(): void {
 
 export function analyzeArchitectureSource(path: string, source: string): ArchitectureSourceFacts {
   const contentHash = sha256(Buffer.from(source, "utf8"));
-  const semanticsId = analysisSemanticsId(import.meta.url, new URL("./effect-surface.ts", import.meta.url));
+  const semanticsId = analysisSemanticsId(import.meta.url, new URL("./effect-surface.ts", import.meta.url), new URL("../../src/quality-packs/prevention/ast-helpers.ts", import.meta.url));
   const cacheKey = semanticsId === undefined ? undefined : `${path}\u0000${contentHash}\u0000${semanticsId}`;
   const cached = cacheKey === undefined ? undefined : architectureSourceCache.get(cacheKey);
   if (cached !== undefined) return cached;
@@ -213,6 +216,19 @@ export function analyzeArchitectureSource(path: string, source: string): Archite
     return filesystemCached;
   }
   const program = parseSourceModule(path, source, { errorRecovery: false, attachComment: false, tokens: false });
+  const scope = moduleScopeFacts(program);
+  const declarations = new Map<string, AstNode>();
+  const ambiguousDeclarations = new Set<string>();
+  for (const node of scope.nodes) {
+    const target = astNode(node.type === "VariableDeclarator" ? node.id :
+      ["ImportSpecifier", "ImportDefaultSpecifier", "ImportNamespaceSpecifier"].includes(node.type) ? node.local : undefined);
+    if (target?.type !== "Identifier") continue;
+    const name = String(target.name);
+    if (declarations.has(name)) {
+      declarations.delete(name);
+      ambiguousDeclarations.add(name);
+    } else if (!ambiguousDeclarations.has(name)) declarations.set(name, node);
+  }
   const dependencies: string[] = [];
   const typeOnlyDependencies: string[] = [];
   const exportedNames: string[] = [];
@@ -225,7 +241,8 @@ export function analyzeArchitectureSource(path: string, source: string): Archite
   const members: AstNode[] = [];
   const dynamicFilesystemSources: string[] = [];
   const unmodeledModuleAcquisitions: string[] = [];
-  const mutatedNames = collectMutatedArchitectureNames(program);
+  const mutation = collectMutatedArchitectureNames(program);
+  const mutatedNames = mutation.bindings;
   const pending = [{ node: program, erasedAncestor: false }];
   const visited = new Set<AstNode>();
   let nodeCount = 0;
@@ -344,6 +361,9 @@ export function analyzeArchitectureSource(path: string, source: string): Archite
     constantInitializers,
     moduleDeclarators,
     mutatedNames,
+    mutation.objects,
+    declarations,
+    scope,
   );
   for (const call of calls) {
     const specifier = moduleAcquisitionSpecifier(call, bindingState);
@@ -536,13 +556,16 @@ function buildModuleBindings(
   constantInitializers: ReadonlyMap<string, AstNode>,
   declarators: readonly ModuleDeclarator[],
   mutatedNames: ReadonlySet<string>,
+  mutatedFlagObjects: ReadonlySet<string>,
+  declarations: ReadonlyMap<string, AstNode>,
+  scope: ModuleScopeFacts,
 ): ModuleBindingState {
   const bindings = new Map(importedBindings);
   const carrierReasons = new Map<string, string>();
   for (const name of mutatedNames) {
     if (bindings.has(name)) carrierReasons.set(name, `mutated-carrier-${name}`);
   }
-  const state: ModuleBindingState = { bindings, carrierReasons, constantInitializers, mutatedNames };
+  const state: ModuleBindingState = { bindings, carrierReasons, constantInitializers, mutatedNames, mutatedFlagObjects, declarations, scope };
   for (let pass = 0; pass <= declarators.length; pass += 1) {
     let changed = false;
     for (const entry of declarators) {
@@ -673,6 +696,8 @@ function unmodeledFilesystemCarrierSources(
   if (!node || active.has(node)) return [];
   active.add(node);
   try {
+    // Proven scalar flags are data, not a namespace or a callable capability.
+    if (filesystemOpenMode(node, state) !== "unknown") return [];
     const exact = resolveModuleValue(node, state);
     if (exact?.source !== undefined && isFilesystemModuleSpecifier(exact.source)) {
       return [canonicalFilesystemModuleSpecifier(exact.source)!];
@@ -1004,7 +1029,7 @@ function isCentralPolicyLinuxPathOnlyOpenFlag(
   expression: AstNode,
   state: ModuleBindingState,
 ): boolean {
-  return isCentralRootPolicyMember(
+  return immutableFlagIdentity(expression, state) && isCentralRootPolicyMember(
     expression,
     state,
     "receipts.immutableExecution.linuxPathOnlyOpenFlag",
@@ -1049,7 +1074,9 @@ function filesystemOpenFlagTokens(
     if (node.type === "StringLiteral") return [String(node.value)];
     if (node.type === "NumericLiteral") return [Number(node.value)];
     if (node.type === "Identifier") {
-      const initializer = state.constantInitializers.get(String(node.name));
+      if (!immutableFlagIdentity(node, state)) return undefined;
+      const declaration = state.declarations.get(String(node.name));
+      const initializer = declaration ? astNode(declaration.init) : undefined;
       return initializer ? filesystemOpenFlagTokens(initializer, state, active) : undefined;
     }
     if (node.type === "BinaryExpression" && node.operator === "|") {
@@ -1068,12 +1095,52 @@ function filesystemOpenFlagTokens(
     }
     if (node.type === "MemberExpression" || node.type === "OptionalMemberExpression") {
       if (isCentralPolicyLinuxPathOnlyOpenFlag(node, state)) return [0, "O_PATH"];
+      if (!immutableFlagIdentity(node, state)) return undefined;
       const value = resolveModuleValue(node, state);
-      const member = value?.member?.split(".").at(-1);
-      return member?.startsWith("O_") ? [member] : undefined;
+      if (value?.source === undefined || canonicalFilesystemModuleSpecifier(value.source) !== "node:fs" ||
+        !value.member?.startsWith("constants.O_")) return undefined;
+      return [value.member.slice("constants.".length)];
     }
     const staticValue = resolveStaticArchitectureString(node, state);
     return staticValue === undefined ? undefined : [staticValue];
+  } finally {
+    active.delete(node);
+  }
+}
+
+/** Identity proof only: the open-flag token resolver remains the sole evaluator. */
+function immutableFlagIdentity(
+  input: AstNode,
+  state: ModuleBindingState,
+  active = new Set<AstNode>(),
+): boolean {
+  const node = unwrapArchitectureExpression(input);
+  if (!node || active.has(node)) return false;
+  active.add(node);
+  try {
+    if (node.type === "Identifier") {
+      const name = String(node.name);
+      const declaration = state.declarations.get(name);
+      if (state.mutatedNames.has(name) || state.mutatedFlagObjects.has(name) || !declaration ||
+        !identifierResolvesToDeclaration(node, declaration, state.scope)) return false;
+      if (declaration.type !== "VariableDeclarator") return true;
+      if (state.scope.parents.get(declaration)?.kind !== "const") return false;
+      const initializer = astNode(declaration.init);
+      return initializer !== undefined && immutableFlagIdentity(initializer, state, active);
+    }
+    if (node.type === "MemberExpression" || node.type === "OptionalMemberExpression") {
+      const object = astNode(node.object);
+      const property = astNode(node.property);
+      return object !== undefined && immutableFlagIdentity(object, state, active) &&
+        (node.computed !== true || property !== undefined && immutableFlagIdentity(property, state, active));
+    }
+    if (node.type === "BinaryExpression" && node.operator === "|" || node.type === "ConditionalExpression") {
+      const operands = node.type === "ConditionalExpression"
+        ? astNodeArray([node.consequent, node.alternate])
+        : astNodeArray([node.left, node.right]);
+      return operands.length === 2 && operands.every((operand) => immutableFlagIdentity(operand, state, active));
+    }
+    return node.type === "StringLiteral" || node.type === "NumericLiteral";
   } finally {
     active.delete(node);
   }
@@ -1180,24 +1247,57 @@ function unwrapArchitectureExpression(node: AstNode | undefined): AstNode | unde
   return current;
 }
 
-function collectMutatedArchitectureNames(root: AstNode): ReadonlySet<string> {
+function collectMutatedArchitectureNames(root: AstNode): Readonly<{
+  bindings: ReadonlySet<string>;
+  objects: ReadonlySet<string>;
+}> {
   const names = new Set<string>();
+  const mutatedObjects = new Set<string>();
   const pending = [root];
   const visited = new Set<AstNode>();
   while (pending.length > 0) {
     const node = pending.pop()!;
     if (visited.has(node)) continue;
     visited.add(node);
-    if (node.type === "AssignmentExpression" || node.type === "UpdateExpression") {
+    if (node.type === "AssignmentExpression" || node.type === "UpdateExpression" ||
+      node.type === "UnaryExpression" && node.operator === "delete") {
       const target = unwrapArchitectureExpression(astNode(node.left) ?? astNode(node.argument));
-      if (target && (target.type === "MemberExpression" || target.type === "OptionalMemberExpression")) {
-        continue;
+      let root = target;
+      while (root && (root.type === "MemberExpression" || root.type === "OptionalMemberExpression")) {
+        root = unwrapArchitectureExpression(astNode(root.object));
       }
-      for (const name of bindingNames(target)) names.add(name);
+      const destination = root === target ? names : mutatedObjects;
+      for (const name of bindingNames(root)) destination.add(name);
     }
     pending.push(...astChildren(node));
   }
-  return names;
+  // Mutating an alias mutates the same imported object. Carry that loss of
+  // immutability back to its owner, without evaluating the member or flag.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of visited) {
+      if (node.type !== "VariableDeclarator") continue;
+      const target = astNode(node.id);
+      if (target?.type !== "Identifier" || !mutatedObjects.has(String(target.name))) continue;
+      const values = [...astNodeArray([node.init])];
+      while (values.length > 0) {
+        const value = unwrapArchitectureExpression(values.pop());
+        if (!value) continue;
+        if (value.type === "MemberExpression" || value.type === "OptionalMemberExpression") {
+          values.push(...astNodeArray([value.object]));
+        } else if (value.type === "ConditionalExpression") {
+          values.push(...astNodeArray([value.consequent, value.alternate]));
+        } else if (value.type === "LogicalExpression" || value.type === "SequenceExpression") {
+          values.push(...astNodeArray(value.expressions ?? [value.left, value.right]));
+        } else if (value.type === "Identifier" && !mutatedObjects.has(String(value.name))) {
+          mutatedObjects.add(String(value.name));
+          changed = true;
+        }
+      }
+    }
+  }
+  return { bindings: names, objects: mutatedObjects };
 }
 
 /**

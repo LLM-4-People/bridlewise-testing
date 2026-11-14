@@ -189,6 +189,137 @@ test("Linux O_PATH is modeled only through its exact central policy authority", 
   }
 });
 
+test("immutable scalar flag joins do not become filesystem capability carriers", () => {
+  for (const expression of [
+    `metadata ? ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag : constants.O_RDONLY`,
+    `metadata ? constants.O_RDONLY : constants.O_RDONLY | constants.O_DIRECTORY`,
+    `metadata ? (other ? constants.O_RDONLY : "r") : ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag`,
+  ]) {
+    const result = facts(`import { constants, openSync } from "node:fs";
+      ${CENTRAL_POLICY_IMPORT}
+      function open(metadata, other) {
+        const access = ${expression};
+        const alias = access;
+        openSync(".", alias | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      }`);
+    assert.deepEqual(result.unmodeledEffects, [], expression);
+    assert.deepEqual(result.directEffectFacts, [{ ownerLabel: "node:fs", effects: ["filesystem-read"] }], expression);
+  }
+});
+
+test("unrelated property writes keep established executable and flag facts", () => {
+  const result = facts(`import { spawnSync } from "node:child_process";
+    process.exitCode = 1;
+    spawnSync(process.execPath, ["--version"]);`);
+  assert.deepEqual(result.unmodeledEffects, []);
+  assert.equal(result.directEffectFacts.some((fact) => fact.effects.includes("git")), false);
+});
+
+test("modeled scalar write flags retain write effects across conditional joins", () => {
+  for (const flag of ["O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC", "O_APPEND"]) {
+    const source = `import { constants, openSync } from "node:fs";
+      const access = condition ? constants.O_RDONLY : constants.${flag};
+      openSync(".", access | constants.O_NOFOLLOW);`;
+    const result = facts(source);
+    assert.deepEqual(result.unmodeledEffects, [], source);
+    assert.ok(result.directEffectFacts.some((fact) => fact.effects.includes("filesystem-write")), source);
+  }
+});
+
+test("unknown scalar joins and callable joins remain unmodeled", () => {
+  for (const alternate of ["unknown", "constants.O_FAKE", "123", "fs.writeFileSync", "() => fs.writeFileSync"]) {
+    const source = `import * as fs from "node:fs";
+      import { constants, openSync } from "node:fs";
+      const access = condition ? constants.O_RDONLY : ${alternate};
+      openSync(".", access | constants.O_NOFOLLOW);`;
+    const result = facts(source);
+    assert.ok(result.unmodeledEffects.includes("node:fs:api-openSync"), source);
+    assert.ok(result.directEffectFacts.some((fact) => fact.effects.includes("filesystem-write")), source);
+    if (alternate.includes("writeFileSync")) {
+      assert.ok(result.unmodeledEffects.some((reason) => reason.includes("unmodeled-expression-carrier-access")), source);
+    }
+  }
+});
+
+test("flag proof requires canonical policy and filesystem constant identities", () => {
+  for (const source of [
+    `import { openSync } from "node:fs"; import * as constants from "./forged.ts";
+      openSync(".", constants.O_RDONLY);`,
+    `import { openSync } from "node:fs"; import { ROOT_POLICY } from "./forged.ts";
+      openSync(".", ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag);`,
+    `import { openSync } from "node:fs"; const constants = { O_RDONLY: 0 };
+      openSync(".", constants.O_RDONLY);`,
+  ]) {
+    const result = facts(source);
+    assert.ok(result.unmodeledEffects.includes("node:fs:api-openSync"), source);
+    assert.ok(result.directEffectFacts.some((fact) => fact.effects.includes("filesystem-write")), source);
+  }
+});
+
+test("flag proof rejects parameter, block, catch and destructuring shadows", () => {
+  for (const body of [
+    `function open(constants) { openSync(".", constants.O_RDONLY); }`,
+    `function open(ROOT_POLICY) { openSync(".", ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag); }`,
+    `{ const constants = forged; openSync(".", constants.O_RDONLY); }`,
+    `try {} catch (constants) { openSync(".", constants.O_RDONLY); }`,
+    `function open({ constants }) { openSync(".", constants.O_RDONLY); }`,
+    `const access = constants.O_RDONLY; function open(access) { openSync(".", access); }`,
+    `const access = constants.O_RDONLY; { const access = unknown; openSync(".", access); }`,
+  ]) {
+    const source = `import { constants, openSync } from "node:fs"; ${CENTRAL_POLICY_IMPORT} ${body}`;
+    const result = facts(source);
+    assert.ok(result.unmodeledEffects.includes("node:fs:api-openSync"), source);
+    assert.ok(result.directEffectFacts.some((fact) => fact.effects.includes("filesystem-write")), source);
+  }
+});
+
+test("same-named sibling declarations cannot borrow canonical flag provenance", () => {
+  for (const body of [
+    `function first() { const policy = "r"; openSync(".", policy.receipts.immutableExecution.linuxPathOnlyOpenFlag); }
+      function second() { const policy = ROOT_POLICY; }`,
+    `function first() { const c = "r"; openSync(".", c.O_RDONLY); }
+      function second() { const c = constants; }`,
+    `function first() { const access = unknown; openSync(".", access); }
+      function second() { const access = constants.O_RDONLY; }`,
+  ]) {
+    const source = `import { constants, openSync } from "node:fs"; ${CENTRAL_POLICY_IMPORT} ${body}`;
+    const result = facts(source);
+    assert.ok(result.unmodeledEffects.includes("node:fs:api-openSync"), source);
+    assert.ok(result.directEffectFacts.some((fact) => fact.effects.includes("filesystem-write")), source);
+  }
+});
+
+test("flag proof rejects reassignment, updates and mutation through shared aliases", () => {
+  for (const body of [
+    `let access = constants.O_RDONLY; access = constants.O_WRONLY; openSync(".", access);`,
+    `const access = constants.O_RDONLY; access++; openSync(".", access);`,
+    `constants.O_RDONLY = unknown; openSync(".", constants.O_RDONLY);`,
+    `constants.O_RDONLY++; openSync(".", constants.O_RDONLY);`,
+    `delete constants.O_RDONLY; openSync(".", constants.O_RDONLY);`,
+    `const alias = constants; alias.O_RDONLY = unknown; openSync(".", constants.O_RDONLY);`,
+    `const alias = constants; constants.O_RDONLY = unknown; openSync(".", alias.O_RDONLY);`,
+    `ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag = unknown;
+      openSync(".", ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag);`,
+    `const policy = ROOT_POLICY; const execution = policy.receipts.immutableExecution;
+      execution.linuxPathOnlyOpenFlag = unknown;
+      openSync(".", ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag);`,
+    `const policy = condition ? ROOT_POLICY : other ? ROOT_POLICY : ROOT_POLICY;
+      policy.receipts.immutableExecution.linuxPathOnlyOpenFlag = unknown;
+      openSync(".", ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag);`,
+    `const policy = condition && ROOT_POLICY;
+      policy.receipts.immutableExecution.linuxPathOnlyOpenFlag = unknown;
+      openSync(".", ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag);`,
+    `const policy = (condition, ROOT_POLICY);
+      policy.receipts.immutableExecution.linuxPathOnlyOpenFlag = unknown;
+      openSync(".", ROOT_POLICY.receipts.immutableExecution.linuxPathOnlyOpenFlag);`,
+  ]) {
+    const source = `import { constants, openSync } from "node:fs"; ${CENTRAL_POLICY_IMPORT} ${body}`;
+    const result = facts(source);
+    assert.ok(result.unmodeledEffects.includes("node:fs:api-openSync"), source);
+    assert.ok(result.directEffectFacts.some((fact) => fact.effects.includes("filesystem-write")), source);
+  }
+});
+
 test("build generate and check command effect contracts keep defaults read-only and mutation explicit", () => {
   for (const commandClass of ["build", "generate", "check"] as const) {
     const contract = defineCommandEffectContract({

@@ -713,7 +713,7 @@ test("governed-source violations cache ignores entries keyed before the analyzer
 
 test("architecture analysis cache rejects malformed erased-reference entries", () => {
   const cache = createFilesystemCache({ directory: "harness-arch-cache", maxEntries: DEFAULT_ARCHITECTURE_SOURCE_FILESYSTEM_CACHE_MAX_ENTRIES });
-  const semantics = analysisSemanticsId(new URL("../../scripts/verification/architecture.ts", import.meta.url), new URL("../../scripts/verification/effect-surface.ts", import.meta.url));
+  const semantics = analysisSemanticsId(new URL("../../scripts/verification/architecture.ts", import.meta.url), new URL("../../scripts/verification/effect-surface.ts", import.meta.url), new URL("../../src/quality-packs/prevention/ast-helpers.ts", import.meta.url));
   for (const [index, malformed] of [[1], [null], ["src/types.ts", {}]].entries()) {
     const path = `src/erased-cache-${index}.ts`;
     const source = 'import type { T } from "./types.ts";';
@@ -812,7 +812,8 @@ const cacheDir = path.join(process.env.TMPDIR, directory);
 const sourcePath = 'src/cache-availability.ts';
 const source = owner === 'governed' ? 'const value = process.env.HOME; eval("x");' : 'export const VALUE = { selected: 1 };';
 const native = {readFileSync:fs.readFileSync, existsSync:fs.existsSync};
-const denied = path.join(root, failure === 'own' ? relativeOwner : relativeDependency);
+const denied = path.join(root, failure === 'own' ? relativeOwner :
+  failure === 'scope' ? 'src/quality-packs/prevention/ast-helpers.ts' : relativeDependency);
 let deny = true, attempts = 0, resultReads = 0, slices = 0;
 const signatures = [];
 const clear = () => { mod.clearArchitectureSourceCache?.(); mod.clearStaticModuleShapeCache?.(); mod.clearGovernedSourceParseCache?.(); mod.clearVerifyS1StructureCache?.(); };
@@ -886,19 +887,22 @@ try {
 } finally { fs.readFileSync=native.readFileSync;fs.existsSync=native.existsSync;syncBuiltinESMExports(); }
 `;
 
-for (const owner of ["architecture", "static", "governed", "literal"]) {
-  for (const failure of ["own", "dependency"]) {
-    test(`result cache availability: ${owner} ${failure} failure bypasses caches and recovers`, () => {
-      const dir = createTempDir(`cache-availability-${owner}-${failure}-`);
-      const result = spawnSync(process.execPath, ["--input-type=module", "-e", RESULT_CACHE_AVAILABILITY_PROBE,
-        owner, failure, fileURLToPath(new URL("../../", import.meta.url))], {
-        env: { ...process.env, TMPDIR: dir }, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
-      });
-      assert.equal(result.error, undefined);
-      assert.equal(result.signal, null);
-      assert.equal(result.status, 0, result.stdout + result.stderr);
-      assert.equal(JSON.parse(result.stdout.trim()).recovered, true);
-      assert.ok(!result.stderr.includes("private-source-failure"), "central bestEffort diagnostic must not expose caught text");
+for (const [owner, failure] of [
+  ["architecture", "own"], ["architecture", "dependency"], ["architecture", "scope"],
+  ["static", "own"], ["static", "dependency"],
+  ["governed", "own"], ["governed", "dependency"],
+  ["literal", "own"], ["literal", "dependency"],
+] as const) {
+  test(`result cache availability: ${owner} ${failure} failure bypasses caches and recovers`, () => {
+    const dir = createTempDir(`cache-availability-${owner}-${failure}-`);
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", RESULT_CACHE_AVAILABILITY_PROBE,
+      owner, failure, fileURLToPath(new URL("../../", import.meta.url))], {
+      env: { ...process.env, TMPDIR: dir }, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
     });
-  }
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(JSON.parse(result.stdout.trim()).recovered, true);
+    assert.ok(!result.stderr.includes("private-source-failure"), "central bestEffort diagnostic must not expose caught text");
+  });
 }
