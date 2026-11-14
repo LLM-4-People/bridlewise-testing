@@ -170,6 +170,56 @@ test("syntax-validator: validates valid TypeScript with generics", () => {
   assert.equal(result.valid, true);
 });
 
+test("syntax-validator: parses generic arrow return unions in TypeScript source dialects", () => {
+  const registry = createDefaultSyntaxValidatorRegistry();
+  // The single type parameter and union return type caused a real editor
+  // refusal when a .ts source was incorrectly parsed with the JSX plugin.
+  const code = "const read = <T>(key: string, name: string, schema: z.ZodType<T>): T | null => { return null; };";
+  for (const path of ["review.ts", "review.TS", "review.mts", "review.cts"]) {
+    const result = validateSyntax(path, code, registry);
+    assert.equal(result.valid, true, `${path}: ${JSON.stringify(result.diagnostics)}`);
+    assert.equal(result.language, "typescript");
+  }
+});
+
+test("syntax-validator: preserves TypeScript angle assertions without enabling TSX", () => {
+  const registry = createDefaultSyntaxValidatorRegistry();
+  const code = "const text = <string>value;";
+  assert.equal(validateSyntax("value.ts", code, registry).valid, true);
+  assert.equal(validateSyntax("value.tsx", code, registry).valid, false);
+});
+
+test("syntax-validator: preserves JSX in TSX and JSX source dialects", () => {
+  const registry = createDefaultSyntaxValidatorRegistry();
+  for (const path of ["component.tsx", "component.TSX", "component.jsx", "component.JSX"]) {
+    const result = validateSyntax(path, "export const view = <div title=\"example\" />;", registry);
+    assert.equal(result.valid, true, `${path}: ${JSON.stringify(result.diagnostics)}`);
+  }
+  assert.equal(validateSyntax("read.tsx", "const read = <T,>(value: T): T | null => value;", registry).valid, true);
+});
+
+test("syntax-validator: refuses JSX in source dialects without JSX", () => {
+  const registry = createDefaultSyntaxValidatorRegistry();
+  for (const path of ["component.ts", "component.mts", "component.cts", "component.js", "component.mjs", "component.cjs"]) {
+    const result = validateSyntax(path, "export const view = <div />;", registry);
+    assert.equal(result.valid, false, path);
+    assert.ok(result.diagnostics.length > 0, path);
+  }
+});
+
+test("syntax-validator: JavaScript source dialects reject TypeScript syntax", () => {
+  const registry = createDefaultSyntaxValidatorRegistry();
+  for (const path of ["script.js", "script.jsx", "script.mjs", "script.cjs"]) {
+    for (const code of ["export const value: number = 1;", "interface Value { value: number; }"]) {
+      const result = validateSyntax(path, code, registry);
+      assert.equal(result.valid, false, path);
+      assert.equal(result.language, "javascript");
+      assert.ok(result.diagnostics.length > 0, path);
+    }
+    assert.equal(validateSyntax(path, "export const value = 1;", registry).valid, true, path);
+  }
+});
+
 test("syntax-validator: validates valid TypeScript with async/await", () => {
   const registry = createDefaultSyntaxValidatorRegistry();
   const code = `
