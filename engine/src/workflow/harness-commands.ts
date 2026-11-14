@@ -392,24 +392,14 @@ export async function harnessCheck(
   const typecheck = options.skipTypecheck ? skipStep("typecheck") : await runTypecheck(root);
   steps.push(typecheck);
 
-  emitProgress(onProgress, options.skipArchitecture ? "Skipping architecture check..." : "Checking architecture...");
-  const architecture = options.skipArchitecture ? skipStep("architecture") : runArchitectureCheck(root);
-  steps.push(architecture);
-
+  // Inventory is an awaited owner and progress callbacks may change source.
+  // Observe architecture and registration together only after that boundary.
   emitProgress(onProgress, options.skipInventory ? "Skipping inventory check..." : "Checking inventory...");
   const inventory = options.skipInventory ? skipStep("inventory") : await runInventoryCheck(root);
-  steps.push(inventory);
-
-  emitProgress(onProgress, "Checking module registrar...");
-  const moduleRegistrarReport = generateModuleRegistrarReport(root);
-  steps.push(deepFreeze({
-    step: "module-registrar",
-    status: registrarInSync(moduleRegistrarReport) ? "pass" : "fail",
-    message: registrarInSync(moduleRegistrarReport)
-      ? "the module decisions agree with the tree"
-      : registrarDriftMessage(moduleRegistrarReport),
-    details: moduleRegistrarReport,
-  }));
+  const architecture = runArchitectureChecks(root, options);
+  // Preserve the command's established result slots even though inventory
+  // executes before the shared synchronous source observation.
+  steps.push(architecture.architecture, inventory, architecture.moduleRegistrar);
 
   emitProgress(onProgress, "Checking auto-generator...");
   const autoGeneratorReport = generateAutoGeneratorReport(root);
@@ -1680,7 +1670,7 @@ async function bundleFreshnessStep(root: string): Promise<CheckStepResult> {
  * landed through every required check and left the suite running nothing
  * (#417). Asked here, it is refused before it lands.
  */
-async function candidateFormatStep(root: string): Promise<CheckStepResult> {
+export async function candidateFormatStep(root: string): Promise<CheckStepResult> {
   let answer: ScriptAnswer;
   try {
     answer = await runScriptSubprocess(root, "scripts/verification/candidate-manifest.ts", ["--root", ".", "--verdict"]);
@@ -1958,10 +1948,9 @@ function externalCommandCheckViolations(root: string): readonly string[] {
   return deepFreeze([...new Set(violations)].toSorted());
 }
 
-/** `harness check`'s architecture step (exported like `runInventoryCheck` so a focused test can drive it on a copy). */
-export function runArchitectureCheck(root: string): CheckStepResult {
+/** The architecture verdict over the same source observation the registrar arm consumes. */
+function architectureStep(root: string, moduleRegistrar: ModuleRegistrarReport): CheckStepResult {
   try {
-    const moduleRegistrar = generateModuleRegistrarReport(root);
     const registrarCurrent = registrarInSync(moduleRegistrar);
     const externalCommandViolations = externalCommandCheckViolations(root);
     const current = registrarCurrent && externalCommandViolations.length === 0;
@@ -1982,6 +1971,36 @@ export function runArchitectureCheck(root: string): CheckStepResult {
     const message = error instanceof Error ? error.message : "architecture check failed";
     return deepFreeze({ step: "architecture", status: "fail", message, details: null });
   }
+}
+
+// A standalone check always observes its root afresh and retains its refusal contract.
+export function runArchitectureCheck(root: string): CheckStepResult {
+  try {
+    return architectureStep(root, generateModuleRegistrarReport(root));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "architecture check failed";
+    return deepFreeze({ step: "architecture", status: "fail", message, details: null });
+  }
+}
+
+// The architecture and registrar arms share one fresh observation. All caller
+// progress callbacks run before it; no callback or await splits its consumers.
+// A standalone architecture check still makes an observation of its own.
+export function runArchitectureChecks(
+  root: string,
+  options: Readonly<{ skipArchitecture?: boolean; onProgress?: (message: string) => void }> = {},
+): Readonly<{ architecture: CheckStepResult; moduleRegistrar: CheckStepResult }> {
+  emitProgress(options.onProgress, options.skipArchitecture ? "Skipping architecture check..." : "Checking architecture...");
+  emitProgress(options.onProgress, "Checking module registrar...");
+  const report = generateModuleRegistrarReport(root);
+  const architecture = options.skipArchitecture ? skipStep("architecture") : architectureStep(root, report);
+  const moduleRegistrar: CheckStepResult = deepFreeze({
+    step: "module-registrar",
+    status: registrarInSync(report) ? "pass" : "fail",
+    message: registrarInSync(report) ? "the module decisions agree with the tree" : registrarDriftMessage(report),
+    details: report,
+  });
+  return deepFreeze({ architecture, moduleRegistrar });
 }
 
 /**

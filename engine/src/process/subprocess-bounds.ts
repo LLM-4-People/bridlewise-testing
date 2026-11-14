@@ -55,7 +55,7 @@ const POSITIVE_BOUNDS = ["cpuBudgetMs", "stallMs", "hangBackstopMs", "pollMs", "
  * Refuses bounds no run can keep (`cpu_bounds_invalid`), before anything runs: a missing bound compares false
  * forever and a run under it would never stop, so no fallback value is ever chosen.
  */
-export function assertSubprocessBounds(bounds: SubprocessBounds | undefined): asserts bounds is SubprocessBounds {
+function assertSubprocessBounds(bounds: SubprocessBounds | undefined): asserts bounds is SubprocessBounds {
   const invalid = POSITIVE_BOUNDS.filter((name) => {
     const value = (bounds as Readonly<Record<string, unknown>> | undefined)?.[name];
     return typeof value !== "number" || !Number.isFinite(value) || value <= 0;
@@ -64,6 +64,14 @@ export function assertSubprocessBounds(bounds: SubprocessBounds | undefined): as
   const valid = bounds as SubprocessBounds;
   // A watch no more frequent than the stall window cannot see a stall end before it is judged one.
   if (valid.pollMs >= valid.stallMs) throw new InputError(`a bounded run must read its group more often than its stall window: pollMs ${String(valid.pollMs)} is not below stallMs ${String(valid.stallMs)}`, "cpu_bounds_invalid");
+}
+
+/** Capture the canonical six bounds once, validate that own snapshot, then freeze it. Compatible caller extras are never read. */
+export function snapshotSubprocessBounds(bounds: SubprocessBounds | undefined): SubprocessBounds {
+  const source = bounds as Readonly<Record<string, unknown>> | undefined;
+  const snapshot = Object.fromEntries(POSITIVE_BOUNDS.map((name) => [name, source?.[name]])) as SubprocessBounds;
+  assertSubprocessBounds(snapshot);
+  return Object.freeze(snapshot);
 }
 
 /**
