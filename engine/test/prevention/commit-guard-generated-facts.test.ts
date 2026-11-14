@@ -30,6 +30,7 @@ import test from "node:test";
 
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { generatedOutputPaths } from "../../src/workflow/hash-binding-registry.ts";
+import { wrapResult } from "../../src/workflow/command-result.ts";
 import { syncFrozenRecords } from "../../src/workflow/record-links.ts";
 import { snapshotWorkingTree, stageInCopy } from "../../src/git/working-copy.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
@@ -151,6 +152,53 @@ test("commit guard: EVERY commit is certified for its frozen records — a docs-
     assert.equal(refused.status, 1, refused.stderr);
     assert.match(refused.stderr, /\[commit-guard\] frozen records \(staged tree\): fail/u);
     assert.ok(refused.stderr.includes(`history changed: ${record}`), refused.stderr);
+  } finally {
+    removeRepositoryLocalTemporaryDirectory(copy.root);
+  }
+});
+
+
+test("commit guard: a success payload certifies only a successful native check process", () => {
+  const copy = createRepositoryWorkingCopy("commit-guard-native-status-");
+  try {
+    stubTypecheck(join(copy.root, "package.json"));
+    stubTypecheck(join(copy.engineRoot, "package.json"));
+    stageInCopy(copy.root, ["."]);
+    snapshotWorkingTree(copy.root, { message: "baseline", advanceHead: true, identity: { name: "Commit Guard Test", email: "guard.invalid@example.invalid" } });
+    const cli = join(copy.engineRoot, "src", "cli.ts");
+    const cases = [
+      { status: 0, allPassed: true },
+      { status: 1, allPassed: true },
+      { status: 70, allPassed: true },
+      { status: 0, allPassed: false },
+    ];
+    const observed = cases.map((controlled) => {
+      const payload = wrapResult("check", {
+        allPassed: controlled.allPassed,
+        synthetic: {
+          step: "synthetic-step",
+          status: controlled.allPassed ? "pass" : "fail",
+          message: "preserved diagnostic",
+        },
+      });
+      writeFileSync(cli, `process.stdout.write(${JSON.stringify(`${JSON.stringify(payload)}\n`)});\nprocess.exitCode = ${String(controlled.status)};\n`);
+      stageInCopy(copy.root, [cli]);
+      return { ...controlled, result: runGuard(copy.root) };
+    });
+    assert.deepEqual(
+      observed.map(({ status, allPassed, result }) => ({ status, allPassed, guardStatus: result.status })),
+      cases.map(({ status, allPassed }) => ({ status, allPassed, guardStatus: status === 0 && allPassed ? 0 : 1 })),
+      "both native failures must be observed before judging the complete controlled matrix",
+    );
+    for (const controlled of observed) {
+      const passes = controlled.status === 0 && controlled.allPassed;
+      if (passes) {
+        assert.ok(controlled.result.stderr.includes("[commit-guard] staged generated facts (harness check --skip-typecheck): pass ("));
+      } else {
+        assert.match(controlled.result.stderr, new RegExp(`harness check exit ${String(controlled.status)}`, "u"));
+        if (!controlled.allPassed) assert.match(controlled.result.stderr, /synthetic-step: preserved diagnostic/u);
+      }
+    }
   } finally {
     removeRepositoryLocalTemporaryDirectory(copy.root);
   }
