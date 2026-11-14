@@ -10,9 +10,10 @@
  * (`src/workflow/harness-commands.ts`, the shipped-hooks arm), so a hook's
  * text is a generated value with its generator, never a hand edit (UR-02,
  * PROMO34FIX-HOOK-GENERATOR). It prints ONE JSON line, the last:
- * `{ allCurrent, status, changed }`. A new hook file is made executable; an
- * existing one keeps its mode (the commit door and the installation checks
- * judge the bit). A tree without the hooks folder (a product-only tree) is
+ * `{ allCurrent, status, changed }`. New hooks request executable permissions
+ * subject to the process umask; existing hooks keep their modes. The commit
+ * door and installation checks judge the execute bit. A tree without the hooks
+ * folder (a product-only tree) is
  * converged by absence.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -32,7 +33,7 @@ export type ShippedHooksReport = Readonly<{
   changed: readonly string[];
 }>;
 
-/** The mode a NEW hook file gets: git runs only an executable hook. */
+/** Requested permissions for a NEW hook before the process umask; existing file modes are preserved. */
 const NEW_HOOK_MODE = 0o755;
 
 /** Judges (and with `write`, rewrites) the shipped hooks of the repository at `repositoryRoot`. */
