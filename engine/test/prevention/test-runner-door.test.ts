@@ -46,10 +46,14 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { engineTestBoundsImport } from "../../scripts/tooling/engine-test-bounds.ts";
 import { doorNodeArgs, doorRun } from "../../scripts/tooling/test-guards.ts";
 import { readSourceView } from "../../scripts/verification/source-view.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+import { HarnessError } from "../../src/kernel/errors.ts";
+import { runBoundedTestProcess } from "../../src/process/supervised-run.ts";
+import { readTestExecutionConfig } from "../../src/workflow/test-result-collector.ts";
 import { DEFAULT_TEST_HANG_BACKSTOP_MS } from "../../src/workflow/workflow-config.ts";
 import { createRepositoryLocalTemporaryDirectory, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
@@ -101,6 +105,33 @@ test("the web vitest config pins its root and neutralizes the no-tests exit", ()
   );
 });
 
+/** Keep the native boundary distinct from the dead-end's domain assertions. */
+function assertVitestDeadEnd(run: ReturnType<typeof runBoundedTestProcess>): void {
+  const output = `stdout:\n${run.stdout}\nstderr:\n${run.stderr}`;
+  const diagnostic = `native outcome ${JSON.stringify({
+    pid: run.pid,
+    status: run.status,
+    signal: run.signal,
+    error: run.error === undefined ? null : {
+      name: run.error.name, code: run.error.code, message: run.error.message,
+    },
+    supervision: run.supervision,
+  })}\n${output}`;
+  assert.equal(run.error, undefined, `vitest did not complete its native boundary: ${diagnostic}`);
+  assert.equal(run.supervision.timedOut, false, `vitest exceeded its native ceiling: ${diagnostic}`);
+  assert.equal(run.supervision.interrupted, false, `vitest was interrupted: ${diagnostic}`);
+  assert.equal(run.supervision.noOwnedChildren, true, `vitest left owned children: ${diagnostic}`);
+  assert.equal(
+    run.status,
+    0,
+    `vitest rooted in the engine exited ${run.status} (expected 0 — a clean dead-end): ${diagnostic}`,
+  );
+  assert.ok(
+    /No test files found/i.test(output),
+    `the dead-end should report an empty suite, got: ${diagnostic}`,
+  );
+}
+
 test("a vitest run rooted in the engine dead-ends clean (live drive)", () => {
   // The behavioural half: drive vitest from a scratch cwd INSIDE the engine —
   // the honest shape, because the defect only ever fires for a caller whose
@@ -111,27 +142,76 @@ test("a vitest run rooted in the engine dead-ends clean (live drive)", () => {
   // the engine, outside the web root), never in the live source tree.
   const scratch = createRepositoryLocalTemporaryDirectory("vitest-dead-end-");
   try {
-    const run = spawnSync(
+    const run = runBoundedTestProcess(
+      ensureTestProcessSupervisor(),
       process.execPath,
       [
         join(WEB_ROOT, "node_modules", "vitest", "dist", "cli.js"),
         "run",
         "test/editor/",
       ],
-      { cwd: scratch, encoding: "utf8", timeout: 120_000 },
+      {
+        cwd: scratch,
+        timeoutMs: 120_000,
+        killGraceMs: readTestExecutionConfig(ROOT).engineSuiteWatchdog.killGraceMs,
+      },
     );
-    const output = `${run.stdout}\n${run.stderr}`;
-    assert.equal(
-      run.status,
-      0,
-      `vitest rooted in the engine exited ${run.status} (expected 0 — a clean dead-end): ${output.slice(-600)}`,
-    );
-    assert.ok(
-      /No test files found/i.test(output),
-      `the dead-end should report an empty suite, got: ${output.slice(-600)}`,
-    );
+    assertVitestDeadEnd(run);
   } finally {
     removeRepositoryLocalTemporaryDirectory(scratch);
+  }
+});
+
+test("the vitest dead-end retains native attribution and complete output without accepting boundary failures", () => {
+  // Synthetic terminal records exercise this guard's interpretation only.
+  // The existing process owner supplies validated receipts and owns real
+  // stop/tree-cleanup drives in test/process/supervised-run.test.ts.
+  // These records assert no actual timeout or signal event.
+  const firstOutput = "controlled-prefix-before-the-last-600-characters";
+  const stderr = "controlled-original-stderr";
+  const clean: ReturnType<typeof runBoundedTestProcess> = {
+    pid: 42,
+    status: 0,
+    signal: null,
+    stdout: `${firstOutput}\n${"x".repeat(700)}\nNo test files found\n`,
+    stderr,
+    error: undefined,
+    supervision: {
+      commandPid: 42, status: 0, timedOut: false, interrupted: false,
+      reaped: [], commandKilled: false, waitedCpuUs: 1,
+      supervisorCpuUsBeforeReceipt: 1, noOwnedChildren: true, killed: [],
+    },
+  };
+  assert.doesNotThrow(() => assertVitestDeadEnd(clean));
+  const natural143 = {
+    ...clean, status: 143, supervision: { ...clean.supervision, status: 143 },
+  };
+  const timeout143 = {
+    ...natural143,
+    error: new HarnessError("controlled native ceiling", "test_process_boundary_exceeded"),
+    supervision: { ...natural143.supervision, timedOut: true },
+  };
+  const signalled = {
+    ...clean, status: null, signal: "SIGTERM" as const,
+    supervision: { ...clean.supervision, status: -15 },
+  };
+  const unclosed = {
+    ...clean, supervision: { ...clean.supervision, noOwnedChildren: false },
+  };
+  for (const [name, run, fragments] of [
+    ["natural 143", natural143, ['"status":143', '"error":null', '"timedOut":false']],
+    ["timeout-marked 143", timeout143, ['"status":143', '"timedOut":true', '"code":"test_process_boundary_exceeded"']],
+    ["signal termination", signalled, ['"status":null', '"signal":"SIGTERM"']],
+    ["unclosed child", unclosed, ['"status":0', '"noOwnedChildren":false']],
+  ] as const) {
+    assert.throws(() => assertVitestDeadEnd(run), (error: unknown) => {
+      assert.ok(error instanceof assert.AssertionError, name);
+      for (const fragment of [firstOutput, stderr, ...fragments]) {
+        assert.ok(error.message.includes(fragment), `${name} lost ${fragment}: ${error.message}`);
+      }
+      if (name === "natural 143") assert.ok(!error.message.includes("test_process_boundary_exceeded"));
+      return true;
+    }, name);
   }
 });
 
