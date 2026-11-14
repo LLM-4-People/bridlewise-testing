@@ -207,13 +207,14 @@ function executeRollback(
     }
   }
 
+  const success = failedCount === 0;
   const irreversibleSummary = JSON.stringify(plan.irreversibleEffects.map((effect) => ({ eventId: effect.eventId, reason: effect.reason ?? "irreversible" })));
   store.appendTerminal({
     eventId: rollbackEventId,
     ledgerId,
     eventType: "rollback",
     effectId: plan.rollbackId,
-    outcome: failedCount === 0 ? "succeeded" : "failed",
+    outcome: success ? "succeeded" : "failed",
     resultHash: canonicalHash({ restoredCount, skippedCount, failedCount, failedEffects, restoredEventIds }),
     wallTime: clock(),
     documents: deepFreeze([
@@ -239,6 +240,7 @@ function executeRollback(
   return deepFreeze({
     rollbackId: plan.rollbackId,
     rollbackEventId,
+    success,
     restoredCount,
     skippedCount,
     failedCount,

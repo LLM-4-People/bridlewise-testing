@@ -1094,6 +1094,8 @@ export type RollbackPlan = Readonly<{
 export type RollbackResult = Readonly<{
   rollbackId: string;
   rollbackEventId: string;
+  /** True when every attempted restoration succeeded; irreversible effects remain skipped. */
+  success: boolean;
   restoredCount: number;
   skippedCount: number;
   failedCount: number;

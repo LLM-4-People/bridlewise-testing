@@ -32,9 +32,11 @@ import { runDiagnosticCli, parseDiagnosticArgs } from "../../src/performance/dia
 import { createTimelineStore } from "../../src/timeline/timeline-store.ts";
 import { createTimelineRecorder, type TimelineRecorder } from "../../src/timeline/timeline-recorder.ts";
 import { InputError } from "../../src/kernel/errors.ts";
-import { envelopeText, HARNESS_COMMAND_SCHEMA_VERSION, takeOutputFormat } from "../../src/workflow/command-result.ts";
+import { commandExitCode, envelopeText, HARNESS_COMMAND_SCHEMA_VERSION, parseHarnessCommandResult, takeOutputFormat } from "../../src/workflow/command-result.ts";
 import { walkTs } from "../../scripts/verification/source-walk.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+import { makeTimelineEventInput } from "../support/timeline.ts";
+import { canonicalHash } from "../../src/kernel/integrity.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 
 const ROOT = process.cwd();
@@ -233,6 +235,113 @@ test("harnessRollback: result is frozen and integrity hash is valid", () => {
     assert.ok(Object.isFrozen(result));
     assert.ok(typeof result.integrityHash === "string");
     assert.equal(result.integrityHash.length, 64);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+// The public rollback adapter uses the domain result's own execution verdict.
+// Every database and ledger below belongs to this local fixture; no restorer
+// is supplied, so a reversible file effect exercises the real failure path.
+for (const scenario of [
+  { name: "no-op", effects: [], restored: 0, skipped: 0, failed: 0 },
+  { name: "successful", effects: ["checkpoint"], restored: 1, skipped: 0, failed: 0 },
+  { name: "skipped-only", effects: ["network"], restored: 0, skipped: 1, failed: 0 },
+  { name: "failed", effects: ["file-effect"], restored: 0, skipped: 0, failed: 1 },
+  { name: "partial failure", effects: ["file-effect", "checkpoint", "network"], restored: 1, skipped: 1, failed: 1 },
+] as const) {
+  test(`harnessRollback: public envelope reports ${scenario.name} execution`, () => {
+    const dir = createTempDir("harness-rollback-outcome-");
+    const dbPath = join(dir, "timeline.db");
+    const ledgerId = "ledger-outcome";
+    const store = createTimelineStore({ path: dbPath, ledgerId });
+    let original;
+    try {
+      store.appendIntent({
+        eventId: "anchor-intent", ledgerId, eventType: "checkpoint", effectKind: "checkpoint", effectId: "fx-anchor",
+        actor: { kind: "harness", id: "fixture" }, description: "owned fixture anchor", intentHash: "a".repeat(64),
+        wallTime: "2026-01-01T00:00:00.000Z",
+      });
+      store.appendTerminal({
+        eventId: "anchor-terminal", ledgerId, eventType: "checkpoint", effectId: "fx-anchor", outcome: "succeeded",
+        resultHash: "a".repeat(64), wallTime: "2026-01-01T00:00:01.000Z",
+      });
+      for (const [index, eventType] of scenario.effects.entries()) {
+        store.appendEvent(makeTimelineEventInput(ledgerId, `effect-${index}`, eventType));
+      }
+      original = store.query({ ascending: true });
+    } finally {
+      store.close();
+    }
+    try {
+      const answer = harnessRollback(ROOT, { effectId: "fx-anchor" }, { dbPath });
+      const expectedStatus = scenario.failed === 0 ? "pass" : "fail";
+      assert.equal(answer.status, expectedStatus, "the command must report the real rollback execution outcome");
+      assert.equal(commandExitCode({ result: answer }), scenario.failed === 0 ? 0 : 1);
+      assert.equal(parseHarnessCommandResult(JSON.parse(JSON.stringify(answer))).status, expectedStatus);
+      assert.equal(answer.result.result!.success, scenario.failed === 0);
+      assert.equal(answer.result.result!.restoredCount, scenario.restored);
+      assert.equal(answer.result.result!.skippedCount, scenario.skipped);
+      assert.equal(answer.result.result!.failedCount, scenario.failed);
+      assert.equal(answer.result.result!.failedEffects.length, scenario.failed);
+      assert.ok(Object.isFrozen(answer.result.result));
+      const reopened = createTimelineStore({ path: dbPath, ledgerId });
+      try {
+        const rollback = answer.result.result!;
+        assert.deepEqual(reopened.query({ ascending: true }).slice(0, original.length), original, "rollback preserves the original records");
+        const terminal = reopened.getEvent(rollback.rollbackEventId)!;
+        assert.equal(terminal.outcome, scenario.failed === 0 ? "succeeded" : "failed");
+        assert.equal(terminal.resultHash, canonicalHash({
+          restoredCount: scenario.restored, skippedCount: scenario.skipped, failedCount: scenario.failed,
+          failedEffects: rollback.failedEffects,
+          restoredEventIds: rollback.plan.effects.filter((effect) => effect.rollbackKind === "checkpoint").map((effect) => effect.eventId),
+        }), "the existing persisted result-hash projection stays compatible");
+        assert.equal(reopened.verifyChain().valid, true);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("harnessRollback: listing historical failed rollbacks remains a passing report", () => {
+  const dir = createTempDir("harness-rollback-history-");
+  const dbPath = join(dir, "timeline.db");
+  const ledgerId = "ledger-history";
+  const store = createTimelineStore({ path: dbPath, ledgerId });
+  let original;
+  try {
+    store.appendIntent({
+      eventId: "historic-intent", ledgerId, eventType: "rollback", effectKind: "filesystem", effectId: "fx-historic",
+      actor: { kind: "harness", id: "fixture" }, description: "historical failed rollback", intentHash: "a".repeat(64),
+      wallTime: "2026-01-01T00:00:00.000Z",
+    });
+    store.appendTerminal({
+      eventId: "historic-terminal", ledgerId, eventType: "rollback", effectId: "fx-historic", outcome: "failed",
+      resultHash: "a".repeat(64), wallTime: "2026-01-01T00:00:01.000Z",
+    });
+    store.appendEvent(makeTimelineEventInput(ledgerId, "listing-effect", "file-effect"));
+    original = store.query({ ascending: true });
+  } finally {
+    store.close();
+  }
+  try {
+    const answer = harnessRollback(ROOT, {}, { dbPath });
+    assert.equal(answer.status, "pass");
+    assert.equal(commandExitCode({ result: answer }), 0);
+    assert.equal(answer.result.result, null);
+    assert.equal(answer.result.recentEffects.length, 1);
+    assert.equal(parseHarnessCommandResult(JSON.parse(JSON.stringify(answer))).status, "pass");
+    const reopened = createTimelineStore({ path: dbPath, ledgerId });
+    try {
+      assert.deepEqual(reopened.query({ ascending: true }), original);
+      assert.equal(reopened.verifyChain().valid, true);
+    } finally {
+      reopened.close();
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
