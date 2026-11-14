@@ -17,7 +17,8 @@ import { forgeFileSources, syncForgeFiles } from "../../src/workflow/forge/gener
 import { isForgeError } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
 import { rulesetWithGithubDefaults, type ForgeObject } from "../../src/workflow/forge/forge-state.ts";
-import { githubClient } from "../../src/workflow/forge/github.ts";
+import { classifyGithubAnswer, githubClient } from "../../src/workflow/forge/github.ts";
+import { KIND_ADAPTERS } from "../../src/workflow/forge/live-state.ts";
 import { maintainerCli } from "../../src/workflow/forge/maintainer-cli.ts";
 import { forgeApply, forgePlan } from "../../src/workflow/forge/plan.ts";
 import { looseningOf, movedPremisesUnmet } from "../../src/workflow/forge/strictness.ts";
@@ -234,6 +235,828 @@ test("a security configuration's two features read back as GitHub answers them (
   }
 });
 
+type ProjectOptionFixture = { id?: string; name: string; color: string; description: string };
+type ProjectFieldFixture = { id: string; name: string; dataType: string; options?: ProjectOptionFixture[] };
+type ProjectItemFixture = { id: string; values: Record<string, string | null>; note: string; isArchived?: boolean };
+type ProjectStateFixture = { id: string; title: string; public: boolean; created: boolean; fields: ProjectFieldFixture[]; items: ProjectItemFixture[]; views: { id: string; name: string }[] };
+type ProjectReadFixture = {
+  kind: "discovery" | "fields"; first: number; after: string | null; projectId?: string;
+  query: string; variables: Record<string, unknown>; connection: Record<string, unknown>; data: Record<string, unknown>;
+};
+
+/** One Project protocol fixture: real connection slices and native-node lookup; omitting an old option ID clears its stored item values. */
+function projectGithub(fake: FakeGithub, initial: "missing" | "populated" | "empty" = "missing") {
+  const builtIn = [["Title", "TITLE"], ["Assignees", "ASSIGNEES"], ["Labels", "LABELS"], ["Linked pull requests", "LINKED_PULL_REQUESTS"], ["Milestone", "MILESTONE"], ["Repository", "REPOSITORY"], ["Reviewers", "REVIEWERS"], ["Parent issue", "PARENT_ISSUE"], ["Sub-issues progress", "SUB_ISSUES_PROGRESS"]]
+    .map(([name, dataType], index) => ({ id: `F_builtin_${String(index)}`, name: name!, dataType: dataType! }));
+  const project: ProjectStateFixture = {
+    id: "PVT_1", title: initial === "missing" ? "" : "Bridlewise", public: initial !== "missing", created: initial !== "missing",
+    fields: [...builtIn, { id: "F_status", name: "Status", dataType: "SINGLE_SELECT", options: [{ id: "O_todo", name: "Todo", color: "BLUE", description: "Preserved status presentation" }] }],
+    items: [], views: [{ id: "PVTV_manual", name: "Manual history" }],
+  };
+  if (initial !== "missing") {
+    project.fields.push(
+      { id: "F_severity", name: "Severity", dataType: "SINGLE_SELECT", options: [{ id: "O_p0", name: "P0", color: "RED", description: "Preserved severity presentation" }] },
+      { id: "F_manual", name: "Historical notes", dataType: "TEXT" },
+    );
+  }
+  if (initial === "populated") project.items.push(
+    { id: "PVTI_managed", values: { F_status: "O_todo", F_severity: "O_p0", F_manual: "Retained manual note" }, note: "Tracked work" },
+    { id: "PVTI_manual", values: { F_status: "O_todo", F_severity: "O_p0", F_manual: "Keep this historical item" }, note: "Unmanaged history" },
+  );
+  const projects = [project];
+  const controls: {
+    ignoreExistingOptionIds: boolean; changeIdentityAfterFirstRead: boolean; omitItemCount: boolean;
+    itemCountOverride?: unknown; hideCreatedProject: boolean; createResponseId?: string;
+    discoveryPageSize: number; fieldsPageSize: number;
+    afterCreate?: (created: ProjectStateFixture) => void; onRead?: (read: ProjectReadFixture) => void;
+  } = { ignoreExistingOptionIds: false, changeIdentityAfterFirstRead: false, omitItemCount: false, hideCreatedProject: false, discoveryPageSize: 100, fieldsPageSize: 100 };
+  let nextOption = 0, discoveryReads = 0, nodeReads = 0;
+  const itemScopes: { archivedStates: string[]; query: string }[] = [];
+  const reads: ProjectReadFixture[] = [];
+  const writes: { query: string; variables: Record<string, unknown> }[] = [];
+  fake.route("POST", /^\/graphql$/u, (request) => {
+    const { query, variables } = request.body as { query: string; variables: Record<string, unknown> };
+    const invalid = (message: string) => ({ status: 200, body: { errors: [{ type: "UNPROCESSABLE", message }] } });
+    if (/^\s*query\b/u.test(query)) {
+      const argumentsOf = (name: string) => new RegExp(`\\b${name}\\s*\\(([^)]*)\\)`, "u").exec(query)?.[1];
+      // Only the literal/variable argument syntax used by these two owned queries is supported; this is not a GraphQL parser.
+      const unsupportedArgument = Symbol("unsupported Project argument");
+      const scalarSelected = (selection: string | undefined, key: string) => new RegExp(`\\b${key}\\b`, "u").test(selection ?? "");
+      const argument = (args: string, name: string): unknown => {
+        const occurrences = [...args.matchAll(new RegExp(`(?:^|[\\s,])${name}\\s*:`, "gu"))].length;
+        if (occurrences === 0) return null;
+        if (occurrences !== 1) return unsupportedArgument;
+        const token = new RegExp(`(?:^|[\\s,])${name}\\s*:\\s*(\\$[A-Za-z_]\\w*|null|[0-9]+|"[^"]*")(?=\\s*(?:,|$)|\\s+[A-Za-z_]\\w*\\s*:)`, "u").exec(args)?.[1];
+        if (token === undefined) return unsupportedArgument;
+        if (token === "null") return null;
+        if (token.startsWith("$")) return variables[token.slice(1)] === undefined ? unsupportedArgument : variables[token.slice(1)];
+        return token.startsWith('"') ? token.slice(1, -1) : Number(token);
+      };
+      const page = (name: string, prefix: string, nodes: readonly unknown[], cap: number) => {
+        const args = argumentsOf(name);
+        if (args === undefined) return undefined;
+        const first = argument(args, "first"), after = argument(args, "after");
+        if (typeof first !== "number" || !Number.isInteger(first) || first < 1 || first > 100 || (after !== null && typeof after !== "string")) return undefined;
+        if (after !== null && (!after.startsWith(prefix) || !/^[0-9]+$/u.test(after.slice(prefix.length)))) return undefined;
+        const offset = after === null ? 0 : Number(after.slice(prefix.length));
+        if (!Number.isSafeInteger(offset) || offset > nodes.length) return undefined;
+        const selected = nodes.slice(offset, offset + Math.min(first, cap));
+        const end = offset + selected.length;
+        const infoSelection = /\bpageInfo\s*\{([^{}]*)\}/u.exec(query)?.[1];
+        const pageInfo = {
+          ...(scalarSelected(infoSelection, "hasNextPage") ? { hasNextPage: end < nodes.length } : {}),
+          ...(scalarSelected(infoSelection, "endCursor") ? { endCursor: selected.length === 0 ? null : `${prefix}${String(end)}` } : {}),
+        };
+        return { first, after, connection: { nodes: structuredClone(selected), ...(infoSelection === undefined ? {} : { pageInfo }) } as Record<string, unknown> };
+      };
+      // GitHub defaults to NOT_ARCHIVED; an ARCHIVED-only query must likewise exclude active items.
+      const itemArguments = argumentsOf("items");
+      const includesItems = itemArguments !== undefined || /\bitems\s*\{/u.test(query);
+      const statesArgument = itemArguments === undefined ? null : /\barchivedStates\s*:\s*\[([^\]]*)\]/u.exec(itemArguments);
+      const archivedStates = statesArgument === null ? ["NOT_ARCHIVED"] : statesArgument[1]!.split(/[\s,]+/u).filter(Boolean);
+      const filterArgument = itemArguments === undefined ? null : /\bquery\s*:\s*"([^"]*)"/u.exec(itemArguments);
+      const literalScope = (itemArguments === undefined || !/\barchivedStates\s*:/u.test(itemArguments) || statesArgument !== null)
+        && archivedStates.every((state) => state === "ARCHIVED" || state === "NOT_ARCHIVED")
+        && (itemArguments === undefined || !/\bquery\s*:/u.test(itemArguments) || filterArgument !== null)
+        && (filterArgument === null || filterArgument[1] === "");
+      if (!literalScope) return invalid("Project fixture requires literal item states and an unfiltered count");
+      if (includesItems) itemScopes.push({ archivedStates: [...archivedStates], query: filterArgument?.[1] ?? "" });
+      const commonSelection = /\.\.\.\s+on\s+ProjectV2FieldCommon\s*\{([^{}]*)\}/u.exec(query)?.[1] ?? "";
+      const optionSelection = /\boptions\s*\{([^{}]*)\}/u.exec(query)?.[1];
+      const selectedFields = (candidate: ProjectStateFixture) => candidate.fields.map((field) => ({
+        ...Object.fromEntries(Object.entries(field).filter(([key]) => key !== "options" && scalarSelected(commonSelection, key))),
+        ...(optionSelection === undefined || field.options === undefined ? {} : { options: field.options.map((option) => Object.fromEntries(Object.entries(option).filter(([key]) => scalarSelected(optionSelection, key)))) }),
+      }));
+      const visible = projects.filter((candidate) => candidate.created && !(controls.hideCreatedProject && candidate === project));
+      const organizationSelection = /\borganization\s*\([^)]*\)\s*\{([^{}]*)/u.exec(query)?.[1];
+      const organization = { ...(scalarSelected(organizationSelection, "id") ? { id: "O_1" } : {}), ...(scalarSelected(organizationSelection, "__typename") ? { __typename: "Organization" } : {}) };
+      const identitySelection = /\.\.\.\s+on\s+ProjectV2\s*\{([^{}]*)/u.exec(query)?.[1] ?? /\bnodes\s*\{([^{}]*)/u.exec(query)?.[1];
+      const itemSelection = /\bitems\s*(?:\([^)]*\))?\s*\{([^{}]*)\}/u.exec(query)?.[1];
+      const rawProject = (candidate: ProjectStateFixture) => {
+        const selectedStates = new Set(archivedStates);
+        const count = candidate.items.filter((item) => selectedStates.has(item.isArchived === true ? "ARCHIVED" : "NOT_ARCHIVED")).length;
+        const itemCount = Object.hasOwn(controls, "itemCountOverride") ? controls.itemCountOverride : count;
+        return {
+          ...Object.fromEntries(Object.entries({ id: candidate.id, title: candidate.title, public: candidate.public }).filter(([key]) => scalarSelected(identitySelection, key))),
+          ...(/\b__typename\b/u.test(query) ? { __typename: "ProjectV2" } : {}),
+          ...(/\bowner\s*\{[^{}]*\bid\b/u.test(query) ? { owner: { id: "O_1" } } : {}),
+          ...(!includesItems ? {} : { items: {
+            ...(controls.omitItemCount || !scalarSelected(itemSelection, "totalCount") ? {} : { totalCount: itemCount }),
+            ...(scalarSelected(itemSelection, "__typename") ? { __typename: "ProjectV2ItemConnection" } : {}),
+          } }),
+        };
+      };
+      const discoveryArguments = argumentsOf("projectsV2");
+      if (discoveryArguments !== undefined) {
+        discoveryReads += 1;
+        if (controls.changeIdentityAfterFirstRead && nodeReads === 0 && discoveryReads === 2) project.id = "PVT_replaced";
+        const fuzzy = argument(discoveryArguments, "query");
+        if (fuzzy === unsupportedArgument) return invalid("Unsupported Project discovery filter");
+        const candidates = visible.filter((candidate) => typeof fuzzy !== "string" || candidate.title.includes(fuzzy)).map((candidate) => {
+          const fields = page("fields", `fields:${candidate.id}:`, selectedFields(candidate), controls.fieldsPageSize);
+          return { ...rawProject(candidate), ...(fields === undefined ? {} : { fields: fields.connection }) };
+        });
+        const found = page("projectsV2", "projects:", candidates, controls.discoveryPageSize);
+        if (found === undefined) return invalid("Unsupported Project discovery arguments or cursor");
+        const data: Record<string, unknown> = { organization: { ...organization, projectsV2: found.connection } };
+        const read: ProjectReadFixture = { kind: "discovery", ...found, query, variables: structuredClone(variables), data };
+        reads.push(read); controls.onRead?.(read);
+        return { status: 200, body: { data } };
+      }
+      const nodeArguments = argumentsOf("node");
+      if (nodeArguments !== undefined) {
+        nodeReads += 1;
+        if (controls.changeIdentityAfterFirstRead && nodeReads === 2) project.id = "PVT_replaced";
+        const projectId = argument(nodeArguments, "id");
+        if (typeof projectId !== "string") return invalid("Project node requires a native string ID");
+        const candidate = visible.find((item) => item.id === projectId);
+        const fields = page("fields", `fields:${projectId}:`, candidate === undefined ? [] : selectedFields(candidate), controls.fieldsPageSize);
+        if (fields === undefined) return invalid("Unsupported Project fields arguments or cursor");
+        const data: Record<string, unknown> = { organization, node: candidate === undefined ? null : { ...rawProject(candidate), fields: fields.connection } };
+        const read: ProjectReadFixture = { kind: "fields", ...fields, projectId, query, variables: structuredClone(variables), data };
+        reads.push(read); controls.onRead?.(read);
+        return { status: 200, body: { data } };
+      }
+      return invalid("Unexpected Project read query");
+    }
+    writes.push({ query, variables: structuredClone(variables) });
+    if (query.includes("createProjectV2(")) {
+      project.created = true; project.title = String(variables.title);
+      const createdId = controls.createResponseId ?? project.id;
+      controls.afterCreate?.(project);
+      return { status: 200, body: { data: { createProjectV2: { projectV2: { id: createdId } } } } };
+    }
+    if (query.includes("updateProjectV2(")) {
+      const target = projects.find((candidate) => candidate.id === variables.projectId);
+      if (target === undefined) return invalid("Unknown Project mutation target");
+      target.public = variables.public === true;
+      return { status: 200, body: { data: { updateProjectV2: { projectV2: { id: target.id } } } } };
+    }
+    const given = variables.options as readonly Readonly<{ id?: string; name: string; color: string; description: string }>[] | null;
+    if (query.includes("updateProjectV2Field(")) {
+      const target = projects.find((candidate) => candidate.fields.some((field) => field.id === variables.fieldId));
+      const field = target?.fields.find((candidate) => candidate.id === variables.fieldId);
+      if (field === undefined || target === undefined) return invalid("Unknown field");
+      const options = given?.map((option) => ({
+        id: controls.ignoreExistingOptionIds || option.id === undefined ? `O_generated_${String(++nextOption)}` : option.id,
+        name: option.name, color: option.color, description: option.description,
+      }));
+      if (options === undefined) delete field.options; else field.options = options;
+      const retained = new Set(options?.map((option) => option.id) ?? []);
+      for (const item of target.items) if (item.values[field.id] !== undefined && item.values[field.id] !== null && !retained.has(item.values[field.id]!)) item.values[field.id] = null;
+      return { status: 200, body: { data: { updateProjectV2Field: { projectV2Field: { id: field.id } } } } };
+    }
+    if (query.includes("createProjectV2Field(")) {
+      const target = projects.find((candidate) => candidate.id === variables.projectId);
+      if (target === undefined) return invalid("Unknown Project field target");
+      const options = given?.map((option) => ({ id: `O_generated_${String(++nextOption)}`, name: option.name, color: option.color, description: option.description }));
+      const field = { id: `F_${String(target.fields.length)}`, name: String(variables.name), dataType: String(variables.dataType), ...(options === undefined ? {} : { options }) };
+      target.fields.push(field);
+      return { status: 200, body: { data: { createProjectV2Field: { projectV2Field: { id: field.id } } } } };
+    }
+    return invalid("Unexpected Project mutation");
+  });
+  return { project, projects, controls, reads, writes, itemScopes };
+}
+
+function projectDeclaration(publicVisibility = true) {
+  return object("project", "Bridlewise", {
+    title: "Bridlewise", public: publicVisibility, status: ["Todo", "Doing", "Done"],
+    fields: [{ name: "Severity", dataType: "SINGLE_SELECT", options: ["P0", "P1"] }],
+  }, { kind: "org" });
+}
+
+function projectSafetyFailure(error: unknown): boolean {
+  if (isForgeError(error, "forge_declaration_invalid", "github_response_invalid")) return true;
+  return isForgeError(error, "forge_plan_incomplete") && Array.isArray(error.facts.refused) && error.facts.refused.length > 0
+    && error.facts.refused.every((refusal) => typeof refusal === "string" && /:(?:forge_declaration_invalid|github_response_invalid)$/u.test(refusal));
+}
+
+async function assertProjectPrewriteRefusal(mutate: (fixture: ReturnType<typeof projectGithub>) => void, initial: "populated" | "empty" = "populated", declared = projectDeclaration(false)) {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, initial);
+  mutate(fixture);
+  const before = structuredClone(fixture.project);
+  await assert.rejects(forgeApply(contextOf(fake), [declared], []), projectSafetyFailure);
+  assert.deepEqual(fixture.writes, [], "every field and visibility mutation waits for the complete preflight");
+  assert.equal(fixture.project.public, before.public);
+  assert.equal(fixture.project.title, before.title);
+  assert.deepEqual(fixture.project.fields, before.fields);
+  assert.deepEqual(fixture.project.items, before.items);
+  assert.deepEqual(fixture.project.views, before.views);
+}
+
+test("Project option updates preserve populated Status and Severity values, presentation and unmanaged progress; the second apply writes nothing", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "populated");
+  const before = structuredClone(fixture.project);
+  const outcome = await forgeApply(contextOf(fake), [projectDeclaration()], []);
+  assert.equal(outcome.verified, true);
+  assert.deepEqual(fixture.project.items, before.items, "the provider clears these assignments if the update omits their existing option IDs");
+  assert.deepEqual(fixture.project.views, before.views);
+  assert.deepEqual(fixture.project.fields.filter((field) => field.dataType !== "SINGLE_SELECT"), before.fields.filter((field) => field.dataType !== "SINGLE_SELECT"));
+  for (const name of ["Status", "Severity"]) {
+    const earlier = before.fields.find((field) => field.name === name)!.options![0]!;
+    const later = fixture.project.fields.find((field) => field.name === name)!.options!.find((option) => option.name === earlier.name)!;
+    assert.deepEqual(later, earlier, `${name}'s existing identity, color and description survive`);
+    const sent = fixture.writes.find((write) => write.query.includes("updateProjectV2Field(") && write.variables.fieldId === before.fields.find((field) => field.name === name)!.id)!;
+    assert.ok((sent.variables.options as { id?: string }[]).some((option) => option.id === earlier.id));
+  }
+  const newOption = fixture.project.fields.find((field) => field.name === "Status")!.options!.find((option) => option.name === "Doing")!;
+  assert.equal(newOption.color, "GRAY");
+  assert.equal(newOption.description, "");
+  const count = fixture.writes.length;
+  assert.equal((await forgeApply(contextOf(fake), [projectDeclaration()], [])).verified, true);
+  assert.equal(fixture.writes.length, count, "unchanged options make no write, including no replacement ID allocation");
+});
+
+test("a manual option in a later Project field refuses before earlier Status or visibility writes", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => project.fields.find((field) => field.name === "Severity")!.options!.push({ id: "O_manual", name: "Manual priority", color: "PINK", description: "Keep unmanaged progress" }));
+});
+
+test("a Project option with a missing ID refuses before every mutation", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => { delete project.fields.find((field) => field.name === "Status")!.options![0]!.id; });
+});
+
+test("duplicate Project option names refuse before every mutation", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => { const options = project.fields.find((field) => field.name === "Status")!.options!; options.push({ ...options[0]!, id: "O_duplicate_name" }); });
+});
+
+test("duplicate Project option IDs refuse before every mutation", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => { const options = project.fields.find((field) => field.name === "Status")!.options!; options.push({ ...options[0]!, name: "Doing" }); });
+});
+
+test("a missing Project field ID refuses before every mutation", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => { project.fields.find((field) => field.name === "Status")!.id = ""; });
+});
+
+test("ambiguous Project field names refuse before every mutation", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => { const severity = project.fields.find((field) => field.name === "Severity")!; project.fields.push({ ...structuredClone(severity), id: "F_duplicate_severity" }); });
+});
+
+test("a missing Project ID refuses before every mutation", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => { project.id = ""; });
+});
+
+test("a Project replaced between planning and preflight refuses before every mutation", async () => {
+  await assertProjectPrewriteRefusal(({ controls }) => { controls.changeIdentityAfterFirstRead = true; });
+});
+
+test("an existing empty Project cannot discard manual options using the fresh-create exception", async () => {
+  const declared = projectDeclaration(false);
+  await assertProjectPrewriteRefusal(() => undefined, "empty", { ...declared, desired: { ...(declared.desired as Record<string, unknown>), status: ["Doing", "Done"] } });
+});
+
+test("Project option IDs changed by the API fail readback even when every requested name converges", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "populated");
+  fixture.controls.ignoreExistingOptionIds = true;
+  await assert.rejects(forgeApply(contextOf(fake), [projectDeclaration()], []), projectSafetyFailure);
+  assert.ok(fixture.writes.some((write) => write.query.includes("updateProjectV2Field(")), "this is an actual post-write identity failure, not a preflight refusal");
+});
+
+test("a genuinely created and still-empty Project may initialize GitHub's default Status options", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  const declared = projectDeclaration(false);
+  const desired = { ...(declared.desired as Record<string, unknown>), status: ["Intake", "Ready"] };
+  assert.equal((await forgeApply(contextOf(fake), [{ ...declared, desired }], [])).verified, true);
+  assert.deepEqual(fixture.project.fields.find((field) => field.name === "Status")!.options!.map((option) => option.name), ["Intake", "Ready"]);
+  assert.deepEqual(fixture.project.items, []);
+  assert.ok(fixture.itemScopes.length > 0);
+  for (const scope of fixture.itemScopes) {
+    assert.deepEqual([...new Set(scope.archivedStates)].sort(), ["ARCHIVED", "NOT_ARCHIVED"], "the empty-population proof requests both states, not just whichever one happens to be empty");
+    assert.equal(scope.query, "", "a filtered zero cannot authorize initialization");
+  }
+  assert.equal(fixture.project.fields.filter((field) => field.id.startsWith("F_builtin_")).length, 9);
+});
+
+test("a new item before Project initialization keeps its default option and refuses later writes", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  fixture.controls.afterCreate = (project) => { project.items.push({ id: "PVTI_raced", values: { F_status: "O_todo" }, note: "Added after creation" }); };
+  const declared = projectDeclaration(false);
+  const desired = { ...(declared.desired as Record<string, unknown>), status: ["Intake", "Ready"] };
+  await assert.rejects(forgeApply(contextOf(fake), [{ ...declared, desired }], []), projectSafetyFailure);
+  assert.equal(fixture.writes.length, 1, "only the genuinely completed board creation may have happened");
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.items[0]!.values.F_status, "O_todo");
+  assert.equal(fixture.project.fields.find((field) => field.name === "Status")!.options![0]!.id, "O_todo");
+});
+
+test("a new Project without a fresh item count cannot initialize its default options", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  fixture.controls.omitItemCount = true;
+  const declared = projectDeclaration(false);
+  const desired = { ...(declared.desired as Record<string, unknown>), status: ["Intake", "Ready"] };
+  await assert.rejects(forgeApply(contextOf(fake), [{ ...declared, desired }], []), projectSafetyFailure);
+  assert.equal(fixture.writes.length, 1, "creation alone does not prove that the current board is still empty");
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.fields.find((field) => field.name === "Status")!.options![0]!.id, "O_todo");
+});
+
+test("the fresh-create exception cannot initialize another Project that replaced the created ID", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  fixture.controls.afterCreate = (project) => { project.id = "PVT_replaced"; };
+  const declared = projectDeclaration(false);
+  const desired = { ...(declared.desired as Record<string, unknown>), status: ["Intake", "Ready"] };
+  await assert.rejects(forgeApply(contextOf(fake), [{ ...declared, desired }], []), (error: unknown) => {
+    assert.ok(isForgeError(error, "github_response_invalid"));
+    assert.equal(error.facts.createdProjectId, "PVT_1", "the error names the real create response, never the board returned by the later mismatched read");
+    assert.equal(error.facts.creationMayHaveOccurred, true);
+    return true;
+  });
+  assert.equal(fixture.writes.length, 1, "a successful create response cannot authorize mutations on a different current board");
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+});
+
+test("an archived item before Project initialization prevents default option replacement", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  fixture.controls.afterCreate = (project) => { project.items.push({ id: "PVTI_archived", values: { F_status: "O_todo" }, note: "Archived history", isArchived: true }); };
+  const declared = projectDeclaration(false);
+  const desired = { ...(declared.desired as Record<string, unknown>), status: ["Intake", "Ready"] };
+  await assert.rejects(forgeApply(contextOf(fake), [{ ...declared, desired }], []), projectSafetyFailure);
+  assert.equal(fixture.writes.length, 1, "an active-items-only zero does not prove the board has no progress");
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.items[0]!.values.F_status, "O_todo");
+});
+
+test("a missing created Project readback refuses initialization without deleting or recreating the board", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  fixture.controls.afterCreate = () => { fixture.controls.hideCreatedProject = true; };
+  const declared = projectDeclaration(false);
+  await assert.rejects(forgeApply(contextOf(fake), [declared], []), projectSafetyFailure);
+  assert.equal(fixture.writes.length, 1);
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.created, true);
+  assert.equal(fixture.project.fields.find((field) => field.name === "Status")!.options![0]!.id, "O_todo");
+});
+
+test("an invalid create response ID cannot authorize Project initialization", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  fixture.controls.createResponseId = "";
+  const declared = projectDeclaration(false);
+  await assert.rejects(forgeApply(contextOf(fake), [declared], []), projectSafetyFailure);
+  assert.equal(fixture.writes.length, 1);
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.fields.find((field) => field.name === "Status")!.options![0]!.id, "O_todo");
+});
+
+async function assertCreatedProjectRefusesInvalidCount(count: unknown) {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  fixture.controls.itemCountOverride = count;
+  const declared = projectDeclaration(false);
+  const desired = { ...(declared.desired as Record<string, unknown>), status: ["Intake", "Ready"] };
+  await assert.rejects(forgeApply(contextOf(fake), [{ ...declared, desired }], []), projectSafetyFailure);
+  assert.equal(fixture.writes.length, 1, "an invalid count grants no initialization authority after the native create");
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.fields.find((field) => field.name === "Status")!.options![0]!.id, "O_todo");
+}
+
+test("a null Project population count is unavailable, never empty", async () => {
+  await assertCreatedProjectRefusesInvalidCount(null);
+});
+
+test("a string zero Project population count cannot be coerced into an empty-board proof", async () => {
+  await assertCreatedProjectRefusesInvalidCount("0");
+});
+
+test("a negative Project population count cannot authorize initialization", async () => {
+  await assertCreatedProjectRefusesInvalidCount(-1);
+});
+
+test("an unmanaged field aliasing the managed Status ID refuses before any Project mutation", async () => {
+  await assertProjectPrewriteRefusal(({ project }) => { project.fields.find((field) => field.name === "Historical notes")!.id = "F_status"; });
+});
+
+test("ordinary Project updates cannot forge fresh-create authority through body, found object or context flags", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "empty");
+  const declared = projectDeclaration(false);
+  const flags = { createdHere: true, freshlyCreated: true, fresh: true, allowOptionReplacement: true, createdProjectId: "PVT_1", creationMayHaveOccurred: true };
+  const desired = { ...(declared.desired as Record<string, unknown>), ...flags, status: ["Doing", "Done"] };
+  const context = { ...contextOf(fake), ...flags };
+  const found = await KIND_ADAPTERS.project.read(context, declared);
+  assert.ok(found !== undefined);
+  const forged = { ...found, ...flags, live: { ...(found.live as Record<string, unknown>), ...flags } };
+  const before = structuredClone(fixture.project);
+  await assert.rejects(KIND_ADAPTERS.project.update(context, declared, desired, forged), projectSafetyFailure);
+  assert.deepEqual(fixture.writes, []);
+  assert.deepEqual(fixture.project, before);
+});
+
+test("a post-create Project read budget refusal retains its original code and facts plus the actual created ID", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  const resetEpoch = Math.floor(Date.now() / 1000) + 600;
+  const message = "API rate limit exceeded";
+  const headers = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(resetEpoch) };
+  const original = classifyGithubAnswer(403, new Headers(headers), JSON.stringify({ message }), "POST", "/graphql");
+  fixture.controls.afterCreate = () => {
+    fake.refuseNext({ method: "POST", path: /^\/graphql$/u }, { status: 403, message, headers });
+  };
+  const declared = projectDeclaration(false);
+  await assert.rejects(forgeApply(contextOf(fake), [declared], []), (error: unknown) => {
+    assert.ok(isForgeError(error, "github_rate_limited"));
+    assert.equal(error.forgeClass, original.forgeClass);
+    assert.equal(error.retryable, original.retryable);
+    assert.equal(error.message, original.message, "the created-ID context must not replace the canonical original refusal");
+    assert.deepEqual(Object.fromEntries(Object.keys(original.facts).map((key) => [key, error.facts[key]])), original.facts, "all canonical original budget facts survive");
+    assert.equal(error.facts.createdProjectId, "PVT_1");
+    assert.equal(error.facts.creationMayHaveOccurred, true);
+    return true;
+  });
+  const operations = fake.requests.filter((request) => request.path === "/graphql").map((request) => (request.body as { query: string }).query);
+  assert.equal(operations.filter((query) => /^\s*mutation\b/u.test(query)).length, 1, "the failed operation was a read, not an attempted initialization write");
+  assert.match(operations.at(-1)!, /^\s*query\b/u);
+  assert.equal(fixture.writes.length, 1);
+  assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.created, true, "a post-create refusal must not trigger deletion or another create");
+  assert.equal(fixture.project.fields.find((field) => field.name === "Status")!.options![0]!.id, "O_todo");
+});
+
+/** Candidate metadata lives in the same provider fixture; only the selected native Project gets field reads. */
+function addProjectCandidates(fixture: ReturnType<typeof projectGithub>, count: number, position: "before" | "after" = "before") {
+  const offset = fixture.projects.length;
+  const candidates = Array.from({ length: count }, (_, index) => ({
+    id: `PVT_candidate_${String(offset + index)}`, title: `Bridlewise archive ${String(offset + index)}`, public: true, created: true,
+    fields: [] as ProjectFieldFixture[], items: [] as ProjectItemFixture[], views: [] as { id: string; name: string }[],
+  }));
+  if (position === "before") fixture.projects.unshift(...candidates); else fixture.projects.push(...candidates);
+  return candidates;
+}
+
+function padProjectFields(fixture: ReturnType<typeof projectGithub>, count: number) {
+  const fields = Array.from({ length: count }, (_, index) => ({ id: `F_padding_${String(index)}`, name: `Historical field ${String(index)}`, dataType: "TEXT" }));
+  const severity = fixture.project.fields.findIndex((field) => field.name === "Severity");
+  fixture.project.fields.splice(severity < 0 ? fixture.project.fields.length : severity, 0, ...fields);
+}
+
+test("Project discovery finds the exact title beyond the old twenty-board prefix without fuzzy search or candidate-field reads", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "populated");
+  addProjectCandidates(fixture, 23);
+  fixture.controls.discoveryPageSize = 7;
+  const found = await KIND_ADAPTERS.project.read({ ...contextOf(fake), maxPages: 4 }, projectDeclaration());
+  assert.equal(found?.id, "PVT_1", "the old first:20 query sees only the similarly titled archive boards and falsely reports absence");
+  const discovery = fixture.reads.filter((read) => read.kind === "discovery");
+  assert.equal(discovery.length, 4, "the complete visible population is read even when a title match is encountered");
+  assert.ok(discovery.every((read) => !/\bquery\s*:/u.test(/\bprojectsV2\s*\(([^)]*)\)/u.exec(read.query)![1]!)), "the provider's fuzzy title filter cannot prove exact-title absence or uniqueness");
+  assert.ok(discovery.every((read) => !/\bfields\s*\(/u.test(read.query)), "discovery does not fetch nested fields for every candidate");
+  assert.ok(fixture.reads.filter((read) => read.kind === "fields").every((read) => read.projectId === "PVT_1"));
+  assert.deepEqual(fixture.writes, []);
+});
+
+test("a populated Project field beyond the old fifty-field prefix updates in place across independent cursors and converges without writes", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "populated");
+  padProjectFields(fixture, 60);
+  fixture.controls.fieldsPageSize = 17;
+  const before = structuredClone(fixture.project);
+  const context = { ...contextOf(fake), maxPages: 5 };
+  const declared = projectDeclaration();
+  const found = await KIND_ADAPTERS.project.read(context, declared);
+  assert.ok((found?.live as { fields: { name: string }[] }).fields.some((field) => field.name === "Severity"), "the old first:50 query loses this existing field and would create a duplicate");
+  assert.equal((await forgeApply(context, [declared], [])).verified, true, "maxPages bounds each connection rather than summing independent discovery and field pages");
+  assert.equal(fixture.project.fields.filter((field) => field.name === "Severity").length, 1);
+  assert.ok(!fixture.writes.some((write) => write.query.includes("createProjectV2Field(")));
+  assert.deepEqual(fixture.project.items, before.items);
+  assert.deepEqual(fixture.project.views, before.views);
+  assert.deepEqual(fixture.project.fields.filter((field) => field.dataType !== "SINGLE_SELECT"), before.fields.filter((field) => field.dataType !== "SINGLE_SELECT"));
+  for (const name of ["Status", "Severity"]) {
+    const original = before.fields.find((field) => field.name === name)!;
+    const current = fixture.project.fields.find((field) => field.name === name)!;
+    assert.equal(current.id, original.id);
+    assert.deepEqual(current.options!.find((option) => option.id === original.options![0]!.id), original.options![0]);
+  }
+  const pages = fixture.reads.filter((read) => read.kind === "fields");
+  assert.ok(pages.some((read) => read.after !== null));
+  assert.ok(pages.every((read) => read.after === null || read.after.startsWith("fields:PVT_1:")), "field cursors never inherit the discovery cursor");
+  const count = fixture.writes.length;
+  assert.equal((await forgeApply(context, [declared], [])).verified, true);
+  assert.equal(fixture.writes.length, count);
+});
+
+test("the Project fixture rejects malformed argument tokens and never manufactures unselected safety identities or counts", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "empty");
+  const context = contextOf(fake);
+  assert.ok(await KIND_ADAPTERS.project.read(context, projectDeclaration()));
+  const actual = fixture.reads.find((read) => read.kind === "fields")!;
+  const withoutCount = actual.query.replace(/\btotalCount\b/u, "__typename");
+  assert.notEqual(withoutCount, actual.query);
+  const countAnswer = await context.client.graphql<{ node: { items: Record<string, unknown> } }>(withoutCount, actual.variables);
+  assert.equal(countAnswer.node.items.__typename, "ProjectV2ItemConnection");
+  assert.equal(Object.hasOwn(countAnswer.node.items, "totalCount"), false, "valid all-states item arguments cannot manufacture an unselected empty-population proof");
+  const withoutOrganizationId = actual.query.replace(/\borganization\s*\(\s*login\s*:\s*\$login\s*\)\s*\{\s*id\s*\}/u, "organization(login: $login) { __typename }");
+  assert.notEqual(withoutOrganizationId, actual.query);
+  const organizationAnswer = await context.client.graphql<{ organization: Record<string, unknown> }>(withoutOrganizationId, actual.variables);
+  assert.equal(organizationAnswer.organization.__typename, "Organization");
+  assert.equal(Object.hasOwn(organizationAnswer.organization, "id"), false);
+  const withoutProjectId = actual.query.replace(/(\.\.\.\s+on\s+ProjectV2\s*\{)\s*id\b/u, "$1");
+  assert.notEqual(withoutProjectId, actual.query);
+  const nodeAnswer = await context.client.graphql<{ node: Record<string, unknown> }>(withoutProjectId, actual.variables);
+  assert.equal(Object.hasOwn(nodeAnswer.node, "id"), false);
+  for (const query of [
+    actual.query.replace(/\bfirst\s*:\s*100\b/u, "first: 100.5"),
+    actual.query.replace(/\bfirst\s*:\s*100\b/u, "first: 100junk"),
+    actual.query.replace(/\bafter\s*:\s*\$after\b/u, 'after: { cursor: "fields:PVT_1:1" }'),
+    actual.query.replace(/\bafter\s*:\s*\$after\b/u, "after: $after, after: null"),
+  ]) {
+    assert.notEqual(query, actual.query);
+    await assert.rejects(context.client.graphql(query, actual.variables), (error: unknown) => isForgeError(error, "github_validation_failed"));
+  }
+  // Nullable variables may be omitted in GraphQL generally; this narrow fixture requires the owned queries' explicit null initial cursor.
+  const absentVariable = { ...actual.variables };
+  delete absentVariable.after;
+  await assert.rejects(context.client.graphql(actual.query, absentVariable), (error: unknown) => isForgeError(error, "github_validation_failed"));
+  assert.deepEqual(fixture.writes, []);
+});
+
+test("a later-page exact-title duplicate or repeated native Project ID refuses before every mutation", async () => {
+  for (const duplicate of ["title", "id"] as const) {
+    await assertProjectPrewriteRefusal((fixture) => {
+      fixture.controls.discoveryPageSize = 1;
+      const candidate = addProjectCandidates(fixture, 1, "after")[0]!;
+      if (duplicate === "title") candidate.title = fixture.project.title; else candidate.id = fixture.project.id;
+    });
+  }
+});
+
+test("malformed discovery populations and owner identities are refusals rather than absence", async () => {
+  const cases: ((read: ProjectReadFixture) => void)[] = [
+    (read) => { read.data.organization = null; },
+    (read) => { (read.data.organization as Record<string, unknown>).id = ""; },
+    (read) => { (read.data.organization as Record<string, unknown>).projectsV2 = null; },
+    (read) => { read.connection.nodes = null; },
+    (read) => { read.connection.nodes = [null]; },
+    (read) => { read.connection.nodes = [17]; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.id = ""; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.title = null; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.public = "true"; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.owner = null; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.owner = { id: "O_foreign" }; },
+  ];
+  for (const corrupt of cases) await assertProjectPrewriteRefusal((fixture) => {
+    fixture.controls.onRead = (read) => { if (read.kind === "discovery") corrupt(read); };
+  });
+  await assertProjectPrewriteRefusal((fixture) => {
+    fixture.controls.discoveryPageSize = 1;
+    addProjectCandidates(fixture, 1, "after");
+    fixture.controls.onRead = (read) => {
+      if (read.kind === "discovery" && read.after !== null) {
+        (read.data.organization as Record<string, unknown>).id = "O_changed";
+        (read.connection.nodes as Record<string, unknown>[])[0]!.owner = { id: "O_changed" };
+      }
+    };
+  });
+});
+
+test("both Project connections reject malformed, empty-progress, repeated and cyclic page cursors before writes", async () => {
+  const cases: ((read: ProjectReadFixture) => void)[] = [
+    (read) => { delete read.connection.pageInfo; },
+    (read) => { read.connection.pageInfo = null; },
+    (read) => { (read.connection.pageInfo as Record<string, unknown>).hasNextPage = "true"; },
+    (read) => { delete (read.connection.pageInfo as Record<string, unknown>).endCursor; },
+    (read) => { (read.connection.pageInfo as Record<string, unknown>).endCursor = ""; },
+    (read) => { (read.connection.pageInfo as Record<string, unknown>).endCursor = 7; },
+    (read) => { (read.connection.pageInfo as Record<string, unknown>).endCursor = read.after; },
+    (read) => { read.connection.nodes = []; },
+  ];
+  for (const kind of ["discovery", "fields"] as const) {
+    for (const corrupt of cases) await assertProjectPrewriteRefusal((fixture) => {
+      fixture.controls.discoveryPageSize = kind === "discovery" ? 1 : 100;
+      fixture.controls.fieldsPageSize = kind === "fields" ? 1 : 100;
+      addProjectCandidates(fixture, 2, "after");
+      fixture.controls.onRead = (read) => { if (read.kind === kind && read.after !== null) corrupt(read); };
+    });
+    await assertProjectPrewriteRefusal((fixture) => {
+      fixture.controls.discoveryPageSize = kind === "discovery" ? 1 : 100;
+      fixture.controls.fieldsPageSize = kind === "fields" ? 1 : 100;
+      addProjectCandidates(fixture, 3, "after");
+      fixture.controls.onRead = (read) => {
+        if (read.kind === kind && read.after?.endsWith(":2")) (read.connection.pageInfo as Record<string, unknown>).endCursor = kind === "discovery" ? "projects:1" : "fields:PVT_1:1";
+      };
+    });
+  }
+});
+
+test("maxPages refuses either unfinished Project connection without accepting partial absence or fields", async () => {
+  for (const kind of ["discovery", "fields"] as const) {
+    const fake = fakeGithub();
+    const fixture = projectGithub(fake, "populated");
+    fixture.controls.discoveryPageSize = kind === "discovery" ? 1 : 100;
+    fixture.controls.fieldsPageSize = kind === "fields" ? 1 : 100;
+    addProjectCandidates(fixture, 2);
+    const before = structuredClone(fixture.project);
+    await assert.rejects(KIND_ADAPTERS.project.read({ ...contextOf(fake), maxPages: 1 }, projectDeclaration(false)), (error: unknown) => isForgeError(error, "forge_list_oversized"));
+    assert.equal(fixture.reads.filter((read) => read.kind === kind).length, 1, "the adapter does not issue a page beyond the caller's bound");
+    assert.deepEqual(fixture.writes, []);
+    assert.deepEqual(fixture.project, before);
+  }
+  for (const maxPages of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const fake = fakeGithub();
+    const fixture = projectGithub(fake, "populated");
+    await assert.rejects(KIND_ADAPTERS.project.read({ ...contextOf(fake), maxPages }, projectDeclaration()), (error: unknown) => isForgeError(error, "forge_request_invalid"));
+    assert.deepEqual(fake.requests, [], "an invalid local bound is refused before any provider query");
+    assert.deepEqual(fixture.writes, []);
+  }
+});
+
+async function assertLaterProjectPageBudget(kind: "discovery" | "fields", fresh = false) {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, fresh ? "missing" : "populated");
+  if (!fresh) addProjectCandidates(fixture, 2, "after");
+  fixture.controls.discoveryPageSize = kind === "discovery" ? 1 : 100;
+  fixture.controls.fieldsPageSize = kind === "fields" ? 3 : 100;
+  const resetEpoch = Math.floor(Date.now() / 1000) + 600;
+  const message = "API rate limit exceeded";
+  const headers = { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(resetEpoch) };
+  const original = classifyGithubAnswer(403, new Headers(headers), JSON.stringify({ message }), "POST", "/graphql");
+  let armed = true;
+  fixture.controls.onRead = (read) => {
+    if (armed && read.kind === kind && read.after === null && (!fresh || fixture.project.created)) {
+      armed = false;
+      fake.refuseNext({ method: "POST", path: /^\/graphql$/u }, { status: 403, message, headers });
+    }
+  };
+  const declared = projectDeclaration(false);
+  const operation = fresh
+    ? KIND_ADAPTERS.project.create(contextOf(fake), declared, declared.desired)
+    : KIND_ADAPTERS.project.read(contextOf(fake), declared);
+  await assert.rejects(operation, (error: unknown) => {
+    assert.ok(isForgeError(error, "github_rate_limited"));
+    assert.equal(error.forgeClass, original.forgeClass);
+    assert.equal(error.retryable, original.retryable);
+    assert.equal(error.message, original.message);
+    assert.deepEqual(Object.fromEntries(Object.keys(original.facts).map((key) => [key, error.facts[key]])), original.facts);
+    if (fresh) {
+      assert.equal(error.facts.createdProjectId, "PVT_1");
+      assert.equal(error.facts.creationMayHaveOccurred, true);
+    }
+    return true;
+  });
+  const requests = fake.requests.filter((request) => request.path === "/graphql" && /^\s*query\b/u.test((request.body as { query: string }).query)
+    && (kind === "discovery" ? /\bprojectsV2\s*\(/u : /\bnode\s*\(/u).test((request.body as { query: string }).query));
+  assert.equal(requests.length, 2, "the refused later page is neither retried nor treated as a completed prefix");
+  const refusedAfter = (requests[1]!.body as { variables: { after: unknown } }).variables.after;
+  assert.equal(typeof refusedAfter, "string");
+  assert.notEqual(refusedAfter, "");
+  assert.ok((refusedAfter as string).startsWith(kind === "discovery" ? "projects:" : "fields:PVT_1:"));
+  const prior = fixture.reads.find((read) => read.kind === kind && read.after === null)!;
+  assert.equal(refusedAfter, (prior.connection.pageInfo as { endCursor: unknown }).endCursor, "the refused request advances to the exact cursor the previous connection page returned");
+  assert.equal(fixture.writes.length, fresh ? 1 : 0);
+  if (fresh) assert.ok(fixture.writes[0]!.query.includes("createProjectV2("));
+  assert.equal(fixture.project.fields.find((field) => field.name === "Status")!.options![0]!.id, "O_todo");
+}
+
+test("later discovery and field-page budget refusals retain canonical typed facts without retries or writes", async () => {
+  await assertLaterProjectPageBudget("discovery");
+  await assertLaterProjectPageBudget("fields");
+});
+
+test("a later field-page budget refusal after native creation retains the actual created ID and original refusal", async () => {
+  await assertLaterProjectPageBudget("fields", true);
+});
+
+test("native Project reads reject disappeared, wrong-type, wrong-ID, renamed and foreign-owner nodes on every field page", async () => {
+  const cases: ((read: ProjectReadFixture) => void)[] = [
+    (read) => { read.data.node = null; },
+    (read) => { (read.data.node as Record<string, unknown>).__typename = "Issue"; },
+    (read) => { (read.data.node as Record<string, unknown>).id = "PVT_other"; },
+    (read) => { (read.data.node as Record<string, unknown>).title = "Renamed elsewhere"; },
+    (read) => { (read.data.node as Record<string, unknown>).public = "true"; },
+    (read) => { (read.data.node as Record<string, unknown>).public = false; },
+    (read) => { (read.data.node as Record<string, unknown>).owner = null; },
+    (read) => { (read.data.node as Record<string, unknown>).owner = { id: "O_foreign" }; },
+    (read) => { read.data.organization = null; },
+    (read) => {
+      (read.data.organization as Record<string, unknown>).id = "O_changed";
+      (read.data.node as Record<string, unknown>).owner = { id: "O_changed" };
+    },
+  ];
+  for (const later of [false, true]) for (const corrupt of cases) await assertProjectPrewriteRefusal((fixture) => {
+    fixture.controls.fieldsPageSize = 5;
+    fixture.controls.onRead = (read) => { if (read.kind === "fields" && (read.after !== null) === later) corrupt(read); };
+  });
+});
+
+test("a missing native fields connection cannot be replaced by a similarly named alias", async () => {
+  await assertProjectPrewriteRefusal((fixture) => {
+    fixture.controls.onRead = (read) => {
+      if (read.kind === "fields") {
+        const node = read.data.node as Record<string, unknown>;
+        node.otherFields = node.fields;
+        delete node.fields;
+      }
+    };
+  });
+});
+
+test("malformed later native field pages refuse rather than treating missing raw fields as new", async () => {
+  const cases: ((read: ProjectReadFixture) => void)[] = [
+    (read) => { (read.data.node as Record<string, unknown>).fields = null; },
+    (read) => { read.connection.nodes = null; },
+    (read) => { read.connection.nodes = [null]; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.id = ""; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.name = ""; },
+    (read) => { (read.connection.nodes as Record<string, unknown>[])[0]!.dataType = null; },
+  ];
+  for (const corrupt of cases) await assertProjectPrewriteRefusal((fixture) => {
+    fixture.controls.fieldsPageSize = 5;
+    fixture.controls.onRead = (read) => { if (read.kind === "fields" && read.after !== null) corrupt(read); };
+  });
+});
+
+test("managed-field names and native IDs remain unambiguous beyond the old field prefix before visibility changes", async () => {
+  for (const duplicate of ["name", "id"] as const) await assertProjectPrewriteRefusal((fixture) => {
+    padProjectFields(fixture, 60);
+    fixture.controls.fieldsPageSize = 17;
+    fixture.project.fields.push(duplicate === "name"
+      ? { ...structuredClone(fixture.project.fields.find((field) => field.name === "Severity")!), id: "F_later_duplicate" }
+      : { id: "F_status", name: "Later unmanaged alias", dataType: "TEXT" });
+  });
+});
+
+test("a same-title decoy appearing after planning cannot redirect native prewrite or readback", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "populated");
+  const declared = projectDeclaration(false);
+  const found = await KIND_ADAPTERS.project.read(contextOf(fake), declared);
+  assert.ok(found !== undefined);
+  const cutoff = fixture.reads.length;
+  const decoy = addProjectCandidates(fixture, 1)[0]!;
+  decoy.title = fixture.project.title;
+  const beforeDecoy = structuredClone(decoy), beforeItems = structuredClone(fixture.project.items);
+  await KIND_ADAPTERS.project.update(contextOf(fake), declared, declared.desired, found);
+  assert.ok(fixture.writes.length > 0, "the operation remains bound to the previously selected native board");
+  assert.deepEqual(decoy, beforeDecoy);
+  assert.deepEqual(fixture.project.items, beforeItems);
+  assert.ok(fixture.reads.slice(cutoff).every((read) => read.kind === "fields" && read.projectId === found.id), "prewrite and readback use the pinned native node rather than rerunning title discovery");
+});
+
+test("a vanished planned native Project cannot be replaced by a same-title board", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "populated");
+  const declared = projectDeclaration(false);
+  const found = await KIND_ADAPTERS.project.read(contextOf(fake), declared);
+  assert.ok(found !== undefined);
+  const cutoff = fixture.reads.length;
+  const decoy = addProjectCandidates(fixture, 1)[0]!;
+  decoy.title = fixture.project.title;
+  fixture.controls.hideCreatedProject = true;
+  const before = structuredClone(fixture.project), beforeDecoy = structuredClone(decoy);
+  await assert.rejects(KIND_ADAPTERS.project.update(contextOf(fake), declared, declared.desired, found), (error: unknown) => isForgeError(error, "github_response_invalid"));
+  assert.deepEqual(fixture.writes, []);
+  assert.deepEqual(fixture.project, before);
+  assert.deepEqual(decoy, beforeDecoy);
+  assert.ok(fixture.reads.slice(cutoff).every((read) => read.kind === "fields" && read.projectId === found.id));
+});
+
+test("fresh complete discovery of an existing exact-title Project refuses creation before any native mutation", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake, "populated");
+  addProjectCandidates(fixture, 23);
+  fixture.controls.discoveryPageSize = 7;
+  const before = structuredClone(fixture.project);
+  const declared = projectDeclaration(false);
+  await assert.rejects(KIND_ADAPTERS.project.create(contextOf(fake), declared, declared.desired), (error: unknown) => isForgeError(error, "github_response_invalid"));
+  assert.deepEqual(fixture.writes, [], "a stale earlier absence must not create a duplicate or initialize the existing board");
+  assert.deepEqual(fixture.project, before);
+  assert.equal(fixture.reads.filter((read) => read.kind === "discovery").length, 4);
+});
+
+test("native creation initializes only its returned node even if a same-title decoy appears before readback", async () => {
+  const fake = fakeGithub();
+  const fixture = projectGithub(fake);
+  let creationCutoff = -1;
+  let decoy: ProjectStateFixture | undefined;
+  let beforeDecoy: ProjectStateFixture | undefined;
+  fixture.controls.afterCreate = () => {
+    creationCutoff = fixture.reads.length;
+    decoy = addProjectCandidates(fixture, 1)[0]!;
+    decoy.title = fixture.project.title;
+    beforeDecoy = structuredClone(decoy);
+  };
+  const declared = projectDeclaration(false);
+  const desired = { ...(declared.desired as Record<string, unknown>), status: ["Intake", "Ready"] };
+  await KIND_ADAPTERS.project.create(contextOf(fake), { ...declared, desired }, desired);
+  assert.equal(fixture.writes.filter((write) => write.query.includes("createProjectV2(")).length, 1);
+  assert.ok(creationCutoff >= 0);
+  assert.ok(fixture.reads.slice(creationCutoff).length > 0);
+  assert.ok(fixture.reads.slice(creationCutoff).every((read) => read.kind === "fields" && read.projectId === "PVT_1"), "actual create response identity feeds every initialization/readback page directly");
+  assert.deepEqual(decoy, beforeDecoy);
+  assert.deepEqual(fixture.project.fields.find((field) => field.name === "Status")!.options!.map((option) => option.name), ["Intake", "Ready"]);
+  assert.ok(fixture.itemScopes.length > 0);
+  assert.ok(fixture.itemScopes.every((scope) => scope.query === "" && [...new Set(scope.archivedStates)].sort().join(",") === "ARCHIVED,NOT_ARCHIVED"));
+});
+
 /** A fake GitHub that answers every kind the declarations use, statefully. */
 function wholeGithub(): FakeGithub {
   const fake = fakeGithub();
@@ -284,25 +1107,7 @@ function wholeGithub(): FakeGithub {
     fake.collection(`${base}/labels`, [], "name");
     fake.collection(`${base}/autolinks`, [], "id");
   }
-  // The Project, through GraphQL.
-  // A new project carries GitHub's own default fields (as GitHub creates them): the forge declares none of them but Status.
-  const builtIn = [["Title", "TITLE"], ["Assignees", "ASSIGNEES"], ["Labels", "LABELS"], ["Linked pull requests", "LINKED_PULL_REQUESTS"], ["Milestone", "MILESTONE"], ["Repository", "REPOSITORY"], ["Reviewers", "REVIEWERS"], ["Parent issue", "PARENT_ISSUE"], ["Sub-issues progress", "SUB_ISSUES_PROGRESS"]]
-    .map(([name, dataType], index) => ({ id: `F_builtin_${String(index)}`, name: name!, dataType: dataType! }));
-  const project = { id: "PVT_1", title: "", public: false, created: false, fields: [...builtIn, { id: "F_status", name: "Status", dataType: "SINGLE_SELECT", options: [{ name: "Todo" }] }] as { id: string; name: string; dataType: string; options?: { name: string }[] }[] };
-  fake.route("POST", /^\/graphql$/u, (request) => {
-    const { query, variables } = request.body as { query: string; variables: Record<string, unknown> };
-    if (query.includes("projectsV2(")) return { status: 200, body: { data: { organization: { id: "O_1", projectsV2: { nodes: project.created ? [{ id: project.id, title: project.title, public: project.public, fields: { nodes: project.fields } }] : [] } } } } };
-    if (query.includes("createProjectV2(")) { project.created = true; project.title = String(variables.title); return { status: 200, body: { data: { createProjectV2: { projectV2: { id: project.id } } } } }; }
-    if (query.includes("updateProjectV2(")) { project.public = variables.public === true; return { status: 200, body: { data: { updateProjectV2: { projectV2: { id: project.id } } } } }; }
-    const options = (variables.options as { name: string }[] | null)?.map((option) => ({ name: option.name }));
-    if (query.includes("updateProjectV2Field(")) {
-      const field = project.fields.find((candidate) => candidate.id === variables.fieldId)!;
-      if (options === undefined) delete field.options; else field.options = options;
-      return { status: 200, body: { data: {} } };
-    }
-    if (query.includes("createProjectV2Field(")) { project.fields.push({ id: `F_${String(project.fields.length)}`, name: String(variables.name), dataType: String(variables.dataType), ...(options === undefined ? {} : { options }) }); return { status: 200, body: { data: {} } }; }
-    return { status: 200, body: { errors: [{ type: "UNPROCESSABLE", message: "unexpected query" }] } };
-  });
+  projectGithub(fake);
   // Every context the declarations require has reported on the trunk's main.
   fake.reportChecks(ORG, REPO, SETTINGS.p0RequiredChecks.map((check) => check.context));
   return fake;
