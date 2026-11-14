@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import { createTempDir } from "../support/temp-dir.ts";
 import {
   pruneCompileCache,
+  planCompileCachePrune,
   parsePruneStamp,
   PRUNE_STAMP_MALFORMED,
   pruneCompileCacheAtEnablement,
@@ -131,7 +132,7 @@ test("compile-cache bound: at enablement, at most one prune per interval (a stam
   assert.deepEqual(readdirSync(version), ["abandoned-again"]);
   const notADirectory = join(createTempDir("cc-file-root-"), "a-file");
   writeFileSync(notADirectory, "x");
-  assert.throws(() => pruneCompileCacheAtEnablement(POLICY, notADirectory, NOW), /ENOTDIR/u);
+  assert.throws(() => pruneCompileCacheAtEnablement(POLICY, notADirectory, NOW), (error: unknown) => (error as { code?: unknown }).code === "compile_cache_root_unsafe");
 });
 
 test("compile-cache bound: the ENABLER prunes, reports through the logger on STDERR (stdout stays the runner's data), says a missing policy, and says a prune that FAILED", () => {
@@ -190,4 +191,170 @@ test("compile-cache bound: the prune stamp is ONE typed record — written by it
   plant(version, "abandoned-again", 1, NOW - 100 * HOUR);
   assert.throws(() => pruneCompileCacheAtEnablement(POLICY, root, NOW + 1_000), (error: unknown) => (error as { code?: unknown }).code === PRUNE_STAMP_MALFORMED);
   assert.deepEqual(readdirSync(version), ["abandoned-again"], "a refused stamp prunes nothing on a guess");
+});
+
+
+test("compile-cache plan: read-only aggregate decisions match the bounded production prune without changing its stamp", () => {
+  const { root, version } = cacheRoot("cc-plan-");
+  plant(version, "oldest", 4, NOW - 60 * HOUR);
+  plant(version, "older", 4, NOW - 50 * HOUR);
+  plant(version, "newer", 4, NOW - 40 * HOUR);
+  plant(version, "newest", 4, NOW - 30 * HOUR);
+  const stamp = join(root, ".last-prune");
+  writeFileSync(stamp, "historical stamp stays unchanged\n");
+  const before = lstatSync(stamp, { bigint: true });
+  const names = readdirSync(version).sort();
+  const plan = planCompileCachePrune(root, POLICY, NOW);
+  assert.equal(plan.scannedBytes, 16 * KIB);
+  assert.equal(plan.selectedEntries, 2);
+  assert.equal(plan.selectedBytes, 8 * KIB);
+  assert.deepEqual(readdirSync(version).sort(), names);
+  assert.equal(readFileSync(stamp, "utf8"), "historical stamp stays unchanged\n");
+  const after = lstatSync(stamp, { bigint: true });
+  assert.equal(after.mtimeNs, before.mtimeNs);
+  assert.equal(after.ctimeNs, before.ctimeNs);
+  assert.ok(Object.isFrozen(plan));
+  const result = prune(root);
+  assert.equal(result.prunedEntries, plan.selectedEntries);
+  assert.equal(result.prunedBytes, plan.selectedBytes);
+  assert.deepEqual(readdirSync(version).sort(), ["newer", "newest"]);
+});
+
+test("compile-cache plan: under-bound unaged input and an absent root have no victims or creation effects", () => {
+  const { root, version } = cacheRoot("cc-plan-empty-");
+  plant(version, "recent", 1, NOW - 10 * HOUR);
+  assert.equal(planCompileCachePrune(root, POLICY, NOW).selectedEntries, 0);
+  const absent = join(root, "not-created");
+  const plan = planCompileCachePrune(absent, POLICY, NOW);
+  assert.equal(plan.rootIdentity, null);
+  assert.equal(plan.scannedBytes, 0);
+  assert.equal(plan.selectedEntries, 0);
+  assert.equal(existsSync(absent), false);
+});
+
+test("compile-cache plan: symbolic roots are refused and symbolic/non-file version entries are not followed", () => {
+  const { root, version } = cacheRoot("cc-plan-links-");
+  const { root: outside, version: outsideVersion } = cacheRoot("cc-plan-outside-");
+  plant(outsideVersion, "outside", 1, NOW - 100 * HOUR);
+  const linkedRoot = join(root, "root-link");
+  symlinkSync(outside, linkedRoot, "dir");
+  assert.throws(() => planCompileCachePrune(linkedRoot, POLICY, NOW),
+    (error: unknown) => (error as { code?: unknown }).code === "compile_cache_root_unsafe");
+  symlinkSync(outsideVersion, join(root, "version-link"), "dir");
+  symlinkSync(join(outsideVersion, "outside"), join(version, "entry-link"));
+  mkdirSync(join(version, "not-a-file"));
+  const result = prune(root);
+  assert.equal(result.scannedEntries, 0);
+  assert.equal(result.prunedEntries, 0);
+  assert.equal(existsSync(join(outsideVersion, "outside")), true);
+});
+
+test("compile-cache effect: replaced root and version directories preserve the replacement and report changed work", () => {
+  for (const changed of ["root", "version"] as const) {
+    const { root, version } = cacheRoot(`cc-effect-${changed}-`);
+    plant(version, "stale", 1, NOW - 100 * HOUR);
+    let planted = false;
+    const result = pruneCompileCache(root, POLICY, NOW, { beforeUnlink: () => {
+      assert.equal(planted, false);
+      const original = changed === "root" ? root : version;
+      renameSync(original, `${original}.retained`);
+      mkdirSync(changed === "root" ? version : original, { recursive: true });
+      plant(version, "stale", 1, NOW - 100 * HOUR);
+      planted = true;
+    } });
+    assert.equal(planted, true);
+    assert.equal(result.prunedEntries, 0);
+    assert.equal(result.changedEntries, 1);
+    assert.equal(result.workLeft, true);
+    assert.equal(result.overBoundInUse, false);
+    assert.equal(existsSync(join(version, "stale")), true);
+    assert.equal(existsSync(join(changed === "root" ? `${root}.retained/${version.slice(root.length + 1)}` : `${version}.retained`, "stale")), true);
+    const summary = pruneSummary(result, POLICY);
+    assert.match(summary.line, /changed and were preserved/u);
+    assert.equal(summary.line.includes("the rest is in use"), false);
+    assert.equal(summary.line.includes("the deletion cap"), false);
+  }
+});
+
+test("compile-cache effect: a replaced or symbolic selected leaf is preserved instead of deleting its replacement", () => {
+  for (const changed of ["file", "symlink"] as const) {
+    const { root, version } = cacheRoot(`cc-effect-leaf-${changed}-`);
+    plant(version, "stale", 1, NOW - 100 * HOUR);
+    const target = join(version, "stale");
+    const before = lstatSync(target, { bigint: true });
+    let planted = false;
+    const result = pruneCompileCache(root, POLICY, NOW, { beforeUnlink: () => {
+      renameSync(target, `${target}.retained`);
+      if (changed === "file") plant(version, "stale", 1, NOW - 100 * HOUR);
+      else symlinkSync(`${target}.retained`, target);
+      assert.notEqual(lstatSync(target, { bigint: true }).ino, before.ino);
+      planted = true;
+    } });
+    assert.equal(planted, true);
+    assert.equal(result.prunedEntries, 0);
+    assert.equal(result.changedEntries, 1);
+    assert.equal(existsSync(target), true);
+    assert.equal(existsSync(`${target}.retained`), true);
+  }
+});
+
+test("compile-cache effect: a selected entry made recently used survives and is reported separately from identity changes", () => {
+  const { root, version } = cacheRoot("cc-effect-recent-");
+  plant(version, "stale", 1, NOW - 100 * HOUR);
+  const result = pruneCompileCache(root, POLICY, NOW, { beforeUnlink: (path) => {
+    utimesSync(path, NOW / 1000, (NOW - 100 * HOUR) / 1000);
+  } });
+  assert.equal(result.prunedEntries, 0);
+  assert.equal(result.recentlyUsedEntries, 1);
+  assert.equal(result.changedEntries, 0);
+  assert.equal(result.workLeft, true);
+  assert.equal(result.overBoundInUse, false);
+  assert.equal(existsSync(join(version, "stale")), true);
+  assert.match(pruneSummary(result, POLICY).line, /became in use and were preserved/u);
+});
+
+
+test("compile-cache stamp: an initial symbolic stamp refuses before pruning and preserves the external file", () => {
+  const { root, version } = cacheRoot("cc-stamp-initial-link-");
+  plant(version, "stale", 1, NOW - 100 * HOUR);
+  const external = join(createTempDir("cc-stamp-external-"), "stamp.json");
+  const text = pruneStampText(pruneStamp(NOW - 100 * HOUR, true));
+  writeFileSync(external, text);
+  symlinkSync(external, join(root, ".last-prune"));
+  assert.throws(() => pruneCompileCacheAtEnablement(POLICY, root, NOW),
+    (error: unknown) => (error as { code?: unknown }).code === "compile_cache_prune_stamp_unsafe");
+  assert.equal(readFileSync(external, "utf8"), text);
+  assert.equal(existsSync(join(version, "stale")), true, "unsafe initial stamp refuses before any entry effect");
+});
+
+test("compile-cache stamp: a late symbolic stamp is refused by the shared writer without changing its target", () => {
+  const { root, version } = cacheRoot("cc-stamp-late-link-");
+  plant(version, "stale", 1, NOW - 100 * HOUR);
+  const external = join(createTempDir("cc-stamp-late-external-"), "stamp.json");
+  const text = pruneStampText(pruneStamp(NOW - 100 * HOUR, true));
+  writeFileSync(external, text);
+  let planted = false;
+  assert.throws(() => pruneCompileCacheAtEnablement(POLICY, root, NOW, { beforeUnlink: () => {
+    symlinkSync(external, join(root, ".last-prune"));
+    planted = true;
+  } }), (error: unknown) => (error as { code?: unknown }).code === "atomic_write_link_refused");
+  assert.equal(planted, true);
+  assert.equal(readFileSync(external, "utf8"), text);
+  assert.equal(lstatSync(join(root, ".last-prune")).isSymbolicLink(), true);
+  assert.equal(existsSync(join(version, "stale")), false, "the earlier entry effect occurred; failed stamping does not pretend a rollback");
+});
+
+test("compile-cache stamp: root replacement after selection is preserved and cannot receive a new stamp", () => {
+  const { root, version } = cacheRoot("cc-stamp-root-changed-");
+  plant(version, "stale", 1, NOW - 100 * HOUR);
+  let planted = false;
+  assert.throws(() => pruneCompileCacheAtEnablement(POLICY, root, NOW, { beforeUnlink: () => {
+    renameSync(root, `${root}.retained`);
+    mkdirSync(version, { recursive: true });
+    plant(version, "replacement", 1, NOW - 100 * HOUR);
+    planted = true;
+  } }), (error: unknown) => (error as { code?: unknown }).code === "compile_cache_root_changed");
+  assert.equal(planted, true);
+  assert.equal(existsSync(join(root, ".last-prune")), false);
+  assert.equal(existsSync(join(version, "replacement")), true);
 });
