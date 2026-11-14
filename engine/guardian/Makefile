@@ -43,8 +43,12 @@ CPPFLAGS := -DGUARDIAN_BUILD_STAMP=\"$(BUILD_STAMP)\"
 BIN      := $(BUILD)/harness-landlock-guardian
 TEST_SRC := tests/test_payload.c
 TEST_BIN := $(BUILD)/test_payload
+SUPERVISOR_BIN := $(BUILD)/test-process-supervisor
+# The existing payload source serves both linkage modes; static libc is test-only.
+STATIC_TEST_BIN := $(BUILD)/test_payload_static
+TEST_ARTIFACTS := $(BIN) $(TEST_BIN) $(SUPERVISOR_BIN) $(STATIC_TEST_BIN)
 
-.PHONY: all guardian test_payload test_process_supervisor clean test
+.PHONY: all guardian test_payload test_process_supervisor test-fixtures test-preflight clean test
 
 all: guardian test_payload test_process_supervisor
 
@@ -58,15 +62,20 @@ test_payload: $(TEST_BIN)
 
 # The test runner needs Linux lifetime operations unavailable in Node.
 # Keep the primitive separate from the security guardian executable.
-test_process_supervisor: $(BUILD)/test-process-supervisor
+test_process_supervisor: $(SUPERVISOR_BIN)
 
 # Compiled to a private temporary and renamed into place: two concurrent
 # makes (two suites starting at once) never leave a torn binary behind.
-$(BUILD)/test-process-supervisor: test-process-supervisor.c | $(BUILD)
+$(SUPERVISOR_BIN): test-process-supervisor.c | $(BUILD)
 	$(CC) $(CFLAGS) -o $@.$$$$.tmp $< -lm && mv -f $@.$$$$.tmp $@
 
 $(TEST_BIN): $(TEST_SRC) | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $(TEST_SRC)
+
+# Prepared before readonly execution, with the same source, compiler and flags.
+# Publish only a complete link, using the existing supervisor's atomic pattern.
+$(STATIC_TEST_BIN): $(TEST_SRC) Makefile $(STAMP_SPEC) | $(BUILD)
+	$(CC) $(CFLAGS) -static -o $@.$$$$.tmp $< && mv -f $@.$$$$.tmp $@
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -74,5 +83,14 @@ $(BUILD):
 clean:
 	rm -rf $(BUILD)
 
-test: all
+# Test preparation is separate from product all and from the readonly runner.
+test-fixtures: $(TEST_ARTIFACTS)
+
+# Real file goals only: phony aliases are always out of date. The reviewed
+# query graph has no build route; successful freshness is not content identity.
+# Keep query and output joined so a refusal cannot return a fixture path.
+test-preflight:
+	@$(MAKE) --no-print-directory --question $(TEST_ARTIFACTS) && printf '%s\n' '$(abspath $(STATIC_TEST_BIN))'
+
+test: test-fixtures
 	bash tests/run-tests.sh

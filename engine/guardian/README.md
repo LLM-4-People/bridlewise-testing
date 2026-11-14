@@ -4,10 +4,11 @@ Standalone C binary. Applies a Linux Landlock LSM restriction to itself and
 then `execvp`s a payload. The payload and all its descendants inherit the
 restriction irrevocably and cannot read/write the protected subtrees.
 
-This is the OS-level filesystem sandbox the bridlewise currently lacks. It
-is **not** an N-API addon — the build is a separate `make` step. The Node
-wrapper (Author B, follow-up) fail-closes to a typed `unavailable` if the
-binary is missing.
+The engine uses this OS-level filesystem sandbox through
+`engine/src/filesystem/self-protection/guardian-binary.ts` and its narrowed
+Node launcher, `runConfinedNode` in `confined-run.ts` beside that module.
+The standalone binary is built by `make`; an unavailable or invalid guardian
+produces a typed refusal instead of an unconfined launch.
 
 ## The process supervisor (`test-process-supervisor.c`)
 
@@ -30,7 +31,7 @@ what ships.
 cd guardian
 make all          # -> build/harness-landlock-guardian, build/test_payload
 make test_process_supervisor   # -> build/test-process-supervisor
-make test         # builds + runs tests/run-tests.sh
+make test         # prepares test fixtures, then runs tests; admitted TMPDIR required
 make clean
 ```
 
@@ -41,6 +42,37 @@ node guardian/build.ts
 ```
 
 Requires `gcc-14` (the Makefile's pinned `CC`) and `make`. No external deps.
+
+### Preparing and running tests
+
+The product `all` target does not need static libc. The test-only
+`test-fixtures` target prepares every native test artifact, including a
+static-linked build of the existing payload source, through this Makefile's
+one compiler and flag declarations. Missing static support fails preparation.
+The shell runner requires current prebuilt artifacts; it never compiles or
+silently rebuilds a missing or stale fixture.
+
+The caller must supply an admitted private `TMPDIR`, outside the safety floor,
+for runtime specs and data. The existing [temporary-root owner](../src/filesystem/temporary-root.ts)
+and [temporary-root decision](../../docs/decisions/D-19-temp-root-outside-the-safety-floor.md)
+define admission. The standalone native shell requires that value and uses it
+without a fallback; it does not prove floor, ownership or symlink policy.
+CI supplies its existing `RUNNER_TEMP` through the same `TMPDIR` interface.
+
+From the repository root, with that admitted environment:
+
+```bash
+: "${TMPDIR:?supply the caller-admitted private temporary root}"
+make -C engine/guardian test-fixtures
+make -C engine/guardian test
+```
+
+A confined run prepares artifacts in its bounded build phase, freezes and
+binds their identities, then runs `bash engine/guardian/tests/run-tests.sh`
+with readonly source, toolchain and artifacts and writable admitted temporary
+space. The Make preflight checks declared timestamp freshness and returns the
+canonical static artifact path; it does not authenticate content. The caller
+owns OS confinement, phase separation and prepared-binary identity checks.
 
 ### The reproducible build stamp
 
@@ -110,11 +142,15 @@ harness-landlock-guardian --stamp
 | 8    | restrict_self_failed                                           |
 | 9    | exec_failed                                                     |
 | 10   | keep_out_exposed: THIS spawn's grant holds what decides a keep-out entry's content — a link's folder on the way, its target, a dangling link's would-be target's folder, or a mount below the grant that shows a kept-out place. The message names the link (or the mount) and the remedy. Other spawns are unaffected. |
-| 11   | network_refusal_failed: `network: "refused"` or `signals: "refused"` asked for the seccomp filter and the kernel refused to install it |
+| 11   | network_refusal_failed: a governed `network` mode or `signals: "refused"` asked for the seccomp filter and the kernel refused to install it |
 | 12   | cpu_limit_failed: `cpu_seconds` asked for RLIMIT_CPU and it could not be set |
 | 64   | usage (bad CLI args)                                            |
 
 ## Ruleset spec
+
+The JSON parser stores C strings and rejects decoded U+0000 in every key or
+string value. All path fields use the same NUL-free constraint in the
+authoritative TypeScript schema. Other escaped characters keep their meaning.
 
 ```json
 {
@@ -155,34 +191,50 @@ harness-landlock-guardian --stamp
   reached through a link is resolved one link at a time (at most 40): a
   grant holding a link's folder, the target or a dangling link's would-be
   target's folder refuses that spawn with exit 10 (GUARD-F5).
-- `network` (optional, only `"refused"`): after the Landlock domain, a
-  seccomp filter (under the same NO_NEW_PRIVS, inherited across exec, fork and
-  clone, every thread) answers `socket()` of EVERY family with `EACCES` and
-  `io_uring_setup()` with `ENOSYS` (an io_uring socket operation would bypass
-  the filter); a syscall made through another ABI (x32, a foreign arch) kills
-  the process. The payload can reach no network and no local socket server.
-  Absent: the network is not governed.
+- `network` (optional, `"refused"` or `"ip-family"`): after the Landlock
+  domain, ONE seccomp filter under the same NO_NEW_PRIVS is inherited across
+  exec, fork and clone, covering every thread (TSYNC). `"refused"` answers
+  every new `socket()` call with `EACCES`; `"ip-family"` permits only the
+  `AF_INET` and `AF_INET6` domain arguments and answers every other domain
+  with `EACCES`. Both modes answer `io_uring_setup()` with `ENOSYS`, keeping
+  that socket-creation path unavailable. A syscall through another ABI
+  (x32 or a foreign arch) kills the process. Absent: network is ungoverned.
+
+  For `socket()`, `"ip-family"` permits IP-family creation without an
+  endpoint, port, socket-type, protocol or loopback restriction. The caller must
+  separately establish a private network namespace, loopback and route proof,
+  descriptor custody, and absence of host socket mounts. In both governed
+  modes, `socketpair()` permits only connected local `AF_UNIX`/`SOCK_STREAM`
+  pairs, with optional `SOCK_CLOEXEC` and/or `SOCK_NONBLOCK`. Every other
+  pair family, base type or type flag returns `EACCES`; this preserves local
+  STREAM IPC while refusing DGRAM creation through that API. The kernel still
+  validates the pair protocol and can reject creation. Passing the filter
+  proves neither successful creation nor who holds the descriptors; endpoint
+  and descriptor custody remain the caller's responsibility. An absent
+  `network` field leaves pair creation ungoverned, even with signal refusal.
+  This field does not remove inherited sockets or io_uring descriptors and
+  supplies no general host-IPC denial by itself.
 - `cpu_seconds` (optional, 1..86400): RLIMIT_CPU, soft = hard. A payload that
   spends that much CPU time is ended by the kernel — judged by CPU work, never
   by wall time.
 - `signals` (optional, only `"refused"`): the same seccomp filter answers
-  every signal-sending syscall (`kill`, `tkill`, `tgkill`, `rt_sigqueueinfo`,
-  `rt_tgsigqueueinfo`, `pidfd_send_signal`) with `EPERM`: the payload can
-  signal no process at all. With `network: "refused"`, an abstract unix
-  socket is out of reach too (it needs `socket()`).
+  the six direct signal syscalls `kill`, `tkill`, `tgkill`, `rt_sigqueueinfo`,
+  `rt_tgsigqueueinfo` and `pidfd_send_signal` with `EPERM`, regardless of the
+  target. Timer and kernel-generated signal delivery remain outside this
+  field. A governed `network` mode also refuses a new
+  `socket(AF_UNIX, ...)`, including an abstract Unix client created that way;
+  the socketpair restrictions and inherited-descriptor limits above still apply.
 
   **Why seccomp and not Landlock's signal scoping.** Landlock scoping
   (`LANDLOCK_SCOPE_SIGNAL | LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET`) was the
   first route. It was replaced for three reasons:
 
-  - **Strength:** it is weaker than refusing every signal-sending syscall.
-    Scoping still lets a process signal others inside its own domain; the
-    refusal leaves nothing it can signal.
-  - **Reach:** scoping needs Landlock ABI 6 (kernel 6.12). GitHub's hosted
-    `ubuntu-24.04` runners build the guardian with older headers and run an
-    older ABI, so a scoped spawn was refused there, and the projector
-    could not run in CI, where it must run on every landing. Seccomp runs
-    on every kernel the guardian supports.
+  - **Strength:** scoping lets a process signal others inside its own
+    domain; this filter refuses the six listed direct calls for every target.
+    It does not prevent timer or kernel-generated signal delivery.
+  - **Reach:** Landlock signal scoping requires ABI 6. Older ABIs cannot
+    apply it. This route uses kernel seccomp-filter support without ABI 6
+    scoping flags; installation can still be refused, as described below.
   - **One mechanism:** there is ONE route, with no per-kernel branch and no
     weaker fallback; a filter the kernel refuses to install is exit 11.
 - `keep_out_retries` (required with `keep_out`): how many times an entry that
@@ -241,8 +293,11 @@ kernel that lacks Landlock entirely, it exits `3` (`landlock_unavailable`).
   devices, fifos are rejected). Device-file rules with `IOCTL_DEV` are a
   follow-up (device files are currently rejected; `IOCTL_DEV` is `dir only`
   and governs devices within an allowed dir subtree).
-- The network is refused whole (`network: "refused"`), never scoped: no
-  per-port or per-host rule. The CLOCK cannot be refused or fixed by any
+- Network policy governs new `socket()` families, `socketpair()` family/type
+  arguments and `io_uring_setup()`, with no per-port or per-host rule.
+  `"ip-family"` needs separate namespace confinement; neither mode closes
+  inherited descriptors, and both permit only the documented connected local
+  STREAM pairs. The CLOCK cannot be refused or fixed by any
   kernel mechanism here: `CLOCK_REALTIME` is read through the vDSO (a memory
   read, no syscall for seccomp to see), and a time namespace offsets only the
   monotonic and boot clocks.

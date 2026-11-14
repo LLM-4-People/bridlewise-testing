@@ -107,6 +107,10 @@ export const DEFAULT_TEMP_DIR_ACCESS = deepFreeze([
 export type DefaultTempDirAccessFlag = typeof DEFAULT_TEMP_DIR_ACCESS[number];
 
 const flagNameEnum = z.enum(LANDLOCK_ACCESS_FS_FLAG_NAMES);
+// The native parser stores C strings: every path site uses the same NUL-free
+// representation, while keeping other representable path characters valid.
+const guardianPathStringSchema = z.string().min(1).max(4096)
+  .regex(/^[^\u0000]*$/u, "guardian paths cannot contain NUL");
 
 /**
  * The Zod schema for the JSON ruleset spec the C binary consumes. This is the
@@ -132,23 +136,23 @@ export const GUARDIAN_SPEC_SCHEMA = z.strictObject({
   handled_access_fs: z.array(flagNameEnum).min(1).max(16),
   allow_rules: z.array(
     z.strictObject({
-      path: z.string().min(1).max(4096),
+      path: guardianPathStringSchema,
       access: z.array(flagNameEnum).min(1).max(16),
     }),
   ).min(1).max(256),
-  protected_subtrees: z.array(z.string().min(1).max(4096)).max(MAXIMUM_PROTECTED_SUBTREES),
+  protected_subtrees: z.array(guardianPathStringSchema).max(MAXIMUM_PROTECTED_SUBTREES),
   /** The rest of the keep-out list present at compile time; an entry gone by the time the guardian opens it is kept by its folder and its name. */
-  keep_out: z.array(z.string().min(1).max(4096)).max(MAXIMUM_PROTECTED_SUBTREES).optional(),
+  keep_out: z.array(guardianPathStringSchema).max(MAXIMUM_PROTECTED_SUBTREES).optional(),
   /** How many times the guardian re-locates a keep-out entry that changed while it was located (ESTALE); required with `keep_out`. */
   keep_out_retries: z.number().int().min(0).max(16).optional(),
   default_deny_outside_allow_rules: z.boolean().optional(),
-  temp_dir: z.string().min(1).max(4096).optional(),
+  temp_dir: guardianPathStringSchema.optional(),
   temp_dir_access: z.array(flagNameEnum).max(16).optional(),
-  /** `"refused"`: the payload and its descendants can make no socket of any family and cannot set up io_uring (a seccomp filter). Absent: the network is not governed. */
-  network: z.literal("refused").optional(),
+  /** New socket() calls: "refused" denies every family; "ip-family" permits only AF_INET/AF_INET6. Both deny io_uring_setup and allow socketpair only for AF_UNIX/SOCK_STREAM with optional CLOEXEC/NONBLOCK. Inherited descriptors are unchanged. IP-family permission requires separate namespace/route confinement. Absent: ungoverned. */
+  network: z.enum(["refused", "ip-family"]).optional(),
   /** The payload's CPU-time ceiling in seconds (RLIMIT_CPU): the kernel ends it by CPU work, never by wall time. */
   cpu_seconds: z.number().int().min(1).max(86_400).optional(),
-  /** `"refused"`: the payload and its descendants can send no signal to any process (a seccomp filter, on every kernel). Absent: signals are not governed. */
+  /** `"refused"`: kill, tkill, tgkill, rt_sigqueueinfo, rt_tgsigqueueinfo and pidfd_send_signal return EPERM regardless of target. Timer/kernel-generated delivery is outside this field. Absent: ungoverned. */
   signals: z.literal("refused").optional(),
 }).superRefine((spec, ctx) => {
   if (spec.keep_out !== undefined && spec.keep_out_retries === undefined) {
@@ -198,7 +202,7 @@ export function flagValidForRuleKind(
  * 7=add_rule, 8=restrict_self, 9=exec_failed, 10=keep_out_exposed (a keep-out
  * entry's link hop, target or would-be target, or a mount showing it, lies in
  * a grant of THIS spawn), 11=network_refusal_failed (the seccomp filter of
- * `network: "refused"` or `signals: "refused"` could not be set), 12=cpu_limit_failed (`cpu_seconds`'s
+ * a governed `network` mode or `signals: "refused"` could not be set), 12=cpu_limit_failed (`cpu_seconds`'s
  * RLIMIT_CPU could not be set), 64=usage. Any other exit code is
  * the payload's exit code (the guardian execvp'd the payload).
  */

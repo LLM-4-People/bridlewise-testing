@@ -1364,10 +1364,10 @@ const ROOT_POLICY_VALUE = {
      * regenerates is a value someone can add or edit without evidence — the
      * exact shape this floor refuses.
      */
-    binaryStamp: "bd0d1a2cd5212e886ab509754f4701d8398949629a602b8969c34ab2fc305cac",
+    binaryStamp: "3a4d9d82a3204ddb4e532905221ce7305f2331ba71b2b751c48b9d2fa70d92ba",
     bundleRelativePath: "dist/bundle.js",
     specSchemaArtifactPath: "traceability/self-protection/guardian-spec-schema.json",
-    specSchemaArtifactSha256: "6227bdfcf60bc7dafd7e96ba7f3e8e8dabc661225c6e41004dd0046bd78960ce",
+    specSchemaArtifactSha256: "12962841aa54440cc091e1974da8bebefa995405a6dbdd136cdea54224e10bda",
     /**
      * THE SOURCE HALF OF THE SPEC-SCHEMA PIN.
      *
@@ -1390,7 +1390,7 @@ const ROOT_POLICY_VALUE = {
      * decides admission is the reviewed source".
      */
     specSchemaSourcePath: "src/filesystem/self-protection/self-protection-contracts.ts",
-    specSchemaSourceSha256: "cdc8f9ba54717f186988a35b067b81e0cfd35010b1ae7a529db08d4e40317f1b",
+    specSchemaSourceSha256: "dbf80caa06e3b036fcdcd48e05c6a7e3381854021ebdb74d6d6f468646316d9f",
     /**
      * RELATIVE TO THE HARNESS ROOT — the tree that holds `dist/bundle.js` and
      * `guardian/build/…` above, never the repository root.

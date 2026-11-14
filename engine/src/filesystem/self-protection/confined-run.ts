@@ -15,17 +15,19 @@
  *     refused: narrowing can only take authority away. No path is writable;
  *     `/proc` (a clock: `/proc/uptime`), `/etc`, `/dev`, the home and the
  *     harness are unreadable;
- *   - THE NETWORK (seccomp, `network: "refused"`): no socket of any family,
- *     no io_uring;
+ *   - THE NETWORK (seccomp, `network: "refused"`): new socket() calls and
+ *     io_uring_setup are refused. socketpair permits only AF_UNIX STREAM pairs
+ *     with the guardian's permitted creation flags; inherited descriptors
+ *     remain outside this field;
  *   - CPU (RLIMIT_CPU, `cpu_seconds`): a program that spends its ceiling is
  *     ended by the kernel, judged by CPU work and never by wall time;
  *   - MEMORY: the per-run cgroup cap (`MemoryMax`) of the admitted run the
  *     caller runs in (src/process/instrument-lock.ts, the one memory-bounds
  *     owner); this launch sets none of its own;
- *   - SIGNALS (seccomp, `signals: "refused"`): no signal to any process, on
- *     every kernel (Landlock's signal scoping needs ABI 6, which GitHub's
- *     hosted runners lack); an abstract unix socket needs socket(), which the
- *     network refusal refuses;
+ *   - SIGNALS (seccomp, `signals: "refused"`): the guardian filter's listed
+ *     direct signal syscalls return EPERM regardless of target. Timer and
+ *     kernel-generated delivery are outside this field. No ABI 6 Landlock
+ *     scoping flags are needed; a filter installation failure refuses launch;
  *   - THE ENVIRONMENT: none (the environment projection of an empty allowlist):
  *     no `NODE_OPTIONS` preload, no locale, no zone reaches it;
  *   - ITS INPUT AND ITS OUTPUT: the program text arrives on stdin (with its
