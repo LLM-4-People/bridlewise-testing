@@ -8,7 +8,7 @@ state: open
 lane: floor
 horizon: now
 tests: [engine/test/prevention/flaky-test-memory.test.ts]
-evidence: https://github.com/LLM-4-People/bridlewise-testing/pull/817
+evidence: repo:pull/817
 opened: 2026-11-14
 ---
 
