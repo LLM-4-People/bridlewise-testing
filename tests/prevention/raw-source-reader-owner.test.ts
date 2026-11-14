@@ -164,6 +164,36 @@ describe("the INERT plants — a detector that fires on everything has said noth
     expect(found, "no byte read at all, so not even classified").toBeNull();
   });
 
+  test("INERT: canonical fixture snapshots keep exact artifact mutations outside raw source scans", () => {
+    // The declaration is known artifact data. Its byte-preserving mutation is
+    // distinct from the bounded owner acquiring and hashing fixture outputs.
+    const artifact = `const original = ${READ}(specPath, "utf8");`;
+    const mutation = `original.replace(/STAMP_SOURCES := .*/u, "STAMP_SOURCES := missing.c");`;
+    const direct = plant([
+      `import { ${READ}, ${ENUMERATE} } from "node:fs";`,
+      artifact,
+      `for (const name of ${ENUMERATE}("build")) inspect(name);`,
+      mutation,
+    ]);
+    expect(direct).not.toBeNull();
+    expect(isGuardedUniverse(direct!)).toBe(true);
+
+    const bounded = plant([
+      `import { ${READ} } from "node:fs";`,
+      `import { listSafeRepositoryTree, readSafeRepositoryFile } from "./safe-repository-reader.ts";`,
+      artifact,
+      `for (const entry of listSafeRepositoryTree(root, build, limits)) {`,
+      `  const file = readSafeRepositoryFile(root, entry.path, maximumBytes);`,
+      `  hash(file.bytes);`,
+      `}`,
+      mutation,
+    ]);
+    expect(bounded, "the handed artifact is still a byte read").not.toBeNull();
+    expect(bounded!.matches.length).toBeGreaterThan(0);
+    expect(bounded!.enumerations, "the shared owner acquires fixture outputs").toEqual([]);
+    expect(isGuardedUniverse(bounded!)).toBe(false);
+  });
+
   test("INERT: a byte read named only in a COMMENT is prose, not evidence", () => {
     // This file's own header names the refused call. A scanner whose universe
     // comes from source text will scan its own comments, and documentation

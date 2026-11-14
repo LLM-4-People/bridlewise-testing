@@ -7,7 +7,7 @@
 // this project judged one run at a time; the intermittent failure was
 // invisible to all of them.
 //
-// The memory already existed: `scripts/run-tests.ts` appends every judged
+// The memory already existed: `scripts/tooling/run-tests.ts` appends every judged
 // full run to `.bridlewise/state/test-results/run-history.json`, failure
 // rows included (`<file>::<test name>`). What was missing is the verdict
 // over that memory — `flakySuspectsWithin` in `src/shared/run-history.ts`,
@@ -25,8 +25,8 @@
  * (`headSha`) is provenance for the same-sha derivation, not a freshness gate.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -42,9 +42,17 @@ import {
   regeneratedSuspectsMessage,
   TEST_RUN_HISTORY_PATH,
   type ArtifactRegeneration,
+  type SuiteIdentities,
 } from "../../src/shared/run-history.ts";
 import { judgeFlakyMemory } from "../../src/workflow/flaky-burn-down.ts";
-import { discoverTestNames, loadTestInventory } from "../../scripts/test-inventory.ts";
+import { buildTestInventory, discoverTestNames, loadTestInventory, writeTestInventoryTransaction } from "../../scripts/test-inventory.ts";
+import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
+import { VERIFICATION_PATHS } from "../../src/kernel/verification-paths.ts";
+import {
+  createTestSurfaceDispositionManifest,
+  defaultDispositionEntry,
+  serializeTestSurfaceDispositionManifest,
+} from "../../src/kernel/test-surface-manifest.ts";
 
 /**
  * This guard's own ledger-identity prefix — the feedback-loop exclusion,
@@ -504,6 +512,74 @@ test("flaky-memory regenerations: a suspect without readable provenance is never
   assert.deepEqual(malformedInstant!.regenerated, []);
 });
 
+/** Current suite membership comes from the source owner, independent of its optional cache. */
+function currentSuiteIdentities(engineRoot: string): SuiteIdentities {
+  const inventory = buildTestInventory(engineRoot);
+  return {
+    hermetic: new Set(inventory.tests.map((entry) => `${entry.sourceId}::${entry.name}`)),
+    live: new Set(inventory.scope.qualifiedExternalSourceIds.flatMap((sourceId) =>
+      discoverTestNames(readFileSync(join(engineRoot, sourceId), "utf8")).map((name) => `${sourceId}::${name}`))),
+  };
+}
+
+test("flaky-memory suite membership follows current sources with a missing, current or stale inventory cache", () => {
+  const root = createTempDir("flaky-current-suites-");
+  const hermeticSource = "test/cache-independent.test.ts";
+  const liveSource = "live/cache-independent.test.ts";
+  const put = (path: string, text: string): void => {
+    const absolute = join(root, path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, text, "utf8");
+  };
+  try {
+    put(hermeticSource, 'test("hermetic fixture", () => undefined);\n');
+    put(liveSource, 'test("live fixture", () => undefined);\n');
+    put("fixture-evidence.md", "Synthetic suite-membership fixture; no external service is executed.\n");
+    const canonical = defaultDispositionEntry(hermeticSource);
+    assert.ok(canonical, "the fixture must use the canonical Node qualification policy");
+    put(
+      ROOT_POLICY.verification.testDiscovery.dispositionRegistry.manifestPath,
+      serializeTestSurfaceDispositionManifest(createTestSurfaceDispositionManifest([
+        canonical,
+        {
+          path: liveSource,
+          language: "javascript-typescript",
+          disposition: "qualified-external-oracle",
+          rationale: "Synthetic live-source membership fixture, parsed without executing an external service.",
+          evidenceLinks: ["fixture-evidence.md"],
+          blocksFullRepositoryClaim: false,
+        },
+      ])),
+    );
+    const cachePath = join(root, VERIFICATION_PATHS.testInventory);
+    assert.equal(existsSync(cachePath), false);
+    const withoutCache = currentSuiteIdentities(root);
+    assert.deepEqual([...withoutCache.hermetic], [`${hermeticSource}::hermetic fixture`]);
+    assert.deepEqual([...withoutCache.live], [`${liveSource}::live fixture`]);
+
+    const inventory = buildTestInventory(root);
+    writeTestInventoryTransaction(root, inventory);
+    assert.deepEqual(loadTestInventory(root), inventory, "the cache fixture must be produced and accepted by its owner");
+    assert.deepEqual(currentSuiteIdentities(root), withoutCache);
+
+    const newSource = "test/new-current.test.ts";
+    put(newSource, 'test("new current fixture", () => undefined);\n');
+    assert.throws(() => loadTestInventory(root), /does not exactly match the current test-source projection/u);
+    const withStaleCache = currentSuiteIdentities(root);
+    assert.deepEqual([...withStaleCache.hermetic], [
+      `${hermeticSource}::hermetic fixture`,
+      `${newSource}::new current fixture`,
+    ]);
+    assert.deepEqual(withStaleCache.live, withoutCache.live);
+
+    rmSync(cachePath);
+    assert.deepEqual(currentSuiteIdentities(root), withStaleCache, "removing the owned fixture cache must preserve real coverage");
+    assert.equal(existsSync(cachePath), false, "membership derivation must not materialize a cache");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("flaky-memory LIVE: no test failed in the retained ledger but passed in the latest recorded run, unless it is explained or an owned burn-down entry", async () => {
   // The actual gate, over this tree's own WHOLE ledger (nothing ages out of a
   // window: design NH-E), through the one judgement both suites' guards call
@@ -515,12 +591,9 @@ test("flaky-memory LIVE: no test failed in the retained ledger but passed in the
   // A moved test is judged by the suites as they stand: the hermetic suite's
   // identities (the test inventory) and the live suite's manifest (the
   // inventory's qualified-external sources, read by the one test-name parser).
-  const inventory = loadTestInventory(process.cwd());
-  const suites = {
-    hermetic: new Set(inventory.tests.map((entry) => `${entry.sourceId}::${entry.name}`)),
-    live: new Set(inventory.scope.qualifiedExternalSourceIds.flatMap((sourceId) =>
-      discoverTestNames(readFileSync(join(process.cwd(), sourceId), "utf8")).map((name) => `${sourceId}::${name}`))),
-  };
+  // Normal guard runs need no pre-generated cache. The current source
+  // projection still owns every hermetic/live identity passed to the judge.
+  const suites = currentSuiteIdentities(process.cwd());
   const judgement = await judgeFlakyMemory({
     suite: "engine", engineRoot: process.cwd(), entries: readRunFailureRows(join(process.cwd(), TEST_RUN_HISTORY_PATH)),
     ownPrefix: OWN_PREFIX, guardFile: OWN_PREFIX.slice(0, -2), regenerated: [], suites,

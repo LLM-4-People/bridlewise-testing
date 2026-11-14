@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
+import { listSafeRepositoryTree, readSafeRepositoryFile } from "../../../scripts/verification/safe-repository-reader.ts";
 import { createPathLocator, resolveLocation } from "../../../src/filesystem/path-identity.ts";
 import { sha256 } from "../../../src/kernel/integrity.ts";
 import { verifyGuardianBinaryAvailability, readGuardianBinaryBuildStamp } from "../../../src/filesystem/self-protection/guardian-binary.ts";
@@ -265,26 +266,41 @@ function nativeFixtureMetadata(path: string) {
   };
 }
 
-/** Observe one owned build directory and exact declared/copied source inputs. */
+/** Observe declared fixture inputs and every flat build output through one byte owner. */
 function nativeFixtureSnapshot(root: string) {
-  const guardian = join(root, "guardian");
   const sourcePaths = [
-    join(guardian, "Makefile"),
-    join(root, ROOT_POLICY.selfProtection.buildStampSpecPath),
-    ...readGuardianBuildStampSpec(root).sources.map((source) => join(guardian, source)),
-    ...guardianTestSources.map((source) => join(guardian, source)),
+    join("guardian", "Makefile"),
+    ROOT_POLICY.selfProtection.buildStampSpecPath,
+    ...readGuardianBuildStampSpec(root).sources.map((source) => join("guardian", source)),
+    ...guardianTestSources.map((source) => join("guardian", source)),
   ];
-  const build = dirname(builtBinary(root));
-  const directory = nativeFixtureMetadata(build);
-  assert.equal(directory.kind, "directory", `expected the owned build directory: ${build}`);
-  const outputPaths = readdirSync(build).sort().map((name) => join(build, name));
-  const files = [...new Set([...sourcePaths, ...outputPaths])].sort().map((path) => {
-    const metadata = nativeFixtureMetadata(path);
-    assert.equal(metadata.kind, "file", `unexpected link or non-file in fixture snapshot: ${path}`);
-    return { ...metadata, sha256: sha256(readFileSync(path)) };
+  const buildRelative = dirname(ROOT_POLICY.selfProtection.binaryRelativePath);
+  const directory = nativeFixtureMetadata(join(root, buildRelative));
+  assert.equal(directory.kind, "directory", `expected the owned build directory: ${buildRelative}`);
+  const outputs = listSafeRepositoryTree(root, buildRelative, {
+    // Build outputs were already required to be files, with no subdirectories.
+    maximumDepth: 0,
+    maximumEntries: ROOT_POLICY.verification.testDiscovery.maximumEntries,
   });
-  // Directory timestamps also expose temporary entries created then removed
-  // during a query; atime is deliberately excluded from every snapshot.
+  const outputIdentities = new Map(outputs.map((entry) => [entry.path, entry.identityHash]));
+  const files = [...new Set([...sourcePaths, ...outputIdentities.keys()])].sort().map((path) => {
+    const file = readSafeRepositoryFile(
+      root, path, ROOT_POLICY.verification.candidateFormat.maximumInspectedFileBytes,
+    );
+    const enumeratedIdentity = outputIdentities.get(path);
+    if (enumeratedIdentity !== undefined) {
+      assert.equal(file.identityHash, enumeratedIdentity, `fixture changed after enumeration: ${path}`);
+    }
+    return { path, identityHash: file.identityHash, sha256: sha256(file.bytes) };
+  });
+  assert.deepEqual(listSafeRepositoryTree(root, buildRelative, {
+    maximumDepth: 0,
+    maximumEntries: ROOT_POLICY.verification.testDiscovery.maximumEntries,
+  }), outputs, "fixture output entries changed during snapshot acquisition");
+  assert.deepEqual(nativeFixtureMetadata(join(root, buildRelative)), directory,
+    "fixture output directory changed during snapshot acquisition");
+  // File identity includes mode, inode, size, mtime and ctime. Directory times
+  // also expose temporary entries created then removed; atime stays excluded.
   return { directory, files };
 }
 
