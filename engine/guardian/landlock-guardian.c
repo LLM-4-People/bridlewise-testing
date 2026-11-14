@@ -30,11 +30,13 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <limits.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/syscall.h>
 #include <linux/audit.h>
 #include <linux/filter.h>
@@ -62,7 +64,7 @@
 #endif
 
 /*
- * The architecture whose syscall numbers the network refusal's filter names.
+ * The architecture whose syscall numbers the combined seccomp filter names.
  * A filter written for one ABI says nothing about another, so a syscall made
  * through any other ABI (x32 on x86-64, or a foreign arch) KILLS the process
  * rather than passing unexamined.
@@ -224,6 +226,11 @@ static int jp_string(jparser *p, char **out)
                     cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
                 } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
                     free(buf); jp_err(p, "dangling low surrogate"); return -1;
+                }
+                if (cp == 0) {
+                    free(buf);
+                    jp_err(p, "NUL is not supported in strings");
+                    return -1;
                 }
                 if (cp <= 0x7F) {
                     if (buf_push(&buf, &cap, &n, (char)cp) != 0) { free(buf); jp_err(p, "oom"); return -1; }
@@ -783,23 +790,31 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         default_deny = vdd->bval;
     }
 
-    /* 3b'. network (optional string, only "refused"). When present, the
-     * payload and every descendant can create NO socket of any family (the
-     * seccomp filter installed in step 12b answers socket() with EACCES) and
-     * cannot set up io_uring (ENOSYS), whose socket operation would bypass
-     * that filter. Absent: the network is not governed (the guardian's
-     * historical, filesystem-only confinement). */
-    int network_refused = 0;
+    /* 3b'. network (optional string, "refused" or "ip-family"). For native-ABI
+     * socket() calls, refused returns EACCES. IP-family permits only the
+     * kernel int domain arguments AF_INET and AF_INET6; other domain
+     * arguments return EACCES. Both modes permit socketpair() only for
+     * AF_UNIX/SOCK_STREAM, with optional SOCK_CLOEXEC and SOCK_NONBLOCK;
+     * other family, type or flag values return EACCES. The pair protocol is
+     * kernel-validated. Both modes refuse io_uring_setup with ENOSYS, since
+     * its socket operation would bypass these creation filters. This field
+     * does not constrain socket() types/protocols, endpoints or inherited
+     * descriptors; namespace and descriptor custody remain the caller's
+     * responsibility. Absent leaves socket(), socketpair() and
+     * io_uring_setup ungoverned by this field. */
+    enum { NETWORK_UNGOVERNED, NETWORK_REFUSED, NETWORK_IP_FAMILY } network_mode = NETWORK_UNGOVERNED;
     const jval *vnet = obj_get(&root, "network");
     if (vnet) {
-        if (vnet->type != J_STR || strcmp(vnet->sval, "refused") != 0) fail(2, "network must be the string \"refused\"");
-        network_refused = 1;
+        if (vnet->type != J_STR) fail(2, "network must be the string \"refused\" or \"ip-family\"");
+        if (strcmp(vnet->sval, "refused") == 0) network_mode = NETWORK_REFUSED;
+        else if (strcmp(vnet->sval, "ip-family") == 0) network_mode = NETWORK_IP_FAMILY;
+        else fail(2, "network must be the string \"refused\" or \"ip-family\"");
     }
 
     /* 3b''. cpu_seconds (optional number, 1..86400). When present, the
      * payload's CPU time is bounded by RLIMIT_CPU (soft = hard = the value):
-     * a payload that spends it is ended by the kernel (SIGXCPU, then SIGKILL),
-     * judged by CPU work and never by wall time, so host load moves nothing. */
+     * the kernel ends a payload that spends it. The ceiling is CPU work,
+     * not wall time, so host load does not change the declared quantity. */
     long cpu_seconds = 0;
     const jval *vcpu = obj_get(&root, "cpu_seconds");
     if (vcpu) {
@@ -807,12 +822,14 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         cpu_seconds = vcpu->nval;
     }
 
-    /* 3b-iv. signals (optional string, only "refused"). When present, the
-     * payload and every descendant can send NO signal (kill, tkill, tgkill,
-     * rt_sigqueueinfo, rt_tgsigqueueinfo and pidfd_send_signal answer EPERM,
-     * from the same seccomp filter as the network refusal): on every kernel
-     * seccomp runs on, unlike Landlock's signal scoping (ABI 6). An abstract
-     * unix socket needs socket(), which `network: "refused"` refuses. */
+    /* 3b-iv. signals (optional string, only "refused"). The payload and its
+     * descendants receive EPERM from six native-ABI direct signal syscalls:
+     * kill, tkill, tgkill, rt_sigqueueinfo, rt_tgsigqueueinfo and
+     * pidfd_send_signal, regardless of their target arguments. This field
+     * does not scope permission by PID or ownership. Signals generated by
+     * timers or the kernel, and other delivery mechanisms, are outside this
+     * field. The combined seccomp filter enforces these syscall refusals
+     * independently of Landlock's signal-scoping ABI. */
     int signals_refused = 0;
     const jval *vsig = obj_get(&root, "signals");
     if (vsig) {
@@ -1237,37 +1254,82 @@ static void cmd_apply(const char *spec_path, char **payload_argv)
         if (setrlimit(RLIMIT_CPU, &limit) != 0) fail(12, "setrlimit(RLIMIT_CPU, %ld) failed: %s", cpu_seconds, strerror(errno));
     }
 
-    /* 12b. The network and signal refusals (network: "refused", signals:
-     * "refused"): ONE seccomp filter, set under the NO_NEW_PRIVS of step 9,
-     * inherited across exec, fork and clone, irrevocable like the Landlock
-     * domain. Every thread is covered (TSYNC). A syscall made through another
-     * ABI (x32, a foreign arch) kills the process. */
-    if (network_refused || signals_refused) {
-        struct sock_filter filter[32];
+    /* 12b. The network field's socket(), socketpair() and io_uring_setup
+     * checks and the signals field's six direct syscall checks share ONE
+     * seccomp filter, set under the NO_NEW_PRIVS of step 9 and inherited
+     * across exec, fork and clone,
+     * irrevocable like the Landlock domain. Every thread is covered (TSYNC).
+     * A syscall made through another ABI (x32, a foreign arch) kills the
+     * process. */
+    if (network_mode != NETWORK_UNGOVERNED || signals_refused) {
+        struct sock_filter filter[35];
         unsigned short n = 0;
-        filter[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch));
-        filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, GUARDIAN_AUDIT_ARCH, 1, 0);
-        filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
-        filter[n++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
+#define APPEND_SECCOMP_FILTER(instruction) do { \
+    if ((size_t)n >= sizeof(filter) / sizeof(filter[0]) || n == USHRT_MAX) \
+        fail(11, "seccomp filter capacity exceeded"); \
+    filter[n++] = (instruction); \
+} while (0)
+        APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)));
+        APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, GUARDIAN_AUDIT_ARCH, 1, 0));
+        APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS));
+        APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)));
 #if defined(__x86_64__)
         /* x32 syscalls carry this bit: another ABI, refused by killing. */
-        filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1);
-        filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
+        APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1));
+        APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS));
 #endif
-        if (network_refused) {
-            filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 1);
-            filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES);
-            filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1);
-            filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS);
+        if (network_mode != NETWORK_UNGOVERNED) {
+            /* Syscall int arguments use their low word. Select its byte
+             * adjustment once for both socket domains and socketpair types;
+             * this layout handling adds no supported execution ABI. */
+#if !defined(__BYTE_ORDER__) || !defined(__ORDER_BIG_ENDIAN__) || !defined(__ORDER_LITTLE_ENDIAN__)
+#error "the guardian's socket-family filter requires compiler byte-order constants"
+#endif
+            size_t argument_low_word_offset = 0;
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            argument_low_word_offset = sizeof(uint32_t);
+#elif __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error "the guardian's socket-family filter does not support this byte order"
+#endif
+            const size_t domain_offset = offsetof(struct seccomp_data, args[0]) + argument_low_word_offset;
+            const size_t type_offset = offsetof(struct seccomp_data, args[1]) + argument_low_word_offset;
+            if (network_mode == NETWORK_REFUSED) {
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 1));
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES));
+            } else {
+                /* p0 false skips p1..p5; either family reaches p5. Reload nr
+                 * before the shared io_uring/signal checks and final ALLOW. */
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 5));
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (unsigned int)domain_offset));
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET, 2, 0));
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_INET6, 1, 0));
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES));
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)));
+            }
+            /* Both governed modes admit AF_UNIX/SOCK_STREAM socketpair()
+             * calls with only the two known creation flags.
+             * p0 false skips p1..p7; both denials share p6; success reloads
+             * nr at p7 before the existing io_uring/signal checks. */
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socketpair, 0, 7));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (unsigned int)domain_offset));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 0, 3));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (unsigned int)type_offset));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_ALU | BPF_AND | BPF_K, ~(uint32_t)(SOCK_CLOEXEC | SOCK_NONBLOCK)));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SOCK_STREAM, 1, 0));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1));
+            APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS));
         }
         if (signals_refused) {
             const unsigned int senders[] = { __NR_kill, __NR_tkill, __NR_tgkill, __NR_rt_sigqueueinfo, __NR_rt_tgsigqueueinfo, GUARDIAN_NR_PIDFD_SEND_SIGNAL };
             for (size_t k = 0; k < sizeof(senders) / sizeof(senders[0]); k++) {
-                filter[n++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, senders[k], 0, 1);
-                filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM);
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, senders[k], 0, 1));
+                APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM));
             }
         }
-        filter[n++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+        APPEND_SECCOMP_FILTER((struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
+#undef APPEND_SECCOMP_FILTER
         struct sock_fprog program = { n, filter };
         if (syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program) != 0) {
             fail(11, "seccomp refusal failed (errno=%d: %s)", errno, strerror(errno));

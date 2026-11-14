@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { appendFileSync, copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { ROOT_POLICY } from "../../../src/kernel/root-policy.ts";
+import { listSafeRepositoryTree, readSafeRepositoryFile } from "../../../scripts/verification/safe-repository-reader.ts";
+import { createPathLocator, resolveLocation } from "../../../src/filesystem/path-identity.ts";
 import { sha256 } from "../../../src/kernel/integrity.ts";
 import { verifyGuardianBinaryAvailability, readGuardianBinaryBuildStamp } from "../../../src/filesystem/self-protection/guardian-binary.ts";
 import {
@@ -35,10 +37,14 @@ function freshGuardianRoot(prefix: string): string {
   return root;
 }
 
-function make(root: string, ...args: readonly string[]): void {
-  const result = spawnSync("make", ["--no-print-directory", "-C", join(root, "guardian"), ...args], {
+function invokeMake(root: string, ...args: readonly string[]) {
+  return spawnSync("make", ["--no-print-directory", "-C", join(root, "guardian"), ...args], {
     encoding: "utf8",
   });
+}
+
+function make(root: string, ...args: readonly string[]): void {
+  const result = invokeMake(root, ...args);
   assert.equal(
     result.status,
     0,
@@ -198,4 +204,175 @@ test("guardian build stamp: the snapshot fixture has the sources it names", () =
     assert.equal(existsSync(join(candidateRoot, "guardian", source)), true, `sealed source ${source} must exist`);
   }
   assert.equal(existsSync(join(candidateRoot, ROOT_POLICY.selfProtection.buildStampSpecPath)), true);
+});
+
+// These existing sources are test-fixtures inputs, outside the guardian's
+// sealed-source declaration. The shared sealed-input copier stays unchanged.
+const guardianTestSources = ["tests/test_payload.c", "test-process-supervisor.c"] as const;
+
+function freshGuardianTestRoot(prefix: string): string {
+  const root = freshGuardianRoot(prefix);
+  try {
+    for (const source of guardianTestSources) {
+      const destination = join(root, "guardian", source);
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(join(candidateRoot, "guardian", source), destination);
+    }
+    return root;
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function assertOwnedExecutable(root: string, path: string): void {
+  assert.ok(isAbsolute(path), `expected an absolute fixture path, got ${JSON.stringify(path)}`);
+  const locator = createPathLocator();
+  const names = locator.namesUnder(
+    locator.locate(resolveLocation(path, "native test fixture")),
+    locator.locate(resolveLocation(root, "native test fixture root")),
+  );
+  assert.ok(names !== undefined && names.length > 0, `fixture must lie strictly below its owned root: ${path}`);
+  const info = lstatSync(path, { bigint: true });
+  assert.ok(info.isFile() && !info.isSymbolicLink(), `expected a regular fixture file: ${path}`);
+  assert.notEqual(info.mode & 0o111n, 0n, `expected executable fixture mode: ${path}`);
+}
+
+/** The Makefile supplies this path; the test never spells a static basename. */
+function staticTestBinary(root: string): string {
+  const result = invokeMake(root, "test-preflight");
+  assert.equal(result.error, undefined, `preflight did not start: ${String(result.error)}`);
+  assert.equal(result.signal, null, `preflight ended by signal: ${String(result.signal)}`);
+  assert.equal(result.status, 0, `preflight failed: ${result.stderr ?? ""}`);
+  const output = result.stdout ?? "";
+  assert.ok(output.endsWith("\n"), `preflight must emit one path line: ${JSON.stringify(output)}`);
+  const path = output.slice(0, -1);
+  assert.ok(path.length > 0 && !/[\r\n]/u.test(path), `preflight must emit exactly one path: ${JSON.stringify(output)}`);
+  assertOwnedExecutable(root, path);
+  return path;
+}
+
+function nativeFixtureMetadata(path: string) {
+  const info = lstatSync(path, { bigint: true });
+  return {
+    path,
+    kind: info.isFile() ? "file" : info.isDirectory() ? "directory" : "unsupported",
+    device: info.dev.toString(),
+    inode: info.ino.toString(),
+    mode: info.mode.toString(),
+    size: info.size.toString(),
+    mtimeNs: info.mtimeNs.toString(),
+    ctimeNs: info.ctimeNs.toString(),
+  };
+}
+
+/** Observe declared fixture inputs and every flat build output through one byte owner. */
+function nativeFixtureSnapshot(root: string) {
+  const sourcePaths = [
+    join("guardian", "Makefile"),
+    ROOT_POLICY.selfProtection.buildStampSpecPath,
+    ...readGuardianBuildStampSpec(root).sources.map((source) => join("guardian", source)),
+    ...guardianTestSources.map((source) => join("guardian", source)),
+  ];
+  const buildRelative = dirname(ROOT_POLICY.selfProtection.binaryRelativePath);
+  const directory = nativeFixtureMetadata(join(root, buildRelative));
+  assert.equal(directory.kind, "directory", `expected the owned build directory: ${buildRelative}`);
+  const outputs = listSafeRepositoryTree(root, buildRelative, {
+    // Build outputs were already required to be files, with no subdirectories.
+    maximumDepth: 0,
+    maximumEntries: ROOT_POLICY.verification.testDiscovery.maximumEntries,
+  });
+  const outputIdentities = new Map(outputs.map((entry) => [entry.path, entry.identityHash]));
+  const files = [...new Set([...sourcePaths, ...outputIdentities.keys()])].sort().map((path) => {
+    const file = readSafeRepositoryFile(
+      root, path, ROOT_POLICY.verification.candidateFormat.maximumInspectedFileBytes,
+    );
+    const enumeratedIdentity = outputIdentities.get(path);
+    if (enumeratedIdentity !== undefined) {
+      assert.equal(file.identityHash, enumeratedIdentity, `fixture changed after enumeration: ${path}`);
+    }
+    return { path, identityHash: file.identityHash, sha256: sha256(file.bytes) };
+  });
+  assert.deepEqual(listSafeRepositoryTree(root, buildRelative, {
+    maximumDepth: 0,
+    maximumEntries: ROOT_POLICY.verification.testDiscovery.maximumEntries,
+  }), outputs, "fixture output entries changed during snapshot acquisition");
+  assert.deepEqual(nativeFixtureMetadata(join(root, buildRelative)), directory,
+    "fixture output directory changed during snapshot acquisition");
+  // File identity includes mode, inode, size, mtime and ctime. Directory times
+  // also expose temporary entries created then removed; atime stays excluded.
+  return { directory, files };
+}
+
+function assertPreflightRefusesWithoutWriting(root: string, label: string): void {
+  const before = nativeFixtureSnapshot(root);
+  const result = invokeMake(root, "test-preflight");
+  assert.equal(result.error, undefined, `${label}: preflight did not start: ${String(result.error)}`);
+  assert.equal(result.signal, null, `${label}: preflight ended by signal: ${String(result.signal)}`);
+  assert.notEqual(result.status, null, `${label}: preflight had no normal exit status`);
+  assert.notEqual(result.status, 0, `${label}: preflight must refuse an outdated artifact`);
+  assert.equal(result.stdout ?? "", "", `${label}: refused preflight must not emit a fixture path`);
+  assert.deepEqual(nativeFixtureSnapshot(root), before, `${label}: preflight must not build, rewrite, replace or touch fixture inputs/outputs`);
+}
+
+test("guardian native test targets: prepare fixtures separately and refuse missing/stale artifacts without rebuilding", () => {
+  requireHost(canBuildGuardian(), "make and the pinned gcc-14 (the guardian's declared compiler)");
+  requireLinuxHost();
+  const root = freshGuardianTestRoot("guardian-test-targets-");
+  try {
+    make(root, "test-fixtures");
+    const staticBinary = staticTestBinary(root);
+    assertOwnedExecutable(root, builtBinary(root));
+
+    // Discover the static path before deleting anything. A clean product all
+    // must not acquire or build that test-only static-libc output.
+    make(root, "clean", "all");
+    assertOwnedExecutable(root, builtBinary(root));
+    assert.equal(existsSync(staticBinary), false, "product all must leave the static test-only output absent");
+
+    make(root, "test-fixtures");
+    assert.equal(staticTestBinary(root), staticBinary, "canonical preparation must retain its one static path authority");
+    const current = nativeFixtureSnapshot(root);
+    assert.equal(staticTestBinary(root), staticBinary);
+    assert.deepEqual(nativeFixtureSnapshot(root), current, "current preflight must not rewrite prepared fixtures");
+
+    const guardianSource = readGuardianBuildStampSpec(root).sources[0];
+    assert.ok(guardianSource !== undefined, "the guardian must declare a sealed prerequisite");
+    const artifacts = [
+      { name: "static", path: staticBinary, prerequisite: join(root, "guardian", guardianTestSources[0]) },
+      { name: "guardian", path: builtBinary(root), prerequisite: join(root, "guardian", guardianSource) },
+    ];
+    for (const artifact of artifacts) {
+      assertOwnedExecutable(root, artifact.path);
+      rmSync(artifact.path);
+      assertPreflightRefusesWithoutWriting(root, `${artifact.name} missing`);
+      assert.equal(existsSync(artifact.path), false, `${artifact.name}: missing artifact must remain missing after preflight`);
+      make(root, "test-fixtures");
+      assert.equal(staticTestBinary(root), staticBinary);
+    }
+
+    for (const artifact of artifacts) {
+      assertOwnedExecutable(root, artifact.path);
+      // Epoch timestamps are independent of wall-clock scheduling. Assert the
+      // actual prerequisite ordering before asking make its freshness question.
+      utimesSync(artifact.path, new Date(0), new Date(0));
+      assert.ok(
+        lstatSync(artifact.path, { bigint: true }).mtimeNs < lstatSync(artifact.prerequisite, { bigint: true }).mtimeNs,
+        `${artifact.name}: controlled artifact must be older than its real prerequisite`,
+      );
+      assertPreflightRefusesWithoutWriting(root, `${artifact.name} stale`);
+      assert.ok(
+        lstatSync(artifact.path, { bigint: true }).mtimeNs < lstatSync(artifact.prerequisite, { bigint: true }).mtimeNs,
+        `${artifact.name}: preflight must leave the artifact stale`,
+      );
+      make(root, "test-fixtures");
+      assert.equal(staticTestBinary(root), staticBinary);
+    }
+
+    const final = nativeFixtureSnapshot(root);
+    assert.equal(staticTestBinary(root), staticBinary);
+    assert.deepEqual(nativeFixtureSnapshot(root), final, "final current preflight must remain observational");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

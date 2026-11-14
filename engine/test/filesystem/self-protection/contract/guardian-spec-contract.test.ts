@@ -102,23 +102,99 @@ test("contract: C binary rejects an allow-rule path under a protected subtree (e
 test("contract: the C binary sets no 'already confined' env sentinel (a sandbox decision is measured, never read from env)", () => {
   requireLinuxHost();
   const tempDir = createTempDir("harness-guardian-sentinel-");
-  const probePath = join(tempDir, "env-probe.sh");
   const specPath = join(tempDir, "spec.json");
   try {
-    writeFileSync(probePath, `#!/bin/sh\necho "sentinel=[$HARNESS_LANDLOCK_GUARDIAN]"\n`, { mode: 0o755 });
-    const spec = {
-      ...VALID_FLOOR_SPEC,
-      allow_rules: [
-        ...VALID_FLOOR_SPEC.allow_rules,
-        { path: realpathSync(tempDir), access: ["EXECUTE", "READ_FILE", "READ_DIR"] },
-      ],
-    };
+    const spec = VALID_FLOOR_SPEC;
     writeFileSync(specPath, JSON.stringify(spec), { mode: 0o600 });
-    const result = spawnSync(binaryPath, ["apply", "--spec", specPath, "--exec", probePath], {
+    // The installed readonly shell runs the same fixed sentinel print; no
+    // writable temporary is made executable or granted EXECUTE.
+    const result = spawnSync(binaryPath, ["apply", "--spec", specPath, "--exec", "/bin/sh", "-c", 'echo "sentinel=[$HARNESS_LANDLOCK_GUARDIAN]"'], {
       stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { PATH: process.env["PATH"] ?? "" },
     });
+    assert.equal(result.status, 0, `expected sentinel shell exit 0, got ${result.status}: ${result.stderr ?? ""}`);
     assert.equal((result.stdout ?? "").trim(), "sentinel=[]", `exit ${result.status}: ${result.stderr}`);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+for (const network of ["refused", "ip-family"] as const) {
+  test(`contract: network ${network} is accepted by schema and C parser`, () => {
+    requireLinuxHost();
+    const spec = { ...VALID_FLOOR_SPEC, network };
+    GUARDIAN_SPEC_SCHEMA.parse(spec);
+    const { exitCode, stderr } = runGuardian(spec, "/bin/true", []);
+    assert.equal(exitCode, 0, `expected accepted network ${network}, got ${exitCode}: ${stderr}`);
+  });
+}
+
+const invalidNetworkCases = [
+  { name: "unknown value", network: "open" },
+  { name: "misleading loopback value", network: "loopback" },
+  { name: "number", network: 0 },
+  { name: "boolean", network: false },
+  { name: "null", network: null },
+  { name: "object", network: {} },
+  { name: "array", network: [] },
+  { name: "decoded NUL suffix", network: "ip-family\u0000junk" },
+] as const;
+
+for (const { name, network } of invalidNetworkCases) {
+  test(`contract: network ${name} is rejected by schema and C parser`, () => {
+    requireLinuxHost();
+    const spec = { ...VALID_FLOOR_SPEC, network };
+    assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse(spec));
+    const { exitCode, stderr } = runGuardian(spec, "/bin/true", []);
+    assert.equal(exitCode, 2, `expected network ${name} parse rejection, got ${exitCode}: ${stderr}`);
+  });
+}
+
+const nulPath = "/usr\u0000suffix";
+const nulPathCases = [
+  {
+    name: "allow_rules.path",
+    createSpec: () => ({
+      ...VALID_FLOOR_SPEC,
+      allow_rules: VALID_FLOOR_SPEC.allow_rules.map((rule, index) => index === 0 ? { ...rule, path: nulPath } : rule),
+    }),
+  },
+  { name: "protected_subtrees", createSpec: () => ({ ...VALID_FLOOR_SPEC, protected_subtrees: [nulPath] }) },
+  { name: "keep_out", createSpec: () => ({ ...VALID_FLOOR_SPEC, keep_out: [nulPath], keep_out_retries: 0 }) },
+  { name: "temp_dir", createSpec: () => ({ ...VALID_FLOOR_SPEC, temp_dir: nulPath }) },
+] as const;
+
+for (const { name, createSpec } of nulPathCases) {
+  test(`contract: decoded NUL at ${name} is rejected by schema and native parser before filesystem admission`, () => {
+    requireLinuxHost();
+    const spec = createSpec();
+    assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse(spec));
+    const { exitCode, stderr } = runGuardian(spec, "/bin/true", []);
+    assert.equal(exitCode, 2, `expected ${name} parse rejection, got ${exitCode}: ${stderr}`);
+  });
+}
+
+test("contract: decoded NUL in an ordinary flag is rejected by schema and C parser", () => {
+  requireLinuxHost();
+  const spec = { ...VALID_FLOOR_SPEC, handled_access_fs: ["READ_FILE\u0000junk"] };
+  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse(spec));
+  const { exitCode, stderr } = runGuardian(spec, "/bin/true", []);
+  assert.equal(exitCode, 2, `expected flag parse rejection, got ${exitCode}: ${stderr}`);
+});
+
+test("native parser: decoded NUL in a key cannot alias the network field", () => {
+  requireLinuxHost();
+  // Unknown-field behavior differs from the strict schema. This assertion is
+  // specifically about native decoded-NUL admission, not general key parity.
+  const spec = { ...VALID_FLOOR_SPEC, ["network\u0000junk"]: "ip-family" };
+  const { exitCode, stderr } = runGuardian(spec, "/bin/true", []);
+  assert.equal(exitCode, 2, `expected key parse rejection, got ${exitCode}: ${stderr}`);
+});
+
+test("native parser: literal backslash-u text and an escaped newline remain representable", () => {
+  requireLinuxHost();
+  // The native parser deliberately ignores this unknown field. Do not assert
+  // schema acceptance: its documented strict-key behavior is different.
+  const spec = { ...VALID_FLOOR_SPEC, ignored_native_control: "literal\\u0000text\ncontinued" };
+  const { exitCode, stderr } = runGuardian(spec, "/bin/true", []);
+  assert.equal(exitCode, 0, `expected literal string control to execute, got ${exitCode}: ${stderr}`);
 });

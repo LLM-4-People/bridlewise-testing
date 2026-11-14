@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# run-tests.sh — build the guardian + test_payload, then assert Landlock
-# enforcement via the CLI contract. Fail-closed: any unexpected result fails.
+# run-tests.sh — assert Landlock enforcement using prepared native artifacts.
+# The Makefile owns their build; this runner only checks freshness before use.
+# Fail-closed: any unexpected result fails.
 #
 # Host at author time: kernel 6.6.114 WSL2, Landlock ABI 3. Landlock IS
 # available here, so the "landlock_unavailable (exit 3)" path is NOT exercised
@@ -55,17 +56,22 @@ summary() {
 }
 # --- end accounting helpers ---
 
-echo "=== building (make all) ==="
-if ! make -C "$GUARDIAN_DIR" all; then
-  echo "FATAL: make all failed"
+echo "=== checking prepared native artifacts (make test-preflight) ==="
+if ! STATIC_BIN="$(make --no-print-directory -C "$GUARDIAN_DIR" test-preflight)"; then
+  echo "FATAL: native artifacts need preparation; run make test-fixtures before readonly execution"
+  exit 1
+fi
+if [[ -z "$STATIC_BIN" || "$STATIC_BIN" == *$'\n'* || "$STATIC_BIN" != /* || ! -f "$STATIC_BIN" || ! -x "$STATIC_BIN" ]]; then
+  echo "FATAL: test-preflight did not return one absolute executable fixture file"
   exit 1
 fi
 [[ -x "$BIN" ]] || { echo "FATAL: binary missing at $BIN"; exit 1; }
 [[ -x "$TP" ]]  || { echo "FATAL: test_payload missing at $TP"; exit 1; }
 
-# Keep the test workspace on the same persistent filesystem as the repo
-# (avoids the /tmp mount-boundary caveat noted in the project AGENTS.md).
-WORK="$(mktemp -d "$GUARDIAN_DIR/.landlock-test.XXXXXX")" || { echo "FATAL: mktemp failed"; exit 1; }
+# Root admission belongs to the caller's existing temporary-root/profile owner.
+# This standalone runner consumes that private TMPDIR without a fallback.
+[[ -n "${TMPDIR:-}" ]] || { echo "FATAL: TMPDIR must name a caller-admitted private temporary directory"; exit 1; }
+WORK="$(mktemp -d -- "$TMPDIR/bridlewise-guardian.XXXXXX")" || { echo "FATAL: mktemp failed"; exit 1; }
 trap 'rm -rf "$WORK"' EXIT
 
 # The guardian opens every spec path WITHOUT following links (a link in a
@@ -430,33 +436,25 @@ EOF
 fi
 
 echo "=== test 20: static binary — EXECUTE-only -> EACCES; EXECUTE+READ -> OK ==="
-# Research finding: even static binaries need READ_FILE (kernel opens with O_RDONLY).
-# Build a tiny static binary; if -static is unavailable, skip with recorded reason.
-STATIC_BIN="$WORK/static_test_bin"
-if cc -static -O2 -o "$STATIC_BIN" -xc - <<'C' 2>/dev/null
-#include <unistd.h>
-int main(void){ const char m[]="STATIC_OK\n"; write(1,m,sizeof(m)-1); return 0; }
-C
-then
-  # 20a: EXECUTE-only on the static binary -> expect EACCES
-  cat > "$WORK/spec-static-exec-only.json" <<EOF
+# The Makefile prepared this static-linked variant of the existing test payload.
+# Even static binaries need READ_FILE (the kernel opens with O_RDONLY).
+# 20a: EXECUTE-only on the static binary -> expect EACCES before its roundtrip.
+cat > "$WORK/spec-static-exec-only.json" <<EOF
 {"abi_version_hint":0,"handled_access_fs":["EXECUTE","READ_FILE"],"allow_rules":[{"path":"$STATIC_BIN","access":["EXECUTE"]}],"protected_subtrees":[]}
 EOF
-  run_cap "$BIN" apply --spec "$WORK/spec-static-exec-only.json" --exec "$STATIC_BIN" || true
-  if [[ "$RC" -ne 0 ]] && grep -qiE "permission denied|EACCES" <<<"$OUT"; then
-    pass "static binary EXECUTE-only -> EACCES (research-confirmed: kernel needs READ_FILE)"
-  else
-    fail "static EXECUTE-only (expected EACCES, got exit=$RC out=$OUT)"
-  fi
-  # 20b: EXECUTE+READ on the static binary -> expect OK (prints STATIC_OK)
-  cat > "$WORK/spec-static-er.json" <<EOF
+run_cap "$BIN" apply --spec "$WORK/spec-static-exec-only.json" --exec "$STATIC_BIN" socketpair unix || true
+if [[ "$RC" -ne 0 ]] && grep -qiE "permission denied|EACCES" <<<"$OUT"; then
+  pass "static binary EXECUTE-only -> EACCES (research-confirmed: kernel needs READ_FILE)"
+else
+  fail "static EXECUTE-only (expected EACCES, got exit=$RC out=$OUT)"
+fi
+# 20b: EXECUTE+READ -> the same owned socketpair roundtrip returns exactly OK.
+cat > "$WORK/spec-static-er.json" <<EOF
 {"abi_version_hint":0,"handled_access_fs":["EXECUTE","READ_FILE"],"allow_rules":[{"path":"$STATIC_BIN","access":["EXECUTE","READ_FILE"]}],"protected_subtrees":[]}
 EOF
-  run_cap "$BIN" apply --spec "$WORK/spec-static-er.json" --exec "$STATIC_BIN" || true
-  assert_contains "static binary EXECUTE+READ -> STATIC_OK" "STATIC_OK" "$OUT"
-else
-  skip "test 20 (cc -static unavailable; static libc not installed) — research finding documented in RESEARCH-EXECUTE-VS-READ.md"
-fi
+run_cap "$BIN" apply --spec "$WORK/spec-static-er.json" --exec "$STATIC_BIN" socketpair unix || true
+assert_exit "static binary EXECUTE+READ exits 0" "0" "$RC"
+if [[ "$OUT" == "OK" ]]; then pass "static binary EXECUTE+READ: owned socketpair roundtrip -> OK"; else fail "static EXECUTE+READ: roundtrip failed (out=$OUT)"; fi
 
 echo "=== test 21: dynamic binary (/bin/cat) — EXECUTE-only -> EACCES; EXECUTE+READ + libs -> OK ==="
 # 21a: EXECUTE-only on /bin/cat -> expect EACCES
@@ -666,19 +664,166 @@ if mount_probe unshare -rm; then
 elif mount_probe sudo -n unshare -m; then
   UNSHARE="sudo -n unshare -m"
 fi
-echo "=== test 37: network refused — socket(AF_INET) and socket(AF_UNIX) -> EACCES ==="
+echo "=== test 37: network refused — IPv4, true IPv6 and Unix socket creation -> EACCES ==="
 sed '1a "network": "refused",' "$WORK/spec.json" > "$WORK/spec-net.json"
-run_cap "$BIN" apply --spec "$WORK/spec-net.json" --exec "$TP" socket inet || true
-assert_contains "network refused: an inet socket -> EACCES" "EACCES" "$OUT"
-run_cap "$BIN" apply --spec "$WORK/spec-net.json" --exec "$TP" socket unix || true
-assert_contains "network refused: a unix socket -> EACCES" "EACCES" "$OUT"
-echo "=== test 38: network not governed (no field) — socket(AF_INET) -> OK (the control) ==="
+for SOCKET_FAMILY in inet inet6 unix; do
+  run_cap "$BIN" apply --spec "$WORK/spec-net.json" --exec "$TP" socket "$SOCKET_FAMILY" || true
+  assert_exit "network refused: $SOCKET_FAMILY socket exits 1" "1" "$RC"
+  assert_contains "network refused: $SOCKET_FAMILY socket -> EACCES" "EACCES:" "$OUT"
+done
+
+echo "=== test 38: network not governed — actual IPv4, IPv6, Unix and Netlink domains (the controls) ==="
 run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socket inet || true
-assert_contains "network not governed: an inet socket -> OK" "OK" "$OUT"
-echo "=== test 39 (hostile): network with any value but \"refused\" -> exit 2 ==="
+assert_exit "network not governed: IPv4 socket exits 0" "0" "$RC"
+if [[ "$OUT" == "OK:AF_INET" ]]; then pass "network not governed: actual AF_INET"; else fail "network not governed: expected actual AF_INET (out=$OUT)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socket inet6 || true
+assert_exit "network not governed: IPv6 socket exits 0" "0" "$RC"
+if [[ "$OUT" == "OK:AF_INET6" ]]; then pass "network not governed: actual AF_INET6"; else fail "network not governed: expected actual AF_INET6 (out=$OUT)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socket unix || true
+assert_exit "network not governed: Unix socket exits 0" "0" "$RC"
+if [[ "$OUT" == "OK:AF_UNIX" ]]; then pass "network not governed: actual AF_UNIX"; else fail "network not governed: expected actual AF_UNIX (out=$OUT)"; fi
+# Netlink is an unaddressed SOCK_RAW/protocol-0 creation control only.
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socket netlink || true
+assert_exit "network not governed: Netlink socket exits 0" "0" "$RC"
+if [[ "$OUT" == "OK:AF_NETLINK" ]]; then pass "network not governed: actual AF_NETLINK"; else fail "network not governed: expected actual AF_NETLINK (out=$OUT)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socket inet-typo || true
+assert_exit "unknown payload family does not fall back to IPv4" "2" "$RC"
+assert_contains "unknown payload family reports an error" "ERROR:" "$OUT"
+
+echo "=== test 39 (hostile): unsupported network values/types and decoded NUL -> exit 2 ==="
 sed '1a "network": "open",' "$WORK/spec.json" > "$WORK/spec-net-bad.json"
 run_cap "$BIN" apply --spec "$WORK/spec-net-bad.json" --exec "$TP" socket inet || true
-assert_exit "network: \"open\" -> exit 2" "2"
+assert_exit "network: unsupported open -> exit 2" "2" "$RC"
+sed '1a "network": true,' "$WORK/spec.json" > "$WORK/spec-net-type.json"
+run_cap "$BIN" apply --spec "$WORK/spec-net-type.json" --exec /bin/true || true
+assert_exit "network: true -> exit 2" "2" "$RC"
+sed '1a "network": "ip-family\\u0000junk",' "$WORK/spec.json" > "$WORK/spec-net-nul.json"
+run_cap "$BIN" apply --spec "$WORK/spec-net-nul.json" --exec /bin/true || true
+assert_exit "network: decoded NUL suffix -> exit 2" "2" "$RC"
+sed '1a "network\\u0000junk": "ip-family",' "$WORK/spec.json" > "$WORK/spec-key-nul.json"
+run_cap "$BIN" apply --spec "$WORK/spec-key-nul.json" --exec /bin/true || true
+assert_exit "native field key: decoded NUL suffix -> exit 2" "2" "$RC"
+sed 's/"READ_FILE"/"READ_FILE\\u0000junk"/' "$WORK/spec.json" > "$WORK/spec-flag-nul.json"
+run_cap "$BIN" apply --spec "$WORK/spec-flag-nul.json" --exec /bin/true || true
+assert_exit "ordinary flag: decoded NUL suffix -> exit 2" "2" "$RC"
+sed 's#"/usr"#"/usr\\u0000junk"#' "$WORK/spec.json" > "$WORK/spec-path-nul.json"
+run_cap "$BIN" apply --spec "$WORK/spec-path-nul.json" --exec /bin/true || true
+assert_exit "ordinary path: decoded NUL suffix -> exit 2" "2" "$RC"
+# The native parser ignores unknown fields; this checks literal backslash-u and
+# an escaped newline stay representable, without claiming strict-key parity.
+sed '1a "ignored_native_control": "literal\\\\u0000text\\ncontinued",' "$WORK/spec.json" > "$WORK/spec-string-control.json"
+run_cap "$BIN" apply --spec "$WORK/spec-string-control.json" --exec /bin/true || true
+assert_exit "native string control: literal backslash-u and escaped newline -> exit 0" "0" "$RC"
+
+echo "=== test 44: IP-family permission — actual IPv4/IPv6 allowed; Unix/Netlink denied ==="
+# This field permits IP families, not destinations. Namespace/route isolation is
+# a separate caller responsibility; these tests create no addressed channels.
+sed '1a "network": "ip-family",' "$WORK/spec.json" > "$WORK/spec-ip-family.json"
+run_cap "$BIN" apply --spec "$WORK/spec-ip-family.json" --exec "$TP" socket inet || true
+assert_exit "IP-family: IPv4 socket exits 0" "0" "$RC"
+if [[ "$OUT" == "OK:AF_INET" ]]; then pass "IP-family: actual AF_INET"; else fail "IP-family: expected actual AF_INET (out=$OUT)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec-ip-family.json" --exec "$TP" socket inet6 || true
+assert_exit "IP-family: IPv6 socket exits 0" "0" "$RC"
+if [[ "$OUT" == "OK:AF_INET6" ]]; then pass "IP-family: actual AF_INET6"; else fail "IP-family: expected actual AF_INET6 (out=$OUT)"; fi
+for SOCKET_FAMILY in unix netlink; do
+  run_cap "$BIN" apply --spec "$WORK/spec-ip-family.json" --exec "$TP" socket "$SOCKET_FAMILY" || true
+  assert_exit "IP-family: $SOCKET_FAMILY socket exits 1" "1" "$RC"
+  assert_contains "IP-family: $SOCKET_FAMILY socket -> EACCES" "EACCES:" "$OUT"
+done
+
+echo "=== test 45: owned Unix socketpair roundtrip remains usable in every network mode ==="
+for SOCKETPAIR_SPEC in spec.json spec-net.json spec-ip-family.json; do
+  run_cap "$BIN" apply --spec "$WORK/$SOCKETPAIR_SPEC" --exec "$TP" socketpair unix || true
+  assert_exit "socketpair under $SOCKETPAIR_SPEC exits 0" "0" "$RC"
+  if [[ "$OUT" == "OK" ]]; then pass "socketpair under $SOCKETPAIR_SPEC: two-way bytes match"; else fail "socketpair under $SOCKETPAIR_SPEC: roundtrip failed (out=$OUT)"; fi
+done
+
+echo "=== test 45b: actual Unix STREAM flags, valid non-STREAM controls and governed creation denial ==="
+SOCKETPAIR_DGRAM_EXPECTED=""
+for SOCKETPAIR_TYPE in stream dgram seqpacket; do
+  case "$SOCKETPAIR_TYPE" in
+    stream) SOCKETPAIR_TYPE_NAME="SOCK_STREAM"; SOCKETPAIR_FLAG_CASES=(none cloexec nonblock both) ;;
+    dgram) SOCKETPAIR_TYPE_NAME="SOCK_DGRAM"; SOCKETPAIR_FLAG_CASES=(none) ;;
+    seqpacket) SOCKETPAIR_TYPE_NAME="SOCK_SEQPACKET"; SOCKETPAIR_FLAG_CASES=(none) ;;
+  esac
+  for SOCKETPAIR_FLAGS in "${SOCKETPAIR_FLAG_CASES[@]}"; do
+    case "$SOCKETPAIR_FLAGS" in
+      none) SOCKETPAIR_CLOEXEC=0; SOCKETPAIR_NONBLOCK=0 ;;
+      cloexec) SOCKETPAIR_CLOEXEC=1; SOCKETPAIR_NONBLOCK=0 ;;
+      nonblock) SOCKETPAIR_CLOEXEC=0; SOCKETPAIR_NONBLOCK=1 ;;
+      both) SOCKETPAIR_CLOEXEC=1; SOCKETPAIR_NONBLOCK=1 ;;
+    esac
+    SOCKETPAIR_EXPECTED="OK:AF_UNIX:$SOCKETPAIR_TYPE_NAME:fd0(FD_CLOEXEC=$SOCKETPAIR_CLOEXEC,O_NONBLOCK=$SOCKETPAIR_NONBLOCK):fd1(FD_CLOEXEC=$SOCKETPAIR_CLOEXEC,O_NONBLOCK=$SOCKETPAIR_NONBLOCK)"
+    if [[ "$SOCKETPAIR_TYPE" == "dgram" ]]; then SOCKETPAIR_DGRAM_EXPECTED="$SOCKETPAIR_EXPECTED"; fi
+    # The absent-mode positive precedes each governed control; an outer/host
+    # refusal cannot replace the owned valid-type roundtrip.
+    for SOCKETPAIR_SPEC in spec.json spec-net.json spec-ip-family.json; do
+      run_cap "$BIN" apply --spec "$WORK/$SOCKETPAIR_SPEC" --exec "$TP" socketpair unix "$SOCKETPAIR_TYPE" "$SOCKETPAIR_FLAGS" || true
+      if [[ "$SOCKETPAIR_TYPE" == "stream" || "$SOCKETPAIR_SPEC" == "spec.json" ]]; then
+        assert_exit "socketpair $SOCKETPAIR_TYPE/$SOCKETPAIR_FLAGS under $SOCKETPAIR_SPEC exits 0" "0" "$RC"
+        if [[ "$OUT" == "$SOCKETPAIR_EXPECTED" ]]; then pass "socketpair $SOCKETPAIR_TYPE/$SOCKETPAIR_FLAGS under $SOCKETPAIR_SPEC: actual properties and two-way bytes match"; else fail "socketpair $SOCKETPAIR_TYPE/$SOCKETPAIR_FLAGS under $SOCKETPAIR_SPEC: expected $SOCKETPAIR_EXPECTED (out=$OUT)"; fi
+      else
+        assert_exit "socketpair $SOCKETPAIR_TYPE under $SOCKETPAIR_SPEC exits 1" "1" "$RC"
+        if [[ "$OUT" =~ ^EACCES:[0-9]+$ ]]; then pass "socketpair $SOCKETPAIR_TYPE under $SOCKETPAIR_SPEC: creation EACCES"; else fail "socketpair $SOCKETPAIR_TYPE under $SOCKETPAIR_SPEC: expected one EACCES line (out=$OUT)"; fi
+      fi
+    done
+  done
+done
+
+echo "=== test 45c: raw invalid family, type and isolated flag have distinct governed EACCES ==="
+for SOCKETPAIR_INVALID in family type flag; do
+  case "$SOCKETPAIR_INVALID" in
+    family) SOCKETPAIR_FAMILY=unspec; SOCKETPAIR_TYPE=stream; SOCKETPAIR_FLAGS=none ;;
+    type) SOCKETPAIR_FAMILY=unix; SOCKETPAIR_TYPE=invalid; SOCKETPAIR_FLAGS=none ;;
+    flag) SOCKETPAIR_FAMILY=unix; SOCKETPAIR_TYPE=stream; SOCKETPAIR_FLAGS=invalid ;;
+  esac
+  # The fixture selects AF_UNSPEC, INT_MAX, or STREAM|INT_MIN from headers.
+  # The default kernel error is not claimed to be a usable channel.
+  run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socketpair "$SOCKETPAIR_FAMILY" "$SOCKETPAIR_TYPE" "$SOCKETPAIR_FLAGS" || true
+  assert_exit "raw invalid socketpair $SOCKETPAIR_INVALID: absent mode exits 2" "2" "$RC"
+  if [[ "$OUT" =~ ^ERROR:[0-9]+$ ]]; then pass "raw invalid socketpair $SOCKETPAIR_INVALID: absent kernel-error baseline"; else fail "raw invalid socketpair $SOCKETPAIR_INVALID: expected one ERROR line (out=$OUT)"; fi
+  for SOCKETPAIR_SPEC in spec-net.json spec-ip-family.json; do
+    run_cap "$BIN" apply --spec "$WORK/$SOCKETPAIR_SPEC" --exec "$TP" socketpair "$SOCKETPAIR_FAMILY" "$SOCKETPAIR_TYPE" "$SOCKETPAIR_FLAGS" || true
+    assert_exit "raw invalid socketpair $SOCKETPAIR_INVALID under $SOCKETPAIR_SPEC exits 1" "1" "$RC"
+    if [[ "$OUT" =~ ^EACCES:[0-9]+$ ]]; then pass "raw invalid socketpair $SOCKETPAIR_INVALID under $SOCKETPAIR_SPEC: creation EACCES"; else fail "raw invalid socketpair $SOCKETPAIR_INVALID under $SOCKETPAIR_SPEC: expected one EACCES line (out=$OUT)"; fi
+  done
+done
+
+echo "=== test 45d: unknown socketpair selector names fail without a fallback ==="
+for SOCKETPAIR_UNKNOWN in family type flag; do
+  case "$SOCKETPAIR_UNKNOWN" in
+    family) SOCKETPAIR_FAMILY=unix-typo; SOCKETPAIR_TYPE=stream; SOCKETPAIR_FLAGS=none ;;
+    type) SOCKETPAIR_FAMILY=unix; SOCKETPAIR_TYPE=stream-typo; SOCKETPAIR_FLAGS=none ;;
+    flag) SOCKETPAIR_FAMILY=unix; SOCKETPAIR_TYPE=stream; SOCKETPAIR_FLAGS=both-typo ;;
+  esac
+  run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" socketpair "$SOCKETPAIR_FAMILY" "$SOCKETPAIR_TYPE" "$SOCKETPAIR_FLAGS" || true
+  assert_exit "unknown socketpair $SOCKETPAIR_UNKNOWN selector exits 2" "2" "$RC"
+  if [[ "$OUT" =~ ^ERROR:[0-9]+$ ]]; then pass "unknown socketpair $SOCKETPAIR_UNKNOWN selector: parser error"; else fail "unknown socketpair $SOCKETPAIR_UNKNOWN selector: expected one ERROR line (out=$OUT)"; fi
+done
+
+echo "=== test 46: fork then exec inherits IP-family permission and denial ==="
+run_cap "$BIN" apply --spec "$WORK/spec-ip-family.json" --exec "$TP" fork-exec inet6 || true
+assert_exit "inherited IP-family: IPv6 socket exits 0" "0" "$RC"
+if [[ "$OUT" == "OK:AF_INET6" ]]; then pass "inherited IP-family: actual AF_INET6"; else fail "inherited IP-family: expected actual AF_INET6 (out=$OUT)"; fi
+run_cap "$BIN" apply --spec "$WORK/spec-ip-family.json" --exec "$TP" fork-exec unix || true
+assert_exit "inherited IP-family: Unix socket exits 1" "1" "$RC"
+assert_contains "inherited IP-family: Unix socket -> EACCES" "EACCES:" "$OUT"
+
+echo "=== test 47: governed io_uring_setup -> ENOSYS; invalid-argument baseline is visible ==="
+# No ring can be allocated with these invalid arguments. If this ungoverned
+# baseline already returns ENOSYS, it cannot prove a removal-mutant distinction.
+run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" io-uring - || true
+printf 'io_uring ungoverned baseline: exit=%s output=%s\n' "$RC" "$OUT"
+if [[ "$RC" == "1" && "$OUT" == ENOSYS:* ]] || [[ "$RC" == "2" && "$OUT" == ERROR:* ]]; then
+  pass "io_uring invalid-argument baseline returned an error without a ring"
+else
+  fail "io_uring invalid-argument baseline was unexpected (exit=$RC out=$OUT)"
+fi
+for IO_URING_SPEC in spec-net.json spec-ip-family.json; do
+  run_cap "$BIN" apply --spec "$WORK/$IO_URING_SPEC" --exec "$TP" io-uring - || true
+  assert_exit "io_uring under $IO_URING_SPEC exits 1" "1" "$RC"
+  assert_contains "io_uring under $IO_URING_SPEC -> ENOSYS" "ENOSYS:" "$OUT"
+done
 echo "=== test 40: cpu_seconds — a spinning payload is ended by the kernel, by CPU work ==="
 sed '1a "cpu_seconds": 1,' "$WORK/spec.json" > "$WORK/spec-cpu.json"
 run_cap "$BIN" apply --spec "$WORK/spec-cpu.json" --exec "$TP" spin - || true
@@ -692,8 +837,16 @@ assert_exit "cpu_seconds: 0 -> exit 2" "2"
 echo "=== test 42: signals refused — a signal to any other process is EPERM (seccomp, every kernel); not governed, the control reaches it ==="
 sleep 60 & OUTSIDE=$!
 sed '1a "signals": "refused",' "$WORK/spec.json" > "$WORK/spec-signals.json"
+# Signals alone must not acquire the network-governed pair restriction.
+run_cap "$BIN" apply --spec "$WORK/spec-signals.json" --exec "$TP" socketpair unix dgram none || true
+assert_exit "absent network plus signals refused: owned DGRAM exits 0" "0" "$RC"
+if [[ "$OUT" == "$SOCKETPAIR_DGRAM_EXPECTED" ]]; then pass "absent network plus signals refused: actual DGRAM pair remains usable"; else fail "signals-only DGRAM: expected $SOCKETPAIR_DGRAM_EXPECTED (out=$OUT)"; fi
 run_cap "$BIN" apply --spec "$WORK/spec-signals.json" --exec "$TP" signal "$OUTSIDE" || true
 if [[ "$OUT" == *"EPERM"* ]] && kill -0 "$OUTSIDE" 2>/dev/null; then pass "signals refused: SIGTERM to an outside process -> EPERM, and it lives"; else fail "signals refused: the signal was not refused (out=$OUT, rc=$RC)"; fi
+sed '1a "network": "ip-family",' "$WORK/spec-signals.json" > "$WORK/spec-ip-signals.json"
+run_cap "$BIN" apply --spec "$WORK/spec-ip-signals.json" --exec "$TP" signal "$OUTSIDE" || true
+assert_exit "IP-family plus signals refused: SIGTERM exits 1" "1" "$RC"
+if [[ "$OUT" == *"EPERM"* ]] && kill -0 "$OUTSIDE" 2>/dev/null; then pass "IP-family plus signals refused: SIGTERM -> EPERM, and owned sleeper lives"; else fail "IP-family plus signals refused: signal was not refused (out=$OUT, rc=$RC)"; fi
 run_cap "$BIN" apply --spec "$WORK/spec.json" --exec "$TP" signal "$OUTSIDE" || true
 sleep 0.2
 if [[ "$OUT" == *"OK"* ]] && ! kill -0 "$OUTSIDE" 2>/dev/null; then pass "not governed (control): the same signal reaches it"; else fail "control: the signal did not reach the outside process (out=$OUT)"; fi

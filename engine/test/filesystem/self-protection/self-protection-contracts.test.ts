@@ -126,9 +126,36 @@ test("self-protection-contracts: error codes table is complete and typed", () =>
   assert.equal(isGuardianPreExecFailure(100), false);
 });
 
-test("self-protection-contracts: the network refusal, the CPU ceiling and the signal refusal are typed spec fields; there is no memory field", () => {
-  assert.equal(GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network: "refused", cpu_seconds: 30 }).network, "refused");
-  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network: "open" }), "only \"refused\"");
+test("self-protection-contracts: network modes are explicit IP-family permission or refusal; absence stays ungoverned", () => {
+  assert.equal(GUARDIAN_SPEC_SCHEMA.parse(VALID_SPEC).network, undefined);
+  for (const network of ["refused", "ip-family"] as const) {
+    assert.equal(GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network }).network, network);
+  }
+  for (const network of ["open", "loopback", "", "refused\u0000junk", "ip-family\u0000junk", 1, true, null, {}]) {
+    assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, network }), `invalid network mode: ${JSON.stringify(network)}`);
+  }
+  assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, ["network\u0000junk"]: "ip-family" }));
+});
+
+test("self-protection-contracts: all path fields share the native parser's NUL-free string representation", () => {
+  const pathSpecs = (path: string) => [
+    { site: "allow_rules.path", spec: { ...VALID_SPEC, allow_rules: [{ ...VALID_SPEC.allow_rules[0], path }] } },
+    { site: "protected_subtrees", spec: { ...VALID_SPEC, protected_subtrees: [path] } },
+    { site: "keep_out", spec: { ...VALID_SPEC, keep_out: [path], keep_out_retries: 0 } },
+    { site: "temp_dir", spec: { ...VALID_SPEC, temp_dir: path } },
+  ];
+  for (const { site, spec } of pathSpecs("/fixture\u0000suffix")) {
+    assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse(spec), /cannot contain NUL/u, site);
+  }
+  for (const path of ["/fixture\\u0000suffix", "/fixture\nline"]) {
+    for (const { site, spec } of pathSpecs(path)) {
+      assert.doesNotThrow(() => GUARDIAN_SPEC_SCHEMA.parse(spec), site);
+    }
+  }
+});
+
+test("self-protection-contracts: CPU and signal limits are typed spec fields; there is no memory field", () => {
+  assert.equal(GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, cpu_seconds: 30 }).cpu_seconds, 30);
   assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, cpu_seconds: 0 }));
   assert.throws(() => GUARDIAN_SPEC_SCHEMA.parse({ ...VALID_SPEC, cpu_seconds: 86_401 }));
   assert.equal(GUARDIAN_BINARY_ERROR_CODES[11], "network_refusal_failed");
