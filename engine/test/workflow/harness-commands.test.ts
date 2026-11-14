@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, rmSync, writeFileSync, mkdirSync, readFileSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -447,6 +447,71 @@ test("HarnessCommands: parseHarnessCommandResult parses, rejects tampered schema
 test("HarnessCommands: harnessCheck architecture step detects drift", async () => {
   const result = await checkArchitectureOnly();
   assert.ok(["pass", "fail"].includes(result.result.architecture.status));
+});
+
+test("HarnessCommands: architecture and registrar share one fresh observation after progress callbacks", () => {
+  const root = newModuleRoot("harness-check-observation-");
+  try {
+    const watched = join(root, "src", "watched.ts");
+    const plain = "export const value = 1;\n";
+    const entry = "if (import.meta.url === process.argv[1]) {}\n";
+    writeFileSync(watched, plain);
+    // Retain the real external-command publication inputs. The tiny fixture
+    // changes the module population, not the architecture verifier or policy.
+    for (const command of ARCHITECTURE_MANIFEST.externalCommands.filter((command) => command.publication === "published")) {
+      const path = join(root, command.path);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, readFileSync(join(ROOT, command.path), "utf8"));
+    }
+    // Isolate fs interception in a child and count actual source reads. The
+    // restored former two-observation owner reads this file twice; it also
+    // lets a registrar-progress edit leave architecture green on old facts.
+    const script = [
+      `import fs from "node:fs";`,
+      `import { join } from "node:path";`,
+      `import { syncBuiltinESMExports } from "node:module";`,
+      `const { runArchitectureChecks, runArchitectureCheck } = await import(${JSON.stringify(new URL("../../src/workflow/harness-commands.ts", import.meta.url).href)});`,
+      `const root = ${JSON.stringify(root)}, watched = ${JSON.stringify(watched)}, plain = ${JSON.stringify(plain)}, entry = ${JSON.stringify(entry)};`,
+      `const read = fs.readFileSync; let reads = 0;`,
+      `fs.readFileSync = (path, ...rest) => { if (path === watched) reads += 1; return read(path, ...rest); };`,
+      `syncBuiltinESMExports();`,
+      `const observe = (onProgress, skipArchitecture = false) => {`,
+      `  reads = 0;`,
+      `  const result = runArchitectureChecks(root, { onProgress, skipArchitecture });`,
+      `  return { reads, architecture: result.architecture.status, registrar: result.moduleRegistrar.status, shared: result.architecture.details?.moduleRegistrar === result.moduleRegistrar.details };`,
+      `};`,
+      `const stable = observe();`,
+      `let callbackFired = false;`,
+      `const changed = observe((message) => { if (message === "Checking module registrar...") { callbackFired = true; fs.writeFileSync(watched, entry); } });`,
+      `fs.writeFileSync(watched, plain);`,
+      `const next = observe();`,
+      `const added = join(root, "src", "added.ts"); fs.writeFileSync(added, entry);`,
+      `const populationChanged = observe();`,
+      `const standaloneChanged = runArchitectureCheck(root).status;`,
+      `fs.unlinkSync(added);`,
+      `const standaloneRestored = runArchitectureCheck(root).status;`,
+      `const skipped = observe(undefined, true);`,
+      `fs.unlinkSync(join(root, ${JSON.stringify(ARCHITECTURE_MODULES_PATH)}));`,
+      `const missingStandalone = runArchitectureCheck(root).status;`,
+      `let missingCombinedCode = null; try { runArchitectureChecks(root); } catch (error) { missingCombinedCode = error.code; }`,
+      `console.log(JSON.stringify({ stable, callbackFired, changed, next, populationChanged, standaloneChanged, standaloneRestored, skipped, missingStandalone, missingCombinedCode }));`,
+    ].join("\n");
+    const result = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8" }).trim().split("\n").at(-1)!);
+    assert.deepEqual(result, {
+      stable: { reads: 1, architecture: "pass", registrar: "pass", shared: true },
+      callbackFired: true,
+      changed: { reads: 1, architecture: "fail", registrar: "fail", shared: true },
+      next: { reads: 1, architecture: "pass", registrar: "pass", shared: true },
+      populationChanged: { reads: 1, architecture: "fail", registrar: "fail", shared: true },
+      standaloneChanged: "fail",
+      standaloneRestored: "pass",
+      skipped: { reads: 1, architecture: "skip", registrar: "pass", shared: false },
+      missingStandalone: "fail",
+      missingCombinedCode: "architecture_modules_missing",
+    }, "one observation must serve both arms; callbacks and later source or population edits must remain fresh");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("HarnessCommands: the architecture step gates the external-command inventory's sources and its publication boundary", () => {

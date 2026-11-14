@@ -66,6 +66,14 @@ export function assertSubprocessBounds(bounds: SubprocessBounds | undefined): as
   if (valid.pollMs >= valid.stallMs) throw new InputError(`a bounded run must read its group more often than its stall window: pollMs ${String(valid.pollMs)} is not below stallMs ${String(valid.stallMs)}`, "cpu_bounds_invalid");
 }
 
+/** Capture the canonical six bounds once, validate that own snapshot, then freeze it. Compatible caller extras are never read. */
+export function snapshotSubprocessBounds(bounds: SubprocessBounds | undefined): SubprocessBounds {
+  const source = bounds as Readonly<Record<string, unknown>> | undefined;
+  const snapshot = Object.fromEntries(POSITIVE_BOUNDS.map((name) => [name, source?.[name]])) as SubprocessBounds;
+  assertSubprocessBounds(snapshot);
+  return Object.freeze(snapshot);
+}
+
 /**
  * The kernel's per-process CPU limit `bounds` imply, in whole seconds: the soft limit (SIGXCPU) past what the
  * supervisor's own stop needs (the budget, two reads, the grace), and the hard limit (SIGKILL) a grace above

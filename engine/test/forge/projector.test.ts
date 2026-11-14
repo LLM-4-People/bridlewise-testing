@@ -126,6 +126,53 @@ test("memory is the admitted run's cgroup cap (the one memory-bounds owner): a p
   assert.match(ran.stdout, /^REFUSED projection_memory_exhausted scope=\/\S+\/bridlewise-run-[0-9a-f-]+\.scope max=[1-9]\d*$/mu, `${ran.stdout} ${ran.stderr}`);
 });
 
+test("a confined call is admitted before module linking, and a failed link releases its run", () => {
+  const directory = createTempDir("projector-link-admission-");
+  const entry = join(directory, "sentinel.ts");
+  const source = "export function projectText(input: string): string { return input; }\n";
+  writeFileSync(entry, source);
+  const lockPath = join(directory, "instrument.lock");
+  // Intercept only this fixture's real linker input. The production admission
+  // and registry stay real; the sentinel stops before stripping or execution.
+  const script = [
+    'import nodeModule, { syncBuiltinESMExports } from "node:module";',
+    'const { confinedCall } = await import(' + JSON.stringify(join(ENGINE_ROOT, "src/workflow/forge/projector/confined.ts")) + ');',
+    'const { borrowInstrumentLock, admittedRuns } = await import(' + JSON.stringify(join(ENGINE_ROOT, "src/process/instrument-lock.ts")) + ');',
+    'const { ownCgroupPath, ownCgroupFile } = await import(' + JSON.stringify(join(ENGINE_ROOT, "src/process/process-facts.ts")) + ');',
+    'const { emptyKeepOutFacts } = await import(' + JSON.stringify(join(ENGINE_ROOT, "test/support/keep-out-facts.ts")) + ');',
+    'const lockPath = ' + JSON.stringify(lockPath) + ';',
+    'const snapshot = () => ({ scope: ownCgroupPath(), max: ownCgroupFile("memory.max"), current: ownCgroupFile("memory.current"), events: ownCgroupFile("memory.events") });',
+    'const original = nodeModule.stripTypeScriptTypes;',
+    'const sentinel = new Error("projector link admission sentinel");',
+    'let observed, ending;',
+    'nodeModule.stripTypeScriptTypes = (code, ...options) => {',
+    '  if (code !== ' + JSON.stringify(source) + ') return original(code, ...options);',
+    '  observed = { admitted: borrowInstrumentLock(lockPath, "projector link admission control") !== undefined, ...snapshot() };',
+    '  throw sentinel;',
+    '};',
+    'syncBuiltinESMExports();',
+    'try {',
+    '  confinedCall(' + JSON.stringify({ entry, roots: [directory], exportName: "projectText" }) + ', "0", { harnessRoot: ' + JSON.stringify(ENGINE_ROOT) + ', keepOut: emptyKeepOutFacts(), cpuSeconds: ' + JSON.stringify(CONFINEMENT.cpuSeconds) + ', run: { lockPath, perRun: ' + JSON.stringify(CONFINEMENT.run.perRun) + ' } });',
+    '} catch (error) { ending = error === sentinel ? "same-sentinel" : "unexpected"; }',
+    'finally { nodeModule.stripTypeScriptTypes = original; syncBuiltinESMExports(); }',
+    'console.log(JSON.stringify({ observed, ending, after: snapshot(), remaining: admittedRuns(lockPath).length }));',
+  ].join("\n");
+  const ran = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", script], { cwd: ENGINE_ROOT, encoding: "utf8", env: process.env });
+  assert.equal(ran.status, 0, JSON.stringify({ status: ran.status, signal: ran.signal, error: ran.error === undefined ? null : { message: ran.error.message, code: (ran.error as NodeJS.ErrnoException).code }, stdout: ran.stdout, stderr: ran.stderr }));
+  const result = JSON.parse(ran.stdout.trim().split("\n").at(-1)!);
+  assert.equal(result.ending, "same-sentinel", "the original link failure is preserved");
+  assert.equal(result.observed.admitted, true, "the linker must run inside this call's real admitted registry hold");
+  assert.match(result.observed.scope, /\/bridlewise-run-[0-9a-f-]+\.scope$/u);
+  assert.equal(result.after.scope, result.observed.scope, "the released run's own scope remains observable while its helper lives");
+  assert.match(result.observed.max, /^[1-9]\d*$/u);
+  assert.equal(result.after.max, result.observed.max);
+  assert.match(result.observed.current, /^\d+$/u);
+  assert.match(result.after.current, /^\d+$/u);
+  assert.equal(typeof result.observed.events, "string");
+  assert.equal(typeof result.after.events, "string");
+  assert.equal(result.remaining, 0, "a failed link must release its admitted registry record");
+});
+
 test("a confinement is built only under a declared run registry: a root without testExecution.instrumentLock is refused instrument_lock_undeclared", () => {
   assert.throws(() => configuredConfinement(createTempDir("projector-no-lock-"), emptyKeepOutFacts(), 60), (error: HarnessError) => error.code === "instrument_lock_undeclared" && /testExecution\.instrumentLock/u.test(error.message));
   // This checkout declares one: the confinement carries its registry and per-run caps.

@@ -40,11 +40,12 @@ import { constants } from "node:os";
 import type { Readable } from "node:stream";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
+import { canonicalJson, sha256 } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { isProcessAlive, isProcessGroupAlive, isProcessIdentityLive, ownedAnnouncement, ownedChild, processGroupMembers, terminate, type OwnedProcess, type ProcessIdentity } from "./process-facts.ts";
 import { adoptIntoOwnedInstrumentLock } from "./instrument-lock-adoption.ts";
 import { guarded } from "./fault-policy.ts";
-import { assertSubprocessBounds, COMMAND_NOT_FOUND, cpuLimitedInvocation, type BoundedEnding, type SubprocessBounds } from "./subprocess-bounds.ts";
+import { snapshotSubprocessBounds, COMMAND_NOT_FOUND, cpuLimitedInvocation, type BoundedEnding, type SubprocessBounds } from "./subprocess-bounds.ts";
 
 /** The signal a receipt's negative status names (`-15` → `SIGTERM`), or null for an exit status. */
 function signalOfStatus(status: number): NodeJS.Signals | null {
@@ -292,6 +293,38 @@ export function superviseCommand(options: SupervisedCommandOptions): Promise<Sup
   });
 }
 
+/** The one constant-size observation retained by the work-bounded runner. No command, environment or output content. */
+export type CpuBoundedObservation = Readonly<{
+  afterMs: number;
+  cpuMs: number;
+  runMs: number;
+  waitMs: number;
+  runnable: boolean;
+  members: number;
+  outputBytes: number;
+  progressCpuMs: number;
+  progressRunMs: number;
+  idleMs: number;
+  previousWaitMs: number;
+  previousPollAfterMs: number;
+  previousOutputBytes: number;
+  leaderRunning: boolean;
+  closed: boolean;
+  nativeExit: Readonly<{ status: number | null; signal: NodeJS.Signals | null }> | null;
+}>;
+
+/** Requested cause and actual termination remain separate facts, including a no-op stop after native exit. */
+export type CpuBoundedDiagnostics = Readonly<{
+  admittedBounds: SubprocessBounds;
+  elapsedMs: number;
+  lastObservation: CpuBoundedObservation | null;
+  stopRequest: Readonly<{ ending: BoundedEnding; observation: CpuBoundedObservation | null }> | null;
+  termination: Awaited<ReturnType<typeof terminate>> | null;
+}>;
+
+/** Passive observation after the shared owner decides; return values are never classification inputs. */
+export type CpuBoundedObservationEvent = Readonly<{ phase: "watch" | "termination"; diagnostics: CpuBoundedDiagnostics }>;
+
 /** What a {@link runCpuBounded} run answered. */
 export type CpuBoundedRun = Readonly<{
   ending: BoundedEnding;
@@ -304,7 +337,46 @@ export type CpuBoundedRun = Readonly<{
   cpuMs: number | null;
   /** Why it did not start, when `unstarted`. */
   startError: string | null;
+  /** Bounded scalar facts retained by the shared owner, never a sample history. */
+  diagnostics: CpuBoundedDiagnostics;
 }>;
+
+/** Known-field copies only: structurally compatible diagnostic extras never enter a report or observer. */
+function cpuBoundedExitSnapshot(exit: Readonly<{ status: number | null; signal: NodeJS.Signals | null }> | null): Readonly<{ status: number | null; signal: NodeJS.Signals | null }> | null {
+  return exit === null ? null : Object.freeze({ status: exit.status, signal: exit.signal });
+}
+
+function cpuBoundedObservationSnapshot(observation: CpuBoundedObservation | null): CpuBoundedObservation | null {
+  return observation === null ? null : Object.freeze({
+    afterMs: observation.afterMs, cpuMs: observation.cpuMs, runMs: observation.runMs, waitMs: observation.waitMs,
+    runnable: observation.runnable, members: observation.members, outputBytes: observation.outputBytes,
+    progressCpuMs: observation.progressCpuMs, progressRunMs: observation.progressRunMs, idleMs: observation.idleMs,
+    previousWaitMs: observation.previousWaitMs, previousPollAfterMs: observation.previousPollAfterMs,
+    previousOutputBytes: observation.previousOutputBytes, leaderRunning: observation.leaderRunning,
+    closed: observation.closed, nativeExit: cpuBoundedExitSnapshot(observation.nativeExit),
+  });
+}
+
+function cpuBoundedDiagnosticsSnapshot(diagnostics: CpuBoundedDiagnostics): CpuBoundedDiagnostics {
+  const stop = diagnostics.stopRequest;
+  const termination = diagnostics.termination;
+  return Object.freeze({
+    admittedBounds: snapshotSubprocessBounds(diagnostics.admittedBounds), elapsedMs: diagnostics.elapsedMs,
+    lastObservation: cpuBoundedObservationSnapshot(diagnostics.lastObservation),
+    stopRequest: stop === null ? null : Object.freeze({ ending: stop.ending, observation: cpuBoundedObservationSnapshot(stop.observation) }),
+    termination: termination === null ? null : Object.freeze({ ending: termination.ending, waitedMs: termination.waitedMs }),
+  });
+}
+
+/** One safe diagnostic projection for every bounded-run assertion or report. Buffers and arbitrary error text stay private. */
+export function boundedRunDiagnostic(run: CpuBoundedRun): string {
+  return canonicalJson({
+    ending: run.ending, status: run.status, signal: run.signal, cpuMs: run.cpuMs,
+    startError: run.startError === null ? null : { bytes: Buffer.byteLength(run.startError), sha256: sha256(run.startError) },
+    stdoutBytes: run.stdout.length, stderrBytes: run.stderr.length,
+    diagnostics: cpuBoundedDiagnosticsSnapshot(run.diagnostics),
+  });
+}
 
 /**
  * The group's accumulated work, sampled: its CPU time (clock ticks, members and reaped children: the budget),
@@ -380,10 +452,11 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
 export async function runCpuBounded(
   command: string,
   args: readonly string[],
-  options: Readonly<{ cwd: string; env?: Readonly<Record<string, string | undefined>>; input?: Buffer; bounds: SubprocessBounds }>,
+  options: Readonly<{ cwd: string; env?: Readonly<Record<string, string | undefined>>; input?: Buffer; bounds: SubprocessBounds; onObservation?: (event: CpuBoundedObservationEvent) => void }>,
 ): Promise<CpuBoundedRun> {
-  const { bounds } = options;
-  assertSubprocessBounds(bounds);
+  const bounds = snapshotSubprocessBounds(options.bounds);
+  const admittedBounds = bounds;
+  const onObservation = options.onObservation;
   const invocation = cpuLimitedInvocation(command, args, bounds);
   // No `env`: the command inherits this process's environment (a child the harness runs as itself).
   const child = spawn(invocation.command, [...invocation.args], { cwd: options.cwd, ...(options.env === undefined ? {} : { env: options.env }), detached: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -430,10 +503,15 @@ export async function runCpuBounded(
   // A stopped run answers only once the terminator has seen its group gone: its pipes can close (a member
   // that closes them on SIGTERM, or simply the exit's file close) before the process itself is gone.
   let stopped: Promise<unknown> | undefined;
+  let lastObservation: CpuBoundedObservation | null = null;
+  let stopRequest: CpuBoundedDiagnostics["stopRequest"] = null;
+  let terminationResult: CpuBoundedDiagnostics["termination"] = null;
   const stop = (ending: BoundedEnding): void => {
     if (stopping !== undefined || owned === undefined) return;
     stopping = ending;
-    stopped = terminate({ group: owned }, { graceMs: bounds.killGraceMs }).then(guarded("process.cpu-bounded.stopped", () => {
+    stopRequest = Object.freeze({ ending, observation: lastObservation });
+    stopped = terminate({ group: owned }, { graceMs: bounds.killGraceMs }).then(guarded("process.cpu-bounded.stopped", (termination: Awaited<ReturnType<typeof terminate>>) => {
+      terminationResult = termination;
       // The group is gone; a pipe still open now is held outside it (NB-1): let it go after the grace.
       setTimeout(guarded("process.cpu-bounded.release", () => {
         if (closed) return;
@@ -441,6 +519,7 @@ export async function runCpuBounded(
         child.stderr.destroy();
         release?.();
       }), bounds.killGraceMs).unref();
+      publishObservation?.("termination");
     }));
   };
   const startedAt = Date.now();
@@ -458,13 +537,24 @@ export async function runCpuBounded(
   const watch = setInterval(guarded("process.cpu-bounded.watch", () => {
     if (stopping !== undefined || closed || owned === undefined || accountant === undefined) return;
     const { cpuMs: read, runMs, waitMs, runnable, members } = accountant.sample();
+    const previousWaitMs = lastWaitMs;
+    const previousPollAfterMs = lastPollAt - startedAt;
+    const previousOutputBytes = lastOutputBytes;
+    const observation = (now: number): CpuBoundedObservation => Object.freeze({
+      afterMs: now - startedAt, cpuMs: read, runMs, waitMs, runnable, members, outputBytes,
+      progressCpuMs, progressRunMs, idleMs, previousWaitMs, previousPollAfterMs, previousOutputBytes,
+      leaderRunning: leaderRunning(), closed, nativeExit: cpuBoundedExitSnapshot(exitStatus ?? null),
+    });
     // A leader procfs cannot see while Node still holds it running: no budget can be judged.
     if (members === 0 && leaderRunning() && isProcessIdentityLive(owned)) {
+      lastObservation = observation(Date.now());
       stop("unmeasurable");
+      publishObservation?.("watch");
       return;
     }
     cpuMs = read;
     const now = Date.now();
+    lastObservation = observation(now);
     if (read > bounds.cpuBudgetMs) stop("cpu-exhausted");
     else if (outputBytes > bounds.outputBytes) stop("output-exceeded");
     else if (now - startedAt >= bounds.hangBackstopMs) stop("hung");
@@ -474,26 +564,43 @@ export async function runCpuBounded(
       idleMs = 0;
     } else {
       if (!runnable) idleMs += Math.max(0, now - lastPollAt - (waitMs - lastWaitMs));
+      lastObservation = observation(now);
       if (idleMs >= bounds.stallMs) stop("stalled");
     }
     lastWaitMs = waitMs;
     lastPollAt = now;
     lastOutputBytes = outputBytes;
+    lastObservation = observation(now);
+    publishObservation?.("watch");
   }), bounds.pollMs);
+  const diagnostics = (): CpuBoundedDiagnostics => cpuBoundedDiagnosticsSnapshot({
+    admittedBounds, elapsedMs: Date.now() - startedAt, lastObservation, stopRequest, termination: terminationResult,
+  });
+  const publishObservation = onObservation === undefined ? undefined : guarded(
+    "process.cpu-bounded.observation",
+    (phase: CpuBoundedObservationEvent["phase"]): void => onObservation(Object.freeze({ phase, diagnostics: diagnostics() })),
+  );
   try {
     const end = await ended;
     if (stopped !== undefined) await stopped;
+    const finalDiagnostics = diagnostics();
+    const stopObservation = finalDiagnostics.stopRequest?.observation;
+    // An idle pipe held outside an already-ended empty group requested a stall, but stopped nothing.
+    // Budget/output/backstop violations and a group that actually needed termination retain their cause.
+    const effectiveStopping = stopping === "stalled" && stopObservation?.members === 0 &&
+      stopObservation.nativeExit !== null && finalDiagnostics.termination?.ending === "gone" ? undefined : stopping;
     // The shell found no such command (on the run's PATH, or as a path): it never started.
-    const missing = stopping === undefined && exitStatus?.status === COMMAND_NOT_FOUND.status && Buffer.concat(stderr).toString("utf8").trim() === COMMAND_NOT_FOUND.marker;
-    if (missing) return Object.freeze({ ending: "unstarted", status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cpuMs, startError: "ENOENT" });
+    const missing = effectiveStopping === undefined && exitStatus?.status === COMMAND_NOT_FOUND.status && Buffer.concat(stderr).toString("utf8").trim() === COMMAND_NOT_FOUND.marker;
+    if (missing) return Object.freeze({ ending: "unstarted", status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cpuMs, startError: "ENOENT", diagnostics: finalDiagnostics });
     return Object.freeze({
-      ending: end.error !== undefined ? "unstarted" : stopping ?? (exitStatus?.signal === "SIGXCPU" ? "cpu-rlimit" : "exited"),
+      ending: end.error !== undefined ? "unstarted" : effectiveStopping ?? (exitStatus?.signal === "SIGXCPU" ? "cpu-rlimit" : "exited"),
       status: exitStatus?.status ?? null,
       signal: exitStatus?.signal ?? null,
       stdout: Buffer.concat(stdout),
       stderr: Buffer.concat(stderr),
       cpuMs,
       startError: end.error === undefined ? null : (end.error as NodeJS.ErrnoException).code ?? end.error.message,
+      diagnostics: finalDiagnostics,
     });
   } finally {
     clearInterval(watch);

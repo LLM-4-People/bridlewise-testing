@@ -19,9 +19,9 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (harness sync; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**0 of 60 tracked items shipped (0%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. 7 not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.
+**0 of 61 tracked items shipped (0%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. 7 not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.
 
-0 shipped · 24 claimed, unverified · 3 in progress · 32 planned · 1 blocked · 7 not planned.
+0 shipped · 24 claimed, unverified · 4 in progress · 32 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -306,6 +306,7 @@ Every open tracker item outside the milestone plan appears here, by lane. An ite
 | Task | State | Owner | Evidence |
 |---|---|---|---|
 | **[Bring the supported suite under the calibrated\-work cap](../trackers/items/FLOOR-SUITE-CALIBRATED-CAP.md)** | blocked \(blocked by RISK\-NO\-CALIBRATED\-JUDGED\-RUN\) | — | — |
+| **[Share fresh architecture and registrar observations](../trackers/items/HARNESS-CHECK-SHARED-OBSERVATION.md)** | in progress \(decision UR\-24 built\) | workflow command maintainer | [GitHub]({{ site.repository_url }}/actions/runs/43615214562/job/132508659040) |
 | **[Diagnose projector subprocess termination](../trackers/items/PROJECTOR-NATIVE-TERMINATION.md)** | in progress \(PROJECTOR\-NATIVE\-TERMINATION\-BURN\-DOWN in progress\) | engine process maintainer | [GitHub]({{ site.repository_url }}/actions/runs/43576533070/job/132391868972) |
 | **[No clean judged run in calibrated\-work/v1 yet](../trackers/items/RISK-NO-CALIBRATED-JUDGED-RUN.md)** | planned | — | [evidence\: the\-supported\-suite\-on\-one\-host](evidence.md#the-supported-suite-on-one-host) |
 
