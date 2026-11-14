@@ -136,6 +136,7 @@ test("rollback: execute with no effects returns zero restored", () => {
     assert.equal(result.restoredCount, 0);
     assert.equal(result.skippedCount, 0);
     assert.equal(result.failedCount, 0);
+    assert.equal(result.success, true);
     assert.ok(result.rollbackEventId.length > 0);
     rec.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -182,6 +183,7 @@ test("rollback: file effect is restored via FileEffectRestorer", () => {
     // defect, certified by a test whose name promised restoration.
     assert.equal(result.restoredCount, 1, "the recorded file effect must be restorable");
     assert.equal(result.failedCount, 0);
+    assert.equal(result.success, true);
     assert.equal(readFileSync(filePath, "utf8"), "old content", "the preimage must be back on disk");
     rec.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -284,6 +286,7 @@ test("rollback: irreversible effects are skipped with typed reason", () => {
     const result = rec.rollback.execute({ targetSequence: "0" });
     assert.ok(result.skippedCount >= 1);
     assert.equal(result.failedCount, 0);
+    assert.equal(result.success, true);
     rec.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -314,6 +317,7 @@ test("rollback: failed restoration is recorded", () => {
     });
     assert.equal(result.restoredCount, 0);
     assert.equal(result.failedCount, 1);
+    assert.equal(result.success, false);
     assert.equal(result.failedEffects.length, 1);
     rec.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -341,6 +345,7 @@ test("rollback: no fileRestorer means file effects fail", () => {
     const result = rb.execute({ targetSequence: "0" });
     assert.equal(result.restoredCount, 0);
     assert.equal(result.failedCount, 1);
+    assert.equal(result.success, false);
     rec.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -565,6 +570,7 @@ test("rollback: test and checkpoint types are reversible without restorer", () =
     const result = rec.rollback.execute({ targetSequence: "0" });
     assert.equal(result.restoredCount, 2);
     assert.equal(result.failedCount, 0);
+    assert.equal(result.success, true);
     rec.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -663,6 +669,7 @@ test("rollback: rollback with file restorer that succeeds", () => {
     const result = rec.rollback.execute({ targetSequence: "0", fileRestorer: restorer });
     assert.equal(result.restoredCount, 1);
     assert.equal(result.failedCount, 0);
+    assert.equal(result.success, true);
     assert.equal(readFileSync(filePath, "utf8"), "old");
     rec.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
