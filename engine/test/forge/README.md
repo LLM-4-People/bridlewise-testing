@@ -48,3 +48,5 @@ projection store.
 ## Where it lives and what consumes it
 
 The folder lives at `engine/test/forge/`.
+
+- `projection-command.test.ts` — the read-only projection host: exact CLI grammar before port access, explicit wiring without production fallback, committed native source and ledger views under hostile Git interpretation, real confined projection/plan metadata without raw fields, read-only store access, truthful incomplete coverage and typed refusals; the shared first-read adoption semantics and the unchanged apply second read on the same store.
