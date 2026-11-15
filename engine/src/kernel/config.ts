@@ -31,20 +31,30 @@ const REPOSITORY_SCAN_FILE_EXCLUSIONS = new Set<string>(ROOT_POLICY.configuratio
 const REPOSITORY_SCAN_FILE_SUFFIX_EXCLUSIONS = ROOT_POLICY.configuration.repositoryScanFileSuffixExclusions;
 const REQUIRED_CONFIG_MODE = BigInt(`0o${ROOT_POLICY.configuration.requiredConfigFileMode}`);
 
-const PLATFORM_SUPPORTS_MOUNTINFO = process.platform === "linux";
-let nonLinuxMountpointWarningEmitted = false;
+/**
+ * The non-Linux platforms this process has already warned about. The
+ * warning is said once per process FOR EACH PLATFORM it reads: the platform
+ * is read at each call, never captured when the module loaded, so a
+ * platform that changes after the first load (a test faking darwin after an
+ * earlier test file loaded this module on Linux) still warns, and the
+ * bootstraps of one platform (loadPinnedConfigSnapshot is not cached) warn
+ * once between them.
+ */
+const warnedPlatforms = new Set<string>();
 
 /**
- * Returns the active mount-point set for the current platform. On Linux this
- * reads `/proc/self/mountinfo` (the S1 security floor). On non-Linux platforms
- * the mount-point check is unavailable, so an empty set is returned and a
- * single warning is emitted explaining that mount-point verification is
- * skipped. The cross-device check (`stats.dev`) still runs on every platform.
+ * Returns the active mount-point set for the platform this process is on
+ * NOW (read at each call). On Linux this reads `/proc/self/mountinfo` (the S1
+ * security floor). On non-Linux platforms the mount-point check is
+ * unavailable, so an empty set is returned and a warning is emitted, once per
+ * platform per process, explaining that mount-point verification is skipped.
+ * The cross-device check (`stats.dev`) still runs on every platform.
  */
 function readPlatformMountPoints(): ReadonlySet<string> {
-  if (PLATFORM_SUPPORTS_MOUNTINFO) return readLinuxMountPoints();
-  if (!nonLinuxMountpointWarningEmitted) {
-    nonLinuxMountpointWarningEmitted = true;
+  const platform = process.platform;
+  if (platform === "linux") return readLinuxMountPoints();
+  if (!warnedPlatforms.has(platform)) {
+    warnedPlatforms.add(platform);
     process.emitWarning(
       `Mount-point verification is skipped on non-Linux platform ${process.platform}`,
       { type: "SecurityWarning", code: "mountpoint_check_skipped_non_linux" },

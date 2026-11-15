@@ -28,6 +28,38 @@
     {
       "identity": "test/s1-scenarios/b12.test.ts::S1-B12-CONTROL",
       "owner": "FLAKY-PUBLIC-S1-B12-CONTROL"
+    },
+    {
+      "identity": "test/forge/projector.test.ts::memory is the admitted run's cgroup cap (the one memory-bounds owner): a program allocating three times its run's memory.max, read from the run's own cgroup, is refused typed projection_memory_exhausted",
+      "owner": "PROJECTOR-NATIVE-TERMINATION-BURN-DOWN"
+    },
+    {
+      "identity": "test/process/bounded-run.test.ts::the endings no budget decides, each pinned: SIGXCPU is `cpu-rlimit`; a poller doing any CPU work is progressing, never stalled; a run past the wall backstop is hung",
+      "owner": "BOUNDED-SIGXCPU-STALL-BURN-DOWN"
+    },
+    {
+      "identity": "test/foundation-cascade.test.ts::[FC-E002] worker catalog executor and output mutations cannot fabricate evidence",
+      "owner": "FOUNDATION-SNAPSHOT-COPY-BURN-DOWN"
+    },
+    {
+      "identity": "test/process/bounded-run.test.ts::controlled native SIGXCPU outranks only its requested stall after actual owned cleanup",
+      "owner": "BOUNDED-SIGNAL-WITNESS-BURN-DOWN"
+    },
+    {
+      "identity": "test/process/bounded-run.test.ts::controlled CPU budget remains authoritative over native SIGXCPU",
+      "owner": "BOUNDED-SIGNAL-WITNESS-BURN-DOWN"
+    },
+    {
+      "identity": "test/process/bounded-run.test.ts::controlled output budget remains authoritative over native SIGXCPU",
+      "owner": "BOUNDED-SIGNAL-WITNESS-BURN-DOWN"
+    },
+    {
+      "identity": "test/process/bounded-run.test.ts::controlled hang backstop remains authoritative over native SIGXCPU",
+      "owner": "BOUNDED-SIGNAL-WITNESS-BURN-DOWN"
+    },
+    {
+      "identity": "test/process/bounded-run.test.ts::controlled native SIGXCPU still awaits and confirms its live same-group holder cleanup",
+      "owner": "BOUNDED-SIGNAL-WITNESS-BURN-DOWN"
     }
   ]
 }

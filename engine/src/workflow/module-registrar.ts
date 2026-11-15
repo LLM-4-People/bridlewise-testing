@@ -11,11 +11,12 @@
  * says (its exports, its imports) is never written: the architecture check
  * derives it every time.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, type BigIntStats } from "node:fs";
 import { resolve } from "node:path";
 
 import type { ArchitectureModuleEntry } from "../architecture-manifest.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
+import { sameIdentity } from "../shared/identity.ts";
 import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { InputError } from "../kernel/errors.ts";
 import { parseSignedReport } from "./command-result.ts";
@@ -71,9 +72,45 @@ function registeredModuleDecisions(root: string): ArchitectureModuleDecisions {
   return readArchitectureModuleDecisions(decisionsText(root));
 }
 
-/** Every census module that is a direct-execution entry point, by path. */
-function detectedEntryPoints(root: string, census: readonly string[]): ReadonlySet<string> {
-  return new Set(census.filter((path) => analyzeArchitectureSource(path, readFileSync(resolve(root, path), "utf8")).directExecutionEntrypoint));
+/** The existing identity owner's full stat identity, or absence from the plain-file population. */
+function sourceIdentity(root: string, path: string): BigIntStats | undefined {
+  try {
+    const stats = lstatSync(resolve(root, path), { bigint: true });
+    return stats.isFile() ? Object.freeze(stats) : undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Missing snapshots never establish that two source observations agree. */
+function sameSourceIdentity(left: BigIntStats | undefined, right: BigIntStats | undefined): boolean {
+  return left !== undefined && right !== undefined && sameIdentity(left, right);
+}
+
+/** Every census module that is a direct-execution entry point, by path. Write mode also binds the facts to the source identities it read. */
+function detectedEntryPoints(root: string, census: readonly string[], identities?: Map<string, BigIntStats>): ReadonlySet<string> {
+  return new Set(census.filter((path) => {
+    const before = identities === undefined ? undefined : sourceIdentity(root, path);
+    const source = readFileSync(resolve(root, path), "utf8");
+    if (identities !== undefined) {
+      const after = sourceIdentity(root, path);
+      if (after === undefined || !sameSourceIdentity(before, after)) throw new InputError(`architecture module source changed while it was read: ${path}`, "architecture_modules_changed");
+      identities.set(path, after);
+    }
+    return analyzeArchitectureSource(path, source).directExecutionEntrypoint;
+  }));
+}
+
+/** The one drift judgement over a census and the facts derived from that same observation. */
+function registrationDrift(decisions: ArchitectureModuleDecisions, census: readonly string[], entryPoints: ReadonlySet<string>): readonly ModuleRegistration[] {
+  const inCensus = new Set(census);
+  const byPath = new Map(decisions.entries.map((entry) => [entry.path, entry] as const));
+  const drift: ModuleRegistration[] = [
+    ...decisions.entries.filter((entry) => !inCensus.has(entry.path)).map((entry) => ({ path: entry.path, compositionRoot: entry.compositionRoot === true })),
+    ...[...entryPoints].filter((path) => byPath.get(path)?.compositionRoot !== true).map((path) => ({ path, compositionRoot: true })),
+  ];
+  return deepFreeze(drift.toSorted((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
 }
 
 /**
@@ -88,13 +125,7 @@ export function compareModuleRegistrations(
   decisions: ArchitectureModuleDecisions = registeredModuleDecisions(root),
   census: readonly string[] = architectureSourcePaths(root),
 ): readonly ModuleRegistration[] {
-  const inCensus = new Set(census);
-  const byPath = new Map(decisions.entries.map((entry) => [entry.path, entry] as const));
-  const drift: ModuleRegistration[] = [
-    ...decisions.entries.filter((entry) => !inCensus.has(entry.path)).map((entry) => ({ path: entry.path, compositionRoot: entry.compositionRoot === true })),
-    ...[...detectedEntryPoints(root, census)].filter((path) => byPath.get(path)?.compositionRoot !== true).map((path) => ({ path, compositionRoot: true })),
-  ];
-  return deepFreeze(drift.toSorted((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  return registrationDrift(decisions, census, detectedEntryPoints(root, census));
 }
 
 export function generateModuleRegistrarReport(
@@ -104,7 +135,9 @@ export function generateModuleRegistrarReport(
   const text = decisionsText(root);
   const decisions = readArchitectureModuleDecisions(text);
   const census = architectureSourcePaths(root);
-  const drift = compareModuleRegistrations(root, decisions, census);
+  const identities = options.write ? new Map<string, BigIntStats>() : undefined;
+  const entryPoints = detectedEntryPoints(root, census, identities);
+  const drift = registrationDrift(decisions, census, entryPoints);
   const entriesCurrent = architectureModulesText(decisions) === text;
 
   // The counts above describe the tree BEFORE any write; with write=true the
@@ -112,8 +145,26 @@ export function generateModuleRegistrarReport(
   let postWrite: ModuleRegistrarPostWrite | null = null;
   if (options.write) {
     const outcome = updateModuleDecisions(root, decisions, census, drift);
-    const after = generateModuleRegistrarReport(root);
-    postWrite = deepFreeze({ ...outcome, clean: after.driftedModules === 0 && after.entriesCurrent });
+    const decisionIdentity = sourceIdentity(root, ARCHITECTURE_MODULES_PATH);
+    const afterText = decisionsText(root);
+    const afterDecisions = readArchitectureModuleDecisions(afterText);
+    const afterCensus = architectureSourcePaths(root);
+    // Only the decisions module may have changed through this registrar. A
+    // fresh population and the existing full identities protect reuse of the
+    // other source facts, including an unrelated edit during this read-back.
+    const stable = census.length === afterCensus.length && census.every((path, index) => path === afterCensus[index]) &&
+      sameSourceIdentity(decisionIdentity, sourceIdentity(root, ARCHITECTURE_MODULES_PATH)) &&
+      census.every((path) => path === ARCHITECTURE_MODULES_PATH || sameSourceIdentity(identities?.get(path), sourceIdentity(root, path)));
+    let clean = false;
+    if (stable) {
+      const afterEntryPoints = new Set(entryPoints);
+      if (!sameSourceIdentity(identities?.get(ARCHITECTURE_MODULES_PATH), decisionIdentity)) {
+        if (analyzeArchitectureSource(ARCHITECTURE_MODULES_PATH, afterText).directExecutionEntrypoint) afterEntryPoints.add(ARCHITECTURE_MODULES_PATH);
+        else afterEntryPoints.delete(ARCHITECTURE_MODULES_PATH);
+      }
+      clean = registrationDrift(afterDecisions, afterCensus, afterEntryPoints).length === 0 && architectureModulesText(afterDecisions) === afterText;
+    }
+    postWrite = deepFreeze({ ...outcome, clean });
   }
 
   const unsigned = {

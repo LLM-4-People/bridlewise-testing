@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, symlinkSyn
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { declaredCauseFixes } from "../../src/git/flake-cause-fixes.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
@@ -88,6 +88,40 @@ function door(repo: ReturnType<typeof fixture>, runs: number, load: () => number
 
 /** A run that answers `report` and printed `output`. */
 const ran = (report: ReproductionReport, output = "ran\n"): ReproductionRun => ({ report, output });
+
+test("the caller-pinned config preload primes the candidate before its test, using one unchanged module identity", () => {
+  const root = createTempDir("config-preload-candidate-");
+  const engine = join(root, "engine");
+  const config = join(engine, "src", "kernel", "config.ts");
+  mkdirSync(dirname(config), { recursive: true });
+  writeFileSync(join(root, "package.json"), JSON.stringify({ type: "module" }));
+  const marker = "bridlewise.config-preload-fixture";
+  writeFileSync(config, `
+    const key = Symbol.for(${JSON.stringify(marker)});
+    const count = (globalThis[key]?.count ?? 0) + 1;
+    const singleton = {};
+    globalThis[key] = { count, singleton, url: import.meta.url };
+    export { singleton };
+  `);
+  const preload = pathToFileURL(join(import.meta.dirname, "../support/flake-shim-config-loaded-first.ts")).href;
+  const env = { ...process.env };
+  // This child is a shim component fixture inside the test run's bounds.
+  // Another inherited preload could prime the fixture and hide a wrong target.
+  delete env.NODE_OPTIONS;
+  delete env.NODE_COMPILE_CACHE;
+  execFileSync(process.execPath, ["--disable-sigusr1", "--experimental-strip-types", `--import=${preload}`, "--input-type=module", "--eval", `
+    import assert from 'node:assert/strict';
+    import { fileURLToPath } from 'node:url';
+    const key = Symbol.for(${JSON.stringify(marker)});
+    const before = globalThis[key];
+    assert.ok(before, 'the production shim must prime candidate config before the test imports it');
+    assert.equal(fileURLToPath(before.url), ${JSON.stringify(config)});
+    assert.equal(before.count, 1);
+    const config = await import(${JSON.stringify(pathToFileURL(config).href)});
+    assert.equal(config.singleton, before.singleton, 'preload and test must share the same module instance');
+    assert.equal(globalThis[key].count, 1, 'a query suffix must not evaluate config twice');
+  `], { cwd: engine, env, encoding: "utf8" });
+});
 
 test("a test that FAILED on the parent EVERY run and PASSED on the fix every run is recorded with its digest, the attempt is LOGGED with every run's output kept — and the record then explains its ledger failures", async () => {
   const repo = fixture();

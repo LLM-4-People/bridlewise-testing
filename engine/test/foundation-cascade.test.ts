@@ -28,6 +28,10 @@ import { PLANNED_NODE_TEST_SOURCE_AUTHORITY } from
   "./support/planned-node-test-source-authority.ts";
 import { TEST_REPOSITORY_ROOT } from "./support/repository-local-temporary.ts";
 import { relaxSafeReadFloorForThisFile } from "./support/test-env-helpers.ts";
+import { ensureTestProcessSupervisor } from "../guardian/build.ts";
+import { runBoundedTestProcess } from "../src/process/supervised-run.ts";
+import { configuredSubprocessBounds } from "../src/workflow/workflow-config.ts";
+import { redactDiagnosticText } from "../src/shared/debug/debug-system.ts";
 
 const ROOT = TEST_REPOSITORY_ROOT;
 // These tests read the real repository workspace (seeded with `cp -rl`
@@ -265,6 +269,139 @@ test("[FC-E003] trusted plan type boundary retains compile-time hostile probes",
   assert.match(source, /@ts-expect-error parsed candidates are not trusted plans/u);
   assert.match(source, /@ts-expect-error structural clones are not trusted plans/u);
   assert.match(source, /@ts-expect-error serialized values are unknown and not trusted plans/u);
+});
+
+
+test("[FC-E004] source snapshot copy failures retain their original error and bounded diagnostics", () => {
+  // Existing builtin fault adapter and canonical sinks live in one native-supervised child;
+  // no fs patch or logger configuration can escape into another test file.
+  const script = String.raw`
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { syncBuiltinESMExports } from "node:module";
+const [root, specText] = process.argv.slice(1);
+const load = (path) => import(pathToFileURL(join(root, path)).href);
+(await load("src/runtime/cli-debug.ts")).bootstrapProcess({ role: "cli" });
+const { createPlannedNodeTestEvidenceSession } = await load("test/support/planned-node-test-evidence.ts");
+const { configureDebugSystem, resetDebugSystem, createCollectingSink, createConsoleSink, getDebugSignals } = await load("src/shared/debug/debug-system.ts");
+const { DEBUG_CONFIG_DEFAULTS } = await load("src/shared/debug/debug-config.ts");
+const { currentAdmittedNodeRuntimeRecord, admittedNodeRuntimeAdmissionRecordIdentity } = await load("src/runtime/admitted-node-runtime.ts");
+const { sha256 } = await load("src/kernel/integrity.ts");
+const spec = JSON.parse(specText);
+const base = createPlannedNodeTestEvidenceSession(spec);
+const native = { cpSync: fs.cpSync, lstatSync: fs.lstatSync, stderrWrite: process.stderr.write };
+const secret = "SYNTHETIC_COPY_DIAGNOSTIC_SECRET";
+const outcomes = [];
+try {
+  const positive = createPlannedNodeTestEvidenceSession(spec, { preMaterializedSourceSnapshotRoot: base.sourceSnapshotRoot });
+  try {
+    assert.equal(positive.sourceSnapshotIdentity, base.sourceSnapshotIdentity);
+    for (const file of ["HEAD", "index"]) assert.deepEqual(fs.readFileSync(join(positive.sourceSnapshotRoot, ".git", file)), fs.readFileSync(join(base.sourceSnapshotRoot, ".git", file)));
+  } finally { positive.close(); }
+  for (const mode of ["missing-destination", "observation-unavailable", "reporter-failure"]) {
+    const sink = createCollectingSink();
+    configureDebugSystem({ ...DEBUG_CONFIG_DEFAULTS, sinks: { ...DEBUG_CONFIG_DEFAULTS.sinks, enabledSinks: ["console", "collecting"] } }, mode === "reporter-failure" ? [createConsoleSink(), sink] : [sink]);
+    const cause = Object.freeze({ marker: secret });
+    const sentinel = Object.assign(new Error(secret), { code: "ENOENT", errno: -2, syscall: "cp", cause });
+    let selectedDestination, faults = 0, getters = 0, inNativeCopy = false, caught;
+    Object.defineProperty(sentinel, "src", { get() { getters++; throw new Error(secret); } });
+    Object.defineProperty(sentinel, "arbitrarySecret", { get() { getters++; throw new Error(secret); } });
+    fs.cpSync = function (source, destination, ...options) {
+      if (source !== base.sourceSnapshotRoot) return Reflect.apply(native.cpSync, this, [source, destination, ...options]);
+      inNativeCopy = true;
+      try { Reflect.apply(native.cpSync, this, [source, destination, ...options]); }
+      finally { inNativeCopy = false; }
+      selectedDestination = destination;
+      const objects = join(destination, ".git/objects");
+      assert.equal(native.lstatSync(objects).isDirectory(), true, "the real copy must have populated Git objects before the diagnostic fault");
+      fs.renameSync(objects, objects + ".retained-by-control");
+      Object.assign(sentinel, { path: objects, dest: objects });
+      faults++;
+      throw sentinel;
+    };
+    fs.lstatSync = function (path, ...options) {
+      if (mode === "observation-unavailable" && !inNativeCopy && path === join(base.sourceSnapshotRoot, ".git/objects")) throw Object.assign(new Error(secret), { code: "EACCES" });
+      return Reflect.apply(native.lstatSync, this, [path, ...options]);
+    };
+    if (mode === "reporter-failure") process.stderr.write = function () { throw Object.assign(new Error(secret), { code: "EIO" }); };
+    syncBuiltinESMExports();
+    try {
+      try { createPlannedNodeTestEvidenceSession(spec, { preMaterializedSourceSnapshotRoot: base.sourceSnapshotRoot }); }
+      catch (error) { caught = error; }
+      assert.equal(faults, 1);
+      assert.equal(caught, sentinel, "the exact copy error, not a diagnostic/cleanup replacement, reaches the caller");
+      assert.equal(caught.cause, cause);
+      assert.equal(caught.code, "ENOENT");
+      assert.equal(caught.path, join(selectedDestination, ".git/objects"));
+      assert.equal(getters, 0, "diagnostics cannot invoke arbitrary or native-field accessors");
+      assert.equal(native.lstatSync(join(selectedDestination, ".."), { throwIfNoEntry: false }), undefined, "the failed session still performs its owned cleanup");
+      // On the old helper the same copy failure occurs, then the diagnostic assertion below fails.
+      process.stdout.write(JSON.stringify({ mode, faultReached: true, originalErrorPreserved: true, originalCausePreserved: true, copyAccepted: false }) + "\n");
+      if (mode === "reporter-failure") {
+        assert.ok(getDebugSignals().sinkWriteFailures > 0, "canonical reporting records the failed sink without replacing the copy error");
+      } else {
+        const events = sink.events.filter((event) => event.message === "planned Node source snapshot copy failed");
+        assert.equal(events.length, 1, "one canonical diagnostic must accompany the still-failing copy");
+        const detail = events[0].context;
+        assert.equal(detail.phase, "session");
+        assert.equal(detail.operation, "copy");
+        assert.equal(detail.before.destination.objects.kind, "absent");
+        assert.equal(detail.after.destination.objects.kind, "absent");
+        assert.equal(detail.after.destination.root.kind, "directory");
+        assert.equal(detail.after.destination.git.kind, "directory");
+        assert.equal(detail.after.source.objects.kind, mode === "observation-unavailable" ? "unavailable" : "directory");
+        assert.equal(detail.after.source.relativeObjectsPath, ".git/objects");
+        assert.equal(detail.after.source.parsedOwner.pid, process.pid);
+        assert.equal(detail.after.source.retainedByCanonicalLivenessRule, true);
+        assert.equal(detail.after.currentOwner.pid, process.pid);
+        const runtime = currentAdmittedNodeRuntimeRecord();
+        assert.equal(detail.after.admittedRuntimeRecordIdentity, runtime === undefined ? null : admittedNodeRuntimeAdmissionRecordIdentity(runtime));
+        assert.equal(detail.after.admittedRuntimeExecutableIdentity, runtime?.executableIdentityHash ?? null);
+        assert.equal(detail.failure.code, "ENOENT");
+        assert.equal(detail.failure.errno, -2);
+        assert.equal(detail.failure.syscallSha256, sha256("cp"));
+        assert.equal(detail.failure.pathRole, "destination-objects");
+        assert.equal(detail.failure.destinationRole, "destination-objects");
+        assert.equal(detail.failure.sourceRole, null);
+        const text = JSON.stringify(detail);
+        assert.equal(text.includes(secret), false);
+        assert.equal(text.includes(root), false, "only fixed relative roles, never arbitrary root paths, are reported");
+      }
+      outcomes.push({ mode, originalErrorPreserved: true, copyAccepted: false });
+    } finally {
+      fs.cpSync = native.cpSync;
+      fs.lstatSync = native.lstatSync;
+      process.stderr.write = native.stderrWrite;
+      syncBuiltinESMExports();
+      resetDebugSystem();
+    }
+  }
+} finally {
+  fs.cpSync = native.cpSync;
+  fs.lstatSync = native.lstatSync;
+  process.stderr.write = native.stderrWrite;
+  syncBuiltinESMExports();
+  resetDebugSystem();
+  base.close();
+}
+process.stdout.write(JSON.stringify({ outcomes, realSnapshotIdentityPreserved: true }) + "\n");
+`;
+  const bounds = configuredSubprocessBounds();
+  const ran = runBoundedTestProcess(ensureTestProcessSupervisor(), process.execPath,
+    ["--experimental-strip-types", "--input-type=module", "-e", script, ROOT, JSON.stringify(SUITE_SPEC)],
+    { cwd: ROOT, env: process.env, timeoutMs: bounds.hangBackstopMs, killGraceMs: bounds.killGraceMs });
+  assert.equal(ran.status, 0, JSON.stringify({ status: ran.status, signal: ran.signal, stdout: ran.stdout, stderr: redactDiagnosticText(ran.stderr) }));
+  assert.equal(ran.signal, null);
+  assert.equal(ran.error, undefined);
+  assert.equal(ran.supervision.timedOut, false);
+  assert.equal(ran.supervision.interrupted, false);
+  assert.equal(ran.supervision.noOwnedChildren, true);
+  assert.deepEqual(JSON.parse(ran.stdout.trim().split("\n").at(-1) ?? "null"), {
+    outcomes: ["missing-destination", "observation-unavailable", "reporter-failure"].map((mode) => ({ mode, originalErrorPreserved: true, copyAccepted: false })),
+    realSnapshotIdentityPreserved: true,
+  });
 });
 
 async function assertWorkerMutationRejected(

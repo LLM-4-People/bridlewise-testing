@@ -173,13 +173,13 @@ function linkProgram(module: ConfinedModule, input: string): string {
 
 /** `module.exportName(input)` computed in its confined process; its text answer, or a typed refusal. */
 export function confinedCall(module: ConfinedModule, input: string, confinement: ProjectorConfinement): string {
-  const program = linkProgram(module, input);
-  // The one runner door: admitted at once under the per-run caps (or borrowing the run this process is inside); the program is born in its scope.
+  // The one runner door: linking and execution are admitted at once under the per-run caps (or borrow the run this process is inside).
   // A run cut at its memory cap is the admission owner's own refusal at release (`run_memory_cap_exceeded`, read from the scope's memory.events).
   const hold = admitInstrumentRun(confinement.run.lockPath, `projection: ${module.exportName}`, confinement.run.perRun, configuredSubprocessBounds());
   let result: ReturnType<typeof runConfinedNode>;
   try {
     try {
+      const program = linkProgram(module, input);
       result = runConfinedNode({ harnessRoot: confinement.harnessRoot, keepOut: confinement.keepOut, program, cpuSeconds: confinement.cpuSeconds });
     } catch (error) {
       hold.release(error);

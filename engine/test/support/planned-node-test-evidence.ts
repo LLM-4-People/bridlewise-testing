@@ -9,7 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import { buildCandidateManifest, candidateTestIdentity } from
   "../../scripts/verification/candidate-manifest.ts";
@@ -41,6 +41,8 @@ import { canonicalHash, canonicalJson, deepFreeze, sha256 } from "../../src/kern
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import {
   configuredRuntimeAdmission,
+  currentAdmittedNodeRuntimeRecord,
+  admittedNodeRuntimeAdmissionRecordIdentity,
   withAdmittedNodeRuntime,
 } from "../../src/runtime/admitted-node-runtime.ts";
 import {
@@ -51,6 +53,9 @@ import {
 import { PLANNED_NODE_TEST_SOURCE_AUTHORITY } from "./planned-node-test-source-authority.ts";
 import { shouldExcludeExperiment } from "../../src/shared/source-scan.ts";
 import { CORPUS_ENGINE_ROOT } from "../../scripts/verification/corpus-root.ts";
+import { ownedTemporaryOwnerOf } from "../../src/filesystem/private-state.ts";
+import { processIdentity, isProcessIdentityLive } from "../../src/process/process-facts.ts";
+import { reportAlwaysOn, reportBestEffortFailure } from "../../src/shared/debug/debug-system.ts";
 
 export type PlannedNodeTestEvidenceObservation = Readonly<{
   accepted: boolean;
@@ -207,18 +212,7 @@ export function createPlannedNodeTestEvidenceSession(
   const sourceSnapshotRoot = resolve(sessionRoot, "source-snapshot");
   try {
     if (options?.preMaterializedSourceSnapshotRoot !== undefined) {
-      cpSync(options.preMaterializedSourceSnapshotRoot, sourceSnapshotRoot, {
-        recursive: true,
-        force: false,
-        errorOnExist: true,
-        preserveTimestamps: false,
-        // Reflink so the per-session copy is near-instant on supported
-        // filesystems; the pre-materialized root already has the full source
-        // tree, dependencies, + git repo, so the session only needs a COW
-        // copy of it (not a from-scratch materialization).
-        mode: constants.COPYFILE_FICLONE,
-      });
-      chmodSync(sourceSnapshotRoot, lstatSync(options.preMaterializedSourceSnapshotRoot).mode & 0o777);
+      copySourceSnapshot(options.preMaterializedSourceSnapshotRoot, sourceSnapshotRoot, "session");
     } else {
       materializeSourceSnapshot(sourceRoot, sourceSnapshotRoot, spec);
     }
@@ -264,7 +258,7 @@ export function createPlannedNodeTestEvidenceSession(
         // cannot happen + would be caught by the isolated-root check
         // anyway (a modified source would produce a modified copy). Skip
         // the redundant recompute; the isolated-root check is the authority.
-        copySourceSnapshot(sourceSnapshotRoot, isolatedRoot);
+        copySourceSnapshot(sourceSnapshotRoot, isolatedRoot, "run");
         return await runIsolatedPlannedNodeTestSuite(
           spec,
           environment,
@@ -318,14 +312,7 @@ export function patchPlannedNodeTestSourceSnapshot(
   source: string,
 ): string {
   const patchedRoot = createRepositoryLocalTemporaryDirectory("planned-node-test-patch-");
-  cpSync(baseSourceSnapshotRoot, patchedRoot, {
-    recursive: true,
-    force: false,
-    errorOnExist: true,
-    preserveTimestamps: false,
-    mode: constants.COPYFILE_FICLONE,
-  });
-  chmodSync(patchedRoot, lstatSync(baseSourceSnapshotRoot).mode & 0o777);
+  copySourceSnapshot(baseSourceSnapshotRoot, patchedRoot, "patch");
   const absoluteFilePath = resolve(patchedRoot, relativeFilePath);
   mkdirSync(dirname(absoluteFilePath), { recursive: true, mode: 0o700 });
   writeFileSync(absoluteFilePath, source, { encoding: "utf8", mode: 0o600, flag: "w" });
@@ -618,21 +605,80 @@ function materializeSourceSnapshot(
   runGit(isolatedRoot, ["commit", "--quiet", "--message", "isolated qualification snapshot"]);
 }
 
-function copySourceSnapshot(sourceSnapshotRoot: string, isolatedRoot: string): void {
-  cpSync(sourceSnapshotRoot, isolatedRoot, {
-    recursive: true,
-    force: false,
-    errorOnExist: true,
-    preserveTimestamps: false,
-    // Use copy-on-write reflinks (COPYFILE_FICLONE) so each per-run snapshot
-    // copy is near-instant on supported filesystems (btrfs/XFS): the data
-    // blocks are shared until the isolated run mutates them. On unsupported
-    // filesystems the mode silently falls back to a regular copy. This
-    // collapses the 13 per-suite snapshot copies from ~650 MB of I/O to
-    // near-zero (the same pattern the runtime-candidate copy uses).
-    mode: constants.COPYFILE_FICLONE,
-  });
-  chmodSync(isolatedRoot, lstatSync(sourceSnapshotRoot).mode & 0o777);
+/** One lstat observation; no directory enumeration or file contents are read. */
+function snapshotCopyNode(path: string) {
+  try {
+    const stat = lstatSync(path, { bigint: true, throwIfNoEntry: false });
+    if (stat === undefined) return { kind: "absent", device: null, inode: null, mode: null };
+    return {
+      kind: stat.isDirectory() ? "directory" : stat.isFile() ? "file" : stat.isSymbolicLink() ? "symlink" : "other",
+      device: stat.dev.toString(), inode: stat.ino.toString(), mode: Number(stat.mode & 0o7777n),
+    };
+  } catch {
+    return { kind: "unavailable", device: null, inode: null, mode: null };
+  }
+}
+
+/** Only the two known fixture-parent positions are inspected; parsed ownership is not new authority. */
+function snapshotCopyObservation(source: string, destination: string) {
+  try {
+    const currentOwner = processIdentity();
+    const endpoint = (root: string) => {
+      const owner = ownedTemporaryOwnerOf(basename(dirname(root))) ?? ownedTemporaryOwnerOf(basename(dirname(dirname(root))));
+      return {
+        relativeObjectsPath: ".git/objects", parent: snapshotCopyNode(dirname(root)), root: snapshotCopyNode(root),
+        git: snapshotCopyNode(resolve(root, ".git")), objects: snapshotCopyNode(resolve(root, ".git/objects")),
+        parsedOwner: owner === undefined ? null : { pid: owner.pid, startTime: owner.startTime },
+        retainedByCanonicalLivenessRule: owner === undefined ? null : isProcessIdentityLive(owner),
+        matchesCurrentOwner: owner === undefined ? null : owner.pid !== currentOwner.pid ? false :
+          owner.startTime === null || currentOwner.startTime === null ? null : owner.startTime === currentOwner.startTime,
+      };
+    };
+    const runtime = currentAdmittedNodeRuntimeRecord();
+    return {
+      currentOwner, source: endpoint(source), destination: endpoint(destination),
+      admittedRuntimeRecordIdentity: runtime === undefined ? null : admittedNodeRuntimeAdmissionRecordIdentity(runtime),
+      admittedRuntimeExecutableIdentity: runtime?.executableIdentityHash ?? null,
+    };
+  } catch { return null; }
+}
+
+/** Known scalar error facts only; the original error/cause is never wrapped or modified. */
+function snapshotCopyError(error: unknown, source: string, destination: string) {
+  const value = (key: string): unknown => error !== null && (typeof error === "object" || typeof error === "function")
+    ? Object.getOwnPropertyDescriptor(error, key)?.value : undefined;
+  const pathRole = (path: unknown) => typeof path !== "string" ? null : path === source ? "source-root" :
+    path === resolve(source, ".git") ? "source-git" : path === resolve(source, ".git/objects") ? "source-objects" :
+    path === destination ? "destination-root" : path === resolve(destination, ".git") ? "destination-git" :
+    path === resolve(destination, ".git/objects") ? "destination-objects" : "other";
+  const code = value("code"), syscall = value("syscall"), errno = value("errno");
+  return {
+    code: code === "ENOENT" ? "ENOENT" : null, codeSha256: typeof code === "string" ? sha256(code) : null,
+    errno: typeof errno === "number" && Number.isSafeInteger(errno) ? errno : null,
+    syscallSha256: typeof syscall === "string" ? sha256(syscall) : null,
+    pathRole: pathRole(value("path")), sourceRole: pathRole(value("src")), destinationRole: pathRole(value("dest")),
+  };
+}
+
+function copySourceSnapshot(sourceSnapshotRoot: string, isolatedRoot: string, phase: "session" | "patch" | "run"): void {
+  const before = snapshotCopyObservation(sourceSnapshotRoot, isolatedRoot);
+  let operation: "copy" | "mode" = "copy";
+  try {
+    cpSync(sourceSnapshotRoot, isolatedRoot, {
+      recursive: true, force: false, errorOnExist: true, preserveTimestamps: false,
+      mode: constants.COPYFILE_FICLONE,
+    });
+    operation = "mode";
+    chmodSync(isolatedRoot, lstatSync(sourceSnapshotRoot).mode & 0o777);
+  } catch (error) {
+    try {
+      reportAlwaysOn("test", "planned Node source snapshot copy failed", {
+        phase, operation, before, after: snapshotCopyObservation(sourceSnapshotRoot, isolatedRoot),
+        failure: snapshotCopyError(error, sourceSnapshotRoot, isolatedRoot),
+      });
+    } catch { reportBestEffortFailure(); }
+    throw error;
+  }
 }
 
 function isolatedSourceSnapshotIdentity(

@@ -6,7 +6,7 @@
  * re-run) — against GH-3's fake forge over a real bare repository.
  */
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 import { resolveGitExecutable } from "../../src/git/git-adapter.ts";
 import { configuredWorktreeGitPort } from "../../src/git/worktree-port.ts";
 import { HarnessError } from "../../src/kernel/errors.ts";
-import { ROADMAP_PAGE, TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
-import { readTrackerItems } from "../../src/workflow/failure-owners.ts";
+import { DECISION_INDEX, ROADMAP_PAGE, TRACKER_BOARD } from "../../src/kernel/verification-paths.ts";
+import { parseFrontMatter, readEntries, readTrackerItems } from "../../src/workflow/failure-owners.ts";
 import type { IntakeRecord } from "../../src/workflow/community/issue-ops.ts";
 import { regenerateRoadmapPage } from "../../src/workflow/roadmap-page.ts";
 import { intakeItemText, itemPath, landIntakeRecord, recordBranch, writeIntakeRecord } from "../../src/workflow/community/record.ts";
@@ -31,13 +31,27 @@ const ACCEPTED: IntakeRecord = {
   body: "Reported in #40 through the Flake report form; the report is the issue's own text.",
 };
 
-/** A repository carrying this tree's tracker (the items and the board), committed on `main`, tracking a bare forge remote. */
-function trackerRepository(prefix: string): Readonly<{ root: string; bare: string }> {
+/** A repository carrying the tracker's real reference closure, committed on `main`, tracking a bare forge remote. */
+function trackerRepository(prefix: string, sourceRoot = REPOSITORY): Readonly<{ root: string; bare: string }> {
+  // Read through the strict owner before copying: item relations are closed
+  // by the complete item population; external decision and test references
+  // are copied from those same parsed records, never a fixture spelling list.
+  const items = readTrackerItems(sourceRoot);
+  const decisions = new Set(items.flatMap((item) => item.decisions));
+  const decisionDirectory = dirname(DECISION_INDEX.path);
+  const decisionPaths = decisions.size === 0 ? [] : readEntries(sourceRoot, decisionDirectory)
+    .filter(({ text }) => decisions.has(parseFrontMatter(text)?.fields.get("id") ?? ""))
+    .map(({ name }) => join(decisionDirectory, name));
+  const files = [...new Set([TRACKER_BOARD.path, ...decisionPaths, ...items.flatMap((item) => item.tests)])].sort();
   const { root, bare } = initTempRepo(prefix);
-  mkdirSync(join(root, "docs/trackers"), { recursive: true });
-  cpSync(join(REPOSITORY, TRACKER_BOARD.items), join(root, TRACKER_BOARD.items), { recursive: true });
-  cpSync(join(REPOSITORY, TRACKER_BOARD.path), join(root, TRACKER_BOARD.path));
-  rawGit(root, ["add", "docs"]);
+  mkdirSync(dirname(join(root, TRACKER_BOARD.items)), { recursive: true });
+  cpSync(join(sourceRoot, TRACKER_BOARD.items), join(root, TRACKER_BOARD.items), { recursive: true });
+  for (const path of files) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    cpSync(join(sourceRoot, path), join(root, path));
+  }
+  assert.deepEqual(readTrackerItems(root), items, "the fixture retains the real tracker's validated reference closure");
+  rawGit(root, ["add", "--", TRACKER_BOARD.items, ...files]);
   rawGit(root, ["commit", "-q", "-m", "tracker"]);
   rawGit(root, ["push", "-q", "origin", "main"]);
   return { root, bare };
@@ -66,6 +80,34 @@ test("the record writer's output carries a fresh roadmap: the real generator, ru
   assert.deepEqual(written, [itemPath("ISSUE-40"), TRACKER_BOARD.path, ROADMAP_PAGE.path]);
   assert.match(readFileSync(join(root, ROADMAP_PAGE.path), "utf8"), /items\/ISSUE-40\.md/u, "the roadmap shows the new record");
   assert.deepEqual(await regenerateRoadmapPage(root, false), { status: "current", converged: true, changed: [] }, "the record left the roadmap fresh: harness check would pass");
+});
+
+test("the tracker fixture follows arbitrary decision IDs and nested test paths while missing references still refuse", () => {
+  const source = createTempDir("community-record-reference-source-");
+  const decisionDirectory = dirname(DECISION_INDEX.path);
+  const decisionPath = join(decisionDirectory, "an-arbitrary-filename.md");
+  const testPath = "tests/future/nested/reference.test.ts";
+  mkdirSync(join(source, TRACKER_BOARD.items), { recursive: true });
+  mkdirSync(join(source, decisionDirectory), { recursive: true });
+  mkdirSync(dirname(join(source, testPath)), { recursive: true });
+  const text = intakeItemText({ ...ACCEPTED, id: "FIXTURE-CLOSURE", type: "Bug", milestone: null, parent: null }, DATES)
+    .replace("\n---\n", `\ndecisions: [D-FIXTURE]\ntests: [${testPath}]\n---\n`);
+  writeFileSync(join(source, itemPath("FIXTURE-CLOSURE")), text);
+  cpSync(join(REPOSITORY, TRACKER_BOARD.path), join(source, TRACKER_BOARD.path));
+  writeFileSync(join(source, decisionPath), "---\nid: D-FIXTURE\nstatus: in-force\nimplementation: standing\n---\n\n# Fixture decision\n");
+  writeFileSync(join(source, testPath), 'import test from "node:test";\ntest("fixture reference", () => {});\n');
+
+  const { root } = trackerRepository("community-record-reference-target", source);
+  assert.deepEqual(readTrackerItems(root), readTrackerItems(source));
+  assert.equal(rawGit(root, ["status", "--porcelain"]).trim(), "", "copied references belong to the fixture's committed baseline");
+  assert.equal(readFileSync(join(root, decisionPath), "utf8"), readFileSync(join(source, decisionPath), "utf8"), "decision IDs resolve through their real filename");
+  assert.equal(readFileSync(join(root, testPath), "utf8"), readFileSync(join(source, testPath), "utf8"));
+
+  rmSync(join(root, testPath));
+  assert.throws(() => readTrackerItems(root), (error: unknown) => error instanceof HarnessError && error.code === "tracker_item_invalid" && error.message.includes(`${testPath} is not a file of the repository`));
+  cpSync(join(source, testPath), join(root, testPath));
+  rmSync(join(root, decisionPath));
+  assert.throws(() => readTrackerItems(root), (error: unknown) => error instanceof HarnessError && error.code === "tracker_item_invalid" && error.message.includes("D-FIXTURE names no decision record"));
 });
 
 test("the item is the tracker's format: the reader accepts it, the reported text is fenced, the board is regenerated", async () => {

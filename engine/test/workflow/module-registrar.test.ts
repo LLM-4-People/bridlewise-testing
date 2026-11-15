@@ -162,6 +162,73 @@ test("ModuleRegistrar: write mode removes the decision of a deleted module and r
   }
 });
 
+test("ModuleRegistrar: write mode reads stable sources once, refreshes each invocation, and refuses edits during its read-back", () => {
+  const directory = createTempDir("registrar-source-observation-");
+  try {
+    const initial = architectureModulesText({ defaults: [{ directory: "src/", realm: "runtime", layer: "domain", owner: "fixture" }], entries: [] });
+    const plain = "export const value = 1;\n";
+    const entry = "if (import.meta.url === process.argv[1]) {}\n";
+    const roots = ["stable", "edited", "added"].map((name) => join(directory, name));
+    for (const root of roots) {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, ARCHITECTURE_MODULES_PATH), initial);
+      writeFileSync(join(root, "src", "main.ts"), entry);
+      writeFileSync(join(root, "src", "plain.ts"), plain);
+    }
+    // The child isolates its fs interception from the test process. Count an
+    // unchanged source's real reads, then plant changes at the actual
+    // post-write decisions read; no timing assertion or altered registrar.
+    const script = [
+      `import fs from "node:fs";`,
+      `import { join } from "node:path";`,
+      `import { syncBuiltinESMExports } from "node:module";`,
+      `const { generateModuleRegistrarReport } = await import(${JSON.stringify(new URL("../../src/workflow/module-registrar.ts", import.meta.url).href)});`,
+      `const roots = ${JSON.stringify(roots)}, initial = ${JSON.stringify(initial)}, entry = ${JSON.stringify(entry)};`,
+      `const watched = join(roots[0], "src", "plain.ts");`,
+      `const read = fs.readFileSync; let reads = 0; let race;`,
+      `fs.readFileSync = (path, ...rest) => {`,
+      `  const value = read(path, ...rest);`,
+      `  if (path === watched) reads += 1;`,
+      `  if (race && !race.fired && path === race.decisions && value !== initial) {`,
+      `    race.fired = true; fs.writeFileSync(race.target, entry);`,
+      `  }`,
+      `  return value;`,
+      `};`,
+      `syncBuiltinESMExports();`,
+      `const first = generateModuleRegistrarReport(roots[0], { write: true });`,
+      `const firstReads = reads; reads = 0;`,
+      `fs.writeFileSync(watched, entry);`,
+      `const next = generateModuleRegistrarReport(roots[0], { write: true });`,
+      `const nextReads = reads;`,
+      `const changes = roots.slice(1).map((root, index) => {`,
+      `  race = { decisions: join(root, ${JSON.stringify(ARCHITECTURE_MODULES_PATH)}), target: join(root, "src", index === 0 ? "plain.ts" : "added.ts"), fired: false };`,
+      `  const result = generateModuleRegistrarReport(root, { write: true });`,
+      `  const fired = race.fired; race = undefined;`,
+      `  const fresh = generateModuleRegistrarReport(root, { write: true });`,
+      `  return { fired, clean: result.postWrite.clean, freshClean: fresh.postWrite.clean, freshMarked: fresh.postWrite.markedModules };`,
+      `});`,
+      `console.log(JSON.stringify({ firstReads, firstClean: first.postWrite.clean, firstMarked: first.postWrite.markedModules, nextReads, nextClean: next.postWrite.clean, nextMarked: next.postWrite.markedModules, changes }));`,
+    ].join("\n");
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout.trim().split("\n").at(-1)!);
+    assert.deepEqual(result, {
+      firstReads: 1,
+      firstClean: true,
+      firstMarked: 1,
+      nextReads: 1,
+      nextClean: true,
+      nextMarked: 1,
+      changes: [
+        { fired: true, clean: false, freshClean: true, freshMarked: 1 },
+        { fired: true, clean: false, freshClean: true, freshMarked: 1 },
+      ],
+    }, "stable facts must be read once, later invocations must refresh, and a changed source or population must never return clean from old facts");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("ModuleRegistrar: a file out of its one form is reported and rewritten", () => {
   const copy = createRepositoryWorkingCopy("registrar-form-", { include: engineGeneratorPopulation });
   try {

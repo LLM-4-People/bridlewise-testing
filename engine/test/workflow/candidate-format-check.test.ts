@@ -13,7 +13,7 @@ import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { harnessCheck } from "../../src/workflow/harness-commands.ts";
+import { candidateFormatStep, harnessCheck } from "../../src/workflow/harness-commands.ts";
 import { createRepositoryWorkingCopy, engineGeneratorPopulation, removeRepositoryLocalTemporaryDirectory } from "../support/repository-local-temporary.ts";
 
 test("harness check refuses a tree the engine runner would refuse at setup, naming the file; the clean tree passes", async () => {
@@ -22,7 +22,7 @@ test("harness check refuses a tree the engine runner would refuse at setup, nami
   const copy = createRepositoryWorkingCopy("candidate-format-check-", { include: (path) => engineGeneratorPopulation(path) || path === ".gitignore" });
   try {
     const options = { skipTypecheck: true, skipArchitecture: true, skipInventory: true } as const;
-    const clean = (await harnessCheck(copy.engineRoot, options)).result.candidateFormat;
+    const clean = await candidateFormatStep(copy.engineRoot);
     assert.equal(clean.status, "pass", `a fresh copy is accepted (liveness): ${clean.message}`);
     assert.match(clean.message, /the engine runner accepts the tree \([1-9][0-9]* files\)/u);
     // The #417 shape: one tracked text file ends in an extra newline.

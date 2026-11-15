@@ -55,7 +55,7 @@ const POSITIVE_BOUNDS = ["cpuBudgetMs", "stallMs", "hangBackstopMs", "pollMs", "
  * Refuses bounds no run can keep (`cpu_bounds_invalid`), before anything runs: a missing bound compares false
  * forever and a run under it would never stop, so no fallback value is ever chosen.
  */
-export function assertSubprocessBounds(bounds: SubprocessBounds | undefined): asserts bounds is SubprocessBounds {
+function assertSubprocessBounds(bounds: SubprocessBounds | undefined): asserts bounds is SubprocessBounds {
   const invalid = POSITIVE_BOUNDS.filter((name) => {
     const value = (bounds as Readonly<Record<string, unknown>> | undefined)?.[name];
     return typeof value !== "number" || !Number.isFinite(value) || value <= 0;
@@ -64,6 +64,14 @@ export function assertSubprocessBounds(bounds: SubprocessBounds | undefined): as
   const valid = bounds as SubprocessBounds;
   // A watch no more frequent than the stall window cannot see a stall end before it is judged one.
   if (valid.pollMs >= valid.stallMs) throw new InputError(`a bounded run must read its group more often than its stall window: pollMs ${String(valid.pollMs)} is not below stallMs ${String(valid.stallMs)}`, "cpu_bounds_invalid");
+}
+
+/** Capture the canonical six bounds once, validate that own snapshot, then freeze it. Compatible caller extras are never read. */
+export function snapshotSubprocessBounds(bounds: SubprocessBounds | undefined): SubprocessBounds {
+  const source = bounds as Readonly<Record<string, unknown>> | undefined;
+  const snapshot = Object.fromEntries(POSITIVE_BOUNDS.map((name) => [name, source?.[name]])) as SubprocessBounds;
+  assertSubprocessBounds(snapshot);
+  return Object.freeze(snapshot);
 }
 
 /**
@@ -115,8 +123,9 @@ export function limitOwnCpu(bounds: SubprocessBounds): string | null {
 }
 
 /**
- * How a bounded run ended: its own exit, the bound that stopped it, or (`cpu-rlimit`) the kernel's CPU limit,
- * which ends a process only when the supervisor could not.
+ * How a bounded run ended: its own exit, a bound decision, or observed native SIGXCPU (`cpu-rlimit`).
+ * The legacy signal category records an ending under the admitted RLIMIT_CPU; it proves neither
+ * that the signal came from the kernel limit nor that the process spent that amount of CPU work.
  */
 export type BoundedEnding = "exited" | "cpu-exhausted" | "cpu-rlimit" | "stalled" | "hung" | "output-exceeded" | "unmeasurable" | "unstarted";
 
@@ -128,7 +137,7 @@ export function boundedEnding(
   const used = run.cpuMs === null ? "" : ` (${String(run.cpuMs)} ms used)`;
   switch (run.ending) {
     case "cpu-exhausted": return `its process group spent its CPU budget of ${String(bounds.cpuBudgetMs)} ms${used} and was stopped`;
-    case "cpu-rlimit": return `a process of it spent its CPU-time limit of ${String(kernelCpuLimit(bounds).soft)} s of CPU work (RLIMIT_CPU, the kernel backstop) and was ended by ${run.signal ?? "SIGXCPU"}`;
+    case "cpu-rlimit": return `it was ended by ${run.signal === null ? "an unrecorded signal" : `observed ${run.signal}`} under an admitted CPU-time limit of at most ${String(kernelCpuLimit(bounds).soft)} s of CPU work (RLIMIT_CPU); the signal's origin is unknown`;
     case "stalled": return `it produced no output and no CPU work for ${String(bounds.stallMs)} ms of the time it could run (stalled) and was stopped`;
     case "hung": return `HUNG: it was still running at the ${String(bounds.hangBackstopMs / 1000)} s hang backstop (wall) and was stopped`;
     case "output-exceeded": return `its output passed ${String(bounds.outputBytes)} bytes and it was stopped`;
