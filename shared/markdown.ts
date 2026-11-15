@@ -56,6 +56,8 @@
  * teaching it to ignore a real collision.
  */
 
+import { findHtmlCommentEnd, isHtmlCommentStart } from "./markup.ts";
+
 /**
  * What the extraction collects while the one grammar scans: every link
  * destination (inline, reference definition, image, autolink) and every code
@@ -480,9 +482,11 @@ function indentWidth(line: string): number {
 
 /** The end of an HTML comment block, kept as opaque literal text; null when this line starts none. */
 function htmlCommentBlockEnd(lines: readonly string[], start: number, end: number): number | null {
-  if (!/^ {0,3}<!--/u.test(lines[start] ?? "")) return null;
+  const line = lines[start] ?? "";
+  const indent = /^ {0,3}/u.exec(line)![0].length;
+  if (!isHtmlCommentStart(line, indent)) return null;
   for (let at = start; at < end; at += 1) {
-    if (lines[at]!.includes("-->")) return at + 1;
+    if (findHtmlCommentEnd(lines[at]!) !== null) return at + 1;
   }
   return end;
 }
