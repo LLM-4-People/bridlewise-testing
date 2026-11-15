@@ -49,6 +49,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
+import { devNull } from "node:os";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
@@ -105,6 +106,20 @@ export function gitAcceptsRefName(ref: string): boolean {
  *   guard located its engine at "" in every linked worktree).
  */
 export type GitEnvironment = "inherited" | "directory";
+
+/**
+ * Recorded objects have one native identity. Apply these overrides AFTER any
+ * caller, hook, network, private-index or attribution environment. They change
+ * object interpretation, never the selected repository/index or caller roles.
+ */
+export function nativeGitObjectEnvironment(base: Readonly<Record<string, string>>, context?: "authority" | "transport"): Readonly<Record<string, string>>;
+export function nativeGitObjectEnvironment(base: Readonly<NodeJS.ProcessEnv>, context?: "authority" | "transport"): Readonly<NodeJS.ProcessEnv>;
+export function nativeGitObjectEnvironment(base: Readonly<NodeJS.ProcessEnv>, context: "authority" | "transport" = "authority"): Readonly<NodeJS.ProcessEnv> {
+  const environment: NodeJS.ProcessEnv = { ...base, GIT_OPTIONAL_LOCKS: "0", GIT_NO_REPLACE_OBJECTS: "1", GIT_GRAFT_FILE: devNull };
+  if (context === "transport") delete environment.GIT_SHALLOW_FILE;
+  else environment.GIT_SHALLOW_FILE = devNull;
+  return Object.freeze(environment);
+}
 
 /**
  * THE ROOTS A CHECKOUT'S TOOLS KEEP STATE UNDER (journals, recovery): the

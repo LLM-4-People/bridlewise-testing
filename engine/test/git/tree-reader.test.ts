@@ -5,16 +5,16 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { commitTreeReader, rawDiffEntries, treeDiff, workingTreeReader, writeBlob, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
+import { commitTreeReader, gitOutput, nativeObjectRepository, rawDiffEntries, treeDiff, workingTreeReader, writeBlob, writeTree, type GitRepository } from "../../src/git/tree-reader.ts";
 import { configuredGitRepository } from "../../src/git/worktree-port.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { testGitIdentityEnvironment } from "../support/test-git-identity.ts";
 
-function repository(): Readonly<{ root: string; repo: GitRepository; git: (...args: string[]) => string }> {
+function repository(objectView: "configured" | "ordinary" = "configured"): Readonly<{ root: string; repo: GitRepository; git: (...args: string[]) => string }> {
   const root = createTempDir("tree-reader-");
   const git = (...args: string[]): string => execFileSync("git", args, { cwd: root, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", ...testGitIdentityEnvironment() } }).trim();
   git("init", "-q", "-b", "main");
@@ -26,7 +26,11 @@ function repository(): Readonly<{ root: string; repo: GitRepository; git: (...ar
   symlinkSync("text.ts", join(root, "link.ts"));
   git("add", "-A");
   git("commit", "-q", "-m", "init");
-  return { root, repo: configuredGitRepository({}, root), git };
+  const configured = configuredGitRepository({}, root);
+  // An explicit ordinary test oracle proves the hostile view actually exists;
+  // normal fixtures retain the configured factory's semantics.
+  const repo = objectView === "ordinary" ? { root: configured.root, executable: configured.executable, timeoutMs: configured.timeoutMs } : configured;
+  return { root, repo, git };
 }
 
 test("a commit reader lists every file with git's mode and object id, and reads text by batch", () => {
@@ -158,4 +162,83 @@ test("the one raw-diff reader: both sides' modes and ids, the status and the pat
 
   assert.throws(() => rawDiffEntries(["not a header", "path"]), { code: "tree_reader_raw_diff_invalid" });
   assert.deepEqual(rawDiffEntries([]), []);
+});
+
+test("a native object view binds raw commits, recursive tree reads and blob bytes despite replacement refs", () => {
+  const { root, repo, git } = repository("ordinary");
+  const first = git("rev-parse", "HEAD");
+  const original = gitOutput(repo, ["cat-file", "commit", first]).stdout;
+  const originalBlob = git("rev-parse", `${first}:text.ts`);
+  const originalText = commitTreeReader(repo, first).text("text.ts");
+  writeFileSync(join(root, "text.ts"), "replacement tree\n");
+  git("add", "--", "text.ts");
+  git("commit", "-q", "-m", "Replacement tree");
+  const second = git("rev-parse", "HEAD");
+  git("replace", first, second);
+  const replacementBlob = writeBlob(repo, Buffer.from("replacement blob\n"));
+  git("replace", originalBlob, replacementBlob);
+  assert.notDeepEqual(gitOutput(repo, ["cat-file", "commit", first]).stdout, original, "ordinary Git semantics remain available");
+  assert.equal(gitOutput(repo, ["cat-file", "blob", originalBlob]).stdout.toString("utf8"), "replacement blob\n");
+  const native = nativeObjectRepository(repo);
+  assert.deepEqual(gitOutput(native, ["cat-file", "commit", first], { environment: { GIT_NO_REPLACE_OBJECTS: "0" } }).stdout, original, "caller environment cannot enable replacement objects");
+  assert.deepEqual(gitOutput(nativeObjectRepository(configuredGitRepository({}, root)), ["cat-file", "commit", first]).stdout, original, "the explicit wrapper around the configured factory preserves native commit identity");
+  assert.equal(commitTreeReader(native, first).text("text.ts"), originalText);
+  assert.equal(gitOutput(native, ["cat-file", "blob", originalBlob]).stdout.toString("utf8"), originalText);
+  assert.deepEqual(treeDiff(native, first, second).map((entry) => entry.path), ["text.ts"]);
+  assert.equal(repo.nativeObjectIdentity, undefined, "the source handle is unchanged");
+  assert.equal(Object.isFrozen(native), true);
+});
+
+
+function commitHistory(repository: GitRepository, head: string, environment: Readonly<Record<string, string>> = {}): readonly string[] {
+  return gitOutput(repository, ["rev-list", head], { environment }).stdout.toString("ascii").trim().split("\n");
+}
+
+test("a native object view ignores legacy graft history even when a caller supplies its path", () => {
+  const { root, repo, git } = repository("ordinary");
+  const first = git("rev-parse", "HEAD");
+  const tree = git("rev-parse", "HEAD^{tree}");
+  const second = git("commit-tree", tree, "-p", first, "-m", "Native child");
+  const foreign = git("commit-tree", tree, "-p", first, "-m", "Foreign history");
+  const grafts = join(root, ".git", "info", "grafts");
+  writeFileSync(grafts, `${second} ${foreign}\n`);
+  assert.deepEqual(commitHistory(repo, second), [second, foreign, first], "ordinary Git honors the planted legacy graft");
+  assert.deepEqual(commitHistory(nativeObjectRepository(repo), second, { GIT_GRAFT_FILE: grafts }), [second, first], "native ancestry comes from the commit, not a caller's graft file");
+  assert.deepEqual(commitHistory(nativeObjectRepository(configuredGitRepository({}, root)), second, { GIT_GRAFT_FILE: grafts }), [second, first], "explicit configured native authority cannot inherit a graft");
+});
+
+test("a native object view ignores shallow boundaries and refuses incomplete ancestry", () => {
+  const { root, repo, git } = repository("ordinary");
+  const first = git("rev-parse", "HEAD");
+  const second = git("commit-tree", git("rev-parse", "HEAD^{tree}"), "-p", first, "-m", "Complete native child");
+  const shallow = join(root, ".git", "shallow");
+  writeFileSync(shallow, `${second}\n`);
+  const historyEnvironment = { GIT_SHALLOW_FILE: shallow };
+  assert.deepEqual(commitHistory(repo, second, historyEnvironment), [second], "ordinary Git honors the shallow boundary");
+  const native = nativeObjectRepository(repo);
+  assert.deepEqual(commitHistory(native, second, historyEnvironment), [second, first], "a caller cannot truncate native ancestry");
+  assert.deepEqual(commitHistory(nativeObjectRepository(configuredGitRepository({}, root)), second, historyEnvironment), [second, first], "explicit configured native authority cannot inherit a shallow boundary");
+  const raw = gitOutput(native, ["cat-file", "commit", second]).stdout.toString("utf8").replace(`parent ${first}\n`, `parent ${"f".repeat(40)}\n`);
+  const broken = gitOutput(native, ["hash-object", "-w", "-t", "commit", "--stdin"], { input: Buffer.from(raw) }).stdout.toString("ascii").trim();
+  writeFileSync(shallow, `${broken}\n`);
+  assert.deepEqual(commitHistory(repo, broken, historyEnvironment), [broken], "a shallow boundary can conceal the fixture's missing parent");
+  assert.throws(() => commitHistory(native, broken, historyEnvironment), (error: unknown) => error instanceof Error && (error as { code?: unknown }).code === "tree_reader_git_failed", "missing native parents are a typed refusal, never a fabricated root");
+});
+
+test("native Git status preserves raw index metadata despite a caller requesting optional locks", () => {
+  const { root, repo, git } = repository();
+  const native = nativeObjectRepository(repo);
+  const path = join(root, "text.ts");
+  const beforeFile = statSync(path);
+  const replacement = join(root, "native-index-refresh-replacement");
+  writeFileSync(replacement, readFileSync(path));
+  renameSync(replacement, path);
+  assert.notEqual(statSync(path).ino, beforeFile.ino, "the same bytes now have a different inode");
+  const index = git("rev-parse", "--path-format=absolute", "--git-path", "index");
+  const indexBefore = readFileSync(index);
+  const stageBefore = gitOutput(native, ["ls-files", "--stage", "-z"]).stdout;
+  const compared = gitOutput(native, ["status", "--porcelain=v2", "--untracked-files=no", "--no-renames", "-z"], { environment: { GIT_OPTIONAL_LOCKS: "1" } });
+  assert.equal(compared.stdout.length, 0, "there is no content change to report");
+  assert.deepEqual(readFileSync(index), indexBefore, "native status cannot refresh raw index stat metadata");
+  assert.deepEqual(gitOutput(native, ["ls-files", "--stage", "-z"]).stdout, stageBefore, "all staged object IDs and modes are preserved");
 });

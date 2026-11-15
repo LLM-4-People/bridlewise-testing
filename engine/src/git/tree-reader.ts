@@ -28,7 +28,7 @@ import { deepFreeze } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { createOwnedTemporaryDirectory, removeOwnedTemporaryDirectory } from "../filesystem/private-state.ts";
 import { RAW_DIFF_RECORD_QUOTE_CHARACTERS, TREE_MISMATCH_ENTRIES_NAMED } from "./git-config.ts";
-import { gitProcessEnvironment, ownedFiles } from "./repository-ownership.ts";
+import { gitProcessEnvironment, nativeGitObjectEnvironment, ownedFiles } from "./repository-ownership.ts";
 
 /** A repository and the git that answers about it: the executable (the configured one: `configuredGitRepository`, src/git/worktree-port.ts) and each call's ceiling. */
 export type GitRepository = Readonly<{
@@ -38,7 +38,14 @@ export type GitRepository = Readonly<{
   executable: string;
   /** The ceiling of one git process, in milliseconds. */
   timeoutMs: number;
+  /** Resolve native objects and complete ancestry without replacement refs, grafts or shallow boundaries. */
+  nativeObjectIdentity?: true;
 }>;
+
+/** One immutable native view, inherited by all reads through the existing Git door. */
+export function nativeObjectRepository(repository: GitRepository): GitRepository {
+  return deepFreeze({ ...repository, nativeObjectIdentity: true });
+}
 
 /** The gitlink (submodule) mode: an entry with no bytes in this repository. */
 export const GITLINK_MODE = "160000";
@@ -81,9 +88,10 @@ export function gitOutput(
   argv: readonly string[],
   options: Readonly<{ input?: Buffer; allowed?: readonly number[]; environment?: Readonly<Record<string, string>> }> = {},
 ): Readonly<{ status: number; stdout: Buffer }> {
+  const environment = { ...gitProcessEnvironment("directory"), ...options.environment };
   const result = spawnSync(repository.executable, ["-c", "gc.auto=0", ...argv], {
     cwd: repository.root,
-    env: { ...gitProcessEnvironment("directory"), ...options.environment },
+    env: repository.nativeObjectIdentity === true ? nativeGitObjectEnvironment(environment) : environment,
     maxBuffer: ROOT_POLICY.runtime.limits.maximumGitOutputBytes,
     timeout: repository.timeoutMs,
     killSignal: "SIGKILL",
