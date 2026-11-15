@@ -14,7 +14,7 @@
 import { CONTENT_TYPE_JSON, CONTENT_TYPE_OCTET_STREAM } from "../../kernel/contracts.ts";
 import { isAbortError } from "../../kernel/errors.ts";
 import { safePercentDecode } from "../../privacy/data-policy.ts";
-import { deepFreeze } from "../../kernel/integrity.ts";
+import { canonicalJson, deepFreeze } from "../../kernel/integrity.ts";
 import { parseJsonExact } from "../../kernel/json-integrity.ts";
 import { debugLog } from "../../shared/debug/debug-system.ts";
 import { dispatchOutboundRequest, discardBody, isOutboundHttpError, outboundDeadline, outboundProgressDeadline, prepareOutboundRequest, readBody, readBodyBytes } from "../../shared/outbound-http.ts";
@@ -128,22 +128,56 @@ function rateFactsOf(headers: Headers): ForgeRateFacts {
  */
 export function linkPaths(endpoint: ForgeEndpoint, header: string | null): Readonly<Record<string, string>> {
   const links: Record<string, string> = {};
-  if (header === null) return Object.freeze(links);
+  if (header === null || header.trim().length === 0) return Object.freeze(links);
+  const value = header;
   const base = apiBase(endpoint);
   const prefix = base.pathname.replace(/\/$/u, "");
-  for (const part of header.split(",")) {
-    const match = /<([^>]+)>\s*;\s*rel="([a-z]+)"/u.exec(part.trim());
-    if (match === null) continue;
-    // Judged as written, never as the URL parser normalises it (`/x/.%2e/y` would become `/y`).
-    const raw = match[1]!;
-    const root = `${base.origin}${prefix}/`;
+  const malformed = (): never => { throw new ForgeError("github_response_invalid", "GitHub's Link header is malformed or names an ambiguous relation.", {}); };
+  // Consume every byte; commas inside a target or a quoted parameter are not separators.
+  const parameter = /^;[ \t]*([!#$%&'*+.^_\x60|~0-9A-Za-z-]+)(?:[ \t]*=[ \t]*(?:"((?:[\t\x20-\x21\x23-\x5b\x5d-\x7e\x80-\xff]|\\[\t\x20-\x7e\x80-\xff])*)"|([!#$%&'*+.^_\x60|~0-9A-Za-z-]+)))?/u;
+  let cursor = 0;
+  const whitespace = (): void => { while (value[cursor] === " " || value[cursor] === "\t") cursor += 1; };
+  while (cursor < value.length) {
+    whitespace();
+    if (value[cursor] !== "<") return malformed();
+    const close = value.indexOf(">", cursor + 1);
+    if (close <= cursor + 1) return malformed();
+    const raw = value.slice(cursor + 1, close);
+    if (raw.includes("<")) return malformed();
+    cursor = close + 1;
+    let relation: string | undefined;
+    whitespace();
+    while (value[cursor] === ";") {
+      const match = parameter.exec(value.slice(cursor));
+      if (match === null) return malformed();
+      cursor += match[0].length;
+      const parameterName = match[1]!.toLowerCase();
+      if (parameterName === "anchor") throw new ForgeError("github_response_invalid", "GitHub pagination links cannot override their context.", {});
+      if (parameterName === "rel") {
+        if (relation !== undefined) return malformed();
+        relation = match[2] === undefined ? match[3] : match[2].replace(/\\(.)/gu, "$1");
+        if (relation === undefined) return malformed();
+      }
+      whitespace();
+    }
+    if (relation === undefined || !/^[a-z][a-z0-9.-]*(?:[ \t]+[a-z][a-z0-9.-]*)*$/iu.test(relation)) return malformed();
+    // Judged as written, before URL normalization can hide dot segments.
+    const root = base.origin + prefix + "/";
     if (!raw.startsWith(root)) throw new ForgeError("github_response_invalid", "GitHub's Link header names a page outside the API.", {});
     const queryAt = raw.indexOf("?");
     const path = raw.slice(root.length - 1, queryAt === -1 ? undefined : queryAt);
     const search = queryAt === -1 ? "" : raw.slice(queryAt);
     try { forgeRequestUrl(endpoint, path); } catch { throw new ForgeError("github_response_invalid", "GitHub's Link header names a page whose path is not an API path.", { path }); }
     if (/[#\s]/u.test(search)) throw new ForgeError("github_response_invalid", "GitHub's Link header names a page with a fragment or a space.", {});
-    links[match[2]!] = `${path}${search}`;
+    for (const name of relation.toLowerCase().split(/[ \t]+/u)) {
+      if (Object.hasOwn(links, name)) return malformed();
+      links[name] = path + search;
+    }
+    if (cursor === value.length) break;
+    if (value[cursor] !== ",") return malformed();
+    cursor += 1;
+    whitespace();
+    if (cursor === value.length) return malformed();
   }
   return Object.freeze(links);
 }
@@ -205,21 +239,34 @@ export function classifyGithubAnswer(status: number, headers: Headers, bodyText:
   return raise("github_validation_failed", "GitHub refused the payload.");
 }
 
-type CachedAnswer = Readonly<{ etag: string; data: unknown }>;
+type CachedAnswer = Readonly<{ etag: string; data: unknown; links: Readonly<Record<string, string>> }>;
 
-/** A bounded least-recently-used map of conditional-GET answers. */
-function etagCache(capacity: number): Readonly<{ get: (key: string) => CachedAnswer | undefined; set: (key: string, answer: CachedAnswer) => void }> {
+/** A bounded least-recently-used map of conditional-GET representations. */
+function etagCache(capacity: number): Readonly<{
+  get: (key: string) => CachedAnswer | undefined;
+  set: (key: string, answer: CachedAnswer) => void;
+  delete: (key: string) => void;
+  replaceIfCurrent: (key: string, expected: CachedAnswer, answer: CachedAnswer) => boolean;
+}> {
   const entries = new Map<string, CachedAnswer>();
+  const put = (key: string, answer: CachedAnswer): void => {
+    entries.delete(key);
+    entries.set(key, answer);
+    while (entries.size > capacity) entries.delete(entries.keys().next().value!);
+  };
   return Object.freeze({
     get: (key: string) => {
       const hit = entries.get(key);
       if (hit !== undefined) { entries.delete(key); entries.set(key, hit); }
       return hit;
     },
-    set: (key: string, answer: CachedAnswer) => {
-      entries.delete(key);
-      entries.set(key, answer);
-      while (entries.size > capacity) entries.delete(entries.keys().next().value!);
+    set: put,
+    delete: (key: string) => { entries.delete(key); },
+    replaceIfCurrent: (key: string, expected: CachedAnswer, answer: CachedAnswer) => {
+      // A late 304 must not overwrite a newer representation or revive an eviction.
+      if (entries.get(key) !== expected) return false;
+      put(key, answer);
+      return true;
     },
   });
 }
@@ -256,14 +303,15 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
     const { method, path } = request;
     const url = forgeRequestUrl(endpoint, path, request.query);
     const lifetime = outboundDeadline(request.signal, endpoint.timeoutMs, () => new ForgeError("github_unavailable", `${method} ${path}: GitHub did not answer within ${String(endpoint.timeoutMs)} ms.`, { method, path }));
-    const cacheKey = `${method} ${url.href}`;
+    const accept = request.accept ?? GITHUB_JSON_MEDIA_TYPE;
+    const cacheKey = canonicalJson([method, url.href, accept]);
     const cached = method === "GET" ? cache.get(cacheKey) : undefined;
     try {
       const authorization = await credential.authorization(lifetime.signal);
       const prepared = prepareOutboundRequest({
         url: url.href, method, logCategory: FORGE_LOG_CATEGORY, allowPrivateAddress: endpoint.allowPrivateAddress,
         protocolHeaders: {
-          Accept: request.accept ?? GITHUB_JSON_MEDIA_TYPE,
+          Accept: accept,
           ...(authorization === undefined ? {} : { Authorization: authorization }),
           "X-GitHub-Api-Version": GITHUB_API_VERSION,
           "User-Agent": endpoint.userAgent,
@@ -281,10 +329,22 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
       const rate = rateFactsOf(response.headers);
       const requestId = response.headers.get("x-github-request-id") ?? undefined;
       debugLog(FORGE_LOG_CATEGORY, "debug", "forge_request", () => ({ principal: credential.principal, method, path, status: response.status, ...rate }));
-      if (response.status === 304 && cached !== undefined) {
+      if (response.status === 304) {
         await discardBody(response, FORGE_LOG_CATEGORY, endpoint.cleanupTimeoutMs);
-        const links = linkPaths(endpoint, response.headers.get("link"));
-        return Object.freeze({ status: 304, data: cached.data as T, etag: cached.etag, notModified: true, next: links.next, links, rate, requestId });
+        if (cached === undefined) throw new ForgeError("github_response_invalid", "GitHub answered304 without a cached representation to validate.", { method, path });
+        const returnedTag = response.headers.get("etag");
+        if (returnedTag !== null) {
+          // Strong selection requires the captured strong tag; weak selection compares opaque values.
+          const weak = returnedTag.startsWith("W/");
+          const captured = weak && cached.etag.startsWith("W/") ? cached.etag.slice(2) : cached.etag;
+          const returned = weak ? returnedTag.slice(2) : returnedTag;
+          if (returned !== captured) throw new ForgeError("github_response_invalid", "GitHub's 304 validator cannot freshen this cached representation.", { method, path });
+        }
+        // Omission retains the representation's metadata; an explicit empty header clears it.
+        const links = response.headers.has("link") ? linkPaths(endpoint, response.headers.get("link")) : cached.links;
+        const etag = returnedTag ?? cached.etag;
+        cache.replaceIfCurrent(cacheKey, cached, Object.freeze({ etag, data: cached.data, links }));
+        return Object.freeze({ status: 304, data: cached.data as T, etag, notModified: true, next: links.next, links, rate, requestId });
       }
       const text = await readBody(response, lifetime.signal, endpoint.maxResponseBytes, endpoint.cleanupTimeoutMs, FORGE_LOG_CATEGORY);
       if (response.status < 200 || response.status >= 300) {
@@ -293,9 +353,12 @@ export function githubClient(endpoint: ForgeEndpoint, credential: ForgeCredentia
         throw refusal;
       }
       const data = parseBody(text, method, path);
-      const etag = response.headers.get("etag") ?? undefined;
-      if (method === "GET" && etag !== undefined) cache.set(cacheKey, { etag, data });
       const links = linkPaths(endpoint, response.headers.get("link"));
+      const etag = response.headers.get("etag") ?? undefined;
+      if (method === "GET") {
+        if (etag === undefined) cache.delete(cacheKey);
+        else cache.set(cacheKey, Object.freeze({ etag, data, links }));
+      }
       return Object.freeze({ status: response.status, data: data as T, etag, notModified: false, next: links.next, links, rate, requestId });
     } finally {
       lifetime.clear();

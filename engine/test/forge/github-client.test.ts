@@ -10,7 +10,7 @@ import test from "node:test";
 import { classifyGithubAnswer, forgeRequestUrl, githubClient, linkPaths } from "../../src/workflow/forge/github.ts";
 import { isForgeError, type ForgeCode } from "../../src/workflow/forge/codes.ts";
 import { memoryCredential } from "../../src/workflow/forge/credentials.ts";
-import { GITHUB_API_VERSION } from "../../src/workflow/forge/port.ts";
+import { GITHUB_API_VERSION, GITHUB_JSON_MEDIA_TYPE } from "../../src/workflow/forge/port.ts";
 import { fakeGithub, type FakeGithub } from "./fake-github.ts";
 import { serve } from "../support/loopback-upstream.ts";
 
@@ -259,4 +259,356 @@ test("the credential is never sent to a request the door refuses, and a missing 
   } finally { delete process.env[variable]; }
   // A public-only endpoint refuses the loopback fake before anything is sent.
   await assert.rejects(githubClient(fake.endpoint({ allowPrivateAddress: false }), memoryCredential("m", "t")).rest({ method: "GET", path: "/x" }), (error: unknown) => (error as { code?: string }).code === "outbound_private_destination_refused");
+});
+
+/** A real two-page collection whose validation replies deliberately omit Link. */
+function conditionalPagesFixture() {
+  const fake = fakeGithub();
+  const forge = client(fake);
+  const pages: number[] = [];
+  const rows = Array.from({ length: 101 }, (_, index) => ({ id: index + 1, conclusion: index === 100 ? "failure" : "success" }));
+  fake.route("GET", /^\/conditional-pages$/u, (request) => {
+    const page = Number(request.query.get("page") ?? "1");
+    pages.push(page);
+    const etag = `"conditional-page-${String(page)}"`;
+    if (request.headers.get("if-none-match") === etag) return { status: 304, headers: { etag } };
+    return {
+      status: 200,
+      body: rows.slice((page - 1) * 100, page * 100),
+      headers: {
+        etag,
+        ...(page === 1 ? { link: `<${fake.apiUrl}/conditional-pages?per_page=100&page=2>; rel="next"` } : {}),
+      },
+    };
+  });
+  return { fake, forge, pages, rows };
+}
+
+test("conditional pagination replays every cached page when 304 omits Link, including a failure at item 101", async () => {
+  const { forge, pages, rows } = conditionalPagesFixture();
+  const request = { path: "/conditional-pages" };
+  const options = { maxPages: 2, perPage: 100 };
+  assert.deepEqual(await forge.paginate(request, options), rows);
+  const repeated = await forge.paginate<{ id: number; conclusion: string }>(request, options);
+  assert.deepEqual(repeated, rows);
+  assert.deepEqual(repeated.at(-1), { id: 101, conclusion: "failure" }, "validation cannot erase the failed second-page item");
+  assert.deepEqual(pages, [1, 2, 1, 2], "both actual pages are requested on both observations");
+});
+
+test("conditional pagination still refuses maxPages after its first page was cached", async () => {
+  const { forge, pages } = conditionalPagesFixture();
+  await forge.paginate({ path: "/conditional-pages" }, { maxPages: 2, perPage: 100 });
+  const before = pages.length;
+  const facts = await refusedWith("forge_list_oversized", () => forge.paginate({ path: "/conditional-pages" }, { maxPages: 1, perPage: 100 }));
+  assert.equal(facts.maxPages, 1);
+  assert.deepEqual(pages.slice(before), [1], "the bound refuses before asking for the retained next page");
+});
+
+test("conditional representations are scoped by effective Accept and complete query on the same client", async () => {
+  const fake = fakeGithub();
+  const forge = client(fake);
+  const alternative = "application/vnd.github.object+json";
+  const conditionals: (string | null)[] = [];
+  fake.route("GET", /^\/conditional-scope$/u, (request) => {
+    const representation = request.headers.get("accept") === alternative ? "object" : "json";
+    const slot = request.query.get("slot")!;
+    const etag = `"${representation}-${slot}"`;
+    conditionals.push(request.headers.get("if-none-match"));
+    if (request.headers.get("if-none-match") === etag) return { status: 304, headers: { etag } };
+    return { status: 200, body: { representation, slot }, headers: { etag, link: `<${fake.apiUrl}/conditional-scope?cursor=${representation}-${slot}>; rel="next"` } };
+  });
+  const first = await forge.rest({ method: "GET", path: "/conditional-scope", query: { slot: "one" } });
+  const other = await forge.rest({ method: "GET", path: "/conditional-scope", query: { slot: "one" }, accept: alternative });
+  const explicitDefault = await forge.rest({ method: "GET", path: "/conditional-scope", query: { slot: "one" }, accept: GITHUB_JSON_MEDIA_TYPE });
+  const otherQuery = await forge.rest({ method: "GET", path: "/conditional-scope", query: { slot: "two" } });
+  const repeatedOther = await forge.rest({ method: "GET", path: "/conditional-scope", query: { slot: "one" }, accept: alternative });
+  const repeatedQuery = await forge.rest({ method: "GET", path: "/conditional-scope", query: { slot: "two" } });
+  assert.deepEqual(conditionals, [null, null, '"json-one"', null, '"object-one"', '"json-two"']);
+  assert.deepEqual(first.data, { representation: "json", slot: "one" });
+  assert.deepEqual(other.data, { representation: "object", slot: "one" });
+  assert.equal(explicitDefault.notModified, true, "omitted and explicit default Accept select the same representation");
+  assert.deepEqual(explicitDefault.data, first.data);
+  assert.equal(explicitDefault.next, "/conditional-scope?cursor=json-one");
+  assert.deepEqual(repeatedOther.data, other.data);
+  assert.equal(repeatedOther.next, "/conditional-scope?cursor=object-one");
+  assert.deepEqual(repeatedQuery.data, otherQuery.data);
+  assert.equal(repeatedQuery.next, "/conditional-scope?cursor=json-two");
+});
+
+test("separate credential clients never share cached data or pagination metadata at the same URL and ETag", async () => {
+  const fake = fakeGithub();
+  const first = githubClient(fake.endpoint(), memoryCredential("user:first", fake.userToken("first")));
+  const second = githubClient(fake.endpoint(), memoryCredential("user:second", fake.userToken("second")));
+  const conditionals: (string | null)[] = [];
+  fake.route("GET", /^\/conditional-principal$/u, (request) => {
+    const principal = fake.principalOf(request)!;
+    conditionals.push(request.headers.get("if-none-match"));
+    if (request.headers.get("if-none-match") === '"same"') return { status: 304, headers: { etag: '"same"' } };
+    return { status: 200, body: { principal }, headers: { etag: '"same"', link: `<${fake.apiUrl}/conditional-principal?cursor=${principal}>; rel="next"` } };
+  });
+  const a = await first.rest({ method: "GET", path: "/conditional-principal" });
+  const b = await second.rest({ method: "GET", path: "/conditional-principal" });
+  const aAgain = await first.rest({ method: "GET", path: "/conditional-principal" });
+  const bAgain = await second.rest({ method: "GET", path: "/conditional-principal" });
+  assert.deepEqual(conditionals, [null, null, '"same"', '"same"']);
+  assert.deepEqual(aAgain.data, a.data);
+  assert.deepEqual(bAgain.data, b.data);
+  assert.notDeepEqual(aAgain.data, bAgain.data);
+  assert.equal(aAgain.next, "/conditional-principal?cursor=first");
+  assert.equal(bAgain.next, "/conditional-principal?cursor=second");
+});
+
+test("304 replacement and explicitly empty Link persist through later absent-Link validations", async () => {
+  const fake = fakeGithub();
+  const forge = client(fake);
+  let calls = 0;
+  fake.route("GET", /^\/conditional-links$/u, () => {
+    calls += 1;
+    if (calls === 1) return { status: 200, body: { version: "original" }, headers: { etag: '"original"', link: `<${fake.apiUrl}/conditional-links?page=2>; rel="next"` } };
+    if (calls === 2) return { status: 304, headers: { link: `<${fake.apiUrl}/conditional-links?page=3>; rel="next"` } };
+    if (calls === 4) return { status: 304, headers: { link: "" } };
+    return { status: 304, headers: {} };
+  });
+  const first = await forge.rest({ method: "GET", path: "/conditional-links" });
+  const replaced = await forge.rest({ method: "GET", path: "/conditional-links" });
+  const retained = await forge.rest({ method: "GET", path: "/conditional-links" });
+  const cleared = await forge.rest({ method: "GET", path: "/conditional-links" });
+  const stillCleared = await forge.rest({ method: "GET", path: "/conditional-links" });
+  assert.equal(first.next, "/conditional-links?page=2");
+  assert.equal(replaced.next, "/conditional-links?page=3");
+  assert.equal(retained.next, replaced.next, "the supplied replacement survives a later omitted Link");
+  assert.deepEqual(cleared.links, {});
+  assert.equal(cleared.next, undefined);
+  assert.deepEqual(stillCleared.links, {});
+  assert.equal(stillCleared.next, undefined, "a cleared next cursor cannot resurrect");
+  for (const response of [first, replaced, retained, cleared, stillCleared]) {
+    assert.deepEqual(response.data, { version: "original" });
+    assert.ok(Object.isFrozen(response.links));
+  }
+});
+
+test("a fresh 200 without Link replaces old pagination metadata before subsequent 304 replay", async () => {
+  const fake = fakeGithub();
+  const forge = client(fake);
+  let calls = 0;
+  fake.route("GET", /^\/conditional-fresh$/u, () => {
+    calls += 1;
+    if (calls === 1) return { status: 200, body: { version: "old" }, headers: { etag: '"old"', link: `<${fake.apiUrl}/conditional-fresh?page=2>; rel="next"` } };
+    if (calls === 2) return { status: 200, body: { version: "new" }, headers: { etag: '"new"' } };
+    return { status: 304, headers: {} };
+  });
+  await forge.rest({ method: "GET", path: "/conditional-fresh" });
+  const fresh = await forge.rest({ method: "GET", path: "/conditional-fresh" });
+  const validated = await forge.rest({ method: "GET", path: "/conditional-fresh" });
+  assert.deepEqual(fresh.data, { version: "new" });
+  assert.deepEqual(validated.data, fresh.data);
+  assert.equal(validated.etag, '"new"');
+  assert.equal(validated.next, undefined);
+  assert.deepEqual(validated.links, {}, "fresh absence replaces old links rather than merging them");
+});
+
+test("a fresh successful GET without ETag retires the previous conditional entry", async () => {
+  const fake = fakeGithub();
+  const forge = client(fake);
+  const conditionals: (string | null)[] = [];
+  let calls = 0;
+  fake.route("GET", /^\/conditional-no-etag$/u, (request) => {
+    conditionals.push(request.headers.get("if-none-match"));
+    calls += 1;
+    return calls === 1
+      ? { status: 200, body: { version: "old" }, headers: { etag: '"old"', link: `<${fake.apiUrl}/conditional-no-etag?page=2>; rel="next"` } }
+      : { status: 200, body: { version: "fresh" }, headers: {} };
+  });
+  await forge.rest({ method: "GET", path: "/conditional-no-etag" });
+  const fresh = await forge.rest({ method: "GET", path: "/conditional-no-etag" });
+  const next = await forge.rest({ method: "GET", path: "/conditional-no-etag" });
+  assert.deepEqual(conditionals, [null, '"old"', null], "a successful unvalidated representation removes its old validator");
+  assert.deepEqual(next.data, fresh.data);
+  assert.equal(next.notModified, false);
+  assert.equal(next.etag, undefined);
+  assert.equal(next.next, undefined);
+});
+
+/** Adversarial response metadata, constructed here and parsed only by production linkPaths. */
+function refusedConditionalLink(fake: FakeGithub, form: "foreign" | "traversal" | "garbage" | "partial" | "ambiguous" | "anchor"): string {
+  const safe = `<${fake.apiUrl}/conditional-poison?page=2>; rel="next"`;
+  if (form === "foreign") return '<https://evil.invalid/conditional-poison?page=2>; rel="next"';
+  if (form === "traversal") return `<${fake.apiUrl}/conditional-poison/.%2e/escape?page=2>; rel="next"`;
+  if (form === "garbage") return "not a Link field";
+  if (form === "partial") return safe + " trailing-garbage";
+  if (form === "anchor") return safe + '; AnChOr="/another-context"';
+  return safe + `, <${fake.apiUrl}/conditional-poison?page=3>; rel="next"`;
+}
+
+test("validated Link parsing retains safe parameters before and after rel and accepts explicit whitespace clearing", () => {
+  const endpoint = fakeGithub().endpoint();
+  const header = `<${endpoint.apiUrl}/labels?page=2>; title="next labels"; rel="next"; type="application/json", <${endpoint.apiUrl}/labels?page=4>; rel="last"; title="last labels"`;
+  assert.deepEqual(linkPaths(endpoint, header), { next: "/labels?page=2", last: "/labels?page=4" });
+  assert.deepEqual(linkPaths(endpoint, " \t "), {});
+});
+
+for (const invalid of ["body", "foreign", "traversal", "garbage", "partial", "ambiguous", "anchor"] as const) {
+  test(`a rejected 200 ${invalid} response cannot poison an existing conditional representation`, async () => {
+    const fake = fakeGithub();
+    const forge = client(fake);
+    const conditionals: (string | null)[] = [];
+    let calls = 0;
+    fake.route("GET", /^\/conditional-poison$/u, (request) => {
+      conditionals.push(request.headers.get("if-none-match"));
+      calls += 1;
+      if (calls === 1) return { status: 200, body: { trusted: true }, headers: { etag: '"trusted"', link: `<${fake.apiUrl}/conditional-poison?page=2>; rel="next"` } };
+      if (calls === 2) return invalid === "body"
+        ? { status: 200, raw: Buffer.from("not JSON"), headers: { etag: '"poison"', link: `<${fake.apiUrl}/conditional-poison?page=3>; rel="next"` } }
+        : { status: 200, body: { poison: true }, headers: { etag: '"poison"', link: refusedConditionalLink(fake, invalid) } };
+      return { status: 304, headers: {} };
+    });
+    await forge.rest({ method: "GET", path: "/conditional-poison" });
+    await refusedWith("github_response_invalid", () => forge.rest({ method: "GET", path: "/conditional-poison" }));
+    const retained = await forge.rest({ method: "GET", path: "/conditional-poison" });
+    assert.equal(conditionals.at(-1), '"trusted"', "a rejected response never supplies the next validator");
+    assert.deepEqual(retained.data, { trusted: true });
+    assert.equal(retained.etag, '"trusted"');
+    assert.equal(retained.next, "/conditional-poison?page=2");
+    assert.equal(fake.requests.length, 3);
+    assert.ok(fake.requests.every((request) => request.path === "/conditional-poison"), "no refused cursor is followed");
+  });
+}
+
+for (const invalid of ["foreign", "traversal", "garbage", "partial", "ambiguous", "anchor"] as const) {
+  test(`a rejected 304 ${invalid} Link preserves the previous validated pagination metadata`, async () => {
+    const fake = fakeGithub();
+    const forge = client(fake);
+    const conditionals: (string | null)[] = [];
+    let calls = 0;
+    fake.route("GET", /^\/conditional-poison$/u, (request) => {
+      conditionals.push(request.headers.get("if-none-match"));
+      calls += 1;
+      if (calls === 1) return { status: 200, body: { trusted: true }, headers: { etag: '"trusted"', link: `<${fake.apiUrl}/conditional-poison?page=2>; rel="next"` } };
+      if (calls === 2) return { status: 304, headers: { link: refusedConditionalLink(fake, invalid) } };
+      return { status: 304, headers: {} };
+    });
+    await forge.rest({ method: "GET", path: "/conditional-poison" });
+    await refusedWith("github_response_invalid", () => forge.rest({ method: "GET", path: "/conditional-poison" }));
+    const retained = await forge.rest({ method: "GET", path: "/conditional-poison" });
+    assert.equal(conditionals.at(-1), '"trusted"');
+    assert.deepEqual(retained.data, { trusted: true });
+    assert.equal(retained.next, "/conditional-poison?page=2");
+    assert.equal(retained.etag, '"trusted"');
+    assert.equal(fake.requests.length, 3);
+  });
+}
+
+test("a 304 without a matching cached representation refuses explicitly", async () => {
+  const fake = fakeGithub();
+  fake.route("GET", /^\/conditional-cold$/u, () => ({ status: 304, headers: {} }));
+  await refusedWith("github_response_invalid", () => client(fake).rest({ method: "GET", path: "/conditional-cold" }));
+  assert.equal(fake.requests.length, 1, "the client does not retry a cold validation into apparent success");
+});
+
+for (const change of ["newer-200", "eviction"] as const) {
+  test(`an older in-flight 304 cannot overwrite ${change} in the same conditional cache`, async () => {
+    const fake = fakeGithub();
+    const forge = githubClient(fake.endpoint({ etagCacheEntries: change === "eviction" ? 1 : 2 }), memoryCredential("user:maintainer", fake.userToken("maintainer")));
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const conditionals: { path: string; etag: string | null }[] = [];
+    let raceCalls = 0;
+    serve(async (url, init) => {
+      const path = new URL(url).pathname;
+      conditionals.push({ path, etag: init.headers.get("if-none-match") });
+      if (path === "/conditional-other") return Response.json({ other: true }, { headers: { etag: '"other"' } });
+      assert.equal(path, "/conditional-race");
+      raceCalls += 1;
+      if (raceCalls === 1) return Response.json({ version: "old" }, { headers: { etag: '"old"', link: `<${fake.apiUrl}/conditional-race?cursor=old>; rel="next"` } });
+      if (raceCalls === 2) {
+        entered.resolve();
+        await release.promise;
+        return new Response(null, { status: 304, headers: { link: `<${fake.apiUrl}/conditional-race?cursor=late-old>; rel="next"` } });
+      }
+      if (change === "eviction") return Response.json({ version: "reloaded" }, { headers: { etag: '"reloaded"' } });
+      if (raceCalls === 3) return Response.json({ version: "new" }, { headers: { etag: '"new"', link: `<${fake.apiUrl}/conditional-race?cursor=new>; rel="next"` } });
+      return new Response(null, { status: 304 });
+    });
+    await forge.rest({ method: "GET", path: "/conditional-race" });
+    const older = forge.rest({ method: "GET", path: "/conditional-race" });
+    let competing: Awaited<ReturnType<typeof forge.rest>> | undefined;
+    let olderAnswer: Awaited<ReturnType<typeof forge.rest>> | undefined;
+    try {
+      const enteredFirst = await Promise.race([entered.promise.then(() => true), older.then(() => false)]);
+      assert.equal(enteredFirst, true, "the older request cannot complete before its controlled 304 is released");
+      competing = await forge.rest({ method: "GET", path: change === "eviction" ? "/conditional-other" : "/conditional-race" });
+    } finally {
+      release.resolve();
+      olderAnswer = await older;
+    }
+    assert.ok(competing);
+    assert.ok(olderAnswer);
+    assert.deepEqual(olderAnswer.data, { version: "old" }, "the late response still answers the representation it validated");
+    const current = await forge.rest({ method: "GET", path: "/conditional-race" });
+    if (change === "eviction") {
+      assert.deepEqual(current.data, { version: "reloaded" });
+      assert.equal(conditionals.at(-1)!.etag, null, "a late 304 cannot resurrect an intentionally evicted validator");
+      assert.equal(current.next, undefined);
+    } else {
+      assert.deepEqual(competing.data, { version: "new" });
+      assert.equal(conditionals.at(-1)!.etag, '"new"', "the late metadata write cannot replace the newer representation");
+      assert.deepEqual(current.data, { version: "new" });
+      assert.equal(current.next, "/conditional-race?cursor=new");
+    }
+  });
+}
+
+
+for (const conflict of ["different-strong", "different-weak", "strong-from-weak"] as const) {
+  test(`a 304 ${conflict} validator cannot rebind a cached representation`, async () => {
+    const fake = fakeGithub();
+    const forge = client(fake);
+    const capturedTag = conflict === "strong-from-weak" ? 'W/"trusted"' : '"trusted"';
+    const returnedTag = conflict === "strong-from-weak" ? '"trusted"' : conflict === "different-weak" ? 'W/"other"' : '"other"';
+    const conditionals: (string | null)[] = [];
+    let calls = 0;
+    fake.route("GET", /^\/conditional-validator$/u, (request) => {
+      conditionals.push(request.headers.get("if-none-match"));
+      calls += 1;
+      if (calls === 1) return { status: 200, body: { trusted: true }, headers: { etag: capturedTag, link: `<${fake.apiUrl}/conditional-validator?page=2>; rel="next"` } };
+      if (calls === 2) return { status: 304, headers: { etag: returnedTag, link: `<${fake.apiUrl}/conditional-validator?page=3>; rel="next"` } };
+      return { status: 304, headers: { etag: capturedTag } };
+    });
+    await forge.rest({ method: "GET", path: "/conditional-validator" });
+    const facts = await refusedWith("github_response_invalid", () => forge.rest({ method: "GET", path: "/conditional-validator" }));
+    assert.equal(facts["method"], "GET");
+    assert.equal(facts["path"], "/conditional-validator");
+    const retained = await forge.rest({ method: "GET", path: "/conditional-validator" });
+    assert.deepEqual(conditionals, [null, capturedTag, capturedTag], "unsupported freshening never supplies the next conditional validator");
+    assert.deepEqual(retained.data, { trusted: true });
+    assert.equal(retained.etag, capturedTag);
+    assert.equal(retained.next, "/conditional-validator?page=2");
+    assert.equal(retained.notModified, true);
+    assert.equal(fake.requests.length, 3, "the client never retries a rejected metadata update");
+  });
+}
+
+test("a matching weak 304 validator can refresh a captured strong representation", async () => {
+  const fake = fakeGithub();
+  const forge = client(fake);
+  const conditionals: (string | null)[] = [];
+  let calls = 0;
+  fake.route("GET", /^\/conditional-weak$/u, (request) => {
+    conditionals.push(request.headers.get("if-none-match"));
+    calls += 1;
+    if (calls === 1) return { status: 200, body: { trusted: true }, headers: { etag: '"trusted"', link: `<${fake.apiUrl}/conditional-weak?page=2>; rel="next"` } };
+    if (calls === 2) return { status: 304, headers: { etag: 'W/"trusted"', link: `<${fake.apiUrl}/conditional-weak?page=3>; rel="next"` } };
+    return { status: 304, headers: {} };
+  });
+  await forge.rest({ method: "GET", path: "/conditional-weak" });
+  const refreshed = await forge.rest({ method: "GET", path: "/conditional-weak" });
+  const retained = await forge.rest({ method: "GET", path: "/conditional-weak" });
+  assert.deepEqual(conditionals, [null, '"trusted"', 'W/"trusted"']);
+  for (const response of [refreshed, retained]) {
+    assert.deepEqual(response.data, { trusted: true });
+    assert.equal(response.etag, 'W/"trusted"');
+    assert.equal(response.next, "/conditional-weak?page=3");
+    assert.equal(response.notModified, true);
+  }
+  assert.equal(fake.requests.length, 3);
 });
