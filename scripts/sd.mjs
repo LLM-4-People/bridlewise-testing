@@ -72,12 +72,6 @@ const BOOT_STDERR_LOG = join(BOOT_CWD, DEV_PID_DIRECTORY, "boot.stderr.log");
 // bounded tail is what points at the refusal, never the whole log.
 const BOOT_STDERR_TAIL_LINES = 30;
 
-// THE LAUNCH ENVIRONMENT COMES FROM THE CALLER'S ENVIRONMENT ONLY. A literal
-// provider key and the dev admin password used to be built in as fallbacks
-// (a credential in a tracked file, pushed to origin — rotate it); an unset
-// variable is now simply unset, and the server says what it needs.
-const ENV = serverLaunchEnvironment(process.env);
-
 // ── Helpers ──
 
 /** The pids listening on `port` (the process-facts owner's one answer; never an `ss` scrape). */
@@ -143,7 +137,7 @@ async function stopRecordedServers() {
 // — the SAME enumeration the anatomy view consumes (one census primitive,
 // no copy); what stays here is the candidate filter (the cwd
 // safety gate, re-applied on top of the census) and the report.
-import { classifyStaleProcess, livePidfilePids, servingTreeLine, bootBindingLine, bootServingVerdict, bootStderrTailMessage, systemdRunLaunchCommand, serverLaunchEnvironment } from "./sd-stale-classifier.ts";
+import { classifyStaleProcess, livePidfilePids, servingTreeLine, bootBindingLine, bootServingVerdict, bootStderrTailMessage, systemdRunLaunchCommand, serverLaunchEnvironment, serverManagerLaunchEnvironment } from "./sd-stale-classifier.ts";
 import { censusProcesses } from "../server/observability/process-census.ts";
 import { parentOf, processesListeningOn, workingDirectoryOf } from "../engine/src/process/process-facts.ts";
 import { DEV_PID_DIRECTORY, devPidfilePath, readDevPidfile, recordedDevServers, removeDevPidfile, stopDevGroup, stopDevOrchestrator } from "./dev-processes.ts";
@@ -307,6 +301,11 @@ async function cmdStop() {
 }
 
 async function cmdStart() {
+  // Validate launch configuration before stopping or starting anything.
+  // Stop/status must remain usable even when new startup settings are invalid.
+  // No built-in credentials: an unset caller value stays unset.
+  const ENV = serverLaunchEnvironment(process.env);
+  const MANAGER_ENV = serverManagerLaunchEnvironment(process.env, ENV);
   // THE BOOT BINDING — printed BEFORE anything is killed or launched: the
   // tree this boot will serve (the working directory the unit is told to
   // run in) and the config file that tree's server will load. The ports
@@ -371,7 +370,7 @@ async function cmdStart() {
     // would otherwise split into two systemd-run arguments (or worse, be
     // interpreted). The quoting is uniform over the whole array: an
     // argument added later is covered the day it lands.
-    execSync(systemdRunLaunchCommand(args), { encoding: "utf8", stdio: "pipe" });
+    execSync(systemdRunLaunchCommand(args), { encoding: "utf8", stdio: "pipe", env: MANAGER_ENV });
   } catch (err) {
     console.error("[sd] systemd-run failed; exit status:", typeof err.status === "number" ? err.status : "unavailable");
     // Fallback: direct spawn — the child's stderr goes to the SAME log via
@@ -432,9 +431,8 @@ async function cmdStart() {
 }
 
 async function cmdRestart() {
-  await cmdStop();
-  execSync("sleep 1");
-  cmdStart();
+  // Start already stops its own recorded processes after validating inputs.
+  await cmdStart();
 }
 
 async function cmdStatus() {

@@ -1,6 +1,7 @@
 /**
  * THE ONE MARKUP OWNER: every HTML or Markdown escape, entity decode, tag
- * strip and markup removal in the tree goes through this file
+ * strip, markup removal and HTML-comment delimiter recognition in the tree
+ * go through this file
  * (`tests/public/markup-owner.test.mjs` refuses a hand-rolled copy).
  *
  * ── THE BOUNDARY WITH THE SOURCE VIEW ─────────────────────────────────────
@@ -11,7 +12,9 @@
  * text, and `engine/scripts/verification/source-view.ts` is its one owner
  * (the source-scan views, `stripHtmlComments` included, render its spans). A
  * markup helper here must never be used to read source, and the source view
- * is never used to rewrite HTML.
+ * is never used to rewrite HTML. The nonlossy comment-delimiter helpers here
+ * also serve the Markdown document grammar: that grammar owns block context,
+ * indentation and literal nodes; these helpers only recognize HTML tokens.
  *
  * Each copy these replace was a per-file regex chain, and each had the hole
  * CodeQL names for that shape:
@@ -137,6 +140,17 @@ export function escapeMarkdownTableCell(text: string): string {
   return text.replace(/[\\|]/gu, (character) => `\\${character}`);
 }
 
+/** Recognize a literal HTML-comment opener at an exact offset; never skip or rewrite text. */
+export function isHtmlCommentStart(text: string, offset = 0): boolean {
+  return text.startsWith("<!--", offset);
+}
+
+/** The offset after the next literal comment closer, or null; never remove or rewrite text. */
+export function findHtmlCommentEnd(text: string, from = 0): number | null {
+  const close = text.indexOf("-->", from);
+  return close === -1 ? null : close + 3;
+}
+
 /**
  * Text with every markup tag removed, to a fixed point: removing `<b>` from
  * `<<b>x>` leaves `<x>`, which the next round removes. A lone `<` or `>` that
@@ -169,9 +183,8 @@ export function htmlWithout(html: string, options: Readonly<{ comments?: boolean
   let index = lower.indexOf("<");
   while (index !== -1) {
     let end = -1;
-    if (options.comments === true && lower.startsWith("<!--", index)) {
-      const close = lower.indexOf("-->", index + 4);
-      end = close === -1 ? html.length : close + 3;
+    if (options.comments === true && isHtmlCommentStart(lower, index)) {
+      end = findHtmlCommentEnd(lower, index + 4) ?? html.length;
     } else {
       const element = elements.find((name) => lower.startsWith(name, index + 1) && /[\s/>]/u.test(lower[index + 1 + name.length] ?? ">"));
       if (element !== undefined) {

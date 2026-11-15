@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * The markdown parser (src/cockpit/render/markdown.ts) — the safe subset.
+ * The Markdown parser (shared/markdown.ts) — the safe subset.
  *
  * Two properties matter more than any individual construct:
  *
@@ -255,6 +255,65 @@ describe("one grammar for reading and for checking: titles, angle brackets, refe
     expect(blocks).toHaveLength(1);
     expect(textOf((blocks[0] as { children: readonly InlineNode[] }).children)).toBe("See the plan, P and p.");
     expect(targets("- [ ] a task box is not a reference\n- [x] neither")).toEqual([]);
+  });
+
+  test("an escaped comment spelling is ordinary prose, without comment provenance", () => {
+    const src = "<\\!-- a comment -->";
+    expect(parseProse(src)).toEqual([{ type: "paragraph", children: [{ type: "text", text: "<!-- a comment -->" }] }]);
+  });
+
+  test("a reference definition follows a literal comment block without a blank line", () => {
+    const url = "https://example.invalid/release";
+    for (const indent of ["", " ", "  ", "   "]) {
+      const comment = `${indent}<!-- a comment --> still visible`;
+      const src = `[Release][p]\n\n${comment}\n[p]: ${url}`;
+      expect(parseProse(src)).toEqual([
+        { type: "paragraph", children: [{ type: "link", href: url, children: [{ type: "text", text: "Release" }] }] },
+        { type: "paragraph", syntax: "html-comment", children: [{ type: "text", text: comment }] },
+      ]);
+      expect(extractMarkdown(src).links).toEqual([{ target: url, line: 4 }]);
+    }
+  });
+
+  test("a multiline comment is opaque literal text to both parsing and link extraction", () => {
+    const comment = "<!-- a comment\n\n[inside]: https://inside.invalid\n```\n# not a heading\n-->";
+    const url = "https://example.invalid/release";
+    const src = `[Release][p]\n\n${comment}\n[p]: ${url}`;
+    expect(parseProse(src)).toEqual([
+      { type: "paragraph", children: [{ type: "link", href: url, children: [{ type: "text", text: "Release" }] }] },
+      { type: "paragraph", syntax: "html-comment", children: [{ type: "text", text: comment }] },
+    ]);
+    expect(extractMarkdown(src)).toEqual({ links: [{ target: url, line: 9 }], codeSpans: [] });
+  });
+
+  test("an unclosed comment keeps its entire source visible without inventing links, headings or fences", () => {
+    const src = "<!-- a comment\n\n[p]: https://inside.invalid\n```\n# not a heading";
+    expect(parseProse(src)).toEqual([{ type: "paragraph", syntax: "html-comment", children: [{ type: "text", text: src }] }]);
+    expect(extractMarkdown(src)).toEqual({ links: [], codeSpans: [] });
+  });
+
+  test("comment lookalikes in code, inline prose or four-space indentation create no definition boundary", () => {
+    const url = "https://example.invalid/release";
+    const bodies = [
+      `prose <!-- a comment -->\n[p]: ${url}`,
+      `    <!-- a comment -->\n[p]: ${url}`,
+      `\`\`\`md\n<!-- a comment -->\n[p]: ${url}\n\`\`\``,
+    ];
+    for (const body of bodies) {
+      const first = parseProse(`[p]\n\n${body}`)[0];
+      expect(first).toEqual({ type: "paragraph", children: [{ type: "text", text: "[p]" }] });
+    }
+    expect(targets(`[p]\n\n${bodies[2]!}`)).toEqual([]);
+  });
+
+  test("a definition still cannot interrupt an ordinary paragraph following a comment", () => {
+    const src = "[p]\n\n<!-- a comment -->\nordinary prose\n[p]: https://example.invalid/release";
+    expect(parseProse(src)[0]).toEqual({ type: "paragraph", children: [{ type: "text", text: "[p]" }] });
+  });
+
+  test("a reference after a comment still uses the same unsafe-scheme demotion", () => {
+    const src = "[Release][p]\n\n<!-- a comment -->\n[p]: javascript:alert(1)";
+    expect(parseProse(src)[0]).toEqual({ type: "paragraph", children: [{ type: "text", text: "Release" }] });
   });
 
   test("code is never a link: inline spans (any backtick run) and fenced blocks are skipped, and code spans are collected with their line", () => {

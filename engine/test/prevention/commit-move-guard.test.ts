@@ -701,7 +701,7 @@ test("THE REACH IS ITSELF CHECKED: a discovery that shrank or drifted is a refus
   );
 });
 
-test("THE SHIPPED HOOKS ARE GENERATED: each hook's whole text is its owner's (canonical by construction); the generator reports a hand edit or a missing hook stale and rewrites it, a new one executable (PROMO34FIX-HOOK-GENERATOR)", () => {
+test("THE SHIPPED HOOKS ARE GENERATED: each hook's whole text is its owner's (canonical by construction); the generator reports a hand edit or a missing hook stale and rewrites it with native new-file permissions (PROMO34FIX-HOOK-GENERATOR)", () => {
   for (const hook of SHIPPED_HOOKS) {
     assert.equal(hookTextIsCanonical(shippedHookText(hook), hook), true, `${hook}: the owner's text is canonical`);
     assert.equal(readFileSync(join(HARNESS_ROOT, HOOKS_DIRECTORY, hook), "utf8"), shippedHookText(hook), `${hook}: the tracked hook is its owner's text`);
@@ -709,6 +709,8 @@ test("THE SHIPPED HOOKS ARE GENERATED: each hook's whole text is its owner's (ca
   const root = createTempDir("shipped-hooks-");
   mkdirSync(join(root, HOOKS_DIRECTORY));
   for (const hook of SHIPPED_HOOKS) writeFileSync(join(root, HOOKS_DIRECTORY, hook), shippedHookText(hook), { mode: 0o755 });
+  const nativeCreationMode = statSync(join(root, HOOKS_DIRECTORY, PROMOTION_TRIGGER_HOOK)).mode & 0o777;
+  const existingHookMode = statSync(join(root, HOOKS_DIRECTORY, HOOK_NAME)).mode & 0o777;
   assert.deepEqual(syncShippedHooks(root, false), { allCurrent: true, status: "current", changed: [] });
   writeFileSync(join(root, HOOKS_DIRECTORY, HOOK_NAME), `${shippedHookText(HOOK_NAME)}# a hand-added line\n`);
   rmSync(join(root, HOOKS_DIRECTORY, PROMOTION_TRIGGER_HOOK));
@@ -716,7 +718,8 @@ test("THE SHIPPED HOOKS ARE GENERATED: each hook's whole text is its owner's (ca
   assert.deepEqual(syncShippedHooks(root, false), { allCurrent: false, status: "stale", changed: stale });
   assert.deepEqual(syncShippedHooks(root, true), { allCurrent: true, status: "regenerated", changed: stale });
   assert.equal(readFileSync(join(root, HOOKS_DIRECTORY, HOOK_NAME), "utf8"), shippedHookText(HOOK_NAME));
-  assert.equal(statSync(join(root, HOOKS_DIRECTORY, PROMOTION_TRIGGER_HOOK)).mode & 0o777, 0o755, "a new hook is executable");
+  assert.equal(statSync(join(root, HOOKS_DIRECTORY, PROMOTION_TRIGGER_HOOK)).mode & 0o777, nativeCreationMode, "a new hook follows native executable creation permissions");
+  assert.equal(statSync(join(root, HOOKS_DIRECTORY, HOOK_NAME)).mode & 0o777, existingHookMode, "rewriting an existing hook preserves its permissions");
   assert.deepEqual(syncShippedHooks(createTempDir("shipped-hooks-absent-"), false), { allCurrent: true, status: "absent", changed: [] });
 });
 

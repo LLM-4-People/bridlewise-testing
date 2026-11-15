@@ -80,7 +80,7 @@ The boundary is the loopback server, not the browser tab.
 | Timeline ledger | `.bridlewise/timeline.db` | Append-only event ledger with a local SHA-256 chain per record. Queryable by the cockpit. |
 | Engine state | `.bridlewise/state` | Declared in `engine/bridlewise.config.json`; receipts and execution evidence. |
 | Database key material | Key home | `HARNESS_KEY_HOME`, else `$XDG_CONFIG_HOME/bridlewise/keys`, else `~/.config/bridlewise/keys`. Mode `0700`; never under a checkout or the system temp folder. |
-| Dev process records | `.dev/` | PID files and the boot stderr tail, written by `sd.mjs`. Ignored by git. |
+| Dev process records | [Lifecycle state directory](../scripts/dev-processes.ts) | Process records owned by the lifecycle; [startup failures report the boot stderr tail](../scripts/sd.mjs). Ignored runtime state. |
 
 Sensitive database columns are encrypted at the application layer with AES-256-GCM. The ciphertext is bound to its table, column, row, parent, and owner through associated data, so a value moved to another row does not decrypt. IDs, timestamps, status, and roles remain plaintext so they stay queryable. **The SQLite file as a whole is not encrypted**; protecting the file still depends on filesystem permissions and full-disk encryption.
 
@@ -115,7 +115,7 @@ Non-`chat` engine commands (`preflight`, `harness`, `quality`) are development a
 
 ## Pre-admission
 
-The engine's governance contract is pinned by `engine/src/kernel/root-policy.ts`. `node src/cli.ts preflight` returns an integrity-only receipt with `harnessReady: false`; each interactive capability (model invocation, tool dispatch, repository mutation, process launch, network use, durable audit) is reported `deny` with a typed reason until the governance gate admits it. The web harness is a developer preview built around that gate.
+The engine's governance contract is pinned by `engine/src/kernel/root-policy.ts`. From the repository root, `cd engine && node src/cli.ts preflight` returns an integrity-only receipt with `harnessReady: false`; each interactive capability (model invocation, tool dispatch, repository mutation, process launch, network use, durable audit) is reported `deny` with a typed reason until the governance gate admits it. The web harness is a developer preview built around that gate.
 
 That state is the reason for the warning at the top of this site. Architecture can describe the intended boundary; it cannot substitute for admission evidence, independent review, or an audit.
 

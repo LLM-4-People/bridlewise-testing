@@ -446,6 +446,7 @@ export type LegitimateRawReader =
   | "web:scripts/check-docs-links.mjs"
   | "web:scripts/check-secrets.mjs"
   | "web:scripts/floor/site-pages.mjs"
+  | "web:tests/public/engine-setup.test.mjs"
   | "web:tests/prevention/agent-docs-liveness.test.ts"
   | "web:tests/prevention/declared-pattern-liveness.test.ts"
   | "web:tests/cockpit/brand-mark-owner.test.ts";
@@ -536,6 +537,20 @@ export const LEGITIMATE_RAW_READERS: Record<LegitimateRawReader, Reason> = {
       "a tool whose failure mode is a missed plant. A view that blanks those " +
       "spans would make it quieter, which is the wrong way for this one " +
       "instrument to be wrong.",
+  },
+  "web:tests/public/engine-setup.test.mjs": {
+    why:
+      "Its subjects are setup artifacts: workflow and action YAML is parsed as " +
+      "YAML, package and dev-container documents as JSON, and published guides, " +
+      "templates and Makefile recipes as markup or shell instructions. The " +
+      "remaining matched read splits the inert dispatcher fixture's own " +
+      "recorded argv output. Complete text, literal strings, comments and " +
+      "GitHub expressions are the property under test; a program-source view " +
+      "would change the install-script and credential checks and the output " +
+      "order witness. JavaScript and TypeScript neighbors are not discovered " +
+      "as guides or setup files, and unregistered code scanners still refuse. " +
+      "This declares the real input domain and adds no reader, import, install " +
+      "or filesystem capability.",
   },
   "web:tests/setup/source-tree-immutable.ts": {
     why:

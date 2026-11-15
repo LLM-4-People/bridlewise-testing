@@ -40,13 +40,13 @@ The whole path, end to end; each step links the section that has the detail.
    people do not do the same work.
 2. **Fork and clone** the repository, then follow [Setup](#setup).
 3. **Make one change on a branch,** with a test when it changes behavior
-   ([Test conventions](#test-conventions)), and run the local gate:
-   `cd engine && node src/cli.ts harness check`.
+   ([Test conventions](#test-conventions)), and run the local gates in
+   [Setup](#setup).
 4. **Commit with a sign-off:** `git commit -s` (the
    [commit style](#commit-and-pull-request-style) has the details).
 5. **Open a pull request against `main`** and fill in its template.
-6. **Wait for the first CI run.** A first-time contributor's first run waits
-   for a maintainer's one-time approval; after that, CI runs on every push.
+6. **Check the CI result.** A fork run may need maintainer approval; see
+   [How your pull request lands](#how-your-pull-request-lands).
 7. **Answer the review.** Someone other than you verifies the change and says
    what they checked; push fixes to the same branch.
 8. **It lands** once the required checks and the review are green
@@ -62,22 +62,32 @@ guardian's pinned compiler; on Debian or Ubuntu install it with
 `sudo apt-get install -y gcc-14`), and optionally Playwright Chromium for
 the browser tests.
 
+Create your fork on GitHub, then replace `YOUR-ACCOUNT` below with its owner.
+The `upstream` remote points to the project; `origin` remains your fork.
+
 ```bash
-git clone https://github.com/LLM-4-People/bridlewise-testing.git
+git clone https://github.com/YOUR-ACCOUNT/bridlewise-testing.git
 cd bridlewise-testing
+git remote add upstream https://github.com/LLM-4-People/bridlewise-testing.git
 npm ci
-npm --prefix engine ci
+npm run setup:engine
 npm run bootstrap:hooks
-chmod 600 engine/bridlewise.config.json
 make -C engine/guardian all
 npm --prefix engine run build:bundle
 ```
 
-Before you open a pull request, run the local gate:
+Before you open a pull request, run the public gate and documentation links
+from the repository root, then the harness check:
 
 ```bash
+npm run verify:public
+npm run docs:links
 cd engine && node src/cli.ts harness check
 ```
+
+Run the suites affected by your change too. Record exact commands and any
+refusals in the pull request; a passing public gate does not qualify the full
+development floor.
 
 [docs/testing.md](docs/testing.md) owns the suites, their prerequisites and what
 CI runs.
@@ -104,15 +114,44 @@ bar](docs/process/AGENTS.md#evidence).
 
 ## Commit and pull request style
 
+Before committing, inspect the effective author and committer in your checkout:
+
+```bash
+git var GIT_AUTHOR_IDENT
+git var GIT_COMMITTER_IDENT
+```
+
+Git records these roles separately. To choose your identity for future commits
+in this repository, use:
+
+```bash
+git config --local user.name "Your Name"
+git config --local user.email "you@example.com"
+```
+
+These repository defaults are shared by linked worktrees; worktree-specific
+settings and environment variables can override them. Recheck both `git var`
+values after a change. Use `--global` instead of `--local` only to change your
+account's defaults for other repositories too; repository-local settings take
+precedence over global settings. These commands do
+not change existing commits. Agents must preserve both identities Git resolves
+and the original author's attribution, without adding agent co-author trailers
+or overriding signing settings.
+
 - **Sign off every commit** with the [Developer Certificate of
   Origin](https://developercertificate.org/): `git commit -s` adds
-  `Signed-off-by: Your Name <you@example.com>`, matching the commit's author. To
-  fix a pull request that lacks it, run `git rebase --signoff main` and push
-  again. Commits made in GitHub's web editor are signed off by GitHub.
-- **Sign your commits** (SSH signing is three lines):
-  `git config gpg.format ssh`,
-  `git config user.signingkey ~/.ssh/id_ed25519.pub`,
-  `git config commit.gpgsign true`, then add the key to GitHub as a signing key.
+  your configured committer identity as a `Signed-off-by` trailer for a local
+  commit. Sign off only work you are entitled to submit under the DCO, and
+  preserve the original author's attribution. If Commit records refuses a
+  published commit, ask a maintainer for the repair appropriate to that
+  branch; do not rewrite shared history or certify work you are not entitled
+  to submit.
+  GitHub's web editor requires a DCO sign-off, but the current Commit records judge does not accept those commits. Use the local commit workflow above.
+- **Cryptographic signing** follows the
+  [forge stage policy](engine/src/workflow/forge/forge-config.ts). It is separate
+  from the DCO sign-off; neither replaces the other. When a signature is required,
+  follow [GitHub's signing setup](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits)
+  and check that GitHub verifies it.
 - Conventional prefixes: `feat:`, `fix:`, `docs:`, `test:`, `ci:`, `refactor:`, `chore:`.
 - One logical change per pull request. Describe what changed, how it was
   verified and what could not be verified.
@@ -124,9 +163,11 @@ bar](docs/process/AGENTS.md#evidence).
 
 1. Fork the repository and open a pull request against `main`. `main` takes
    pull requests only: nobody pushes to it directly, maintainers included.
-2. CI runs on the `pull_request` event with a read-only token and no secrets,
-   for every author alike. A first-time contributor's first run waits for a
-   maintainer's one-time approval; after that, CI runs on every push.
+2. Fork pull requests run checks with a read-only GitHub token and without
+   repository secrets. A fork run may wait for maintainer approval. If
+   GitHub shows **Awaiting approval**, ask on the pull request. Later pushes
+   may also need approval while GitHub treats the author or triggering actor
+   as requiring it; see [GitHub's fork-run approval guidance](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/approve-runs-from-forks).
 3. Someone other than the author verifies the change before it lands (see
    [GOVERNANCE.md](GOVERNANCE.md) for whose approval counts).
 4. It lands as a merge commit once the required checks and the review are

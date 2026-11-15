@@ -6,8 +6,23 @@ type: Task
 title: Bring the supported suite under the calibrated-work cap
 state: open
 lane: floor
+owner-role: engine performance
 blocked-by: [RISK-NO-CALIBRATED-JUDGED-RUN]
 opened: 2026-10-20
 ---
 
-the old raw-CPU row is SUPERSEDED, not rescaling its numbers. Two full runs on 2026-10-20 measured 2124.7 and 2183.7 ms/file against a 2032.2 ms/file cap, but those figures are in the retired `raw-cpu-ms/v0` unit: the runs were measured with NO calibration reading, so they are INCOMPARABLE with the current declaration and no arithmetic converts them. The red was the box, not the suite: the same tree moved to 2124.7 ms/file under load ~9-10 against the 1926 ms/file floor, and raw CPU is not invariant at saturation. The metric now judges calibrated work (`calibrated-work/v1`): each run pairs its CPU delta with a fixed start/end calibration benchmark (256 KiB working set, six fixed chunks, `--no-opt`, median chunk; `engine/src/shared/run-cpu.ts` `computeRunWork`) and judges `workUnitsPerTestFile = (runCpuMs / calibrationMs) / testFileCount` — computed once, read by the verdict, the reporter, the engine runner and the pages. The declaration is in ACCUMULATION (0 of 12 clean judged full runs); the retired 1926 ms/file at 521 files is recorded under `legacy` with `incomparable: true` and its two ledger rows carry no metric, so they never feed the new window. Next: run the full suite twelve times inside the instrument lock; `npm run budget:measure -- --check` must stop answering `migrating`, then the window's clean median is derived into the floor from the calibrated rows alone (later floors go through `npm run budget:measure -- --write`). Measured residual on a four-file/68-test subset (2026-10-20, 12-core WSL2): among runs inside BOTH declared bounds (drift <=15%, load5 <=1.7/cpu), units/file spread 1.1% and the eight-burner step +1.1%, against raw 7.0% spread and +7.3%; the two runs outside the drift bound (26.2% and 17.9% start/end drift) are DEFERRED, never judged. Evidence: `docs/floor/evidence.md`.
+Owns the remaining CPU accounting, calibration and measured-floor work for `testExecution.integrationSuiteCpuBudget` and `testExecution.webUiSuiteCpuBudget`. The engine performance owner coordinates the shared `engine/src/shared/run-cpu.ts` measurement owner and its measuring tools. This is corrective work with an acceptance condition, not permission to raise a cap or accept a new failure.
+
+### Current work
+
+The shipped baseline still uses the historical `calibrated-work/v1` machinery. Corrections for `calibrated-work/v2` and the shared measuring tool have been reviewed locally, but their complete source integration, initial floor adoption and all-load validity proof remain pending. A source component's review does not qualify the integrated suite or adopt an operator floor. Keep this item open through that remaining work.
+
+Use the shared measurement declarations and their measuring tool as the authority for the current metric, sample eligibility, cohort size, progress and derived floor. Do not copy a fixed sample count into this task, reinterpret old readings as a new metric, edit generated numeric fields, inflate a ceiling, exclude busy-host observations or wait for lower host load. Retain every failed, refused and unjudged observation with its original meaning.
+
+### Acceptance
+
+Integrate and independently verify the shared measurement source, registry and tools at one qualified source revision. Through the measuring tool, establish an eligible cohort bound to that revision and declaration generation, with complete suite censuses and terminal evidence, then derive and verify the floor through the declared write operation. Prove that the current metric and the consumers of both budget declarations agree, including supported host-load conditions, and retain any unproved validity condition as open work. Closure requires the corrective source on `main` and the required integrated qualification and floor-adoption evidence. A non-worse comparison of one run alone is not that closure evidence.
+
+### Historical evidence
+
+The 2026-10-20 record measured 2124.7 and 2183.7 ms/file against a 2032.2 ms/file cap in retired `raw-cpu-ms/v0`, without calibration readings. The older 1926 ms/file floor at 521 files was recorded as incomparable. Neither set of values converts into a current calibrated floor. That record also described an initial twelve-run `calibrated-work/v1` campaign and a four-file subset experiment; those are historical observations, not the present cohort requirement or an all-load qualification. The original evidence remains in `docs/floor/evidence.md`.

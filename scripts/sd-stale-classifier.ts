@@ -31,7 +31,8 @@
  * leak".
  */
 
-import { COMMAND_ENVIRONMENT } from "../engine/src/process/environment-projection.ts";
+import { COMMAND_ENVIRONMENT, projectEnvironment, SYSTEMD_RUN_ENVIRONMENT } from "../engine/src/process/environment-projection.ts";
+import { resolveDevOrigin } from "../shared/dev-origin.ts";
 import { USER_FOLDER_BOOT_VARIABLES } from "../engine/src/filesystem/user-folders.ts";
 
 // The pattern owner + the live pidfile read live in the census owner now;
@@ -174,6 +175,8 @@ const DEFAULT_SERVER_ENV_NAMES = new Set(COMMAND_ENVIRONMENT);
  * unrelated credentials or execution-injection variables.
  */
 export function serverLaunchEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
+  const origin = resolveDevOrigin(env);
+  if (!origin.ok) throw new Error(origin.reason);
   const selected: Record<string, string> = {};
   for (const [name, value] of Object.entries(env)) {
     if (typeof value === "string" && (
@@ -181,7 +184,16 @@ export function serverLaunchEnvironment(env: NodeJS.ProcessEnv): Record<string, 
       name.startsWith("HARNESS_WEB_") || name === "HARNESS_CONFIG_PATH" || USER_FOLDER_BOOT_VARIABLES.includes(name)
     )) selected[name] = value;
   }
+  if (origin.source !== "local") selected["HARNESS_WEB_ALLOWED_ORIGIN"] = origin.origin;
   return selected;
+}
+
+/** The service manager receives derived values plus only its existing routing environment. */
+export function serverManagerLaunchEnvironment(
+  env: NodeJS.ProcessEnv,
+  selected: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return { ...projectEnvironment(env, SYSTEMD_RUN_ENVIRONMENT), ...selected };
 }
 
 /**

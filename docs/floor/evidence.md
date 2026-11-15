@@ -19,11 +19,10 @@ Expected outputs below are shapes from the 2026-10-19 public snapshot. Counts an
 ## Fresh clone gate
 
 ```bash
-git clone {{ site.repository_url }}.git
+git clone {{ site.repository_url }}.git bridlewise
 cd bridlewise
 npm ci
-npm --prefix engine ci
-chmod 600 engine/bridlewise.config.json
+npm run setup:engine
 npm run typecheck
 npm --prefix engine run typecheck
 npm run check:secrets

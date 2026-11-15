@@ -16,7 +16,7 @@ import { HarnessError } from "../../src/kernel/errors.ts";
 import { emitYaml } from "../../src/text/yaml-emit.ts";
 import { fillTemplate, syncCommunityFiles, TEMPLATED_FILES } from "../../src/workflow/community/health-files.ts";
 import { commandTable } from "../../src/workflow/community/commands.ts";
-import { FEATURES_PATH, INTAKE_PATH, readIntake, readRoles, ROLES_PATH, roleForPermission, teamsOf } from "../../src/workflow/community/sources.ts";
+import { FEATURES_PATH, INTAKE_PATH, readFeatures, readIntake, readRoles, ROLES_PATH, roleForPermission, teamsOf } from "../../src/workflow/community/sources.ts";
 import { communityFilesStep } from "../../src/workflow/harness-commands.ts";
 import { LABELS_PATH } from "../../src/workflow/community/labels.ts";
 import { withTempDir } from "../support/temp-dir.ts";
@@ -231,6 +231,7 @@ test("a template that names no generated file is drift, and the form schema refu
 test("the pages state live facts only: a planned category, type or feature is listed as planned with its tracking link, never stated or linked", () => {
   withTempDir("community-planned-", (root) => {
     plant(root);
+    edit(root, FEATURES_PATH, (json) => { const list = json.features as Record<string, unknown>[]; list.find((feature) => feature.id === "web-signoff")!.text = "A declared fixture feature is available only while live."; });
     syncCommunityFiles(root, true);
     const intake = readIntake(root);
     const support = readFileSync(join(root, "SUPPORT.md"), "utf8");
@@ -245,11 +246,13 @@ test("the pages state live facts only: a planned category, type or feature is li
       assert.equal(/^type: /mu.test(yaml), "live" in form.typeStatus, `${form.file} names its type only while it is live`);
     }
     const contributing = () => readFileSync(join(root, "CONTRIBUTING.md"), "utf8");
-    assert.match(contributing(), /signed off by GitHub/u);
+    const feature = readFeatures(root).find((entry) => entry.id === "web-signoff");
+    assert.ok(feature);
+    assert.ok(contributing().includes(feature.text));
     edit(root, FEATURES_PATH, (json) => { const list = json.features as Record<string, unknown>[]; list.find((feature) => feature.id === "web-signoff")!.status = { planned: 1 }; });
     syncCommunityFiles(root, true);
-    assert.doesNotMatch(contributing(), /signed off by GitHub\./u, "a planned feature's sentence is not stated");
-    assert.ok(readFileSync(join(root, "SUPPORT.md"), "utf8").includes(`signed off by GitHub. Planned; tracked in ${configuredRepositoryIdentity().issuesUrl}/1.`), "the tracking link is generated from the issue number and the repository identity");
+    assert.ok(!contributing().includes(feature.text), "a planned feature's sentence is not stated");
+    assert.ok(readFileSync(join(root, "SUPPORT.md"), "utf8").includes(`${feature.text} Planned; tracked in ${configuredRepositoryIdentity().issuesUrl}/1.`), "the tracking link is generated from the issue number and the repository identity");
     assert.doesNotMatch(readFileSync(join(root, "GOVERNANCE.md"), "utf8"), /team `/u, "the teams are planned, so no role names one");
     // The bot commands: the table /help answers, from the one registry, stated only while the commands are live.
     const table = commandTable(readRoles(root));

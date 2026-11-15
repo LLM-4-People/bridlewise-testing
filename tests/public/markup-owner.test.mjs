@@ -10,7 +10,9 @@ import {
   escapeHtml,
   escapeMarkdownTableCell,
   escapeMarkdownText,
+  findHtmlCommentEnd,
   htmlWithout,
+  isHtmlCommentStart,
   stripTags,
 } from "../../shared/markup.ts";
 
@@ -19,7 +21,8 @@ import ts from "typescript5";
 
 /**
  * THE ONE MARKUP OWNER: `shared/markup.ts` does every HTML or Markdown
- * escape, entity decode, tag strip and markup removal in the tree. This file
+ * escape, entity decode, tag strip, markup removal and HTML-comment delimiter
+ * recognition in the tree. This file
  * proves both halves: the helper is complete against the shapes CodeQL
  * flagged (alerts 92 and 94-99: double unescaping, a removal that leaves a
  * new opener, `<SCRIPT>`, `</script >`, an unescaped backslash), and no
@@ -44,7 +47,11 @@ import ts from "typescript5";
  *   `pre`, `code`, …), or that BEHAVES as a generic tag matcher: run by the
  *   JavaScript regex engine, it matches unrelated opening tags whole and
  *   none of the same texts without their brackets. Lookbehinds and named
- *   groups are regex syntax, not tags.
+ *   groups are regex syntax, not tags. An opener predicate alone does not
+ *   prove filtering: document grammars use the owner's nonlossy
+ *   isHtmlCommentStart / findHtmlCommentEnd helpers, retaining their own
+ *   block context and literal text. This rule proves ownership of recognized
+ *   syntax; it does not infer the caller's sanitization or safety.
  *
  * A pattern is resolved before it is judged: a literal where it stands, a
  * module-level `const` it names, a `RegExp(…)` built from either (with its
@@ -300,7 +307,7 @@ function programViolations(path, code, lineOffsetOf) {
       }
       const pattern = resolved?.text ?? null;
       if (resolved?.regex === true && (TAG_FILTER.test(pattern.replace(REGEX_SYNTAX_ANGLES, "")) || matchesGenericTags(resolved))) {
-        report(node, "tag-filter (use htmlWithout / stripTags)");
+        report(node, "tag-filter (use htmlWithout / stripTags; lexical comments use isHtmlCommentStart / findHtmlCommentEnd)");
       }
       if ((name === "replace" || name === "replaceAll") && pattern !== null && MARKUP_CHARS_ONLY.test(pattern) && !keepsTheCharacter(resolved, args[1], file)) {
         report(node, "markup-char (use escapeHtml)");
@@ -407,6 +414,14 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "shared/f.ts": 'const step = text.replace(/&/g, AMP);\nconst entity = new RegExp("<!--[\\\\s\\\\S]*?-->", "g");\n',
     // a tag filter as the receiver of test, and a tag strip in a Svelte script and template
     "tests/g.test.ts": "const dangerous = /<iframe/i.test(html);\n",
+    // An anchored lexical-looking shape must not grant permission to remove comments.
+    "server/comment-filter.ts": [
+      'const a = html.replace(/^ {0,3}<!--[\\s\\S]*?-->/gu, "");',
+      'const b = html.replaceAll(/<!--/gu, "");',
+      'const c = /^ {0,3}<!--/u.test(html);',
+      'const d = /<!--/u.test(html);',
+      'const e = /<script/iu.test(html);',
+    ].join("\n") + "\n",
     // the callback forms: a lookup table, an inline callback, a named encoder, a decoder
     "server/i.ts": 'const MAP = Object.freeze({ "<": "&" + "lt;", ">": "&" + "gt;" });\nconst a = s.replace(/[<>"]/g, (c) => MAP[c]);\nconst b = s.replace(/[^\\w ]/g, (c) => "&#" + c.charCodeAt(0) + ";");\nfunction enc(c: string) { return "&" + "amp;"; }\nconst d = s.replace(/x/g, enc);\nconst DECODE = { amp: "&", lt: "<" };\nconst e = s.replace(/&(\\w+);/g, (_m, n) => DECODE[n]);\n',
     // the three cheap gaps: a callback cell escape, generic strippers, a hex encoder
@@ -464,6 +479,7 @@ test("planted hand-rolled markup work is refused in every shape and folder", () 
     "scripts/floor/e.ts": ["cell-escape"],
     "shared/f.ts": ["markup-char", "tag-filter"],
     "tests/g.test.ts": ["tag-filter"],
+    "server/comment-filter.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
     "server/i.ts": ["entity", "entity", "markup-char", "markup-callback", "markup-callback", "entity", "entity", "markup-callback", "entity-pattern", "markup-callback"],
     "scripts/j.mjs": ["cell-escape", "tag-filter", "tag-filter", "entity", "entity"],
     "server/k.ts": ["tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter", "tag-filter"],
@@ -510,6 +526,30 @@ test("near misses are not flagged", () => {
     "b.svelte": "<script>\n  const x = 1;\n</script>\n<p>a&nbsp;b &lt;tag&gt; {x}</p>\n<!-- a <script> in a comment -->\n",
   };
   assert.deepEqual(Object.entries(nearMisses).flatMap(([path, text]) => violations(path, text)), []);
+});
+
+test("HTML-comment delimiter helpers recognize exact tokens without consuming or rewriting text", () => {
+  const text = "lead <!-- **literal** --> still visible";
+  const opener = text.indexOf("<!--");
+  const afterClose = text.indexOf("-->") + 3;
+  assert.equal(isHtmlCommentStart(text), false, "an opener later in the text is not at offset zero");
+  assert.equal(isHtmlCommentStart(text, opener), true);
+  assert.equal(findHtmlCommentEnd(text, opener + 4), afterClose);
+  assert.equal(isHtmlCommentStart(" <!-- x -->"), false, "the caller owns whitespace and document context");
+  assert.equal(isHtmlCommentStart(" <!-- x -->", 1), true);
+  assert.equal(isHtmlCommentStart("<!-- unclosed"), true, "an opener does not require a closer");
+  for (const lookalike of ["<!-", "< !--", "<\\!--", "-->", "<script>"]) {
+    assert.equal(isHtmlCommentStart(lookalike), false, lookalike);
+  }
+  for (const unclosed of ["", "<!-- unclosed", "-- >", "->"]) {
+    assert.equal(findHtmlCommentEnd(unclosed), null, unclosed);
+  }
+  const closers = "--> gap -->";
+  assert.equal(findHtmlCommentEnd(closers), 3, "choose the first literal closer");
+  assert.equal(findHtmlCommentEnd(closers, 3), closers.length, "honor the caller's search offset");
+  assert.equal(findHtmlCommentEnd(closers, closers.length), null);
+  assert.equal(findHtmlCommentEnd("<!-->"), 5, "a document scanner may recognize an overlapping closer");
+  assert.equal(findHtmlCommentEnd("<!-->", 4), null, "the HTML remover can begin after the full opener");
 });
 
 test("escapeHtml escapes the five characters in one pass", () => {
