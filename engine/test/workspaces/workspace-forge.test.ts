@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { WorkspaceConflictError } from "../../src/workflow/workspace-manager.ts";
 import { dispatchWorkspaceCli, runWorkspaceCli } from "../../src/workflow/workspace-cli.ts";
 import { indexFilePath } from "../../src/git/repository-ownership.ts";
+import { hasSecondName } from "../../src/filesystem/link-containment.ts";
 import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import { resolveForgeTarget, type WorkspaceForge, type WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
 import {
@@ -675,6 +676,40 @@ test("draft: missing worktree identity refuses without quarantining or changing 
   assert.deepEqual(readFileSync(indexPath), index);
   assert.equal(forge.pulls.get(1)!.draft, false);
   assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions);
+});
+
+test("draft: a hard-linked native index refuses before conversion and preserves both names", async () => {
+  const { root, manager, forge } = forgeFixture("ws-draft-index-second-name");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  const worktree = record.lease.worktreePath;
+  commitFile(worktree, "src/a.ts", "export const a = 1;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  const before = await manager.ready(record.workspaceId);
+  const indexPath = indexFilePath(worktree, "directory");
+  const bytes = readFileSync(indexPath);
+  const mode = lstatSync(indexPath).mode & 0o7777;
+  const head = rawGit(worktree, ["rev-parse", "HEAD"]);
+  const alias = join(root, "retained-index.alias");
+  const conversions = forge.calls.filter((call) => call.op === "convertToDraft").length;
+  linkSync(indexPath, alias);
+  try {
+    assert.ok(hasSecondName(lstatSync(indexPath).nlink), "the fixture really gives the index a second name");
+    await assert.rejects(() => manager.draft(record.workspaceId), throwsCode("workspace_custody_unsupported"));
+    assert.deepEqual(manager.status(record.workspaceId), before, "record and full qualification are untouched");
+    assert.equal(rawGit(worktree, ["rev-parse", "HEAD"]), head);
+    assert.deepEqual(readFileSync(indexPath), bytes);
+    assert.deepEqual(readFileSync(alias), bytes, "a refusal neither removes nor rewrites the other name");
+    assert.equal(lstatSync(indexPath).mode & 0o7777, mode);
+    assert.equal(lstatSync(alias).mode & 0o7777, mode);
+    assert.equal(forge.pulls.get(1)!.draft, false);
+    assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions);
+  } finally {
+    rmSync(alias);
+  }
+  const resumed = await manager.draft(record.workspaceId);
+  assert.equal(forgeStateOf(resumed).ready, false, "the ordinary single-name index remains usable");
+  assert.deepEqual(resumed.validationReport, before.validationReport);
 });
 
 test("draft CLI: the shared production dispatcher preserves explicit success over an earlier FAIL", async () => {

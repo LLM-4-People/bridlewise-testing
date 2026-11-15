@@ -5,6 +5,7 @@ import { HarnessError, InputError } from "../kernel/errors.ts";
 import { deepFreeze, generateId, sha256 } from "../kernel/integrity.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
 import { ensurePrivateStateDirectory } from "../filesystem/private-state.ts";
+import { hasSecondName } from "../filesystem/link-containment.ts";
 import { detectWriteSetConflictAmong } from "../agents/agent-config.ts";
 import { DEFAULT_TIMELINE_QUERY_LIMIT, type TimelineConfig, type WorkspaceIsolationConfig } from "../kernel/config-contracts.ts";
 import {
@@ -2222,7 +2223,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     if (branch === null || branch !== record.lease.branch) throw new WorkspaceIntegrityError(record.workspaceId, "workspace branch identity differs");
     const index = indexFilePath(worktree, "directory");
     const facts = lstatSync(index);
-    if (!facts.isFile() || facts.nlink !== 1) throw new InputError("workspace index custody is unsupported", "workspace_custody_unsupported");
+    if (!facts.isFile() || hasSecondName(facts.nlink)) throw new InputError("workspace index custody is unsupported", "workspace_custody_unsupported");
     return deepFreeze({ workspaceId: record.workspaceId, revision: record.revision, leaseGeneration: record.lease.generation,
       headSha: git.revParse(worktree, "HEAD", timeouts.inspectMs), branch,
       index: { sha256: sha256(readFileSync(index)), mode: facts.mode & 0o7777 },
