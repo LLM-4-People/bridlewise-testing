@@ -5,6 +5,8 @@
  *   harness forge apps manifests [--check]           write (or check) the generated files from their owners
  *   harness forge apps create                        serve the Apps page (Session 1) until Done
  *   harness forge apps audit [--role <role>]…         each App's installation, read by the App, against the registry
+ *   harness forge projection plan --source <revision> [--ledger <revision>] (--token-env <VAR> | --token-stdin)
+ *                                                             generic projection candidate metadata (read-only, incomplete coverage)
  *   harness forge plan  (--token-env <VAR> | --token-stdin)   what apply would change (read-only)
  *   harness forge apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]…
  *                                                             send the whole plan, tighten first, then verify it
@@ -23,7 +25,11 @@
  * (`forge_not_configured` otherwise).
  */
 import { admitHarnessKeyHome, type AdmittedKeyHome } from "../../filesystem/self-protection/key-home.ts";
+import { loadPinnedConfigSnapshot } from "../../kernel/config.ts";
+import { HarnessError } from "../../kernel/errors.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
+import { nativeObjectRepository, type GitRepository } from "../../git/tree-reader.ts";
+import { configuredGitRepository } from "../../git/worktree-port.ts";
 import { guarded } from "../../process/fault-policy.ts";
 import { wrapResult, type CommandAnswer } from "../command-result.ts";
 import { readIntake } from "../community/sources.ts";
@@ -33,7 +39,7 @@ import { environmentKeyCustody, keyHomeCustody } from "./app-keys.ts";
 import { auditAppInstallation } from "./apps-audit.ts";
 import { serveAppsPage, type AppsPage, type AppsPageOptions } from "./apps-page.ts";
 import { ForgeError } from "./codes.ts";
-import { configuredForge } from "./configured-forge.ts";
+import { configuredForge, configuredForgeClient } from "./configured-forge.ts";
 import { environmentCredential, memoryCredential } from "./credentials.ts";
 import { forgeDeclarations } from "./declarations.ts";
 import { forgeEndpoint, type ForgeSettings } from "./forge-config.ts";
@@ -42,7 +48,10 @@ import { forgeFileSources, syncForgeFiles } from "./generated-files.ts";
 import { githubClient } from "./github.ts";
 import { forgeApply, forgePlan } from "./plan.ts";
 import { maintainerCli, type MaintainerCli } from "./maintainer-cli.ts";
-import type { ForgeCredential, ForgeEndpoint } from "./port.ts";
+import type { ForgeClient, ForgeCredential, ForgeEndpoint } from "./port.ts";
+import { hostConfinement, type ProjectorConfinement } from "./projector/confined.ts";
+import { previewProjection } from "./projector/command.ts";
+import { githubProjectionStore } from "./projector/github-store.ts";
 
 /**
  * What every `harness forge` verb reaches: the forge section, the endpoint
@@ -61,17 +70,29 @@ export type ForgeCliWiring = Readonly<{
   maintainerCli: (settings: ForgeSettings) => MaintainerCli;
   /** The Apps page server (production: `serveAppsPage`; a test records what it was given). */
   appsPage: (options: AppsPageOptions) => Promise<AppsPage>;
+  /** Explicit read-only projection ports; injected wiring never falls back to host configuration or credentials. */
+  projection?: Readonly<{
+    repository: (top: string) => GitRepository;
+    confinement: (engineRoot: string) => ProjectorConfinement;
+    client: (credential: ForgeCredential) => ForgeClient;
+  }>;
 }>;
 
-const CONFIGURED: ForgeCliWiring = Object.freeze({
+/** The single production composition, exposed for trusted hosts and adapter-level verification. */
+export const configuredForgeCliWiring: ForgeCliWiring = Object.freeze({
   settings: configuredForge,
   endpoint: forgeEndpoint,
   keyHome: () => admitHarnessKeyHome([]),
   maintainerCli: (settings: ForgeSettings) => maintainerCli(settings.webUrl, settings.maintainerCli),
   appsPage: serveAppsPage,
+  projection: Object.freeze({
+    repository: (top: string) => nativeObjectRepository(configuredGitRepository(loadPinnedConfigSnapshot().document, top)),
+    confinement: hostConfinement,
+    client: configuredForgeClient,
+  }),
 });
 
-const USAGE = "harness forge takes: apps manifests [--check] | apps create | apps audit [--role <agent|verifier|door|publisher>]... | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
+const USAGE = "harness forge takes: apps manifests [--check] | apps create | apps audit [--role <agent|verifier|door|publisher>]... | projection plan --source <revision> [--ledger <revision>] (--token-env <VAR> | --token-stdin) | plan|audit (--token-env <VAR> | --token-stdin) | apply (--token-env <VAR> | --token-stdin) [--accept-loosening <kind:scope:key>]...";
 
 function usage(): never {
   throw new ForgeError("forge_usage", USAGE, {});
@@ -136,11 +157,56 @@ async function tokenFromStdin(onProgress: (line: string) => void): Promise<strin
   }
 }
 
-/** The credential `--token-env <VAR>` or `--token-stdin` names (exactly one). */
-async function settingsCredential(rest: readonly string[], onProgress: (line: string) => void): Promise<ForgeCredential> {
-  if (rest.length === 2 && rest[0] === "--token-env" && /^[A-Z_][A-Z0-9_]*$/u.test(rest[1]!)) return environmentCredential(`token:${rest[1]!}`, rest[1]!);
-  if (rest.length === 1 && rest[0] === "--token-stdin") return memoryCredential("token:stdin", await tokenFromStdin(onProgress));
+type CredentialArguments = Readonly<{ kind: "environment"; variable: string }> | Readonly<{ kind: "stdin" }>;
+
+/** The one credential grammar; the projection route checks it before accessing its ports. */
+function credentialArguments(rest: readonly string[]): CredentialArguments {
+  if (rest.length === 2 && rest[0] === "--token-env" && /^[A-Z_][A-Z0-9_]*$/u.test(rest[1]!)) return { kind: "environment", variable: rest[1]! };
+  if (rest.length === 1 && rest[0] === "--token-stdin") return { kind: "stdin" };
   return usage();
+}
+
+/** Acquire the already parsed credential only when the verb needs its client. */
+async function settingsCredential(args: CredentialArguments, onProgress: (line: string) => void): Promise<ForgeCredential> {
+  return args.kind === "environment" ? environmentCredential(`token:${args.variable}`, args.variable)
+    : memoryCredential("token:stdin", await tokenFromStdin(onProgress));
+}
+
+function projectionArguments(rest: readonly string[]): Readonly<{ source: string; ledger: string | null; credential: CredentialArguments }> {
+  let source: string | undefined;
+  let ledger: string | undefined;
+  const authentication: string[] = [];
+  for (let index = 0; index < rest.length; index += 1) {
+    const flag = rest[index]!;
+    if (flag === "--source" || flag === "--ledger") {
+      const value = rest[index + 1];
+      if (value === undefined || value.length === 0 || value.startsWith("--")) usage();
+      if (flag === "--source") { if (source !== undefined) usage(); source = value; }
+      else { if (ledger !== undefined) usage(); ledger = value; }
+      index += 1;
+    } else authentication.push(flag);
+  }
+  if (source === undefined) usage();
+  return { source, ledger: ledger ?? null, credential: credentialArguments(authentication) };
+}
+
+/** A candidate preview of the existing generic issue/milestone projector; no apply capability. */
+async function projectionPlan(root: string, rest: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring): Promise<CommandAnswer> {
+  const args = projectionArguments(rest);
+  const ports = wiring.projection;
+  if (ports === undefined) throw new HarnessError("This forge wiring supplies no projection read ports.", "projection_host_unavailable");
+  const settings = wiring.settings();
+  const identity = repositoryIdentity(settings);
+  const preview = await previewProjection({
+    repository: ports.repository(trackedTop(root)), source: args.source, ledger: args.ledger, identity,
+    confinement: () => ports.confinement(root),
+    store: async () => {
+      const client = ports.client(await settingsCredential(args.credential, onProgress));
+      const store = githubProjectionStore(client, { repository: identity.fullName, maxPages: settings.request.maxPages });
+      return Object.freeze({ read: store.read });
+    },
+  });
+  return { result: wrapResult("forge projection plan", deepFreeze({ verb: "projection plan", ...preview }), { status: "fail" }) };
 }
 
 /** `harness forge plan|apply|audit`. */
@@ -158,7 +224,7 @@ async function settingsVerb(root: string, verb: "plan" | "apply" | "audit", rest
   for (let index = 0; index < rest.length; index += 1) {
     if (rest[index] === "--accept-loosening" && verb === "apply" && rest[index + 1] !== undefined) { accepted.add(rest[index + 1]!); index += 1; } else remaining.push(rest[index]!);
   }
-  const credential = await settingsCredential(remaining, onProgress);
+  const credential = await settingsCredential(credentialArguments(remaining), onProgress);
   const context = { client: githubClient(wiring.endpoint(settings), credential), organization: settings.organization, maxPages: settings.request.maxPages };
   const objects = forgeDeclarations(sources);
   if (verb === "apply") {
@@ -196,8 +262,9 @@ async function appsAudit(rest: readonly string[], wiring: ForgeCliWiring): Promi
 }
 
 /** The `harness forge` dispatch. */
-export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring = CONFIGURED): Promise<CommandAnswer> {
+export async function runForgeCli(root: string, argv: readonly string[], onProgress: (line: string) => void, wiring: ForgeCliWiring = configuredForgeCliWiring): Promise<CommandAnswer> {
   const [group, verb, ...rest] = argv;
+  if (group === "projection" && verb === "plan") return projectionPlan(root, rest, onProgress, wiring);
   if (group === "apps" && verb === "manifests") return appsManifests(root, rest, wiring);
   if (group === "apps" && verb === "create") return appsCreate(root, rest, onProgress, wiring);
   if (group === "apps" && verb === "audit") return appsAudit(rest, wiring);

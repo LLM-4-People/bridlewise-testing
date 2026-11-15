@@ -185,13 +185,18 @@ function refusalOf(error: unknown, write: ProjectionWrite | undefined): Projecti
   });
 }
 
-/** Steps 2–6 of the algorithm for `projection` against `store`; the receipt says what happened (see {@link projectionFailure}). */
-export async function applyProjection(projection: Projection, store: ProjectionStore, options: ApplyOptions): Promise<ProjectionReceipt> {
+/** The shared first read: only D's classes, and adoptions established by an actual previous receipt. */
+export async function readProjection(projection: Projection, store: Pick<ProjectionStore, "read">, previous: ProjectionReceipt | null): Promise<Readonly<{ classes: readonly ProjectionClass[]; adoptions: Adoptions; live: readonly LiveObject[] }>> {
   const classes = PROJECTION_CLASSES.filter((name) => projection.objects.some((object) => object.class === name));
   // An adoption is established once a receipt recorded the reporter's text: only then are the projector's markers honoured there.
   const adoptions: Adoptions = new Map(projection.objects.flatMap((object) => (object.adopt === undefined ? []
-    : [[object.key, { number: object.adopt, established: options.previous?.objects[id(object)]?.[ABOVE] !== undefined }] as const])));
-  const live = await store.read(classes, adoptions);
+    : [[object.key, { number: object.adopt, established: previous?.objects[id(object)]?.[ABOVE] !== undefined }] as const])));
+  return { classes, adoptions, live: await store.read(classes, adoptions) };
+}
+
+/** Steps 2–6 of the algorithm for `projection` against `store`; the receipt says what happened (see {@link projectionFailure}). */
+export async function applyProjection(projection: Projection, store: ProjectionStore, options: ApplyOptions): Promise<ProjectionReceipt> {
+  const { classes, adoptions, live } = await readProjection(projection, store, options.previous);
   const liveById = new Map(live.map((object) => [id(object), object]));
   // Foreign changes, field by field: live differs from D and from what the previous run recorded for that field.
   const foreignEdits: ForeignEdit[] = [];
