@@ -1628,12 +1628,9 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // provider HTTP timeouts (runtime.providers[].timeoutMs) and from
   // workspaceGit.timeouts (remote git operations). One canonical owner per
   // concept; consumers read these with fallback to named constants.
-  // `commandErroredRetries` / `commandRetryBackoffMs`: how often the ONE
-  // command runner (src/workflow/checkout-setup.ts) retries a command that
-  // ERRORED — ended by its ceiling or a signal, failed to spawn, or printed an
-  // environmental marker (no space, an npm cache miss, a network reset) — and
-  // how long it waits before the first retry (doubled each time). A command
-  // that merely FAILED (any other non-zero exit) is never retried.
+  // Automatic command retries and their backoff are retired. The strict
+  // harness schema rejects those former fields instead of accepting settings
+  // that no longer affect execution. Each command preserves its first result.
   // (`typecheckTimeoutMs`, the typecheck's 120 s WALL limit, is gone: a
   // typecheck is bounded by its CPU work and one hang backstop like every
   // harness subprocess, src/process/subprocess-bounds.ts; NO-LOAD-BLOCK A-17.)
@@ -1645,8 +1642,6 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
   // read, the grace between a stop's SIGTERM and SIGKILL, and the output it
   // may hold. The kernel's CPU limit is derived from them, never set apart.
   const harnessConfigSchema = z.strictObject({
-    commandErroredRetries: z.number().int().min(0).max(10).optional(),
-    commandRetryBackoffMs: z.number().int().min(0).max(3_600_000).optional(),
     subprocessBounds: z.strictObject({
       cpuBudgetMs: z.number().int().min(1_000).max(86_400_000).optional(),
       stallMs: z.number().int().min(1_000).max(86_400_000).optional(),
@@ -1655,7 +1650,7 @@ function buildRuntimeConfigContract<const Projection extends ConfigContractPolic
       killGraceMs: z.number().int().min(10).max(600_000).optional(),
       outputBytes: z.number().int().min(65_536).max(1_073_741_824).optional(),
     }).optional(),
-  }).optional();
+  }).describe("Checkout commands preserve their first attempt. Retired commandErroredRetries and commandRetryBackoffMs fields are rejected.").optional();
   // Promotion (src/workflow/promotion/): `profileDirectory` is the
   // repository-relative directory that holds the promotion profiles on the
   // SOURCE branch (`<directory>/<name>.json`, read from the source commit).

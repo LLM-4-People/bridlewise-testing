@@ -25,8 +25,6 @@ export type ApplyOptions = Readonly<{
   run?: Partial<ApplyRun>;
   /** Keep a failed candidate (`workspaceIsolation.preserveOnFailure`). */
   preserve?: boolean;
-  retries?: number;
-  waits?: number[];
   /** The checkout the run is invoked from (default: the fixture's own). */
   from?: string;
 }>;
@@ -44,7 +42,6 @@ export function fixtureRun(fixture: PromotionFixture, options: ApplyOptions = {}
       supervisor: ensureTestProcessSupervisor(),
       killGraceMs: 500,
       outputCharacters: 4_000,
-      retries: { retries: options.retries ?? 1, backoffMs: 7, sleep: async (ms) => { options.waits?.push(ms); } },
     },
     generatedOutputs: () => FIXTURE_GENERATED,
     buildOutputs: () => [],

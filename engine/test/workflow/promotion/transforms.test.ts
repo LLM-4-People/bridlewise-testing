@@ -1,8 +1,8 @@
 /**
  * THE DERIVED FILES (merge-door-final §6.2, T-X1..T-X4): the manifest and
  * Makefile derivations' every rule, driven pure, and the lockfile derivation through
- * the ONE command runner over a real repository (an errored run is retried,
- * then refused as the machine's; a failed one is the change's).
+ * the ONE command runner over a real repository (every native outcome is terminal:
+ * an errored run is the machine's; a failed one is the change's).
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -13,6 +13,7 @@ import test from "node:test";
 import { deriveMakefile, deriveManifest, type ManifestContext } from "../../../src/workflow/promotion/transforms.ts";
 import { PromotionError } from "../../../src/workflow/promotion/codes.ts";
 import { createTempDir } from "../../support/temp-dir.ts";
+import { assertCancelledCheckoutFailure, runCancelledCheckoutScenario } from "../checkout-cancellation.ts";
 import { SOURCE, SOURCE_LOCK, SOURCE_MANIFEST, json, promotionFixture } from "./promotion-fixture.ts";
 
 const context = (overrides: Partial<ManifestContext> = {}): ManifestContext => ({
@@ -228,7 +229,7 @@ test("M9: concurrent plans of the same inputs derive the lockfile in scratch dir
   assert.equal(new Set(plans.map((plan) => plan.projection.tree)).size, 1, "the same inputs, the same projected tree");
 });
 
-test("T-X4: the lockfile is derived by the registry command; a cache miss is errored, retried with backoff, then refused as the machine's; a resolution error is the change's", async () => {
+test("T-X4: the lockfile is derived by the registry command; a cache miss or cancellation is errored on its first attempt; a resolution error is the change's", async () => {
   const fixture = promotionFixture("promotion-x4");
   fixture.commit(SOURCE, { "package.json": json({ ...SOURCE_MANIFEST, dependencies: { ...SOURCE_MANIFEST.dependencies, undici: "^8.0.0" } }) });
   const derived = await fixture.plan();
@@ -242,19 +243,40 @@ test("T-X4: the lockfile is derived by the registry command; a cache miss is err
 
   fixture.commit(SOURCE, { "package.json": json({ ...SOURCE_MANIFEST, dependencies: { ...SOURCE_MANIFEST.dependencies, undici: "^8.1.0" } }) });
   fixture.markLockfile("enotcached");
-  const waits: number[] = [];
-  const errored = await fixture.plan({ retries: 2, sleep: async (ms) => { waits.push(ms); } });
+  const errored = await fixture.plan();
   assert.deepEqual(errored.refusals.map((entry) => entry.code), ["promotion_transform_errored"]);
-  assert.match(errored.refusals[0]!.message, /attempt 3 of 3/u);
   assert.match(errored.refusals[0]!.message, /ENOTCACHED/u);
-  assert.deepEqual(waits, [1, 2], "a doubling backoff between the three attempts");
-  assert.equal(fixture.lockfileAttempts(), 4);
+  assert.equal(fixture.lockfileAttempts(), 2, "one successful derivation and one terminal cache miss");
   assert.deepEqual(errored.projection.underived, ["package-lock.json"]);
 
   const broken = promotionFixture("promotion-x4-failed");
   broken.commit(SOURCE, { "package.json": json({ ...SOURCE_MANIFEST, dependencies: { ...SOURCE_MANIFEST.dependencies, undici: "^9.0.0" } }) });
   broken.markLockfile("broken");
-  const failed = await broken.plan({ retries: 2, sleep: async () => undefined });
+  const failed = await broken.plan();
   assert.deepEqual(failed.refusals.map((entry) => entry.code), ["promotion_transform_failed"]);
-  assert.equal(broken.lockfileAttempts(), 1, "a failure is never retried");
+  assert.equal(broken.lockfileAttempts(), 1, "a resolution failure is terminal on its first attempt");
+
+  const evidenceRoot = createTempDir("promotion-lockfile-cancelled-");
+  const cancelled = runCancelledCheckoutScenario(evidenceRoot, `
+    const { default: assert } = await import("node:assert/strict");
+    const { join } = await import("node:path");
+    const { deriveLockfile } = await import(${JSON.stringify(new URL("../../../src/workflow/promotion/transforms.ts", import.meta.url).href)});
+    const { PromotionError, promotionExitCode } = await import(${JSON.stringify(new URL("../../../src/workflow/promotion/codes.ts", import.meta.url).href)});
+    const { SOURCE_MANIFEST, SOURCE_LOCK, json } = await import(${JSON.stringify(new URL("./promotion-fixture.ts", import.meta.url).href)});
+    try {
+      await deriveLockfile("package-lock.json", json(SOURCE_MANIFEST), json(SOURCE_LOCK), "cancelled-lockfile", command, {
+        runner,
+        toolchain: { node: process.version },
+        workDirectory: join(${JSON.stringify(evidenceRoot)}, "lockfile-work"),
+      });
+      assert.fail("a cancelled lockfile command must not produce a derived answer");
+    } catch (error) {
+      assert.ok(error instanceof PromotionError, String(error));
+      assert.equal(error.promotionCode, "promotion_transform_errored", error.message);
+      return { code: error.promotionCode, exitCode: promotionExitCode(error.promotionCode), facts: error.facts };
+    }
+  `) as Readonly<{ code: string; exitCode: number; facts: Readonly<Record<string, unknown>> }>;
+  assert.equal(cancelled.code, "promotion_transform_errored");
+  assert.equal(cancelled.exitCode, 4);
+  assertCancelledCheckoutFailure(cancelled.facts["commandFailure"], cancelled.facts["commandEvidence"]);
 });

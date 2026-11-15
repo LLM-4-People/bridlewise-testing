@@ -25,11 +25,12 @@ import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { InputError } from "../../src/kernel/errors.ts";
 import { createWorkingCopy, refreshWorkingCopy, snapshotWorkingTree, stageInCopy, workingCopyDifferences } from "../../src/git/working-copy.ts";
 import { STATE_DIRECTORY_NAME } from "../../src/kernel/product-identity.ts";
-import { checkoutCommandRunner, commandFailureClass, commandsRun, gateLogDirectory, owedSetup, prepareCheckout, rerunChangedSetup, runCheckoutCommand, runCheckoutPhase, unconsumedCommands, type CheckoutCommandRunner, type CommandRetryPolicy } from "../../src/workflow/checkout-setup.ts";
+import { checkoutCommandRunner, commandFailureClass, checkoutFailureSummary, commandInvocations, commandsRun, gateLogDirectory, owedSetup, prepareCheckout, rerunChangedSetup, runCheckoutCommand, runCheckoutPhase, runDeclaredCommands, unconsumedCommands, type CheckoutCommand, type CheckoutCommandRunner } from "../../src/workflow/checkout-setup.ts";
 import { convergenceReport, convergeUntilStable } from "../../src/workflow/checkout-setup.ts";
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { createRepositoryWorkingCopy, removeRepositoryLocalTemporaryDirectory, TEST_REPOSITORY_ROOT } from "../support/repository-local-temporary.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+import { assertCancelledCheckoutFailure, runCancelledCheckoutScenario } from "./checkout-cancellation.ts";
 import { ownedTemporaryName } from "../../src/filesystem/private-state.ts";
 import { configureDebugSystem, createCollectingSink, resetDebugSystem } from "../../src/shared/debug/debug-system.ts";
 import { DEBUG_CONFIG_DEFAULTS } from "../../src/shared/debug/debug-config.ts";
@@ -130,7 +131,7 @@ test("working copy: differences and refresh follow the source's later edits", ()
   assert.deepEqual(untracked(target), []);
 });
 
-/** The production runner: every command under the native supervisor (no retry unless a test asks for one). */
+/** The production runner: every command runs once under the native supervisor. */
 /**
  * Every gate-log folder this file's runs make (under TMPDIR, outside the temp
  * folders the runs use), removed when its tests end: housekeeping, so a run
@@ -153,8 +154,26 @@ function gateRoot(prefix: string): string {
   return root;
 }
 
-function supervisedRunner(retries: CommandRetryPolicy = { retries: 0, backoffMs: 0 }): CheckoutCommandRunner {
-  return { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096, retries };
+function supervisedRunner(): CheckoutCommandRunner {
+  return { supervisor: ensureTestProcessSupervisor(), killGraceMs: 1_000, outputCharacters: 4_096 };
+}
+
+/** Old runtime data is deliberately planted to expose the former repeat path. */
+function legacyRetryRunner(waits: number[] = []) {
+  return { ...supervisedRunner(), retries: { retries: 2, backoffMs: 5, sleep: async (ms: number) => { waits.push(ms); } } };
+}
+
+/** A real command whose second execution would erase its first answer. */
+function commandThatPassesAfterFirst(firstAttempt: string, timeoutMs = 30_000, ledger?: "web"): CheckoutCommand {
+  const script = [
+    "const fs = require('node:fs')",
+    "const attempt = Number(fs.existsSync('physical-attempts') ? fs.readFileSync('physical-attempts', 'utf8') : 0) + 1",
+    "fs.writeFileSync('physical-attempts', String(attempt))",
+    `const invocation = process.env[${JSON.stringify(QUALIFICATION_INVOCATION_ENV)}]`,
+    "if (invocation !== undefined) { const held = fs.existsSync('invocations.json') ? JSON.parse(fs.readFileSync('invocations.json', 'utf8')) : []; held.push(invocation); fs.writeFileSync('invocations.json', JSON.stringify(held)); }",
+    `if (attempt === 1) { ${firstAttempt} }`,
+  ].join(";\n");
+  return { cwd: ".", argv: [process.execPath, "-e", script], timeoutMs, ...(ledger === undefined ? {} : { ledger }) };
 }
 
 test("checkout setup: links, the config mode, then the declared commands in order; after the first failure the rest are skipped", async () => {
@@ -272,6 +291,8 @@ test("the command runner's classes: the environment's ending (a ceiling, a signa
   assert.equal(commandFailureClass("ceiling", ""), "errored");
   assert.equal(commandFailureClass("signal", ""), "errored");
   assert.equal(commandFailureClass("unverified", ""), "errored");
+  assert.equal(commandFailureClass("stopped", ""), "cancelled");
+  assert.equal(commandFailureClass("stopped", "npm error code ECONNRESET"), "cancelled", "an environmental diagnostic never makes a witnessed stop retryable");
   for (const code of ROOT_POLICY.workflow.commandRunner.environmentalErrorCodes) {
     assert.equal(commandFailureClass("exited", `added 3 packages\nnpm error code ${code}\nnpm error A complete log`), "errored", code);
     assert.equal(commandFailureClass("exited", `npm ERR! errno ${code}`), "errored", code);
@@ -281,6 +302,16 @@ test("the command runner's classes: the environment's ending (a ceiling, a signa
   }
   assert.equal(commandFailureClass("exited", "cp: error writing 'x': No space left on device"), "errored");
   assert.equal(commandFailureClass("exited", "TS2551: Property 'x' does not exist"), "failed");
+  for (const [step, expected] of [
+    [{}, "failed"],
+    [{ failure: "failed" }, "failed"],
+    [{ failure: "errored" }, "errored"],
+    [{ failure: "cancelled" }, "errored"],
+  ] as const) {
+    const summary = checkoutFailureSummary(step);
+    assert.equal(summary.class, expected);
+    assert.equal(summary.facts.commandFailure, "failure" in step ? step.failure : undefined);
+  }
   const root = gateRoot("checkout-command-classes-");
   const failing = await runCheckoutCommand(root, "failing", { cwd: ".", argv: [process.execPath, "-e", "process.exit(3)"], timeoutMs: 30_000 }, supervisedRunner());
   assert.equal(failing.failure, "failed");
@@ -290,67 +321,133 @@ test("the command runner's classes: the environment's ending (a ceiling, a signa
   assert.equal("failure" in passing, false, "only a failed step carries a class");
 });
 
-test("the command runner's retries: an errored run is retried with a doubling backoff and stops at the first success; a failed run is never retried", async () => {
-  const root = gateRoot("checkout-command-retries-");
-  // Errors (npm reporting a network reset) until its third attempt.
-  const flaky = { cwd: ".", ledger: "web" as const, argv: [process.execPath, "-e", `const fs=require('node:fs');const n=Number(fs.existsSync('n')?fs.readFileSync('n','utf8'):0)+1;fs.writeFileSync('n',String(n));fs.appendFileSync('invocations',String(process.env[${JSON.stringify(QUALIFICATION_INVOCATION_ENV)}])+'\\n');if(n<3){console.error('npm error code ECONNRESET');process.exit(1)}`], timeoutMs: 30_000 };
-  const waits: number[] = [];
-  const recovered = await runCheckoutCommand(root, "flaky", flaky, supervisedRunner({ retries: 3, backoffMs: 5, sleep: async (ms) => { waits.push(ms); } }));
-  assert.equal(recovered.status, "pass");
-  assert.deepEqual(waits, [5, 10]);
-  assert.equal(readFileSync(join(root, "n"), "utf8"), "3");
-  const invocations = readFileSync(join(root, "invocations"), "utf8").trim().split("\n");
-  assert.equal(invocations.length, 3);
-  assert.equal(new Set(invocations).size, 3, "each physical retry gets a new private correlation token");
-  for (const invocation of invocations) assert.equal(qualificationInvocation({ [QUALIFICATION_INVOCATION_ENV]: invocation }), invocation);
-  assert.equal(recovered.evidence?.invocationId, invocations.at(-1), "only the final actual attempt supplies current evidence");
-  assert.equal(recovered.evidence?.terminal?.ending, "exited");
-  assert.equal(recovered.evidence?.terminal?.outputComplete, true);
-  assert.equal(recovered.evidence?.terminal?.supervision?.noOwnedChildren, true);
-  assert.deepEqual(recovered.evidence?.terminal?.supervision?.killed, []);
-  const failing = { cwd: ".", argv: [process.execPath, "-e", "const fs=require('node:fs');fs.appendFileSync('f','x');process.exit(2)"], timeoutMs: 30_000 };
-  const failed = await runCheckoutCommand(root, "failing", failing, supervisedRunner({ retries: 3, backoffMs: 5, sleep: async () => { assert.fail("a failure is never retried"); } }));
-  assert.equal(failed.failure, "failed");
-  assert.equal(readFileSync(join(root, "f"), "utf8"), "x");
+test("the command runner: an intentional stop is cancelled without retry, even after an environmental diagnostic", () => {
+  const root = gateRoot("checkout-command-cancelled-");
+  const owner = new URL("../../src/workflow/checkout-setup.ts", import.meta.url).href;
+  const outcome = runCancelledCheckoutScenario(root, `
+    const { runCheckoutCommand } = await import(${JSON.stringify(owner)});
+    return runCheckoutCommand(root, 'cancelled', command, runner);
+  `) as Awaited<ReturnType<typeof runCheckoutCommand>>;
+  assert.equal(outcome.status, "fail");
+  assertCancelledCheckoutFailure(outcome.failure, outcome.evidence);
+  const summary = checkoutFailureSummary(outcome);
+  assert.equal(summary.class, "errored", "a witnessed interruption never blames the tree");
+  assert.equal(summary.facts.commandFailure, outcome.failure);
+  assert.equal(summary.facts.commandEvidence, outcome.evidence, "the original native evidence is retained, not reconstructed");
+  assert.ok(outcome.details.some((detail) => detail.includes("npm error code ECONNRESET")), "the environmental diagnostic was retained");
 });
 
-test("M4: the runner logs every attempt once (its class, ending, exit, duration, load) and every retry wait, through the central logger", async (t) => {
+test("the command runner preserves the first environmental failure and its ledger evidence even when another attempt would pass", async () => {
+  const root = gateRoot("checkout-command-first-environment-");
+  const command = commandThatPassesAfterFirst("console.error('npm error code ECONNRESET'); process.exit(1);", 30_000, "web");
+  const waits: number[] = [];
+  const outcome = await runCheckoutCommand(root, "environment-once", command, legacyRetryRunner(waits));
+  assert.equal(outcome.status, "fail");
+  assert.equal(outcome.failure, "errored");
+  assert.equal(readFileSync(join(root, "physical-attempts"), "utf8"), "1", "the later passing attempt was never launched");
+  assert.deepEqual(waits, [], "legacy extra data cannot schedule a wait or another attempt");
+  const invocations = JSON.parse(readFileSync(join(root, "invocations.json"), "utf8")) as string[];
+  assert.equal(invocations.length, 1);
+  assert.equal(qualificationInvocation({ [QUALIFICATION_INVOCATION_ENV]: invocations[0] }), invocations[0]);
+  assert.equal(outcome.evidence?.invocationId, invocations[0], "the first physical attempt owns the evidence");
+  assert.equal(outcome.evidence?.attempts, 1);
+  assert.equal(outcome.evidence?.terminal?.ending, "exited");
+  assert.equal(outcome.evidence?.terminal?.exitCode, 1);
+  assert.equal(outcome.evidence?.durationMs, outcome.evidence?.terminal?.elapsedMs, "duration is the first native observation, not a sum of attempts");
+  assert.equal(outcome.evidence?.terminal?.outputComplete, true);
+  assert.equal(outcome.evidence?.terminal?.supervision?.noOwnedChildren, true);
+  assert.deepEqual(outcome.evidence?.terminal?.supervision?.killed, []);
+  const logs = readdirSync(gateLogDirectory(root)).filter((name) => name.startsWith("environment-once-") && name.endsWith(".log"));
+  assert.equal(logs.length, 1);
+  assert.match(logs[0]!, /attempt-1\.log$/u);
+  assert.match(readFileSync(join(gateLogDirectory(root), logs[0]!), "utf8"), /npm error code ECONNRESET/u);
+  assert.ok(outcome.details.some((detail) => detail.includes("npm error code ECONNRESET")), "the original diagnostic is retained");
+});
+
+test("the command runner keeps genuine failure and success controls to one physical attempt", async () => {
+  for (const control of [
+    { name: "failed", first: "process.exit(2);", status: "fail", failure: "failed", exitCode: 2 },
+    { name: "passed", first: "console.log('first attempt passed');", status: "pass", failure: undefined, exitCode: 0 },
+  ] as const) {
+    const root = gateRoot(`checkout-command-first-${control.name}-`);
+    const outcome = await runCheckoutCommand(root, control.name, commandThatPassesAfterFirst(control.first), legacyRetryRunner());
+    assert.equal(outcome.status, control.status);
+    assert.equal(outcome.failure, control.failure);
+    assert.equal(outcome.evidence?.attempts, 1);
+    assert.equal(outcome.evidence?.terminal?.ending, "exited");
+    assert.equal(outcome.evidence?.terminal?.exitCode, control.exitCode);
+    assert.equal(outcome.evidence?.terminal?.supervision?.noOwnedChildren, true);
+    assert.equal(readFileSync(join(root, "physical-attempts"), "utf8"), "1");
+  }
+});
+
+test("the command runner preserves a first native signal instead of taking the later passing attempt", async () => {
+  const root = gateRoot("checkout-command-first-signal-");
+  const waits: number[] = [];
+  const command = commandThatPassesAfterFirst("fs.writeSync(2, 'first native signal'); process.kill(process.pid, 'SIGTERM');");
+  const outcome = await runCheckoutCommand(root, "signal-once", command, legacyRetryRunner(waits));
+  assert.equal(outcome.status, "fail");
+  assert.equal(outcome.failure, "errored");
+  assert.equal(outcome.evidence?.attempts, 1);
+  assert.equal(outcome.evidence?.terminal?.ending, "signal");
+  assert.equal(outcome.evidence?.terminal?.signal, "SIGTERM");
+  assert.equal(outcome.evidence?.terminal?.supervision?.noOwnedChildren, true);
+  assert.equal(outcome.evidence?.durationMs, outcome.evidence?.terminal?.elapsedMs);
+  assert.equal(readFileSync(join(root, "physical-attempts"), "utf8"), "1");
+  assert.deepEqual(waits, []);
+  assert.ok(outcome.details.some((detail) => detail.includes("first native signal")));
+});
+
+test("M4: the runner logs the first native failure once with its original class, ending, exit, duration and load", async (t) => {
   resetDebugSystem();
   t.after(resetDebugSystem);
   const sink = createCollectingSink();
   configureDebugSystem({ ...DEBUG_CONFIG_DEFAULTS, enabled: true, level: "info", categories: ["workflow"], sinks: { enabledSinks: ["collecting"] } }, [sink]);
-  const root = gateRoot("checkout-command-logged-");
-  const flaky = { cwd: ".", argv: [process.execPath, "-e", "const fs=require('node:fs');if(!fs.existsSync('n')){fs.writeFileSync('n','1');console.error('npm error code EAI_AGAIN');process.exit(1)}"], timeoutMs: 30_000 };
-  await runCheckoutCommand(root, "flaky", flaky, supervisedRunner({ retries: 1, backoffMs: 3, sleep: async () => undefined }));
+  const root = gateRoot("checkout-command-first-logged-");
+  const command = commandThatPassesAfterFirst("console.error('npm error code EAI_AGAIN'); process.exit(1);");
+  const outcome = await runCheckoutCommand(root, "environment-once", command, legacyRetryRunner());
+  assert.equal(outcome.status, "fail");
+  assert.equal(readFileSync(join(root, "physical-attempts"), "utf8"), "1");
   const events = sink.events.filter((event) => event.category === "workflow").map((event) => [event.level, event.message, (event.context as { attempt?: number; class?: string }).attempt, (event.context as { class?: string }).class]);
-  assert.deepEqual(events, [["warn", "flaky errored", 1, "errored"], ["warn", "flaky errored; retrying after 3ms", 1, undefined], ["info", "flaky passed", 2, "pass"]]);
-  for (const event of sink.events.filter((entry) => entry.message.endsWith("passed") || entry.message.endsWith("errored"))) {
+  assert.deepEqual(events, [["warn", "environment-once errored", 1, "errored"]]);
+  for (const event of sink.events.filter((entry) => entry.message.endsWith("errored"))) {
     for (const key of ["command", "ending", "exit", "durationMs", "load"]) assert.ok(key in (event.context as object), `${event.message} carries ${key}`);
+    const context = event.context as { ending: string; exit: number; durationMs: number };
+    assert.equal(context.ending, outcome.evidence?.terminal?.ending);
+    assert.equal(context.exit, outcome.evidence?.terminal?.exitCode);
+    assert.equal(context.durationMs, outcome.evidence?.durationMs);
   }
 });
 
-test("V18: a run its ceiling ended is ERRORED and retried; the last attempt's answer names how many ran", async () => {
-  const root = gateRoot("checkout-command-ceiling-retry-");
-  // Hangs past its ceiling on the first attempt, passes on the second.
-  const slowOnce = { cwd: ".", argv: [process.execPath, "-e", "const fs=require('node:fs');if(!fs.existsSync('ran')){fs.writeFileSync('ran','1');setTimeout(()=>{},60_000)}"], timeoutMs: 400 };
+test("V18: the first native ceiling is terminal even when the same command would pass next time", async () => {
+  const root = gateRoot("checkout-command-first-ceiling-");
   const waits: number[] = [];
-  const recovered = await runCheckoutCommand(root, "slow-once", slowOnce, supervisedRunner({ retries: 1, backoffMs: 7, sleep: async (ms) => { waits.push(ms); } }));
-  assert.equal(recovered.status, "pass");
-  assert.deepEqual(waits, [7]);
-  const hangs = { cwd: ".", argv: [process.execPath, "-e", "setTimeout(()=>{},60_000)"], timeoutMs: 300 };
-  const exhausted = await runCheckoutCommand(root, "hangs", hangs, supervisedRunner({ retries: 1, backoffMs: 1, sleep: async () => undefined }));
-  assert.equal(exhausted.failure, "errored");
-  assert.match(exhausted.message, /attempt 2 of 2/u);
+  const command = commandThatPassesAfterFirst("setTimeout(() => {}, 60_000);", 400);
+  const outcome = await runCheckoutCommand(root, "ceiling-once", command, legacyRetryRunner(waits));
+  assert.equal(outcome.status, "fail");
+  assert.equal(outcome.failure, "errored");
+  assert.match(outcome.message, /ceiling/u);
+  assert.equal(outcome.evidence?.attempts, 1);
+  assert.equal(outcome.evidence?.terminal?.ending, "ceiling");
+  assert.equal(outcome.evidence?.terminal?.supervision?.timedOut, true);
+  assert.equal(outcome.evidence?.terminal?.supervision?.noOwnedChildren, true);
+  assert.equal(outcome.evidence?.durationMs, outcome.evidence?.terminal?.elapsedMs);
+  assert.equal(readFileSync(join(root, "physical-attempts"), "utf8"), "1");
+  assert.deepEqual(waits, []);
 });
 
-test("H3: a WORKSPACE phase's command rides out an errored run through the one runner's policy", async () => {
-  const root = gateRoot("checkout-phase-retry-");
-  const install = { cwd: ".", argv: [process.execPath, "-e", "const fs=require('node:fs');if(!fs.existsSync('tried')){fs.writeFileSync('tried','1');console.error('npm error code ENOTCACHED');process.exit(1)}"], timeoutMs: 30_000 };
-  const isolation = { commands: { "web-deps": install }, phases: { setup: ["web-deps"], validate: [], regenerate: [], merge: [] } };
-  const steps = await runCheckoutPhase(isolation, "setup", checkoutCommandRunner(root, supervisedRunner({ retries: 2, backoffMs: 1, sleep: async () => undefined })));
-  assert.deepEqual(steps.map((entry) => [entry.step, entry.status]), [["web-deps", "pass"]]);
-  const without = await runCheckoutPhase(isolation, "setup", checkoutCommandRunner(gateRoot("checkout-phase-no-retry-"), supervisedRunner()));
-  assert.deepEqual(without.map((entry) => [entry.step, entry.status, entry.failure]), [["web-deps", "fail", "errored"]], "with no retry the same run fails, errored");
+test("H3: a workspace setup preserves its first environmental failure and skips following commands", async () => {
+  const root = gateRoot("checkout-phase-first-environment-");
+  const install = commandThatPassesAfterFirst("console.error('npm error code ENOTCACHED'); process.exit(1);");
+  const later = { cwd: ".", argv: [process.execPath, "-e", "require('node:fs').writeFileSync('later-ran', 'yes')"], timeoutMs: 30_000 };
+  const isolation = { commands: { "web-deps": install, later }, phases: { setup: ["web-deps", "later"], validate: [], regenerate: [], merge: [] } };
+  const steps = await runCheckoutPhase(isolation, "setup", checkoutCommandRunner(root, legacyRetryRunner()));
+  assert.deepEqual(steps.map((entry) => [entry.step, entry.status, entry.failure]), [["web-deps", "fail", "errored"], ["later", "skip", undefined]]);
+  assert.equal(steps[0]!.evidence?.attempts, 1);
+  assert.equal(steps[0]!.evidence?.terminal?.ending, "exited");
+  assert.equal(steps[0]!.evidence?.terminal?.exitCode, 1);
+  assert.equal(readFileSync(join(root, "physical-attempts"), "utf8"), "1");
+  assert.equal(existsSync(join(root, "later-ran")), false);
 });
 
 test("checkout setup re-run: only the commands whose declared inputs changed run again, in order", async () => {
@@ -485,7 +582,7 @@ test("a gate that REQUIRES a producer: the producer runs first, once per sequenc
   assert.deepEqual(merged.map((step) => [step.step, step.status]), [["broken", "fail"], ["judged", "skip"], ["after", "skip"]], "a gate never judges what no step produced");
   assert.match(merged[1]!.message, /broken, which produces what it judges, failed/u);
   assert.equal(readFileSync(join(target, "ran"), "utf8"), "profile\nsuite\nagain\nbroken\n");
-  assert.deepEqual(commandsRun(isolation.commands as never, ["suite", "again", "judged"]), ["profile", "suite", "again", "broken", "judged"], "what a sequence runs: each producer before its first gate, every name once");
+  assert.deepEqual(commandsRun(isolation.commands as never, ["suite", "again", "judged"]), ["profile", "suite", "again", "broken", "judged"], "the identity census names every consumed command once");
   assert.deepEqual(unconsumedCommands({ ...isolation, phases: { ...isolation.phases, merge: [] } } as never, []), ["after", "broken", "judged"], "a producer is consumed by the gate that requires it");
 
   const document = JSON.parse(readFileSync(join(TEST_REPOSITORY_ROOT, ROOT_POLICY.configuration.basename), "utf8")) as {
@@ -508,6 +605,34 @@ test("a gate that REQUIRES a producer: the producer runs first, once per sequenc
   // and a setup command is the checkout's, never a gate's input.
   refused((d) => { gate(d)["requires"] = [d.phases["setup"]![0]!]; }, /is named by a phase itself/u);
   refused((d) => { d.commands["p3"] = { cwd: ".", argv: ["true"], timeoutMs: 1000 }; d.phases["validate"] = [...d.phases["validate"]!, "p3"]; gate(d)["requires"] = ["p3"]; }, /is named by a phase itself/u);
+});
+
+test("command invocation census matches actual sequence occurrences and leaves unique identity consumers unchanged", async () => {
+  const target = gateRoot("working-copy-command-invocations-");
+  const writer = (name: string) => [process.execPath, "-e", `require('node:fs').appendFileSync('ran', '${name}\\n')`];
+  const commands: Record<string, CheckoutCommand> = {
+    profile: { cwd: ".", argv: writer("profile"), timeoutMs: 60_000 },
+    suite: { cwd: ".", argv: writer("suite"), timeoutMs: 60_000, requires: ["profile", "profile"] },
+    again: { cwd: ".", argv: writer("again"), timeoutMs: 60_000, requires: ["profile"] },
+  };
+  // Raw sequencer observations bind runtime multiplicity; this does not
+  // claim the full workspace schema admits every promotion-style sequence.
+  const sequences = [
+    { names: ["suite", "suite"], expected: ["profile", "suite", "suite"] },
+    { names: ["profile", "suite", "again"], expected: ["profile", "profile", "suite", "again"] },
+    { names: ["suite", "profile", "again"], expected: ["profile", "suite", "profile", "again"] },
+  ];
+  const run = checkoutCommandRunner(target, supervisedRunner());
+  for (const { names, expected } of sequences) {
+    const actual = await runDeclaredCommands({ commands }, "validate", names, run);
+    assert.ok(actual.every((step) => step.status === "pass"));
+    assert.deepEqual(actual.map((step) => step.step), expected, "the production adapter preserves direct occurrences and deduplicates only prerequisites");
+    assert.deepEqual(commandInvocations(commands, names), actual.map((step) => step.step), "the ceiling census equals the actual successful sequence");
+    assert.deepEqual(commandsRun(commands, names), [...new Set(expected)], "plan/toolchain/dead-command consumers still receive unique identities");
+  }
+  assert.equal(readFileSync(join(target, "ran"), "utf8"), sequences.flatMap(({ expected }) => expected).map((name) => `${name}\n`).join(""), "separate sequences each perform their own physical producer work");
+  assert.throws(() => commandInvocations(commands, ["missing"]), (error: unknown) => error instanceof InputError && error.code === "checkout_setup_command_undeclared");
+  assert.throws(() => commandInvocations({ ...commands, absent: { ...commands["suite"]!, requires: ["missing"] } }, ["absent"]), (error: unknown) => error instanceof InputError && error.code === "checkout_setup_command_undeclared");
 });
 
 test("workspaceIsolation: an undeclared command, dead inputs, an undeclared phase, a focused selector or a rerun-alone declaration, a ledger off a gate or spelled as a path, or no land target is a schema refusal", () => {

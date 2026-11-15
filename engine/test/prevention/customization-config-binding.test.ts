@@ -187,6 +187,50 @@ test("config binding: writing to an undeclared path is refused (deny-by-default)
   resetCustomizationConfigStore();
 });
 
+test("config binding: retired harness retry paths cannot be written or registered", () => {
+  const store = memoryStore(liveConfigClone());
+  const before = structuredClone(store.doc);
+  installCustomizationConfigStore(store);
+  try {
+    for (const [index, retired] of [
+      { path: "harness.commandErroredRetries", values: [0, 2] },
+      { path: "harness.commandRetryBackoffMs", values: [0, 1, 60000] },
+    ].entries()) {
+      assert.equal(isConfigPathDeclared(retired.path), false, `${retired.path} is retired vocabulary`);
+      for (const value of retired.values) {
+        assert.throws(
+          () => writeConfigCustomization(retired.path, value),
+          (error: unknown) => error instanceof InputError && error.code === "customization_config_path_unknown",
+          `${retired.path} is rejected even when the legacy value disables retries or waiting`,
+        );
+      }
+      assert.throws(
+        () => registerCustomization({
+          id: `zzprobe.retiredHarness${index}`,
+          module: "zzprobe",
+          name: "Retired harness retry probe",
+          description: "A retired config path must not return as an editable control.",
+          type: "number",
+          default: 0,
+          current: () => 0,
+          set: () => undefined,
+          configPath: retired.path,
+        }),
+        (error: unknown) => error instanceof InputError && error.code === "customization_config_path_unknown",
+      );
+    }
+    assert.equal(store.writes.length, 0, "no retired value reached the installed store");
+    assert.deepEqual(store.doc, before, "refused controls leave the installed document unchanged");
+
+    const supportedValue = memTrimThreshold(store.doc) === 0.73 ? 0.74 : 0.73;
+    writeConfigCustomization("memory.trimThreshold", supportedValue);
+    assert.equal(memTrimThreshold(store.doc), supportedValue, "the same installed-store adapter still writes a supported control");
+    assert.equal(store.writes.length, 1);
+  } finally {
+    resetCustomizationConfigStore();
+  }
+});
+
 test("config binding: registering a customization with an undeclared configPath is refused", () => {
   freshStore({});
   assert.throws(

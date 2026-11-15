@@ -66,6 +66,24 @@ describe("exposure is declared and reachable", () => {
     }
   });
 
+  test("command failure policy is observable and retired retry controls cannot be configured", () => {
+    const customizations = listCustomizations();
+    const policy = listSignals().find((signal) => signal.id === "harnessCommands.commandFailurePolicy");
+    expect(policy, "the shared first-failure policy must be observable").toBeDefined();
+    expect(policy!.module).toBe("harnessCommands");
+    expect(policy!.type).toBe("state");
+    expect(policy!.value()).toBe("first-failure-terminal");
+    expect("set" in policy!, "the policy is a read-only signal, not an adjustable control").toBe(false);
+    expect(customizations.some((knob) => knob.id === policy!.id)).toBe(false);
+    for (const [id, path] of [
+      ["harnessCommands.commandErroredRetries", "harness.commandErroredRetries"],
+      ["harnessCommands.commandRetryBackoffMs", "harness.commandRetryBackoffMs"],
+    ] as const) {
+      expect(customizations.some((knob) => knob.id === id || knob.configPath === path), `${id} must not advertise a retired setting`).toBe(false);
+      expect(isConfigPathDeclared(path), `${path} must be refused rather than accepted without effect`).toBe(false);
+    }
+  });
+
   test("intelligence auto-index, farm, languages, and drop are on the surface", () => {
     const ids = new Set(listCustomizations().map((c) => c.id));
     expect(ids.has("intelligence.autoIndexOnProjectAdd")).toBe(true);
@@ -1566,8 +1584,6 @@ describe("exposure is declared and reachable", () => {
       ["testExecution.fullSuiteSerialPhaseConcurrency", "next-run", 8, "lanes"],
       ["testExecution.fullSuiteInProcessSerialPhaseConcurrency", "next-run", 4, "lanes"],
       ["testExecution.fullSuiteParallelConcurrency", "next-run", 12, "lanes"],
-      ["harness.commandErroredRetries", "next-run", 2, "retries"],
-      ["harness.commandRetryBackoffMs", "next-run", 60000, "milliseconds"],
       ["harness.subprocessBounds.cpuBudgetMs", "next-run", 1800000, "milliseconds"],
       ["harness.subprocessBounds.stallMs", "next-run", 1800000, "milliseconds"],
       ["harness.subprocessBounds.hangBackstopMs", "next-run", 7200000, "milliseconds"],

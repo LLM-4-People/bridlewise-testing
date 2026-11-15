@@ -517,7 +517,7 @@ function privateCheckout(
   label: string,
   supervisor: string,
 ): PrivateCheckout {
-  const commandRunner = configuredCheckoutCommandRunner(snapshot.document, isolation, supervisor,
+  const commandRunner = configuredCheckoutCommandRunner(isolation, supervisor,
     (step, commandArguments) => process.stderr.write(`[${label}] setup ${step}: ${commandArguments.join(" ")}\n`));
   const workspaceRoot = workspaceRootOf(resolveRepositoryRegistry(configuredWorktreeGitPort(snapshot.document), top, worktreeOperationTimeouts(snapshot.document).inspectMs), isolation.workspaceRoot);
   ensurePrivateStateDirectory(workspaceRoot);

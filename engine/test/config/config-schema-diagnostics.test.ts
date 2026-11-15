@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { getConfigDocumentSchema } from "../../src/kernel/config-contracts.ts";
@@ -75,6 +78,55 @@ test("config schema: the shipped bridlewise.config.json validates against the ca
   );
 });
 
+const RETIRED_HARNESS_RETRY_CASES: readonly Readonly<Record<string, number>>[] = [
+  { commandErroredRetries: 2 },
+  { commandErroredRetries: 0 },
+  { commandRetryBackoffMs: 60000 },
+  { commandRetryBackoffMs: 1 },
+  { commandRetryBackoffMs: 0 },
+  { commandErroredRetries: 2, commandRetryBackoffMs: 60000 },
+];
+
+function withRetiredRetryKeys(
+  document: Record<string, unknown>,
+  retired: Readonly<Record<string, number>>,
+): Record<string, unknown> {
+  return { ...structuredClone(document), harness: { ...(isPlainObject(document.harness) ? document.harness : {}), ...retired } };
+}
+
+test("config schema: retired harness retry keys are unknown, including explicit zero", () => {
+  const shipped = shippedConfig();
+  for (const retired of RETIRED_HARNESS_RETRY_CASES) {
+    const parsed = CONFIG_DOCUMENT_SCHEMA.safeParse(withRetiredRetryKeys(shipped, retired));
+    assert.equal(parsed.success, false, "a retired retry setting must not be silently accepted");
+    const keys = Object.keys(retired);
+    assert.ok(
+      parsed.error.issues.some((issue) => issue.code === "unrecognized_keys" &&
+        issue.path.length === 1 && issue.path[0] === "harness" &&
+        keys.every((key) => issue.keys.includes(key))),
+      "strict harness schema removal must reject the old vocabulary, rather than retain a configurable leaf",
+    );
+    const detail = describeSchemaIssues(parsed.error.issues);
+    assert.match(detail, /harness/u);
+    assert.match(detail, /unrecognized_keys/u);
+    for (const key of keys) assert.ok(detail.includes(key), `the canonical diagnostic names ${key}`);
+  }
+});
+
+test("config schema: the shipped config omits both retired retry declarations and keeps other harness bounds", () => {
+  const shipped = shippedConfig();
+  assert.ok(isPlainObject(shipped.harness), "the shipped harness bounds remain present");
+  for (const key of ["commandErroredRetries", "commandRetryBackoffMs"]) {
+    assert.equal(Object.hasOwn(shipped.harness, key), false, `${key} was removed from the shipped document`);
+  }
+  const legacy = withRetiredRetryKeys(shipped, { commandErroredRetries: 2, commandRetryBackoffMs: 60000 });
+  assert.ok(isPlainObject(legacy.harness));
+  delete legacy.harness.commandErroredRetries;
+  delete legacy.harness.commandRetryBackoffMs;
+  assert.deepEqual(legacy, shipped, "migration removes only the two declarations");
+  assert.ok(CONFIG_DOCUMENT_SCHEMA.safeParse(legacy).success, "omission is the supported configuration");
+});
+
 test("config schema diagnostics: an unknown key in ANY config section is named by path and key", () => {
   const shipped = shippedConfig();
   const sections = Object.keys(shipped)
@@ -142,6 +194,80 @@ test("config schema diagnostics: the CLI reports WHICH key was rejected", async 
       /rootPolicy/u,
       `the operator-facing message must name the offending key, got: ${message}`,
     );
+  } finally {
+    removeOwnedTemporaryDirectories();
+  }
+});
+
+test("config schema diagnostics: the real CLI refuses retired retries without rewriting the config", async () => {
+  const { invoke, makeRuntimeCandidate, removeOwnedTemporaryDirectories, writeConfig } =
+    await scenarioHarness();
+  try {
+    const root = makeRuntimeCandidate();
+    const configPath = join(root, "bridlewise.config.json");
+    // The runtime-copy owner supplies the complete current config. Keep its
+    // required fields and every sibling value; vary only the retired keys.
+    const document = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    for (const retired of RETIRED_HARNESS_RETRY_CASES) {
+      writeConfig(root, withRetiredRetryKeys(document, retired));
+      const before = readFileSync(configPath);
+      const invocation = invoke(root, ["--version"]);
+      assert.notEqual(invocation.status, 0, "a legacy document must not load");
+      const payload = errorPayload(invocation);
+      assert.equal(payload.error, "config_schema_invalid");
+      const message = String(payload.message);
+      assert.match(message, /harness/u);
+      assert.match(message, /unrecognized_keys/u);
+      for (const key of Object.keys(retired)) assert.ok(message.includes(key), `${key} is named in the refusal`);
+      assert.deepEqual(readFileSync(configPath), before, "load refusal does not silently migrate the file");
+    }
+    writeConfig(root, document);
+    const omission = invoke(root, ["--version"]);
+    assert.equal(
+      omission.status,
+      0,
+      `the same real loader accepts omission\nstdout: ${omission.stdout}\nstderr: ${omission.stderr}`,
+    );
+  } finally {
+    removeOwnedTemporaryDirectories();
+  }
+});
+
+test("config schema diagnostics: the real engine store refuses retired retry keys before saving", async () => {
+  const { makeRuntimeCandidate, removeOwnedTemporaryDirectories } = await scenarioHarness();
+  try {
+    const root = makeRuntimeCandidate();
+    const storeModule = pathToFileURL(join(root, "src", "shared", "exposure", "config-binding.ts")).href;
+    const probe = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      import assert from "node:assert/strict";
+      import { readFileSync } from "node:fs";
+      const { createEngineCustomizationConfigStore } = await import(${JSON.stringify(storeModule)});
+      const store = createEngineCustomizationConfigStore();
+      const original = readFileSync(store.configFilePath);
+      const document = store.readDocument();
+      const cases = ${JSON.stringify(RETIRED_HARNESS_RETRY_CASES)};
+      for (const retired of cases) {
+        const candidate = { ...structuredClone(document), harness: { ...(document.harness ?? {}), ...retired } };
+        assert.throws(() => store.writeDocument(candidate), (error) => {
+          assert.equal(error.code, "invalid_config_document");
+          assert.match(error.message, /harness/u);
+          assert.match(error.message, /unrecognized_keys/u);
+          for (const key of Object.keys(retired)) assert.ok(error.message.includes(key));
+          return true;
+        });
+        assert.deepEqual(readFileSync(store.configFilePath), original, "refused save changed the candidate config");
+      }
+      const supportedValue = document.memory?.trimThreshold === 0.73 ? 0.74 : 0.73;
+      const supported = { ...structuredClone(document), memory: { ...(document.memory ?? {}), trimThreshold: supportedValue } };
+      store.writeDocument(supported);
+      const saved = readFileSync(store.configFilePath);
+      assert.notDeepEqual(saved, original, "the supported control must actually change the stored bytes");
+      assert.deepEqual(JSON.parse(saved.toString("utf8")), supported, "saved bytes preserve the complete supported document");
+      assert.deepEqual(store.readDocument(), supported, "the real store reads back the supported control");
+      process.stdout.write(JSON.stringify({ rejected: cases.length, saved: true }));
+    `], { cwd: root, encoding: "utf8", timeout: 120_000 });
+    assert.equal(probe.status, 0, probe.stderr);
+    assert.deepEqual(JSON.parse(probe.stdout), { rejected: RETIRED_HARNESS_RETRY_CASES.length, saved: true });
   } finally {
     removeOwnedTemporaryDirectories();
   }

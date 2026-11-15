@@ -55,20 +55,9 @@ export const DEFAULT_PROJECTION_CPU_SECONDS = 120;
 // ── harness-commands.ts defaults ──────────────────────────────────────────
 
 
-// ── the ONE command runner (checkout-setup.ts): errored-class retries ───────
+/** The shared checkout runner's read-only outcome contract; it is not an adjustable retry setting. */
+export const CHECKOUT_COMMAND_FAILURE_POLICY = "first-failure-terminal";
 
-/** How often an ERRORED command (a ceiling, a signal, an environmental marker) is retried (`harness.commandErroredRetries`). */
-const DEFAULT_COMMAND_ERRORED_RETRIES = 2;
-/** The wait before the first retry, doubled for each next one (`harness.commandRetryBackoffMs`). */
-const DEFAULT_COMMAND_RETRY_BACKOFF_MS = 60_000;
-
-/** The ONE command runner's errored-class retry policy as `document` configures it (the one reader of both settings; `{}` answers the defaults). */
-export function commandRetryPolicy(document: Pick<ConfigDocument, "harness">): Readonly<{ retries: number; backoffMs: number }> {
-  return Object.freeze({
-    retries: document.harness?.commandErroredRetries ?? DEFAULT_COMMAND_ERRORED_RETRIES,
-    backoffMs: document.harness?.commandRetryBackoffMs ?? DEFAULT_COMMAND_RETRY_BACKOFF_MS,
-  });
-}
 /**
  * How many hex digits of a commit id a person-facing line shows (the release
  * train's answers, the release notes), each linking or naming the full id

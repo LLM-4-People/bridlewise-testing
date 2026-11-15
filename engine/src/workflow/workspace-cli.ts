@@ -36,6 +36,7 @@ import type { PublishedRound } from "./workspace-forge.ts";
  *   extend <id> --write-set <path…>          widen and renew the lease (admission-checked)
  *   validate <id> [--full]                   the gates; --full adds regenerate, converged and the merge gates
  *   publish <id>                             a round: the new commits as signed twins on the forge; the draft pull request
+ *   draft <id>                               withdraw readiness and resume editing; retain validation evidence
  *   ready <id>                               the pull request leaves draft: its published tree passed validate
  *   land <id>                                enter the merge queue at the published head; wait; follow the trunk
  *   merge <id>                               integrate in the workspace, gate, land on the target
@@ -60,10 +61,10 @@ import type { PublishedRound } from "./workspace-forge.ts";
  */
 
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "land", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
+const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "draft", "land", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
 
 export type WorkspaceCliOutput =
-  | Readonly<{ action: "create" | "extend" | "ready" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
+  | Readonly<{ action: "create" | "extend" | "ready" | "draft" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
   | Readonly<{ action: "publish"; record: WorkspaceRecord; round: PublishedRound }>
   | Readonly<{ action: "validate"; report: ValidationReport }>
   | Readonly<{ action: "merge"; receipt: MergeReceipt }>
@@ -97,7 +98,7 @@ export async function runWorkspaceCli(
   const checkoutRoot = git.toplevel(root, timeouts.inspectMs);
   // Built on the first command run: a subcommand that runs none never compiles the supervisor.
   let runner: CheckoutCommandRunner | null = null;
-  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(snapshot.document, isolation, ensureTestProcessSupervisor(),
+  const commandRunner = (): CheckoutCommandRunner => runner ??= configuredCheckoutCommandRunner(isolation, ensureTestProcessSupervisor(),
     (step: string, commandArguments: readonly string[]) => progress(`run ${step}: ${commandArguments.join(" ")}`));
   // The integrator's commits (a workspace merge) are the harness's, so they are the project's agent identity
   // from the one declared source, never whatever user.name and user.email the checkout or the host carries.
@@ -117,6 +118,9 @@ export async function runWorkspaceCli(
   });
   return dispatch(manager, action, argv.slice(1));
 }
+
+/** The command dispatcher shared by the CLI and composed clients. */
+export { dispatch as dispatchWorkspaceCli };
 
 async function dispatch(
   manager: WorkspaceManager,
@@ -159,6 +163,10 @@ async function dispatch(
   if (action === "ready") {
     const workspaceId = requireSingleId(args, "ready");
     return wrapResult("workspace ready", deepFreeze({ action: "ready", record: await manager.ready(workspaceId) }), { status: "pass" });
+  }
+  if (action === "draft") {
+    const workspaceId = requireSingleId(args, "draft");
+    return wrapResult("workspace draft", deepFreeze({ action: "draft", record: await manager.draft(workspaceId) }), { status: "pass" });
   }
   if (action === "land") {
     const workspaceId = requireSingleId(args, "land");

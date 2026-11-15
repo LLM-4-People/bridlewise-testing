@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { chmodSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import { WorkspaceConflictError } from "../../src/workflow/workspace-manager.ts";
+import { dispatchWorkspaceCli, runWorkspaceCli } from "../../src/workflow/workspace-cli.ts";
+import { indexFilePath } from "../../src/git/repository-ownership.ts";
+import { hasSecondName } from "../../src/filesystem/link-containment.ts";
 import { createWorkspaceRecordStore, workspaceRecordStores } from "../../src/workflow/workspace-registry.ts";
 import { resolveForgeTarget, type WorkspaceForge, type WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
 import {
@@ -12,6 +15,8 @@ import {
   forgeStateOf,
   initTempRepo,
   makeManager,
+  makeFakeCommands,
+  failGate,
   makeTestConfig,
   mkWorkspaceTempDir,
   rawGit,
@@ -385,4 +390,349 @@ test("an adopted pull request opened against another base is refused, and a dele
   await manager.publish(deleting.workspaceId);
   const trees = forge.calls.filter((call) => call.op === "createTree").map((call) => call.request as Readonly<{ entries: readonly Readonly<{ path: string; mode: string; sha: string | null }>[] }>);
   assert.deepEqual(trees[0]!.entries, [{ path: "link.md", mode: "120000", sha: null }]);
+});
+
+
+test("draft: ready withdrawal resumes editing, preserves qualification and supports a no-edit ready round trip", async () => {
+  const { manager, forge } = forgeFixture("ws-forge-draft-roundtrip");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  const worktree = record.lease.worktreePath;
+  commitFile(worktree, "src/a.ts", "export const a = 1;\n");
+  await manager.publish(record.workspaceId);
+  assert.equal((await manager.validate(record.workspaceId)).status, "pass");
+  const ready = await manager.ready(record.workspaceId);
+  const index = readFileSync(indexFilePath(worktree, "directory"));
+  const head = rawGit(worktree, ["rev-parse", "HEAD"]);
+  const drafted = await manager.draft(record.workspaceId);
+  assert.equal(drafted.state, "active");
+  assert.equal(forgeStateOf(drafted).ready, false);
+  assert.equal(forge.pulls.get(1)!.draft, true);
+  assert.deepEqual(drafted.validationReport, ready.validationReport);
+  assert.deepEqual(drafted.lease, ready.lease);
+  assert.equal(rawGit(worktree, ["rev-parse", "HEAD"]), head);
+  assert.deepEqual(readFileSync(indexFilePath(worktree, "directory")), index);
+  const unchanged = await manager.draft(record.workspaceId);
+  assert.equal(unchanged.revision, drafted.revision, "an observed draft is idempotent");
+  const again = await manager.ready(record.workspaceId);
+  assert.equal(again.state, "validating");
+  assert.equal(forgeStateOf(again).ready, true);
+  assert.deepEqual(again.validationReport, ready.validationReport, "ready reuses only the current exact passing report");
+});
+
+test("draft: a current failed report and unpublished dirty native work survive withdrawal", async () => {
+  const { root, config, manager, forge } = forgeFixture("ws-forge-draft-failed");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  const worktree = record.lease.worktreePath;
+  commitFile(worktree, "src/a.ts", "export const a = 1;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  await manager.ready(record.workspaceId);
+  const gate = config.phases.validate[0]!;
+  const failed = makeManager(root, { config, commands: makeFakeCommands({ [gate]: () => failGate(gate, "declared current failure") }) }).manager;
+  assert.equal((await failed.validate(record.workspaceId)).status, "fail");
+  const before = failed.status(record.workspaceId);
+  await assert.rejects(() => failed.ready(record.workspaceId), throwsCode("workspace_not_validated"));
+  const local = commitFile(worktree, "src/local.ts", "export const local = true;\n");
+  writeFile(worktree, "src/a.ts", "staged-only bytes\n");
+  rawGit(worktree, ["add", "--", "src/a.ts"]);
+  writeFile(worktree, "src/a.ts", "unstaged bytes\n");
+  writeFile(worktree, "src/untracked.ts", "untracked bytes\n");
+  const index = readFileSync(indexFilePath(worktree, "directory"));
+  assert.equal(forge.pulls.get(1)!.draft, false, "dirty native work exists before the first withdrawal");
+  const resumed = await failed.draft(record.workspaceId);
+  assert.equal(resumed.state, "active");
+  assert.equal(forgeStateOf(resumed).ready, false);
+  assert.equal(forge.pulls.get(1)!.draft, true);
+  assert.equal((await failed.draft(record.workspaceId)).revision, resumed.revision);
+  assert.equal(rawGit(worktree, ["rev-parse", "HEAD"]), local);
+  assert.deepEqual(readFileSync(indexFilePath(worktree, "directory")), index);
+  assert.equal(readFileSync(join(worktree, "src/a.ts"), "utf8"), "unstaged bytes\n");
+  assert.equal(readFileSync(join(worktree, "src/untracked.ts"), "utf8"), "untracked bytes\n");
+  assert.deepEqual(resumed.validationReport, before.validationReport, "no historical pass replaces the current failure");
+});
+
+test("draft: remote conversion followed by record failure reconciles without repeating the side effect", async () => {
+  const { root, config, manager, forge } = forgeFixture("ws-forge-draft-reconcile");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/a.ts", "export const a = 1;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  const ready = await manager.ready(record.workspaceId);
+  const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
+  let intervened = false;
+  const dying = makeManager(root, { config, records: { ...store, save: (stale) => {
+    assert.equal(intervened, false);
+    intervened = true;
+    store.save(store.load(record.workspaceId)!); // A genuine competing write increments production revision.
+    return store.save(stale); // The actual production CAS must reject this stale writer.
+  } } }).manager;
+  await assert.rejects(() => dying.draft(record.workspaceId), throwsCode("workspace_record_changed"));
+  assert.equal(intervened, true);
+  assert.equal(manager.status(record.workspaceId).revision, ready.revision + 1);
+  assert.equal(forge.pulls.get(1)!.draft, true, "the remote side effect is retained truthfully");
+  assert.equal(forgeStateOf(manager.status(record.workspaceId)).ready, true, "no failed local save claims completion");
+  const calls = forge.calls.filter((call) => call.op === "convertToDraft").length;
+  const recovered = await manager.draft(record.workspaceId);
+  assert.equal(recovered.state, "active");
+  assert.equal(forgeStateOf(recovered).ready, false);
+  assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, calls);
+  assert.deepEqual(recovered.validationReport, ready.validationReport);
+});
+
+test("draft: a queued pull request refuses before conversion and preserves its record", async () => {
+  const { manager, forge } = forgeFixture("ws-forge-draft-queued");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/a.ts", "export const a = 1;\n");
+  const { round } = await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  await manager.ready(record.workspaceId);
+  assert.equal((await forge.enqueue(1, { expectedHeadSha: round.head })).kind, "enqueued");
+  const before = manager.status(record.workspaceId);
+  const conversions = forge.calls.filter((call) => call.op === "convertToDraft").length;
+  await assert.rejects(() => manager.draft(record.workspaceId), throwsCode("workspace_draft_denied"));
+  assert.deepEqual(manager.status(record.workspaceId), before);
+  assert.equal(forge.pulls.get(1)!.draft, false);
+  assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions);
+});
+
+
+for (const drift of ["head", "index", "branch", "revision", "generation", "upstream"] as const) {
+  test(`draft: ${drift} drift during remote observation refuses before conversion and preserves caller work`, async () => {
+    const { root, config, manager, forge } = forgeFixture(`ws-draft-local-${drift}`);
+    const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+    const worktree = record.lease.worktreePath;
+    commitFile(worktree, "src/a.ts", "export const a = 1;\n");
+    await manager.publish(record.workspaceId);
+    await manager.validate(record.workspaceId);
+    await manager.ready(record.workspaceId);
+    const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
+    let injected = false;
+    let retained: { head: string; branch: string; index: Buffer; record: ReturnType<typeof manager.status> } | null = null;
+    const changing = makeManager(root, { config, forge: () => ({ ...forge, async pullRequest(number) {
+      const view = await forge.pullRequest(number);
+      assert.equal(injected, false, "the first observation must refuse without a second read");
+      injected = true;
+      if (drift === "head") commitFile(worktree, "src/later.ts", "caller native progress\n");
+      if (drift === "index") { writeFile(worktree, "src/a.ts", "caller staged progress\n"); rawGit(worktree, ["add", "--", "src/a.ts"]); }
+      if (drift === "branch") { rawGit(worktree, ["branch", "caller-retained"]); rawGit(worktree, ["symbolic-ref", "HEAD", "refs/heads/caller-retained"]); }
+      if (drift === "revision" || drift === "generation") {
+        const current = store.load(record.workspaceId)!;
+        store.save(drift === "generation" ? { ...current, lease: { ...current.lease, generation: current.lease.generation + 1 } } : current);
+      }
+      if (drift === "upstream") rawGit(root, ["config", "branch.main.merge", "refs/heads/other-trunk"]);
+      retained = { head: rawGit(worktree, ["rev-parse", "HEAD"]), branch: rawGit(worktree, ["symbolic-ref", "HEAD"]), index: readFileSync(indexFilePath(worktree, "directory")), record: store.load(record.workspaceId)! };
+      return view;
+    } }) }).manager;
+    const conversions = forge.calls.filter((call) => call.op === "convertToDraft").length;
+    await assert.rejects(() => changing.draft(record.workspaceId), throwsCode(drift === "upstream" ? "workspace_target_upstream_changed" : drift === "branch" ? "workspace_integrity_failed" : "workspace_draft_subject_changed"));
+    assert.equal(injected, true);
+    assert.ok(retained);
+    const after = { head: rawGit(worktree, ["rev-parse", "HEAD"]), branch: rawGit(worktree, ["symbolic-ref", "HEAD"]), index: readFileSync(indexFilePath(worktree, "directory")), record: store.load(record.workspaceId)! };
+    assert.deepEqual(after, retained, "the refusal preserves the actual intervening owner's work");
+    assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions);
+    assert.equal(forge.pulls.get(1)!.draft, false);
+  });
+}
+
+for (const drift of ["number", "head", "base", "closed", "merged", "queued", "not-draft"] as const) {
+  test(`draft: post-conversion ${drift} drift retains remote truth without granting local withdrawal`, async () => {
+    const { root, config, manager, forge } = forgeFixture(`ws-draft-remote-${drift}`);
+    const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+    const worktree = record.lease.worktreePath;
+    commitFile(worktree, "src/a.ts", "export const a = 1;\n");
+    await manager.publish(record.workspaceId);
+    await manager.validate(record.workspaceId);
+    const ready = await manager.ready(record.workspaceId);
+    const index = readFileSync(indexFilePath(worktree, "directory"));
+    let converted = false;
+    const changing = makeManager(root, { config, forge: () => ({ ...forge,
+      async convertToDraft(number) { await forge.convertToDraft(number); converted = true; },
+      async pullRequest(number) {
+        const view = await forge.pullRequest(number);
+        if (!converted) return view;
+        // A post-conversion answer is a different remote subject or lost state.
+        return { ...view, ...(drift === "number" ? { number: number + 1 } : drift === "head" ? { headSha: "0".repeat(40) } : drift === "base" ? { base: "foreign" } : drift === "closed" ? { state: "closed" as const } : drift === "merged" ? { merged: true } : drift === "queued" ? { queued: true } : { draft: false }) };
+      },
+    }) }).manager;
+    const codes = { number: "workspace_draft_subject_changed", head: "workspace_published_head_moved", base: "workspace_pull_request_base_mismatch", closed: "workspace_pull_request_closed", merged: "workspace_draft_denied", queued: "workspace_draft_denied", "not-draft": "workspace_draft_not_observed" } as const;
+    const marks = forge.calls.filter((call) => call.op === "markReadyForReview").length;
+    await assert.rejects(() => changing.draft(record.workspaceId), throwsCode(codes[drift]));
+    assert.equal(converted, true);
+    assert.equal(forge.pulls.get(1)!.draft, true, "conversion really happened before a hostile readback");
+    assert.deepEqual(manager.status(record.workspaceId), ready, "unproved completion cannot change local authorization or reports");
+    assert.deepEqual(readFileSync(indexFilePath(worktree, "directory")), index);
+    assert.equal(forge.calls.filter((call) => call.op === "markReadyForReview").length, marks, "no compensating remote ready effect");
+  });
+}
+
+for (const loseAnswer of [false, true]) {
+  test(`draft: conversion lostAnswer=${loseAnswer} preserves local readiness and a fresh observed draft reconciles`, async () => {
+    const { root, config, manager, forge } = forgeFixture(`ws-draft-convert-${loseAnswer}`);
+    const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+    commitFile(record.lease.worktreePath, "src/a.ts", "export const a = 1;\n");
+    await manager.publish(record.workspaceId);
+    await manager.validate(record.workspaceId);
+    const ready = await manager.ready(record.workspaceId);
+    const failing = makeManager(root, { config, forge: () => ({ ...forge, async convertToDraft(number) {
+      if (loseAnswer) await forge.convertToDraft(number);
+      throw new Error("declared conversion transport failure");
+    } }) }).manager;
+    await assert.rejects(() => failing.draft(record.workspaceId), /declared conversion transport failure/u);
+    assert.deepEqual(manager.status(record.workspaceId), ready);
+    assert.equal(forge.pulls.get(1)!.draft, loseAnswer);
+    const conversions = forge.calls.filter((call) => call.op === "convertToDraft").length;
+    const recovered = await manager.draft(record.workspaceId);
+    assert.equal(forgeStateOf(recovered).ready, false);
+    assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions + (loseAnswer ? 0 : 1));
+    assert.deepEqual(recovered.validationReport, ready.validationReport);
+  });
+}
+
+
+for (const drift of ["head", "index"] as const) {
+  for (const phase of ["conversion", "readback"] as const) {
+    test(`draft: native ${drift} drift after ${phase} cannot turn a partial remote effect into local authorization`, async () => {
+      const { root, config, manager, forge } = forgeFixture(`ws-draft-late-${drift}-${phase}`);
+      const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+      const worktree = record.lease.worktreePath;
+      commitFile(worktree, "src/a.ts", "export const a = 1;\n");
+      await manager.publish(record.workspaceId);
+      await manager.validate(record.workspaceId);
+      const ready = await manager.ready(record.workspaceId);
+      let converted = false;
+      let retained: { head: string; index: Buffer } | null = null;
+      const intervene = () => {
+        assert.equal(retained, null);
+        if (drift === "head") commitFile(worktree, "src/caller.ts", "later native progress\n");
+        else { writeFile(worktree, "src/a.ts", "later staged progress\n"); rawGit(worktree, ["add", "--", "src/a.ts"]); }
+        retained = { head: rawGit(worktree, ["rev-parse", "HEAD"]), index: readFileSync(indexFilePath(worktree, "directory")) };
+      };
+      const changing = makeManager(root, { config, forge: () => ({ ...forge,
+        async convertToDraft(number) { await forge.convertToDraft(number); converted = true; if (phase === "conversion") intervene(); },
+        async pullRequest(number) { const view = await forge.pullRequest(number); if (converted && phase === "readback") intervene(); return view; },
+      }) }).manager;
+      await assert.rejects(() => changing.draft(record.workspaceId), throwsCode("workspace_draft_subject_changed"));
+      assert.equal(converted, true);
+      assert.ok(retained);
+      assert.equal(forge.pulls.get(1)!.draft, true, "partial remote truth is retained");
+      assert.deepEqual(manager.status(record.workspaceId), ready, "no local readiness/report/lease claim follows a changed native subject");
+      assert.deepEqual({ head: rawGit(worktree, ["rev-parse", "HEAD"]), index: readFileSync(indexFilePath(worktree, "directory")) }, retained);
+    });
+  }
+}
+
+
+for (const field of ["workspaceId", "baseSha"] as const) {
+  test(`ready: a passing same-tree report with another ${field} cannot authorize readiness`, async () => {
+    const { root, manager, forge } = forgeFixture(`ws-ready-report-${field}`);
+    const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+    commitFile(record.lease.worktreePath, "src/a.ts", "export const a = 1;\n");
+    await manager.publish(record.workspaceId);
+    assert.equal((await manager.validate(record.workspaceId)).status, "pass");
+    const store = createWorkspaceRecordStore(workspaceRecordStores(registryOf(root)));
+    const current = store.load(record.workspaceId)!;
+    assert.ok(current.validationReport);
+    const report = { ...current.validationReport, [field]: field === "workspaceId" ? "other-writer-abcdef123456" : "0".repeat(40) };
+    const planted = store.save({ ...current, validationReport: report });
+    const marks = forge.calls.filter((call) => call.op === "markReadyForReview").length;
+    await assert.rejects(() => manager.ready(record.workspaceId), throwsCode("workspace_not_validated"));
+    assert.deepEqual(store.load(record.workspaceId), planted, "the refused report remains truthful evidence");
+    assert.equal(forge.pulls.get(1)!.draft, true);
+    assert.equal(forge.calls.filter((call) => call.op === "markReadyForReview").length, marks);
+  });
+}
+
+test("draft: expired authority refuses without ending the workspace or changing its PR", async () => {
+  const { root, config, manager, forge } = forgeFixture("ws-draft-expired-readonly");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/a.ts", "export const a = 1;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  const before = await manager.ready(record.workspaceId);
+  const index = readFileSync(indexFilePath(record.lease.worktreePath, "directory"));
+  const expired = makeManager(root, { config, now: () => new Date(Date.parse(before.lease.expiresAt) + 1) }).manager;
+  const conversions = forge.calls.filter((call) => call.op === "convertToDraft").length;
+  await assert.rejects(() => expired.draft(record.workspaceId), throwsCode("workspace_lease_expired"));
+  assert.deepEqual(manager.status(record.workspaceId), before);
+  assert.equal(existsSync(record.lease.worktreePath), true);
+  assert.deepEqual(readFileSync(indexFilePath(record.lease.worktreePath, "directory")), index);
+  assert.equal(forge.pulls.get(1)!.draft, false);
+  assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions);
+});
+
+test("draft: missing worktree identity refuses without quarantining or changing its PR", async () => {
+  const { manager, forge } = forgeFixture("ws-draft-intact-readonly");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/a.ts", "export const a = 1;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  const before = await manager.ready(record.workspaceId);
+  const indexPath = indexFilePath(record.lease.worktreePath, "directory");
+  const index = readFileSync(indexPath);
+  rmSync(join(record.lease.worktreePath, ".git"));
+  const conversions = forge.calls.filter((call) => call.op === "convertToDraft").length;
+  await assert.rejects(() => manager.draft(record.workspaceId), throwsCode("workspace_integrity_failed"));
+  assert.deepEqual(manager.status(record.workspaceId), before);
+  assert.deepEqual(readFileSync(indexPath), index);
+  assert.equal(forge.pulls.get(1)!.draft, false);
+  assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions);
+});
+
+test("draft: a hard-linked native index refuses before conversion and preserves both names", async () => {
+  const { root, manager, forge } = forgeFixture("ws-draft-index-second-name");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  const worktree = record.lease.worktreePath;
+  commitFile(worktree, "src/a.ts", "export const a = 1;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  const before = await manager.ready(record.workspaceId);
+  const indexPath = indexFilePath(worktree, "directory");
+  const bytes = readFileSync(indexPath);
+  const mode = lstatSync(indexPath).mode & 0o7777;
+  const head = rawGit(worktree, ["rev-parse", "HEAD"]);
+  const alias = join(root, "retained-index.alias");
+  const conversions = forge.calls.filter((call) => call.op === "convertToDraft").length;
+  linkSync(indexPath, alias);
+  try {
+    assert.ok(hasSecondName(lstatSync(indexPath).nlink), "the fixture really gives the index a second name");
+    await assert.rejects(() => manager.draft(record.workspaceId), throwsCode("workspace_custody_unsupported"));
+    assert.deepEqual(manager.status(record.workspaceId), before, "record and full qualification are untouched");
+    assert.equal(rawGit(worktree, ["rev-parse", "HEAD"]), head);
+    assert.deepEqual(readFileSync(indexPath), bytes);
+    assert.deepEqual(readFileSync(alias), bytes, "a refusal neither removes nor rewrites the other name");
+    assert.equal(lstatSync(indexPath).mode & 0o7777, mode);
+    assert.equal(lstatSync(alias).mode & 0o7777, mode);
+    assert.equal(forge.pulls.get(1)!.draft, false);
+    assert.equal(forge.calls.filter((call) => call.op === "convertToDraft").length, conversions);
+  } finally {
+    rmSync(alias);
+  }
+  const resumed = await manager.draft(record.workspaceId);
+  assert.equal(forgeStateOf(resumed).ready, false, "the ordinary single-name index remains usable");
+  assert.deepEqual(resumed.validationReport, before.validationReport);
+});
+
+test("draft CLI: the shared production dispatcher preserves explicit success over an earlier FAIL", async () => {
+  const { root, config, manager, forge } = forgeFixture("ws-draft-cli-dispatch");
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/a.ts", "export const ready = true;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  await manager.ready(record.workspaceId);
+  const failing = makeManager(root, { config, commands: {
+    async run(_cwd, name) { return failGate(name, "declared current CLI failure"); },
+  } }).manager;
+  assert.equal((await failing.validate(record.workspaceId)).status, "fail");
+  const before = failing.status(record.workspaceId);
+  const result = await dispatchWorkspaceCli(failing, "draft", [record.workspaceId]);
+  assert.equal(result.status, "pass");
+  assert.ok("action" in result.result);
+  assert.equal(result.result.action, "draft");
+  assert.equal(forgeStateOf(failing.status(record.workspaceId)).ready, false);
+  assert.deepEqual(failing.status(record.workspaceId).validationReport, before.validationReport);
+  assert.equal(forge.pulls.get(1)!.draft, true);
+  await assert.rejects(() => runWorkspaceCli(root, ["draft", record.workspaceId]), throwsCode("workspace_forge_remote_unknown"), "normal outer parsing reaches the existing forge route without contacting an API for this bare fixture");
+  for (const args of [[], [record.workspaceId, "extra"], ["--force"], [record.workspaceId, "--force"]]) {
+    await assert.rejects(() => runWorkspaceCli(root, ["draft", ...args]), throwsCode("input_error"));
+  }
 });

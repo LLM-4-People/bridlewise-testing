@@ -16,7 +16,7 @@
  *   check (everything setup and converge changed is a generated output — an
  *   untracked file that is not ignored counts), the `verify` commands, and the
  *   check that verifying wrote nothing. Every command runs through the ONE
- *   runner (`checkout-setup.ts`: its errored class retried, a failure never).
+ *   runner (`checkout-setup.ts`: every first native outcome is terminal).
  * - COMMIT ({@link commitCandidate}): ONE `git commit` in the candidate — the
  *   repository's hooks run (the commit guard certifies the exact tree; never
  *   `--no-verify`) — with the identity and date the caller fixes, so the same
@@ -60,7 +60,7 @@ import { WorktreeGitError, WorktreeGitTimeout, type CommitIdentity, type CommitO
 import { debugLog } from "../shared/debug/debug-system.ts";
 import { removeGateLogs, settleCheckout } from "./checkout-setup.ts";
 import {
-  NotConvergedError, applyCheckoutFiles, commandFailureClass, convergeBound, convergeUntilStable, convergenceReport, runDeclaredCommands,
+  NotConvergedError, applyCheckoutFiles, commandFailureClass, checkoutFailureSummary, convergeBound, convergeUntilStable, convergenceReport, runDeclaredCommands,
   type CheckoutCommand, type CheckoutStep, type ConvergenceReport, type RunCheckoutCommand,
 } from "./checkout-setup.ts";
 
@@ -132,7 +132,8 @@ export function landingGitFailure(error: unknown, phase: string): LandingError |
   else if (error.code === "tree_reader_git_failed") ending = error.safeDetails["ending"] === "exited" ? "exited" : "signal";
   else return null;
   const words = String(error.safeDetails["stderr"] ?? error.message);
-  return new LandingError(commandFailureClass(ending, words) === "errored" ? "git_errored" : "git_failed", `${error.message} (landing phase ${phase})`, { ...facts, tail: words });
+  const failure = checkoutFailureSummary({ failure: commandFailureClass(ending, words) });
+  return new LandingError(`git_${failure.class}`, `${error.message} (landing phase ${phase})`, { ...facts, tail: words, ...failure.facts });
 }
 
 /**
@@ -218,14 +219,10 @@ export type SettleReport = Readonly<{
   regenerated: readonly string[];
 }>;
 
-/** The failure kind of a failed phase step: errored (the machine's) or failed (the tree's). */
-function phaseFailure(phase: "setup" | "gate", failed: CheckoutStep): LandingFailure {
-  return failed.failure === "errored" ? `${phase}_errored` : `${phase}_failed`;
-}
-
 function phaseRefusal(request: SettleRequest, phase: "setup" | "converge" | "verify", failed: CheckoutStep): LandingError {
-  return new LandingError(phaseFailure(phase === "setup" ? "setup" : "gate", failed), `the ${phase} command ${failed.step} failed in ${request.root}: ${failed.message}`, {
-    phase, step: failed.step, message: failed.message, tail: failed.details.join("\n"), candidate: request.root,
+  const failure = checkoutFailureSummary(failed);
+  return new LandingError(`${phase === "setup" ? "setup" : "gate"}_${failure.class}`, `the ${phase} command ${failed.step} failed in ${request.root}: ${failed.message}`, {
+    phase, step: failed.step, message: failed.message, tail: failed.details.join("\n"), candidate: request.root, ...failure.facts,
   });
 }
 

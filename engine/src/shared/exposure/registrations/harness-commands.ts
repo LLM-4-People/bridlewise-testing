@@ -6,10 +6,7 @@
  * busy share below which it is not working, the stall window, the one wall
  * hang backstop, how often it is read, the stop's grace and its output), how the shared lock behaves when the test
  * command holds it, how long the evaluation runner's identity probe may
- * take, and how the ONE command runner retries a command that ERRORED (the
- * machine, not the change: `harness.commandErroredRetries` /
- * `commandRetryBackoffMs`; a failed command is never retried, so no
- * verdict depends on them either).
+ * take, and the shared command runner's read-only first-failure policy.
  *
  * THE DISPOSITION DOCTRINE (this class's census, tests/prevention/
  * exposure-reachable.test.ts): the rows span three config sections
@@ -32,11 +29,12 @@
 
 import {
   registerCustomization,
+  registerSignal,
   registerExposureModule,
 } from "../index.ts";
 import { readNumberCustomization, writeConfigCustomization } from "../config-binding.ts";
 import {
-  commandRetryPolicy,
+  CHECKOUT_COMMAND_FAILURE_POLICY,
   subprocessBounds,
   DEFAULT_LOCK_TIMEOUT_MS,
   DEFAULT_LOCK_POLL_INTERVAL_MS,
@@ -48,28 +46,6 @@ import { IDENTITY_ATTESTATION_TIMEOUT_MS } from "../../../evaluation/evaluation-
 const SUBPROCESS_DEFAULTS = subprocessBounds({});
 
 const ROWS = [
-  {
-    id: "commandErroredRetries",
-    configPath: "harness.commandErroredRetries",
-    name: "How often a command the machine interrupted is retried",
-    description:
-      "A command the harness runs for a checkout (a dependency install, a gate, a lockfile derivation — in a workspace, a candidate checkout or a promotion) that ERRORED — its time ran out, a signal ended it, or it reported a machine condition such as no space, a package-cache miss or a network reset — runs again this many times. A command that failed on its own is never retried. Lower = a busy or offline machine is reported sooner; higher = a transient condition is ridden out. Takes effect on the next run.",
-    default: commandRetryPolicy({}).retries,
-    min: 0,
-    max: 10,
-    unit: "retries",
-  },
-  {
-    id: "commandRetryBackoffMs",
-    configPath: "harness.commandRetryBackoffMs",
-    name: "How long to wait before retrying an interrupted command",
-    description:
-      "The wait before the first retry of an errored command; each later retry waits twice as long as the one before. Lower = a retry comes sooner; higher = a busy machine gets longer to recover. Takes effect on the next run.",
-    default: commandRetryPolicy({}).backoffMs,
-    min: 0,
-    max: 3_600_000,
-    unit: "milliseconds",
-  },
   {
     id: "subprocessCpuBudgetMs",
     configPath: "harness.subprocessBounds.cpuBudgetMs",
@@ -192,10 +168,19 @@ export function registerHarnessCommandsExposure(): void {
     id: "harnessCommands",
     title: "How the harness's own commands are bounded",
     purpose:
-      "How long the harness's own maintenance steps may run — how much work a step may do, how long it may make no progress, the longest it may run, the shared lock its test command holds, the evaluation runner's identity probe — and how a command the machine interrupted is retried.",
+      "How long the harness's own maintenance steps may run — how much work a step may do, how long it may make no progress, the longest it may run, the shared lock its test command holds, the evaluation runner's identity probe — and how the first command outcome is preserved.",
   });
 
-  // --- Customizations (13: the command doors' run bounds, the harness subprocess bounds and the command runner's errored-class retries) ---
+  registerSignal({
+    id: "harnessCommands.commandFailurePolicy",
+    module: "harnessCommands",
+    name: "How command failures are handled",
+    description: "The runner preserves the first attempt and reports whether the command failed, was interrupted or was cancelled. Fix the cause before a new run. Retired retry and backoff configuration fields are refused.",
+    type: "state",
+    value: () => CHECKOUT_COMMAND_FAILURE_POLICY,
+  });
+
+  // The command doors' run bounds, resolved by their existing owners.
   for (const spec of ROWS) {
     registerCustomization({
       id: `harnessCommands.${spec.id}`,

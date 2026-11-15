@@ -901,8 +901,6 @@
     }
   },
   "harness": {
-    "commandErroredRetries": 2,
-    "commandRetryBackoffMs": 60000,
     "subprocessBounds": {
       "cpuBudgetMs": 1800000,
       "stallMs": 1800000,

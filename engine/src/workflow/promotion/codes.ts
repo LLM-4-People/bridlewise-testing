@@ -11,8 +11,8 @@
  * - `input` — usage, a missing or invalid profile;
  * - `precondition` — fixable on the source or by an explicit flag (boundary
  *   refusals, target edits, the never-rule, the deletion budget);
- * - `errored` — the environment (a busy or offline machine; retries exhausted):
- *   nothing is blamed on the change;
+ * - `errored` — an interrupted command or infrastructure error: the first
+ *   native outcome is retained so its cause can be diagnosed;
  * - `failed` — a real defect in the source (a transform or a gate failed on the
  *   exact tree);
  * - `integrity` — a state that must not happen; stop and preserve evidence;
@@ -78,7 +78,7 @@ export const PROMOTION_CODES = deepFreeze({
   promotion_makefile_recipe_target_dropped: { class: "precondition", remedy: "A kept Makefile recipe runs make (`make`, `$(MAKE)`, `${MAKE}`) in this Makefile on a target the derived file does not keep, or on none: keep that target too, name the kept target it runs, or drop the rule." },
   promotion_makefile_unparseable: { class: "precondition", remedy: "Rewrite the source Makefile in the grammar the transform judges: blank lines, `#` comments, one `.PHONY:` line, single-target rules and tab-indented recipe lines (no variables, conditionals, includes, pattern rules or continued lines)." },
   promotion_transform_failed: { class: "failed", remedy: "The transform's command failed on the derived inputs: read the output tail and fix the manifest on the source." },
-  promotion_transform_errored: { class: "errored", remedy: "None: the machine was busy or offline (the retries are exhausted); run it again later." },
+  promotion_transform_errored: { class: "errored", remedy: "Inspect the first transform command's native outcome and output; correct the reported cause before a new run." },
   promotion_never_rule: { class: "precondition", remedy: "The source was merged with the target after a promotion: restore the source from its reflog (never force-push without the coordinator)." },
   promotion_target_edits: { class: "precondition", remedy: "The target was edited directly since the last promotion: land the written patch on the source, or (apply) accept the exact list with a reason." },
   promotion_deletion_budget: { class: "precondition", remedy: "The projection deletes more of the target than the profile's safety budget allows: review `plan --diff` (a boundary typo?) before an explicit, reasoned override." },
@@ -99,13 +99,13 @@ export const PROMOTION_CODES = deepFreeze({
   promotion_work_root_filesystem: { class: "input", remedy: "Set `workspaceIsolation.workspaceRoot` to a folder on the repository's filesystem (never a tmpfs): the candidate and the promoter home live there." },
   promotion_work_path_occupied: { class: "precondition", remedy: "A folder this run must create (the candidate or the promoter home: its path is named) exists and is not this repository's: remove it if nothing runs there, or give this checkout its own `workspaceIsolation.workspaceRoot`." },
   promotion_home_setup_failed: { class: "failed", remedy: "A setup command of the source's own engine failed in the promoter home (the folder is named): read its output tail and fix on the source; the next run re-runs it." },
-  promotion_home_setup_errored: { class: "errored", remedy: "None: a setup command of the promoter home was ended by the environment (a busy or offline machine; the retries are exhausted); run it again later — the next run re-runs it." },
+  promotion_home_setup_errored: { class: "errored", remedy: "Inspect the first promoter-home setup command's native outcome and output; correct the reported cause before a new run. The home is preserved." },
   promotion_promoter_failed: { class: "failed", remedy: "The source's own promoter, re-executed in the promoter home, ended without an answer (its exit code and last line are named): a defect in the source's engine; run the same verb from a checkout clean at the source to see it, and fix on the source." },
-  promotion_promoter_errored: { class: "errored", remedy: "None: the source's promoter in the promoter home was ended by the environment (its ceiling or a signal); run it again later (a rerun resumes from the refs)." },
+  promotion_promoter_errored: { class: "errored", remedy: "Inspect the promoter's native terminal outcome and output; correct the reported cause before a new run. The refs preserve its checkpoints." },
   promotion_setup_failed: { class: "failed", remedy: "A setup command failed on the projected tree: read its output tail and the kept candidate (its path is named), and fix on the source." },
-  promotion_setup_errored: { class: "errored", remedy: "None: a setup command was ended by the environment (a busy or offline machine; the retries are exhausted); run it again later." },
+  promotion_setup_errored: { class: "errored", remedy: "Inspect the first setup command's native outcome and output and any preserved candidate; correct the reported cause before a new run." },
   promotion_gate_failed: { class: "failed", remedy: "A converge or verify command failed on the exact tree: read its output tail and the kept candidate, and fix on the source." },
-  promotion_gate_errored: { class: "errored", remedy: "None: a converge or verify command was ended by the environment (a busy or offline machine; the retries are exhausted); run it again later." },
+  promotion_gate_errored: { class: "errored", remedy: "Inspect the first converge or verify command's native outcome and output and any preserved candidate; correct the reported cause before a new run." },
   promotion_not_converged: { class: "failed", remedy: "The converge commands do not reach a fixed point on the projected tree (the named files keep changing): fix the generator on the source." },
   promotion_undeclared_write: { class: "failed", remedy: "A command wrote a path no generator declares (or a gate changed the tree it judges): register the output with its generator, or stop the command writing it." },
   promotion_commit_refused: { class: "failed", remedy: "The repository's commit hook refused the certified tree (its words are named): the gates missed what it checks — fix on the source and add the check as a gate." },

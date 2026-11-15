@@ -7,6 +7,9 @@ import {
   customizationLanguageViolation,
   customizationUnitViolation,
   getSignal,
+  getCustomization,
+  readSignal,
+  setCustomizationValue,
   LANGUAGE_ENFORCED_MODULES,
   listCustomizations,
   listSignals,
@@ -551,14 +554,6 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
     "engine/src/workflow/workflow-config.ts subprocessBounds resolves harness.subprocessBounds.outputBytes from the pinned config document (configuredSubprocessBounds, once per command invocation; the commit guard reads its pinned document per commit), and every consumer hands it to the ONE bounded run (runCpuBounded, src/process/supervised-run.ts): runScriptSubprocess and runTypecheck (harness-commands.ts, each `harness sync`/`check` a fresh process), the commit guard's compile legs, and the instrument lock's admitted run (the kernel CPU limit it derives), so the honest timing is next-run; engine/test/workflow/harness-commands-cli-fixes.test.ts drives each bound through runScriptSubprocess and engine/test/workflow/harness-commands-timeouts.test.ts proves the configured value is the one resolved",
   ],
   [
-    "harnessCommands.commandErroredRetries",
-    "engine/src/workflow/workflow-config.ts commandRetryPolicy resolves harness.commandErroredRetries from the pinned config document once per command invocation, and configuredCheckoutCommandRunner (src/workflow/checkout-setup.ts) hands it to the ONE runner of every consumer — `harness workspace` (workspace-cli.ts), the candidate checkout and `harness promote` (context.ts lockfileRun), each a fresh process per run — so the honest timing is next-run; engine/test/workflow/working-copy.test.ts proves the runner retries an errored command exactly that many times and never a failed one, including a workspace phase's command, and engine/test/workflow/promotion/transforms.test.ts proves the lockfile derivation's attempts follow the policy",
-  ],
-  [
-    "harnessCommands.commandRetryBackoffMs",
-    "engine/src/workflow/workflow-config.ts commandRetryPolicy resolves harness.commandRetryBackoffMs from the pinned config document once per command invocation, and configuredCheckoutCommandRunner hands it to the ONE runner (runCheckoutCommand, src/workflow/checkout-setup.ts) as the first wait, doubled per retry, for every consumer (workspace, candidate checkout, promotion), so the honest timing is next-run; engine/test/workflow/working-copy.test.ts and engine/test/workflow/promotion/transforms.test.ts prove the doubling waits",
-  ],
-  [
     "release.train",
     "engine/src/workflow/promotion/release-cli.ts resolves the promotion.release section from the pinned config document once per command invocation (releaseVerb: resolveRepositoryContext reads the pinned snapshot; `harness release` is a fresh process on every land) and hands it to planRelease (release-train.ts), which reads the train mode (manual waits for --manual, approval sets the approval flag), so the honest timing is next-run; engine/test/workflow/promotion/release.test.ts drives the real release door with the section and proves the plan consumes it",
   ],
@@ -583,6 +578,37 @@ const VERIFIED_NON_IMMEDIATE: ReadonlyMap<string, string> = new Map([
     "engine/src/evaluation/cli.ts resolves the evaluation section from the pinned config document once per command invocation (:235, a fresh process per run) and hands identityAttestationTimeoutMs to createScenarioRunner, whose runner bounds the identity probe with it (scenario-runner.ts:91, consumed by attestIdentity at :230), so the honest timing is next-run; engine/test/evaluation/identity-attestation.test.ts proves the attestation probe consumes its timeout bound, and engine/test/config/config-sections.test.ts pins the section's schema bounds",
   ],
 ]);
+
+test("harness command policy: first failure is a read-only state, with no retry controls", () => {
+  resetAllRegistrations();
+  registerAllExposure();
+  try {
+    const policy = getSignal("harnessCommands.commandFailurePolicy");
+    assert.ok(policy !== undefined, "the shared command policy is visible as a signal");
+    assert.equal(policy.module, "harnessCommands");
+    assert.equal(policy.type, "state");
+    assert.equal(readSignal(policy.id), "first-failure-terminal");
+    assert.equal("set" in policy, false, "a policy reading has no setter");
+
+    for (const id of [
+      "harnessCommands.commandErroredRetries",
+      "harnessCommands.commandRetryBackoffMs",
+      policy.id,
+    ]) {
+      assert.equal(getCustomization(id), undefined, `${id} is not a writable control`);
+      assert.throws(
+        () => setCustomizationValue(id, 0),
+        /not registered/u,
+        `${id} cannot recreate automatic retries through the settings setter`,
+      );
+    }
+    const bounds = listCustomizations().filter((customization) => customization.module === policy.module);
+    assert.ok(bounds.length > 0, "the real command bounds remain served");
+    assert.ok(bounds.every((bound) => resolveContract(bound.contract).effect === "next-run"));
+  } finally {
+    resetAllRegistrations();
+  }
+});
 
 test("enrichment sweep: every served customization declares effect iff consumption was verified", () => {
   resetAllRegistrations();

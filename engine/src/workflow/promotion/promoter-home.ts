@@ -45,7 +45,7 @@ import { auditEvent } from "../../shared/debug/debug-system.ts";
 import { superviseCommand } from "../../process/supervised-run.ts";
 import { COMMAND_ENVIRONMENT, projectEnvironment } from "../../process/environment-projection.ts";
 import { generatedOutputPaths } from "../hash-binding-registry.ts";
-import { applyCheckoutFiles, checkoutCommandRunner, engineRelativePath, rerunChangedSetup, type CheckoutCommand, type CheckoutCommandRunner } from "../checkout-setup.ts";
+import { checkoutFailureSummary, applyCheckoutFiles, checkoutCommandRunner, engineRelativePath, rerunChangedSetup, type CheckoutCommand, type CheckoutCommandRunner } from "../checkout-setup.ts";
 import { landingGitFailure, runLandingPhase } from "../tree-landing.ts";
 import { worktreeOperationTimeouts } from "../workflow-config.ts";
 import { PromotionError, answerWith, type PromotionAnswer } from "./codes.ts";
@@ -173,7 +173,8 @@ async function prepareHome(context: PromotionContext, git: WorktreeGitPort, plac
   const steps = await rerunChangedSetup(context.isolation, changed, checkoutCommandRunner(home, runner), enginesOwn(placement.engineRelative));
   const failed = steps.find((step) => step.status === "fail");
   if (failed !== undefined) {
-    throw new PromotionError(failed.failure === "errored" ? "promotion_home_setup_errored" : "promotion_home_setup_failed", `the promoter home ${home} could not be prepared at ${context.source}: ${failed.message}`, { home, step: failed.step, tail: failed.details.join("\n") });
+    const failure = checkoutFailureSummary(failed);
+    throw new PromotionError(`promotion_home_setup_${failure.class}`, `the promoter home ${home} could not be prepared at ${context.source}: ${failed.message}`, { home, step: failed.step, tail: failed.details.join("\n"), ...failure.facts });
   }
   ensurePrivateStateDirectory(context.workDirectory);
   atomicWriteFile(preparedRecord(context), `${JSON.stringify({ home, source: context.source })}\n`, { requiredMode: PRIVATE_STATE_FILE_MODE });
@@ -257,7 +258,7 @@ async function homeRun(
     supervisor: runner.supervisor,
     command: process.execPath,
     args: [join(homeEngine, engine.entry), ...engine.command, ...formatPromoteArguments({ ...request, profile: profile.name, source: context.source })],
-    hardCeilingMs: applyCeilingMs(context, runner, generatedOutputPaths().size),
+    hardCeilingMs: applyCeilingMs(context, generatedOutputPaths().size),
     killGraceMs: runner.killGraceMs,
     cwd: context.top,
     env: promoterHomeEnvironment(process.env, homeEngine),

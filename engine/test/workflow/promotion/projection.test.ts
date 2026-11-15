@@ -444,7 +444,7 @@ test("L12: the plan's code is its most severe refusal's, whatever the order they
   // The lockfile errors (the machine's) BEFORE the target edit is judged (the source's to fix).
   fixture.commit(TARGET, { "README.md": "# edited on the target\n" }, "a direct edit");
   fixture.commit(SOURCE, { "package.json": json({ ...SOURCE_MANIFEST, dependencies: { zod: "^2.0.0" } }) });
-  const plan = await fixture.plan({ retries: 0 });
+  const plan = await fixture.plan();
   assert.deepEqual(codes(plan), ["promotion_transform_errored", "promotion_target_edits"], "found in this order");
   assert.equal(plan.code, "promotion_target_edits", "an errored transform (the machine's) never answers for a refusal the source must fix");
 });
