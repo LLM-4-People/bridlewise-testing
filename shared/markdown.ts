@@ -32,8 +32,9 @@
  *     (javascript:, data:, vbscript:, a protocol-relative //host, a
  *     tab/newline-obfuscated "java\tscript:") DEMOTES the link to its plain
  *     text — the text still renders, the href is dropped.
- *   - raw HTML in the source is NOT parsed. `<script>alert(1)</script>` is
- *     text, and renders as the literal characters.
+ *   - raw HTML in the source stays text. `<script>alert(1)</script>` renders
+ *     as literal characters; comment delimiters affect only block boundaries,
+ *     and the entire comment remains literal text.
  *
  * STREAMING: lenient by construction. An unmatched `**`, `*`, `~~`, `` ` ``
  * or an unclosed fence renders as literal text / a code block to the end, so
@@ -87,7 +88,12 @@ export type CellAlign = "left" | "center" | "right" | "none";
 
 export type MdBlock =
   | { readonly type: "code"; readonly lang: string; readonly code: string }
-  | { readonly type: "paragraph"; readonly children: readonly InlineNode[] }
+  | {
+      readonly type: "paragraph";
+      readonly children: readonly InlineNode[];
+      /** Grammar origin for consumers of known generated metadata; rendering remains literal by default. */
+      readonly syntax?: "html-comment";
+    }
   | {
       readonly type: "heading";
       readonly level: 1 | 2 | 3 | 4 | 5 | 6;
@@ -472,20 +478,30 @@ function indentWidth(line: string): number {
   return n;
 }
 
+/** The end of an HTML comment block, kept as opaque literal text; null when this line starts none. */
+function htmlCommentBlockEnd(lines: readonly string[], start: number, end: number): number | null {
+  if (!/^ {0,3}<!--/u.test(lines[start] ?? "")) return null;
+  for (let at = start; at < end; at += 1) {
+    if (lines[at]!.includes("-->")) return at + 1;
+  }
+  return end;
+}
+
 /** A reference definition line: `[label]: destination "optional title"` (up to three spaces of indent). */
 const DEFINITION_RE = /^ {0,3}\[([^\]]+)\]:[ \t]*(<[^>\n]*>|\S+)(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$/;
 
 /**
  * The document's reference definitions (label → destination, the first
  * definition of a label wins) and the lines that hold them: a definition
- * starts a block (after a blank line, a heading, a rule, another definition
- * or the start), never inside a fenced code block.
+ * starts a block (after a blank line, a heading, a rule, a comment block,
+ * another definition or the start), never inside a fence or comment block.
  */
 function collectDefinitions(lines: readonly string[]): Readonly<{ definitions: ReadonlyMap<string, string>; lines: ReadonlySet<number>; at: ReadonlyMap<number, string> }> {
   const definitions = new Map<string, string>();
   const held = new Set<number>();
   const at = new Map<number, string>();
   let fence: string | undefined;
+  let afterComment = -1;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]!;
     const marker = matchFenceLine(line);
@@ -497,8 +513,14 @@ function collectDefinitions(lines: readonly string[]): Readonly<{ definitions: R
       fence = marker.marker;
       continue;
     }
+    const commentEnd = htmlCommentBlockEnd(lines, i, lines.length);
+    if (commentEnd !== null) {
+      afterComment = commentEnd;
+      i = commentEnd - 1;
+      continue;
+    }
     const previous = i === 0 ? "" : lines[i - 1]!;
-    const startsBlock = previous.trim() === "" || held.has(i - 1) || HEADING_RE.test(previous) || HR_RE.test(previous);
+    const startsBlock = i === afterComment || previous.trim() === "" || held.has(i - 1) || HEADING_RE.test(previous) || HR_RE.test(previous);
     const match = startsBlock ? DEFINITION_RE.exec(line) : null;
     if (match === null) continue;
     const raw = match[2]!;
@@ -598,6 +620,14 @@ function scanBlocks(
       continue;
     }
 
+    // Comment delimiters affect block boundaries, never HTML rendering: every byte stays plain text.
+    const commentEnd = htmlCommentBlockEnd(lines, i, end);
+    if (commentEnd !== null) {
+      blocks.push({ type: "paragraph", syntax: "html-comment", children: [{ type: "text", text: lines.slice(i, commentEnd).join("\n") }] });
+      i = commentEnd;
+      continue;
+    }
+
     if (line.trim() === "") {
       i += 1;
       continue;
@@ -663,6 +693,7 @@ function scanBlocks(
       i < end &&
       lines[i]!.trim() !== "" &&
       matchFenceLine(lines[i]!) === null &&
+      htmlCommentBlockEnd(lines, i, end) === null &&
       !HR_RE.test(lines[i]!) &&
       !HEADING_RE.test(lines[i]!) &&
       !BLOCKQUOTE_RE.test(lines[i]!) &&

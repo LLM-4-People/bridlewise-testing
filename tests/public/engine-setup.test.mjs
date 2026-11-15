@@ -284,6 +284,23 @@ test("every job that sets the engine up calls the one action, and site-build-set
   assert.ok(stepsOf(action).some(({ step }) => String(step.run ?? "").split("\n").some(configChmod)), "the action sets the configuration's mode");
 });
 
+test("setup artifact discovery excludes program source beside workflows and local actions", (context) => {
+  const fixture = mkdtempSync(join(tmpdir(), "engine-setup-discovery-"));
+  context.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const files = {
+    ".github/workflows/real.yml": "jobs: {}\n",
+    ".github/workflows/program.ts": 'export const recipe = "npm --prefix engine ci";\n',
+    ".github/actions/real/action.yaml": "runs:\n  using: composite\n  steps: []\n",
+    ".github/actions/program/action.mjs": 'export const recipe = "chmod 600 engine/bridlewise.config.json";\n',
+  };
+  for (const [path, text] of Object.entries(files)) {
+    const file = join(fixture, path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, text);
+  }
+  assert.deepEqual(setupFiles(fixture), [".github/actions/real/action.yaml", ".github/workflows/real.yml"], "the actual discovery admits YAML artifacts and excludes program source");
+});
+
 test("the action's install takes ignore-scripts strictly true or false", (context) => {
   const install = stepsOf(parse(readFileSync(join(ROOT, ACTION), "utf8"))).find(({ step }) => /\bnpm\b/u.test(String(step.run ?? ""))).step;
   const bin = mkdtempSync(join(tmpdir(), "engine-setup-"));
@@ -358,10 +375,13 @@ test("a newly published guide cannot add a private engine setup recipe outside t
   };
   for (const path of LOCAL_SETUP_FILES) write(path, readFileSync(join(ROOT, path), "utf8"));
   write("docs/new-guide.md", "# New guide\n\n```bash\nnpm --prefix engine ci\n```\n");
+  const programGuides = ["docs/program-source.ts", "docs/program-source.mjs"];
+  for (const path of programGuides) write(path, 'export const recipe = "npm --prefix engine ci";\n');
   write("docs/unpublished.md", "---\npublished: false\n---\n\n```bash\nchmod 600 engine/bridlewise.config.json\n```\n");
   write("docs/findings/historical.md", "# Historical record\n\n```bash\nnpm --prefix engine ci\n```\n");
   const texts = localSetupTexts(fixture);
   assert.ok("docs/new-guide.md" in texts);
+  for (const path of programGuides) assert.equal(path in texts, false, `${path} is program source, not a published guide`);
   assert.equal("docs/unpublished.md" in texts, false);
   assert.equal("docs/findings/historical.md" in texts, false);
   assert.match(localSetupViolations(texts).join(), /docs\/new-guide\.md: installs the engine by hand/u);

@@ -24,6 +24,8 @@
  * except a leading `{{ site.repository_url }}` the page itself wrote.
  */
 import { parseProse, type InlineNode, type MdBlock } from "../../../shared/markdown.ts";
+import { REPOSITORY_IDENTITY_BLOCKS } from "./forge/repository-identity-protocol.ts";
+import type { GeneratedBlockMarkers } from "../kernel/verification-paths.ts";
 import { escapeSiteHtml, escapeSiteText } from "../../../shared/markup.ts";
 import { safePercentDecode } from "../privacy/data-policy.ts";
 import { rewriteRelativeLinks } from "./markdown-links.ts";
@@ -95,14 +97,51 @@ function marked(markdown: string, fromDirectory: string): string {
   return rewriteRelativeLinks(markdown, fromDirectory, (path, fragment) => `${RELATIVE_MARK}${encodeURIComponent(`${path}\n${fragment}`)}`);
 }
 
+function boundaryText(block: MdBlock): string | undefined {
+  if (block.type !== "paragraph" || block.syntax !== "html-comment" || block.children.length !== 1) return undefined;
+  const child = block.children[0];
+  return child?.type === "text" ? child.text : undefined;
+}
+
+/**
+ * The parsed prose with complete known boundary pairs omitted. Every node
+ * BETWEEN a pair is kept: metadata cannot hide a payload. Only root-level
+ * whole-comment paragraphs with parser provenance match, so code, quotes,
+ * inline and escaped examples survive.
+ * An unmatched boundary remains visible, as does every ordinary comment.
+ */
+function withoutGeneratedBoundaries(
+  blocks: readonly MdBlock[],
+  descriptors: readonly GeneratedBlockMarkers[],
+): readonly MdBlock[] {
+  const omitted = new Set<number>();
+  for (const descriptor of descriptors) {
+    const starts: number[] = [];
+    for (let index = 0; index < blocks.length; index += 1) {
+      const text = boundaryText(blocks[index]!);
+      if (text === descriptor.begin) starts.push(index);
+      else if (text === descriptor.end && starts.length > 0) {
+        omitted.add(starts.pop()!);
+        omitted.add(index);
+      }
+    }
+  }
+  return blocks.filter((_block, index) => !omitted.has(index));
+}
+
+/** The one parsed record view, with producer metadata boundaries kept out of prose. */
+function prose(markdown: string, fromDirectory: string): readonly MdBlock[] {
+  return withoutGeneratedBoundaries(parseProse(marked(markdown, fromDirectory)), Object.values(REPOSITORY_IDENTITY_BLOCKS));
+}
+
 /** A record's prose (written in `fromDirectory`) as site-page Markdown: every block, headings at least `headingFloor` deep. */
 export function siteProse(markdown: string, fromDirectory: string, href: ProseHref, headingFloor: number): string {
-  return blocks(parseProse(marked(markdown, fromDirectory)), href, headingFloor).join("\n\n");
+  return blocks(prose(markdown, fromDirectory), href, headingFloor).join("\n\n");
 }
 
 /** A record's FIRST paragraph (or first block's text) as one line of site-page Markdown: a table cell, a list row's head. */
 export function siteProseLine(markdown: string, fromDirectory: string, href: ProseHref): string {
-  const first = parseProse(marked(markdown, fromDirectory))[0];
+  const first = prose(markdown, fromDirectory)[0];
   if (first === undefined) return "";
   if (first.type === "paragraph" || first.type === "heading") return inline(first.children, href);
   if (first.type === "list") return first.items.map((item) => inline(item.children, href)).join(" · ");

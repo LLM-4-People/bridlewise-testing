@@ -12,6 +12,7 @@
  * regenerated from it.
  */
 
+import { REPOSITORY_IDENTITY_BLOCKS } from "./repository-identity-protocol.ts";
 import { workingTreeReader } from "../../git/tree-reader.ts";
 import { deepFreeze } from "../../kernel/integrity.ts";
 import { ForgeError } from "./codes.ts";
@@ -175,14 +176,6 @@ function proseOf(text: string): string {
   }
   return prose;
 }
-const LINKS_BEGIN = "<!-- BEGIN GENERATED: repository links, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
-const LINKS_END = "<!-- END GENERATED: repository links -->";
-const CLONE_BEGIN = "<!-- BEGIN GENERATED: clone command, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
-const CLONE_END = "<!-- END GENERATED: clone command -->";
-const VARIABLE_BEGIN = "<!-- BEGIN GENERATED: repository variable, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
-const VARIABLE_END = "<!-- END GENERATED: repository variable -->";
-const HEADING_BEGIN = "<!-- BEGIN GENERATED: repository name heading, from the repository identity (harness sync; engine/src/workflow/forge/repository-identity.ts) -->";
-const HEADING_END = "<!-- END GENERATED: repository name heading -->";
 
 /** `text` with every block between `begin` and `end` holding `content` (a block without its end marker is refused). */
 function withBlockContent(text: string, begin: string, end: string, content: string, field: string): string {
@@ -222,20 +215,20 @@ function identityLinkTarget(label: string, identity: RepositoryIdentity): string
  */
 export function withIdentityLinks(text: string, identity: RepositoryIdentity): string {
   let body = text;
-  const begin = body.indexOf(LINKS_BEGIN);
+  const begin = body.indexOf(REPOSITORY_IDENTITY_BLOCKS.links.begin);
   if (begin !== -1) {
-    const end = body.indexOf(LINKS_END, begin);
+    const end = body.indexOf(REPOSITORY_IDENTITY_BLOCKS.links.end, begin);
     if (end === -1) throw new ForgeError("forge_identity_copy_invalid", "A repository-links block has no end marker.", { field: "repository links" });
-    body = `${body.slice(0, begin).replace(/\n+$/u, "\n")}${body.slice(end + LINKS_END.length).replace(/^\n+/u, "")}`;
+    body = `${body.slice(0, begin).replace(/\n+$/u, "\n")}${body.slice(end + REPOSITORY_IDENTITY_BLOCKS.links.end.length).replace(/^\n+/u, "")}`;
   }
-  body = withBlockContent(body, CLONE_BEGIN, CLONE_END, ["```bash", `git clone ${identity.gitUrl}`, `cd ${identity.name}`, "```"].join("\n"), "clone command");
-  body = withBlockContent(body, HEADING_BEGIN, HEADING_END, `# ${identity.name}`, "repository name heading");
+  body = withBlockContent(body, REPOSITORY_IDENTITY_BLOCKS.clone.begin, REPOSITORY_IDENTITY_BLOCKS.clone.end, ["```bash", `git clone ${identity.gitUrl}`, `cd ${identity.name}`, "```"].join("\n"), "clone command");
+  body = withBlockContent(body, REPOSITORY_IDENTITY_BLOCKS.heading.begin, REPOSITORY_IDENTITY_BLOCKS.heading.end, `# ${identity.name}`, "repository name heading");
   // Commands in code (where no reference label reaches) name the repository through this variable: `--repo "$REPO"`.
-  body = withBlockContent(body, VARIABLE_BEGIN, VARIABLE_END, ["```bash", `REPO=${identity.fullName}`, "```"].join("\n"), "repository variable");
+  body = withBlockContent(body, REPOSITORY_IDENTITY_BLOCKS.variable.begin, REPOSITORY_IDENTITY_BLOCKS.variable.end, ["```bash", `REPO=${identity.fullName}`, "```"].join("\n"), "repository variable");
   const labels = [...new Set([...proseOf(body).matchAll(IDENTITY_LABEL)].map((match) => match[1]!))].sort();
   if (labels.length === 0) return body;
   const definitions = labels.map((label) => `[${label}]: ${identityLinkTarget(label, identity)}`);
-  return `${body.replace(/\n*$/u, "\n")}\n${LINKS_BEGIN}\n${definitions.join("\n")}\n${LINKS_END}\n`;
+  return `${body.replace(/\n*$/u, "\n")}\n${REPOSITORY_IDENTITY_BLOCKS.links.begin}\n${definitions.join("\n")}\n${REPOSITORY_IDENTITY_BLOCKS.links.end}\n`;
 }
 
 /**
