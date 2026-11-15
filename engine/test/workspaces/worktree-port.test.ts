@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
@@ -9,6 +9,8 @@ import { deepFreeze } from "../../src/kernel/integrity.ts";
 import { ROOT_POLICY } from "../../src/kernel/root-policy.ts";
 import { isPathWithinWriteSet } from "../../src/workflow/workspace-contracts.ts";
 import { createTempDir } from "../support/temp-dir.ts";
+import { createRepoWithCommit, IDENTITY, makeGitContext, TEST_CONFIG, withGitAdapter } from "../support/git-fixtures.ts";
+import { pinnedPathIdentity } from "../../src/filesystem/pinned-path-internal.ts";
 import {
   assertAgentBranchName,
   assertGitSha,
@@ -104,6 +106,71 @@ test("worktreeAdd constructs the pinned argument vector", () => {
   ]);
   assert.equal(captured[0]!.cwd, "/repo");
   assert.equal(captured[0]!.timeoutMs, 1234);
+});
+
+test("checkout identity preserves common config no-ops and native refusal semantics", () => {
+  withGitAdapter((git, runtime, root) => {
+    const port = createWorktreeGitPort({ runtime });
+    const exec = createPinnedWorktreeGitExec(runtime);
+    const timeoutMs = TEST_CONFIG.timeouts.inspectMs;
+    const config = (cwd: string, args: readonly string[]): string => {
+      const result = exec({ args: ["-c", "gc.auto=0", "-C", cwd, "config", ...args], cwd, timeoutMs, allowedExitCodes: [0] });
+      assert.equal(result.status, 0, "the owned native config fixture must succeed");
+      return result.stdout;
+    };
+    const identity = { name: "Target Fixture Contributor", email: "target-fixture@example.invalid" };
+    const markerKey = "fixture.agentCheckout";
+    const variants: readonly Readonly<{ name: string; value?: string; bare?: boolean; shadow?: boolean; duplicate?: boolean; refusal?: number }>[] = [
+      { name: "true", value: "true" }, { name: "on", value: "on" }, { name: "one", value: "1" },
+      { name: "YES", value: "YES" }, { name: "bare", bare: true },
+      { name: "source-worktree-shadow", value: "true", shadow: true },
+      { name: "false", value: "false" }, { name: "absent" },
+      { name: "invalid", value: "not-a-boolean", refusal: 128 },
+      { name: "duplicate", value: "true", duplicate: true, refusal: 5 },
+    ];
+    for (const variant of variants) {
+      const repoRoot = createRepoWithCommit(git, root, variant.name);
+      config(repoRoot, ["--local", "user.name", IDENTITY.name]);
+      config(repoRoot, ["--local", "user.email", IDENTITY.email]);
+      const worktreePath = join(root, `${variant.name}-target`);
+      port.worktreeAddDetached({ repoRoot, worktreePath, commitSha: port.revParse(repoRoot, "HEAD", timeoutMs), timeoutMs });
+      const commonConfig = join(port.commonDir(repoRoot, timeoutMs), "config");
+      const sourceUser = [config(repoRoot, ["--local", "--get", "user.name"]), config(repoRoot, ["--local", "--get", "user.email"])];
+      if (variant.value !== undefined) config(repoRoot, ["--local", "extensions.worktreeConfig", variant.value]);
+      if (variant.bare) writeFileSync(commonConfig, "\n[extensions]\n\tworktreeConfig\n", { flag: "a" });
+      if (variant.duplicate) config(repoRoot, ["--local", "--add", "extensions.worktreeConfig", "true"]);
+      if (variant.shadow) config(repoRoot, ["--worktree", "extensions.worktreeConfig", "false"]);
+      const beforeBytes = readFileSync(commonConfig);
+      const beforeIdentity = pinnedPathIdentity(lstatSync(commonConfig, { bigint: true }));
+      const declare = (): void => port.agentCheckoutIdentity({ repoRoot, worktreePath, identity, markerKey, timeoutMs });
+      if (variant.refusal !== undefined) {
+        assert.throws(declare, (error: unknown) => error instanceof WorktreeGitError && error.code === "worktree_git_failed" && error.safeDetails["exitCode"] === variant.refusal);
+        assert.deepEqual(readFileSync(commonConfig), beforeBytes, `${variant.name}: refusal changed common bytes`);
+        assert.deepEqual(pinnedPathIdentity(lstatSync(commonConfig, { bigint: true })), beforeIdentity, `${variant.name}: refusal changed common identity`);
+        continue;
+      }
+      declare();
+      if (variant.name === "false" || variant.name === "absent") {
+        assert.equal(config(repoRoot, ["--local", "--type=bool", "--get", "extensions.worktreeConfig"]).trim(), "true");
+      } else {
+        assert.deepEqual(readFileSync(commonConfig), beforeBytes, `${variant.name}: true common boolean must preserve its raw bytes`);
+        assert.deepEqual(pinnedPathIdentity(lstatSync(commonConfig, { bigint: true })), beforeIdentity, `${variant.name}: true common boolean must preserve physical identity`);
+      }
+      const enabledBytes = readFileSync(commonConfig);
+      const enabledIdentity = pinnedPathIdentity(lstatSync(commonConfig, { bigint: true }));
+      declare();
+      assert.deepEqual(readFileSync(commonConfig), enabledBytes, `${variant.name}: repeated declaration changed common bytes`);
+      assert.deepEqual(pinnedPathIdentity(lstatSync(commonConfig, { bigint: true })), enabledIdentity, `${variant.name}: repeated declaration rewrote common config`);
+      assert.deepEqual([config(repoRoot, ["--local", "--get", "user.name"]), config(repoRoot, ["--local", "--get", "user.email"])], sourceUser);
+      assert.equal(config(worktreePath, ["--worktree", "--get", "user.name"]).trim(), identity.name);
+      assert.equal(config(worktreePath, ["--worktree", "--get", "user.email"]).trim(), identity.email);
+      assert.equal(config(worktreePath, ["--worktree", "--type=bool", "--get", markerKey]).trim(), "true");
+      if (variant.shadow) {
+        assert.equal(config(repoRoot, ["--type=bool", "--get", "extensions.worktreeConfig"]).trim(), "false");
+        assert.equal(config(repoRoot, ["--local", "--type=bool", "--get", "extensions.worktreeConfig"]).trim(), "true");
+      }
+    }
+  });
 });
 
 test("worktreeAdd refuses branches outside the agent namespace", () => {
@@ -477,7 +544,7 @@ test("the harness's own refs: created only when absent and deleted only at their
   assert.match(port.createRef("/repo", "refs/bridlewise/promotion/p/pending", SHA_A, 5).refusal ?? "", /already exists/u);
   assert.deepEqual(port.deleteRef("/repo", "refs/bridlewise/promotion/p/pending", SHA_A, 5), { refusal: null });
   assert.deepEqual(captured[0]!.args.slice(4), ["update-ref", "refs/bridlewise/promotion/p/pending", SHA_A, ""], "git's empty old value: create only");
-  assert.deepEqual(captured[2]!.args.slice(4), ["update-ref", "-d", "refs/bridlewise/promotion/p/pending", SHA_A]);
+  assert.deepEqual(captured[2]!.args.slice(4), ["update-ref", "--no-deref", "-d", "refs/bridlewise/promotion/p/pending", SHA_A]);
   for (const ref of ["refs/heads/master", "refs/tags/v1", "refs/remotes/origin/master", "HEAD", "refs/x", "-d", "refs/bridlewise/../heads/x"]) {
     assert.throws(() => port.createRef("/repo", ref, SHA_A, 5), InputError, ref);
     assert.throws(() => port.deleteRef("/repo", ref, SHA_A, 5), InputError, ref);
@@ -584,4 +651,238 @@ test("status: `--porcelain=v2 -z` read whole — a path with a space, a quote or
     { path: "conflicted.ts", staged: true, unstaged: true, untracked: false },
     { path: "new dir/untracked file.ts", staged: false, unstaged: false, untracked: true },
   ]);
+});
+
+// These surfaces share only the expected-tip native deletion primitive;
+// their public namespace guards remain separate.
+function retirementRefSurfaces(port: ReturnType<typeof createWorktreeGitPort>) {
+  const branch = "agent/worker/retirement";
+  const recoveryPrefix = "refs/bridlewise/retirement/";
+  const recovery = recoveryPrefix + "pending";
+  return [
+    {
+      name: "branch",
+      ref: "refs/heads/" + branch,
+      create: (repo: string, tip: string, timeoutMs: number) => port.updateRef(repo, "refs/heads/" + branch, tip, "0".repeat(tip.length), timeoutMs),
+      read: (repo: string, timeoutMs: number) => port.branchTip(repo, branch, timeoutMs),
+      remove: (repo: string, tip: string, timeoutMs: number) => port.deleteBranchAt(repo, branch, tip, timeoutMs),
+    },
+    {
+      name: "recovery",
+      ref: recovery,
+      create: (repo: string, tip: string, timeoutMs: number) => port.createRef(repo, recovery, tip, timeoutMs),
+      read: (repo: string, timeoutMs: number) => port.refsUnder(repo, recoveryPrefix, timeoutMs).get(recovery) ?? null,
+      remove: (repo: string, tip: string, timeoutMs: number) => port.deleteRef(repo, recovery, tip, timeoutMs),
+    },
+  ] as const;
+}
+
+test("expected-tip deletion uses one non-dereferencing request while branch namespace remains configurable", () => {
+  const captured: WorktreeGitExecRequest[] = [];
+  const port = createWorktreeGitPort({ exec: makeExec(() => ok(), captured) });
+  assert.deepEqual(port.deleteBranchAt("/repo", "agent/worker/retired", SHA_A, 5), { refusal: null });
+  const custom = createWorktreeGitPort({ branchNamespace: "owned/", exec: makeExec(() => ok(), captured) });
+  const sha256Tip = "d".repeat(64);
+  assert.deepEqual(custom.deleteBranchAt("/repo", "owned/team/retired", sha256Tip, 9), { refusal: null });
+  assert.deepEqual(port.deleteRef("/repo", "refs/bridlewise/retirement/pending", SHA_A, 7), { refusal: null });
+  assert.deepEqual(captured.map((request) => request.args), [
+    ["-c", "gc.auto=0", "-C", "/repo", "update-ref", "--no-deref", "-d", "refs/heads/agent/worker/retired", SHA_A],
+    ["-c", "gc.auto=0", "-C", "/repo", "update-ref", "--no-deref", "-d", "refs/heads/owned/team/retired", sha256Tip],
+    ["-c", "gc.auto=0", "-C", "/repo", "update-ref", "--no-deref", "-d", "refs/bridlewise/retirement/pending", SHA_A],
+  ]);
+  assert.deepEqual(captured.map((request) => request.cwd), ["/repo", "/repo", "/repo"]);
+  assert.deepEqual(captured.map((request) => request.timeoutMs), [5, 9, 7]);
+  assert.ok(captured.every((request) => request.allowedExitCodes.join(",") === "0,1,128"));
+  assert.ok(captured.every((request) => !request.args.includes("-D") && request.network !== true));
+});
+
+test("expected-tip deletion keeps both public authority guards before any Git call", () => {
+  let calls = 0;
+  const exec = makeExec(() => { calls += 1; return ok(); });
+  const port = createWorktreeGitPort({ exec });
+  const invalid = [
+    { root: "relative", branch: "agent/worker/retired", tip: SHA_A, code: "worktree_path_invalid" },
+    { root: "/repo", branch: "main", tip: SHA_A, code: "worktree_branch_namespace_denied" },
+    { root: "/repo", branch: "agent/", tip: SHA_A, code: "worktree_branch_namespace_denied" },
+    { root: "/repo", branch: "agent//retired", tip: SHA_A, code: "worktree_branch_invalid" },
+    { root: "/repo", branch: "agent/worker/retired", tip: "HEAD", code: "worktree_git_sha_invalid" },
+    { root: "/repo", branch: "agent/worker/retired", tip: "g".repeat(40), code: "worktree_git_sha_invalid" },
+  ] as const;
+  for (const input of invalid) {
+    assert.throws(() => port.deleteBranchAt(input.root, input.branch, input.tip, 5),
+      (error: unknown) => error instanceof InputError && error.code === input.code);
+  }
+  const custom = createWorktreeGitPort({ branchNamespace: "owned/", exec });
+  assert.throws(() => custom.deleteBranchAt("/repo", "agent/worker/retired", SHA_A, 5),
+    (error: unknown) => error instanceof InputError && error.code === "worktree_branch_namespace_denied");
+  assert.throws(() => port.deleteRef("/repo", "refs/heads/main", SHA_A, 5),
+    (error: unknown) => error instanceof InputError && error.code === "worktree_argument_invalid");
+  assert.throws(() => port.deleteRef("relative", "refs/bridlewise/retirement/pending", SHA_A, 5),
+    (error: unknown) => error instanceof InputError && error.code === "worktree_path_invalid");
+  assert.throws(() => port.deleteRef("/repo", "refs/bridlewise/retirement/pending", "HEAD", 5),
+    (error: unknown) => error instanceof InputError && error.code === "worktree_git_sha_invalid");
+  assert.equal(calls, 0, "no rejected input reaches native Git");
+});
+
+test("both expected-tip deletion surfaces return sanitized native refusals without a force retry", () => {
+  for (const status of [1, 128]) {
+    for (const surfaceName of ["branch", "recovery"] as const) {
+      const captured: WorktreeGitExecRequest[] = [];
+      const port = createWorktreeGitPort({
+        exec: makeExec(() => deepFreeze({
+          status, signal: null, timedOut: false, stdout: "",
+          stderr: "fatal: cannot lock ref; see https://fixture-user:fixture-password@example.invalid/repo",
+        }), captured),
+      });
+      const surface = retirementRefSurfaces(port).find((candidate) => candidate.name === surfaceName)!;
+      const refusal = surface.remove("/repo", SHA_A, 5).refusal;
+      assert.ok(refusal !== null);
+      assert.match(refusal, /cannot lock ref/u, "the native refusal remains visible");
+      assert.doesNotMatch(refusal, /fixture-user|fixture-password/u, "the existing credential redaction policy is retained");
+      assert.equal(captured.length, 1, "a refusal never triggers a fallback deletion");
+      assert.deepEqual(captured[0]!.args, [
+        "-c", "gc.auto=0", "-C", "/repo", "update-ref", "--no-deref", "-d", surface.ref, SHA_A,
+      ]);
+    }
+  }
+});
+
+test("both expected-tip deletion surfaces preserve a ref moved after judgment and delete only its exact current tip", () => {
+  withGitAdapter((git, runtime, root) => {
+    const repo = createRepoWithCommit(git, root, "ref-cas");
+    const native = createPinnedWorktreeGitExec(runtime);
+    const captured: WorktreeGitExecRequest[] = [];
+    const port = createWorktreeGitPort({ exec: makeExec(native, captured) });
+    const timeoutMs = TEST_CONFIG.timeouts.inspectMs;
+    const surfaces = retirementRefSurfaces(port);
+    const headA = port.revParse(repo, "HEAD", timeoutMs);
+    for (const surface of surfaces) assert.deepEqual(surface.create(repo, headA, timeoutMs), { refusal: null });
+    git.commit({ path: repo, message: "Preserved native progress", identity: IDENTITY, allowEmpty: true, stageAll: false },
+      makeGitContext(repo, "commit", timeoutMs));
+    const headB = port.revParse(repo, "HEAD", timeoutMs);
+    assert.notEqual(headB, headA, "the races use two actual native commits");
+    for (const surface of surfaces) {
+      // Fixture setup needs both ref families; public updateRef intentionally permits only heads.
+      const advanced = native({
+        args: ["-c", "gc.auto=0", "-C", repo, "update-ref", surface.ref, headB, headA],
+        cwd: repo, timeoutMs, allowedExitCodes: [0],
+      });
+      assert.equal(advanced.status, 0, "the fixture advances exactly the expected ref from A to B");
+    }
+    const stageAtB = port.lsFilesStage(repo, timeoutMs);
+    const readme = join(repo, "README.md");
+    writeFileSync(readme, "unfinished staged owner work\n");
+    const staged = native({
+      args: ["-c", "gc.auto=0", "-C", repo, "add", "--", "README.md"],
+      cwd: repo, timeoutMs, allowedExitCodes: [0],
+    });
+    assert.equal(staged.status, 0);
+    const before = { head: headB, stage: port.lsFilesStage(repo, timeoutMs), bytes: readFileSync(readme) };
+    assert.notEqual(before.stage, stageAtB, "a unique staged owner blob really exists");
+    for (const surface of surfaces) {
+      const refusal = surface.remove(repo, headA, timeoutMs).refusal;
+      assert.ok(refusal !== null);
+      assert.ok(refusal.includes(headA) && refusal.includes(headB), "Git names the expected and intervening native tips");
+      assert.equal(surface.read(repo, timeoutMs), headB, "the intervening ref remains reachable");
+      assert.deepEqual(surface.remove(repo, headB, timeoutMs), { refusal: null });
+      assert.equal(surface.read(repo, timeoutMs), null, "only the expected owned ref is deleted");
+      assert.equal(port.revParse(repo, "HEAD", timeoutMs), before.head);
+      assert.equal(port.lsFilesStage(repo, timeoutMs), before.stage, "staged owner blobs and paths are retained");
+      assert.deepEqual(readFileSync(readme), before.bytes, "working bytes are retained");
+    }
+    const deletes = captured.filter((request) => request.args.includes("update-ref") && request.args.includes("-d"));
+    assert.equal(deletes.length, 4);
+    assert.ok(deletes.every((request) => request.args.includes("--no-deref") && !request.args.includes("-D")));
+  });
+});
+
+test("both expected-tip deletion surfaces preserve the actual native missing-ref verdict", () => {
+  withGitAdapter((git, runtime, root) => {
+    const repo = createRepoWithCommit(git, root, "ref-missing");
+    const native = createPinnedWorktreeGitExec(runtime);
+    const port = createWorktreeGitPort({ runtime });
+    const timeoutMs = TEST_CONFIG.timeouts.inspectMs;
+    const head = port.revParse(repo, "HEAD", timeoutMs);
+    const before = { head, stage: port.lsFilesStage(repo, timeoutMs), bytes: readFileSync(join(repo, "README.md")) };
+    for (const surface of retirementRefSurfaces(port)) {
+      assert.equal(surface.read(repo, timeoutMs), null);
+      const oracle = native({
+        args: ["-c", "gc.auto=0", "-C", repo, "update-ref", "--no-deref", "-d", surface.ref, head],
+        cwd: repo, timeoutMs, allowedExitCodes: [0, 1, 128],
+      });
+      assert.ok(oracle.status === 0 || oracle.status === 1 || oracle.status === 128);
+      assert.deepEqual(surface.remove(repo, head, timeoutMs), {
+        refusal: oracle.status === 0 ? null : (oracle.stderr + oracle.stdout).trim(),
+      }, "the local ref and object-id oracle determines the exact verdict, not an invented missing-ref rule");
+      assert.equal(surface.read(repo, timeoutMs), null);
+      assert.equal(port.revParse(repo, "HEAD", timeoutMs), before.head);
+      assert.equal(port.lsFilesStage(repo, timeoutMs), before.stage);
+      assert.deepEqual(readFileSync(join(repo, "README.md")), before.bytes);
+    }
+  });
+});
+
+test("both expected-tip deletion surfaces address symbolic aliases without deleting protected main", () => {
+  withGitAdapter((git, runtime, root) => {
+    const repo = createRepoWithCommit(git, root, "ref-symbolic");
+    const native = createPinnedWorktreeGitExec(runtime);
+    const port = createWorktreeGitPort({ runtime });
+    const timeoutMs = TEST_CONFIG.timeouts.inspectMs;
+    const main = "refs/heads/" + TEST_CONFIG.defaultBranch;
+    const mainOid = port.revParse(repo, main, timeoutMs);
+    const readme = join(repo, "README.md");
+    writeFileSync(readme, "staged work behind protected main\n");
+    const staged = native({
+      args: ["-c", "gc.auto=0", "-C", repo, "add", "--", "README.md"],
+      cwd: repo, timeoutMs, allowedExitCodes: [0],
+    });
+    assert.equal(staged.status, 0);
+    const before = { head: mainOid, stage: port.lsFilesStage(repo, timeoutMs), bytes: readFileSync(readme) };
+    for (const surface of retirementRefSurfaces(port)) {
+      const oracleAlias = surface.ref + "-oracle";
+      for (const ref of [surface.ref, oracleAlias]) {
+        const created = native({
+          args: ["-c", "gc.auto=0", "-C", repo, "symbolic-ref", ref, main],
+          cwd: repo, timeoutMs, allowedExitCodes: [0],
+        });
+        assert.equal(created.status, 0);
+      }
+      const oracle = native({
+        args: ["-c", "gc.auto=0", "-C", repo, "update-ref", "--no-deref", "-d", oracleAlias, mainOid],
+        cwd: repo, timeoutMs, allowedExitCodes: [0, 1, 128],
+      });
+      assert.ok(oracle.status === 0 || oracle.status === 1 || oracle.status === 128);
+      const oracleSymbolic = native({
+        args: ["-c", "gc.auto=0", "-C", repo, "symbolic-ref", "-q", oracleAlias],
+        cwd: repo, timeoutMs, allowedExitCodes: [0, 1],
+      });
+      const oracleNamed = native({
+        args: ["-c", "gc.auto=0", "-C", repo, "rev-parse", "-q", "--verify", oracleAlias],
+        cwd: repo, timeoutMs, allowedExitCodes: [0, 1, 128],
+      });
+      assert.ok(oracleNamed.status === 0 || oracleNamed.status === 1 || oracleNamed.status === 128);
+      const oracleNamedTip = oracleNamed.status === 0 ? oracleNamed.stdout.trim() : null;
+      const actual = surface.remove(repo, mainOid, timeoutMs);
+      const protectedMain = native({
+        args: ["-c", "gc.auto=0", "-C", repo, "rev-parse", "-q", "--verify", main + "^{commit}"],
+        cwd: repo, timeoutMs, allowedExitCodes: [0, 1, 128],
+      });
+      assert.equal(protectedMain.status, 0, "the protected target ref must remain present");
+      assert.equal(protectedMain.stdout.trim(), mainOid, "the protected target never moves");
+      const actualNamedTip = surface.read(repo, timeoutMs);
+      assert.equal(actualNamedTip, oracleNamedTip, "the named ref matches the actual native deletion oracle");
+      if (oracle.status === 0) assert.equal(actualNamedTip, null, "successful deletion removes the named ref, including a direct-ref replacement");
+      assert.equal(actual.refusal === null, oracle.status === 0, "alias deletion or refusal follows the real non-dereferencing oracle");
+      if (oracle.status !== 0) assert.ok(actual.refusal !== null && actual.refusal.length > 0);
+      const actualSymbolic = native({
+        args: ["-c", "gc.auto=0", "-C", repo, "symbolic-ref", "-q", surface.ref],
+        cwd: repo, timeoutMs, allowedExitCodes: [0, 1],
+      });
+      assert.equal(actualSymbolic.status, oracleSymbolic.status);
+      assert.equal(actualSymbolic.stdout, oracleSymbolic.stdout, "the public API preserves its oracle alias disposition");
+      assert.equal(port.revParse(repo, "HEAD", timeoutMs), before.head);
+      assert.equal(port.lsFilesStage(repo, timeoutMs), before.stage);
+      assert.deepEqual(readFileSync(readme), before.bytes);
+    }
+  });
 });

@@ -313,6 +313,8 @@ export type WorktreeGitPort = Readonly<{
   /** Every path the checkout's status names (`--porcelain=v2 -z`, every untracked file): what changed where. */
   status(cwd: string, timeoutMs: number): readonly StatusEntry[];
   deleteBranch(repoRoot: string, branch: string, force: boolean, timeoutMs: number): void;
+  /** Delete only the named agent ref at the expected tip; symbolic targets are never followed. */
+  deleteBranchAt(repoRoot: string, branch: string, expectedTip: string, timeoutMs: number): RefusableOutcome;
   verifyWorktreeIntact(worktreePath: string, timeoutMs: number): boolean;
 }>;
 
@@ -695,6 +697,14 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
     return deepFreeze({ refusal: result.status === 0 ? null : sanitizeErrorOutput(`${result.stderr}${result.stdout}`.trim()) });
   }
 
+  /** Both public deletion surfaces act on the named ref, never a symbolic target. */
+  function deleteRefAt(repoRoot: string, ref: string, expectedTip: string, timeoutMs: number): RefusableOutcome {
+    return refusable("update-ref -d", {
+      args: ["-c", "gc.auto=0", "-C", repoRoot, "update-ref", "--no-deref", "-d", ref, expectedTip],
+      cwd: repoRoot, timeoutMs, allowedExitCodes: [0],
+    });
+  }
+
   return deepFreeze({
     schemaVersion: WORKTREE_PORT_SCHEMA_VERSION,
 
@@ -815,7 +825,15 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
     agentCheckoutIdentity(request: AgentCheckoutIdentityRequest): void {
       assertAbsolutePath(request.repoRoot, "repoRoot");
       assertAbsolutePath(request.worktreePath, "worktreePath");
-      run("config extensions.worktreeConfig", { args: ["-C", request.repoRoot, "config", "extensions.worktreeConfig", "true"], cwd: request.repoRoot, timeoutMs: request.timeoutMs, allowedExitCodes: [0] });
+      // Git owns boolean normalization. Observe only the common repository's local scope.
+      const worktreeConfig = run("config --local --type=bool extensions.worktreeConfig", {
+        args: ["-c", "gc.auto=0", "-C", request.repoRoot, "config", "--local", "--type=bool", "--null", "--get-all", "extensions.worktreeConfig"],
+        cwd: request.repoRoot, timeoutMs: request.timeoutMs, allowedExitCodes: [0, 1],
+      });
+      // Preserve the setter's absent/false and multivalue refusal behavior; one true needs no write.
+      if (worktreeConfig.status !== 0 || worktreeConfig.stdout !== "true\0") {
+        run("config extensions.worktreeConfig", { args: ["-C", request.repoRoot, "config", "extensions.worktreeConfig", "true"], cwd: request.repoRoot, timeoutMs: request.timeoutMs, allowedExitCodes: [0] });
+      }
       for (const [key, value] of [["user.name", request.identity.name], ["user.email", request.identity.email], [request.markerKey, "true"]] as const) {
         run(`config --worktree ${key}`, { args: ["-C", request.worktreePath, "config", "--worktree", key, value], cwd: request.worktreePath, timeoutMs: request.timeoutMs, allowedExitCodes: [0] });
       }
@@ -970,7 +988,7 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
       assertAbsolutePath(repoRoot, "repoRoot");
       assertNamespacedRef(ref);
       assertGitSha(oldSha, "oldSha");
-      return refusable("update-ref -d", { args: ["-c", "gc.auto=0", "-C", repoRoot, "update-ref", "-d", ref, oldSha], cwd: repoRoot, timeoutMs, allowedExitCodes: [0] });
+      return deleteRefAt(repoRoot, ref, oldSha, timeoutMs);
     },
 
     refsUnder(repoRoot: string, prefix: string, timeoutMs: number): ReadonlyMap<string, string> {
@@ -1185,6 +1203,13 @@ export function createWorktreeGitPort(options: WorktreeGitPortOptions): Worktree
         timeoutMs,
         allowedExitCodes: [0],
       });
+    },
+
+    deleteBranchAt(repoRoot: string, branch: string, expectedTip: string, timeoutMs: number): RefusableOutcome {
+      assertAbsolutePath(repoRoot, "repoRoot");
+      assertAgentBranchName(branch, branchNamespace);
+      assertGitSha(expectedTip, "expectedTip");
+      return deleteRefAt(repoRoot, `refs/heads/${branch}`, expectedTip, timeoutMs);
     },
 
     verifyWorktreeIntact(worktreePath: string, timeoutMs: number): boolean {
