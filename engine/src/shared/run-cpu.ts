@@ -61,11 +61,12 @@
  * field after it. That is the standard trap in reading this file, and it is
  * the same one `scripts/run-tests.ts` avoids by shelling out to `ps`.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 
 import { HarnessError } from "../kernel/errors.ts";
 import { parseStatLine, procfsDocument, STAT_FIELD } from "../process/process-facts.ts";
 import { DEFAULT_CPU_CALIBRATION_TIMEOUT_MS } from "../workflow/workflow-config.ts";
+import { median } from "./stats.ts";
 
 /** The first field number that follows the parenthesised executable name (`proc(5)`, 1-based). */
 const FIRST_FIELD_AFTER_COMM = 3;
@@ -353,11 +354,35 @@ export interface CalibrationReading {
 }
 
 /**
- * Parse a calibration child's stdout. Exported so the refusal branches
- * (missing, malformed, non-positive chunks) are drivable without spawning.
- * A reading with fewer than three chunks, any non-finite/non-positive chunk,
- * or a non-positive median is ABSENT — never a zero.
+ * Construct a reading in the supplied fixed workload's units. The caller
+ * owns the workload's source, measurement and provenance; this constructor
+ * validates the ordered chunk witness, not the model's validity.
+ * A missing unit, fewer than three chunks, any non-finite/non-positive
+ * chunk, or a non-positive median is ABSENT — never a zero.
  */
+export function calibrationReadingFromChunks(
+  chunks: readonly number[],
+  profile: { readonly workload: string; readonly chunkIterations: number },
+): CalibrationReading | null {
+  if (profile == null) return null;
+  // Chunk access may invoke caller code; retain the validated unit.
+  const workload = profile.workload;
+  const chunkIterations = profile.chunkIterations;
+  if (typeof workload !== "string" || workload.trim().length === 0) return null;
+  if (!Number.isSafeInteger(chunkIterations) || chunkIterations <= 0) return null;
+  if (!Array.isArray(chunks) || chunks.length < 3) return null;
+  const ownedChunks: number[] = [];
+  for (const chunk of chunks) {
+    if (typeof chunk !== "number" || !Number.isFinite(chunk) || chunk <= 0) return null;
+    ownedChunks.push(chunk);
+  }
+  if (ownedChunks.length < 3) return null;
+  const cpuMs = median(ownedChunks);
+  if (!Number.isFinite(cpuMs) || cpuMs <= 0) return null;
+  return { cpuMs, chunks: ownedChunks, workload, chunkIterations };
+}
+
+/** Parse the fixed calibration child's stdout through the shared constructor. */
 function parseCalibrationOutput(stdout: string): CalibrationReading | null {
   let parsed: unknown;
   try {
@@ -365,18 +390,19 @@ function parseCalibrationOutput(stdout: string): CalibrationReading | null {
   } catch {
     return null;
   }
-  if (!Array.isArray(parsed) || parsed.length < 3) return null;
-  const chunks: number[] = [];
-  for (const chunk of parsed) {
-    if (typeof chunk !== "number" || !Number.isFinite(chunk) || chunk <= 0) return null;
-    chunks.push(chunk);
-  }
-  const sorted = [...chunks].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  const median = sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-  if (!Number.isFinite(median) || median <= 0) return null;
-  return { cpuMs: median, chunks, workload: CALIBRATION_WORKLOAD, chunkIterations: CALIBRATION_CHUNK_ITERATIONS };
+  if (!Array.isArray(parsed)) return null;
+  return calibrationReadingFromChunks(parsed, {
+    workload: CALIBRATION_WORKLOAD,
+    chunkIterations: CALIBRATION_CHUNK_ITERATIONS,
+  });
 }
+
+/** The synchronous UTF-8 operation the calibration owner actually invokes. */
+export type CalibrationSpawn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnSyncOptionsWithStringEncoding & { encoding: "utf8" },
+) => SpawnSyncReturns<string>;
 
 /**
  * Measure the machine's current speed with the fixed workload: the median
@@ -388,7 +414,7 @@ function parseCalibrationOutput(stdout: string): CalibrationReading | null {
  * broken machine; production callers use the default.
  */
 export function measureCalibration(
-  spawn: typeof spawnSync = spawnSync,
+  spawn: CalibrationSpawn = spawnSync,
 ): CalibrationReading | null {
   const result = spawn(process.execPath, ["--no-opt", "-e", CALIBRATION_SOURCE], {
     env: {
