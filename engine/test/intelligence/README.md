@@ -8,7 +8,7 @@ The `engine/test/intelligence/` folder of the development surface.
 - `dependency-graph.test.ts` — the `dependency-graph.test` module.
 - `integration.test.ts` — the `integration.test` module.
 - `multi-import-extractor.test.ts` — the `multi-import-extractor.test` module.
-- `process-farm.test.ts` — crash-isolation farm: hang/crash contained, culprit named.
+- `process-farm.test.ts` — crash-isolation farm: hang/crash contained, culprit named; fixture deadlines release their timers after success, faults and timeout.
 - `quick-view-slice.test.ts` — the `quick-view-slice.test` module.
 - `repository-map.test.ts` — the `repository-map.test` module.
 - `reuse-discovery.test.ts` — the `reuse-discovery.test` module.
