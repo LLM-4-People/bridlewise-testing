@@ -123,8 +123,9 @@ export function limitOwnCpu(bounds: SubprocessBounds): string | null {
 }
 
 /**
- * How a bounded run ended: its own exit, the bound that stopped it, or (`cpu-rlimit`) the kernel's CPU limit,
- * which ends a process only when the supervisor could not.
+ * How a bounded run ended: its own exit, a bound decision, or observed native SIGXCPU (`cpu-rlimit`).
+ * The legacy signal category records an ending under the admitted RLIMIT_CPU; it proves neither
+ * that the signal came from the kernel limit nor that the process spent that amount of CPU work.
  */
 export type BoundedEnding = "exited" | "cpu-exhausted" | "cpu-rlimit" | "stalled" | "hung" | "output-exceeded" | "unmeasurable" | "unstarted";
 
@@ -136,7 +137,7 @@ export function boundedEnding(
   const used = run.cpuMs === null ? "" : ` (${String(run.cpuMs)} ms used)`;
   switch (run.ending) {
     case "cpu-exhausted": return `its process group spent its CPU budget of ${String(bounds.cpuBudgetMs)} ms${used} and was stopped`;
-    case "cpu-rlimit": return `a process of it spent its CPU-time limit of ${String(kernelCpuLimit(bounds).soft)} s of CPU work (RLIMIT_CPU, the kernel backstop) and was ended by ${run.signal ?? "SIGXCPU"}`;
+    case "cpu-rlimit": return `it was ended by ${run.signal === null ? "an unrecorded signal" : `observed ${run.signal}`} under an admitted CPU-time limit of at most ${String(kernelCpuLimit(bounds).soft)} s of CPU work (RLIMIT_CPU); the signal's origin is unknown`;
     case "stalled": return `it produced no output and no CPU work for ${String(bounds.stallMs)} ms of the time it could run (stalled) and was stopped`;
     case "hung": return `HUNG: it was still running at the ${String(bounds.hangBackstopMs / 1000)} s hang backstop (wall) and was stopped`;
     case "output-exceeded": return `its output passed ${String(bounds.outputBytes)} bytes and it was stopped`;

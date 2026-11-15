@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { canonicalJson, deepFreeze, sha256 } from "../kernel/integrity.ts";
 import { parseSignedReport } from "./command-result.ts";
 import { ROOT_POLICY } from "../kernel/root-policy.ts";
-import { buildConfigContract, getConfigContractArtifact } from "../kernel/config-contracts.ts";
+import { getConfigContractArtifact } from "../kernel/config-contracts.ts";
 import { verifyBindingById } from "./hash-binding-registry.ts";
 import { handleError } from "../shared/debug/debug-system.ts";
 import { schemaId } from "../kernel/product-identity.ts";
@@ -53,8 +53,7 @@ export function currentConfigContractArtifact(root: string): ReturnType<typeof g
   // A tree that carries no readable pin (a product-only fixture without the
   // policy file) declares nothing on disk; the imported policy is its only one.
   if (pin.error !== undefined || pin.actual === contract.sourceSha256) return getConfigContractArtifact();
-  const sourceSha256 = pin.actual;
-  return buildConfigContract({ ...ROOT_POLICY, configuration: { ...ROOT_POLICY.configuration, contract: { ...contract, sourceSha256 } } }).artifact;
+  return getConfigContractArtifact(pin.actual);
 }
 
 export function computeConfigSchemaBinding(root: string = process.cwd()): ConfigSchemaBinding {

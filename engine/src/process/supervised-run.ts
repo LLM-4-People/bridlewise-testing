@@ -435,7 +435,8 @@ function groupCpuAccountant(pgid: number): Readonly<{ sample: () => Readonly<{ c
  * it is still running at `hangBackstopMs` of wall time (hung), or when procfs
  * cannot measure a group whose leader still runs. After a stop, a pipe still
  * open past `killGraceMs` is let go: only a process OUTSIDE the group can hold
- * it. A command killed by SIGXCPU ends `cpu-rlimit`: the kernel's limit.
+ * it. Observed native SIGXCPU ends `cpu-rlimit` under the admitted CPU limit; its origin is unknown.
+ * After cleanup it outranks an inferred stall, while stronger bound decisions retain priority.
  *
  * NB-1, STATED: a group is the bound of a COOPERATIVE command (the pinned
  * tools, the harness's own steps). A descendant that calls `setsid` leaves the
@@ -585,10 +586,12 @@ export async function runCpuBounded(
     if (stopped !== undefined) await stopped;
     const finalDiagnostics = diagnostics();
     const stopObservation = finalDiagnostics.stopRequest?.observation;
-    // An idle pipe held outside an already-ended empty group requested a stall, but stopped nothing.
-    // Budget/output/backstop violations and a group that actually needed termination retain their cause.
-    const effectiveStopping = stopping === "stalled" && stopObservation?.members === 0 &&
-      stopObservation.nativeExit !== null && finalDiagnostics.termination?.ending === "gone" ? undefined : stopping;
+    // A native SIGXCPU is an observed ending, not proof that the CPU limit generated it.
+    // Only an inferred stall yields to it, or to a native exit after an empty-group no-op stop.
+    // Stronger bounds retain their decisions; the existing cleanup and both diagnostic facts stay intact.
+    const preserveNativeEnding = stopping === "stalled" && (exitStatus?.signal === "SIGXCPU" ||
+      (stopObservation?.members === 0 && stopObservation.nativeExit !== null && finalDiagnostics.termination?.ending === "gone"));
+    const effectiveStopping = preserveNativeEnding ? undefined : stopping;
     // The shell found no such command (on the run's PATH, or as a path): it never started.
     const missing = effectiveStopping === undefined && exitStatus?.status === COMMAND_NOT_FOUND.status && Buffer.concat(stderr).toString("utf8").trim() === COMMAND_NOT_FOUND.marker;
     if (missing) return Object.freeze({ ending: "unstarted", status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cpuMs, startError: "ENOENT", diagnostics: finalDiagnostics });

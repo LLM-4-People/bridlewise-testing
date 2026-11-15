@@ -93,7 +93,7 @@ export type MaintainerCli = Readonly<{
 
 function failed(what: string, run: MaintainerCliAnswer): ForgeError {
   if (run.ending !== "exited") {
-    return new ForgeError("forge_maintainer_cli_stalled", `${what}: gh ${run.ending === "stalled" ? "made no progress (no output, no CPU work) within its stall window" : run.ending === "cpu-limit" ? "used more CPU than its limit" : run.ending === "output-exceeded" ? "printed more than its output bound" : "could not be measured (procfs answers nothing for it)"}, so it was ended.`, { what, ending: run.ending });
+    return new ForgeError("forge_maintainer_cli_stalled", `${what}: gh ${run.ending === "stalled" ? "made no progress (no output, no CPU work) within its stall window" : run.ending === "cpu-limit" ? "ended for its CPU budget or with observed SIGXCPU (signal origin unknown)" : run.ending === "output-exceeded" ? "printed more than its output bound" : "could not be measured (procfs answers nothing for it)"}.`, { what, ending: run.ending });
   }
   const words = run.missing ? "the gh command is not installed" : run.stderr.trim().split("\n").slice(-FORGE_REFUSAL_TEXT.cliStderrLines).join(" ").slice(0, FORGE_REFUSAL_TEXT.cliStderrChars);
   return new ForgeError("forge_maintainer_cli_failed", `${what}: ${words || `gh exited ${String(run.status)}`}`, { what, ...(run.status === null ? {} : { exitCode: run.status }) });

@@ -503,10 +503,10 @@ test("a script subprocess that dies without a payload names how it ended: the si
   }
 });
 
-test("the harness's bounds are named when they fire: the group's CPU budget, the kernel's CPU-time limit (SIGXCPU), the stall and the hang backstop (HUNG)", () => {
+test("the harness's bounds are named when they fire: the group's CPU budget, observed SIGXCPU under its admitted CPU-time limit, the stall and the hang backstop (HUNG)", () => {
   const ended = { status: null, signal: null, cpuMs: 1_800_123, startError: null } as const;
   assert.match(boundedEnding({ ...ended, ending: "cpu-exhausted" }, DEFAULT_SUBPROCESS_BOUNDS), /its process group spent its CPU budget of 1800000 ms \(1800123 ms used\) and was stopped/u);
-  assert.match(boundedEnding({ ...ended, ending: "cpu-rlimit", signal: "SIGXCPU" }, DEFAULT_SUBPROCESS_BOUNDS), new RegExp(`spent its CPU-time limit of ${String(kernelCpuLimit(DEFAULT_SUBPROCESS_BOUNDS).soft)} s of CPU work \\(RLIMIT_CPU, the kernel backstop\\) and was ended by SIGXCPU`, "u"));
+  assert.equal(boundedEnding({ ...ended, ending: "cpu-rlimit", signal: "SIGXCPU" }, DEFAULT_SUBPROCESS_BOUNDS), `it was ended by observed SIGXCPU under an admitted CPU-time limit of at most ${String(kernelCpuLimit(DEFAULT_SUBPROCESS_BOUNDS).soft)} s of CPU work (RLIMIT_CPU); the signal's origin is unknown`);
   assert.match(boundedEnding({ ...ended, ending: "stalled" }, DEFAULT_SUBPROCESS_BOUNDS), /no output and no CPU work for 1800000 ms of the time it could run \(stalled\)/u);
   assert.match(boundedEnding({ ...ended, ending: "hung" }, DEFAULT_SUBPROCESS_BOUNDS), /^HUNG: it was still running at the 7200 s hang backstop \(wall\)/u);
 });

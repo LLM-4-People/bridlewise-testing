@@ -19,6 +19,7 @@ import { boundedRunDiagnostic, runBoundedTestProcess, runCpuBounded } from "../.
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { guarded, PROCESS_FAULT_EXIT_CODE } from "../../src/process/fault-policy.ts";
+import { canonicalJson } from "../../src/kernel/integrity.ts";
 
 /** Tight bounds for the runner's tests: a 400 ms CPU budget, a 600 ms window with neither output nor CPU work, read every 50 ms; a 2 min hang backstop. */
 const TIGHT: SubprocessBounds = { cpuBudgetMs: 400, stallMs: 600, hangBackstopMs: 120_000, pollMs: 50, killGraceMs: 200, outputBytes: 1 << 20 };
@@ -170,10 +171,157 @@ test("the kernel backstop: a process that LEFT the group (setsid, NB-1) is still
 
 test("the bounded ending: SIGXCPU is `cpu-rlimit`", async () => {
   const dir = createTempDir("bounded-endings-");
-  // A command the kernel's CPU limit ends (SIGXCPU) ends `cpu-rlimit`, worded as the kernel's limit, never `exited`.
+  // This fixture self-signals: report observed SIGXCPU under the admitted limit without claiming its origin or CPU exhaustion.
   const xcpu = await runCpuBounded(NODE, ["-e", `process.kill(process.pid, "SIGXCPU"); ${QUIET}`], { cwd: dir, env: ENV, bounds: TIGHT });
   assert.equal(xcpu.ending, "cpu-rlimit", boundedRunDiagnostic(xcpu));
-  assert.match(boundedEnding(xcpu, TIGHT), /CPU-time limit of 2 s of CPU work \(RLIMIT_CPU, the kernel backstop\) and was ended by SIGXCPU/u, boundedRunDiagnostic(xcpu));
+  assert.equal(boundedEnding(xcpu, TIGHT), "it was ended by observed SIGXCPU under an admitted CPU-time limit of at most 2 s of CPU work (RLIMIT_CPU); the signal's origin is unknown", boundedRunDiagnostic(xcpu));
+});
+
+/**
+ * Drive the real watch and owned terminator, then let the command select its native ending.
+ * The start marker follows an actual watch observation retaining both owned identities.
+ * These controls prove the diagnostic policy, not the chronology of the hosted failure.
+ */
+async function observeRequestedStop(
+  reason: "stalled" | "cpu-exhausted" | "output-exceeded" | "hung",
+  signal: "SIGXCPU" | null,
+  liveHolder = false,
+) {
+  const dir = createTempDir("bounded-native-ending-policy-");
+  const leaderPid = join(dir, "leader.pid");
+  const holderPid = join(dir, "holder.pid");
+  const ready = join(dir, "ready");
+  const start = join(dir, "start");
+  const neverAdmitExit = join(dir, "never-admit-natural-leader-exit");
+  const handled = join(dir, "term-handled");
+  const holderClosed = join(dir, "holder-closed");
+  const fallback = join(dir, "fixture-backstop");
+  const nativeEnd = signal === null ? "process.exit(0);" : 'process.kill(process.pid, "SIGXCPU");';
+  const prefix = [
+    `process.on("SIGTERM", () => { require("node:fs").writeFileSync(${JSON.stringify(handled)}, "term"); ${nativeEnd} });`,
+    `setTimeout(() => { require("node:fs").writeFileSync(${JSON.stringify(fallback)}, "fixture safety only"); process.exit(73); }, ${String(QUIET_LIFE_MS)});`,
+    `require("node:fs").writeFileSync(${JSON.stringify(leaderPid)}, String(process.pid));`,
+  ].join(" ");
+  const activity = reason === "cpu-exhausted"
+    ? `setInterval(() => { ${burn(20)} }, 0);`
+    : reason === "output-exceeded"
+      ? `process.stdout.write("x".repeat(${String(TIGHT.outputBytes + 1)}));`
+      : reason === "hung" ? 'setInterval(() => process.stdout.write("."), 100);' : "";
+  const holder = [
+    `process.on("SIGTERM", () => { require("node:fs").writeFileSync(${JSON.stringify(holderClosed)}, "term"); process.exit(0); });`,
+    'process.send("ready");', QUIET,
+  ].join(" ");
+  const command = liveHolder
+    ? prefix + " " + leaderWithGrandchild(holderPid, holder, 0, { detached: false, admitFile: neverAdmitExit, readyFile: ready })
+    : [prefix,
+      'const fs = require("node:fs"); let started = false;',
+      `const begin = () => { if (started || !fs.existsSync(${JSON.stringify(start)})) return; started = true; admission.close(); ${activity} };`,
+      `const admission = fs.watch(${JSON.stringify(dir)}, begin);`,
+      `fs.writeFileSync(${JSON.stringify(ready)}, "ready"); begin();`,
+    ].join(" ");
+  const bounds = reason === "hung" ? { ...TIGHT, hangBackstopMs: 1_000 } : TIGHT;
+  let leader: ReturnType<typeof ownedChild> | undefined;
+  let held: ReturnType<typeof ownedChild> | undefined;
+  let leaderGoneWhenAnswered = false;
+  let holderGoneWhenAnswered = !liveHolder;
+  let leaderCleanup: Awaited<ReturnType<typeof terminate>> | null = null;
+  let holderCleanup: Awaited<ReturnType<typeof terminate>> | null = null;
+  let run: Awaited<ReturnType<typeof runCpuBounded>> | undefined;
+  try {
+    run = await runCpuBounded(NODE, ["-e", command], {
+      cwd: dir, env: ENV, bounds,
+      onObservation: (event) => {
+        if (event.phase !== "watch" || event.diagnostics.stopRequest !== null || !existsSync(ready) || leader !== undefined) return;
+        leader = ownedChild({ pid: Number(readFileSync(leaderPid, "utf8")) });
+        if (liveHolder) held = ownedChild({ pid: Number(readFileSync(holderPid, "utf8")) });
+        writeFileSync(start, "start after identity ownership");
+      },
+    });
+    leaderGoneWhenAnswered = leader !== undefined && !isProcessIdentityLive(leader);
+    holderGoneWhenAnswered = !liveHolder || (held !== undefined && !isProcessIdentityLive(held));
+  } finally {
+    try {
+      if (leader !== undefined) leaderCleanup = await terminate({ group: leader }, { graceMs: bounds.killGraceMs });
+    } finally {
+      if (held !== undefined) holderCleanup = await terminate(held, { graceMs: bounds.killGraceMs });
+    }
+  }
+  assert.ok(run, "the actual bounded control returned its native outcome");
+  const control = { run, bounds, leaderOwned: leader !== undefined, holderOwned: held !== undefined, leaderGoneWhenAnswered,
+    holderGoneWhenAnswered, leaderCleanup, holderCleanup, handlerRan: existsSync(handled), holderClosed: existsSync(holderClosed),
+    fixtureBackstopUsed: existsSync(fallback) };
+  // Passing controls retain the same safe native projection and actual owned-cleanup facts as failed controls.
+  process.stdout.write("BOUNDED_POLICY_CONTROL " + canonicalJson({
+    case: { reason, signal, liveHolder },
+    native: JSON.parse(boundedRunDiagnostic(run)),
+    owned: {
+      leaderOwned: control.leaderOwned, holderOwned: control.holderOwned,
+      leaderGoneWhenAnswered: control.leaderGoneWhenAnswered, holderGoneWhenAnswered: control.holderGoneWhenAnswered,
+      handlerRan: control.handlerRan, holderClosed: control.holderClosed, fixtureBackstopUsed: control.fixtureBackstopUsed,
+      leaderCleanup: control.leaderCleanup === null ? null : { ending: control.leaderCleanup.ending, waitedMs: control.leaderCleanup.waitedMs },
+      holderCleanup: control.holderCleanup === null ? null : { ending: control.holderCleanup.ending, waitedMs: control.holderCleanup.waitedMs },
+    },
+  }) + "\n");
+  return control;
+}
+
+function assertRequestedStopFacts(control: Awaited<ReturnType<typeof observeRequestedStop>>, reason: string, signal: "SIGXCPU" | null) {
+  const { run } = control;
+  const diagnostic = boundedRunDiagnostic(run);
+  assert.equal(control.leaderOwned, true, diagnostic);
+  assert.equal(control.leaderGoneWhenAnswered, true, diagnostic);
+  assert.equal(control.holderGoneWhenAnswered, true, diagnostic);
+  assert.equal(control.handlerRan, true, diagnostic);
+  assert.equal(control.fixtureBackstopUsed, false, diagnostic);
+  assert.notEqual(control.leaderCleanup?.ending, "unconfirmed", diagnostic);
+  assert.notEqual(control.holderCleanup?.ending, "unconfirmed", diagnostic);
+  assert.equal(run.startError, null, diagnostic);
+  assert.equal(run.signal, signal, diagnostic);
+  assert.equal(run.status, signal === null ? 0 : null, diagnostic);
+  assert.equal(run.diagnostics.stopRequest?.ending, reason, diagnostic);
+  assert.notEqual(run.diagnostics.termination, null, diagnostic);
+  assert.notEqual(run.diagnostics.termination?.ending, "unconfirmed", diagnostic);
+  assert.deepEqual(run.diagnostics.admittedBounds, control.bounds, diagnostic);
+}
+
+test("controlled native SIGXCPU outranks only its requested stall after actual owned cleanup", async () => {
+  const control = await observeRequestedStop("stalled", "SIGXCPU");
+  assertRequestedStopFacts(control, "stalled", "SIGXCPU");
+  assert.equal(control.run.ending, "cpu-rlimit", boundedRunDiagnostic(control.run));
+});
+
+test("controlled normal exit on TERM retains its genuine requested stall", async () => {
+  const control = await observeRequestedStop("stalled", null);
+  assertRequestedStopFacts(control, "stalled", null);
+  assert.equal(control.run.ending, "stalled", boundedRunDiagnostic(control.run));
+});
+
+test("controlled CPU budget remains authoritative over native SIGXCPU", async () => {
+  const control = await observeRequestedStop("cpu-exhausted", "SIGXCPU");
+  assertRequestedStopFacts(control, "cpu-exhausted", "SIGXCPU");
+  assert.ok((control.run.cpuMs ?? 0) > control.bounds.cpuBudgetMs, boundedRunDiagnostic(control.run));
+  assert.equal(control.run.ending, "cpu-exhausted", boundedRunDiagnostic(control.run));
+});
+
+test("controlled output budget remains authoritative over native SIGXCPU", async () => {
+  const control = await observeRequestedStop("output-exceeded", "SIGXCPU");
+  assertRequestedStopFacts(control, "output-exceeded", "SIGXCPU");
+  assert.ok(control.run.stdout.length > control.bounds.outputBytes, boundedRunDiagnostic(control.run));
+  assert.equal(control.run.ending, "output-exceeded", boundedRunDiagnostic(control.run));
+});
+
+test("controlled hang backstop remains authoritative over native SIGXCPU", async () => {
+  const control = await observeRequestedStop("hung", "SIGXCPU");
+  assertRequestedStopFacts(control, "hung", "SIGXCPU");
+  assert.equal(control.run.ending, "hung", boundedRunDiagnostic(control.run));
+});
+
+test("controlled native SIGXCPU still awaits and confirms its live same-group holder cleanup", async () => {
+  const control = await observeRequestedStop("stalled", "SIGXCPU", true);
+  assertRequestedStopFacts(control, "stalled", "SIGXCPU");
+  assert.equal(control.holderOwned, true, boundedRunDiagnostic(control.run));
+  assert.equal(control.holderClosed, true, boundedRunDiagnostic(control.run));
+  assert.equal(control.run.ending, "cpu-rlimit", boundedRunDiagnostic(control.run));
 });
 
 test("the bounded ending: a poller doing any CPU work is progressing, never stalled", async () => {
@@ -444,7 +592,7 @@ test("controlled native leader exit still bounds its live same-group quiet holde
   assert.equal(observed.run.ending, "stalled", boundedRunDiagnostic(observed.run));
 });
 
-const OBSERVER_LIFECYCLE_DRIVER = "// PRIVATE UNAPPLIED AND UNEXECUTED native-supervised fixture child.\nimport assert from \"node:assert/strict\";\nimport { existsSync, readFileSync, writeFileSync, writeSync } from \"node:fs\";\nconst c = JSON.parse(process.argv[2]);\n(await import(c.bootstrapUrl)).bootstrapProcess({ role: \"cli\" });\nconst policy = await import(c.policyUrl);\nconst { runCpuBounded, boundedRunDiagnostic } = await import(c.runnerUrl);\nconst { isProcessAlive } = await import(c.factsUrl);\nlet seen = false;\nlet rejectObserver;\nlet rejected = false;\nconst held = new Promise((_resolve, reject) => { rejectObserver = reject; });\nlet nativeEvent = null;\nlet terminationEvent = null;\nconst mutations = Object.create(null);\nconst trySet = (name, object, key, value) => {\n  if (object !== null && !(name in mutations)) mutations[name] = Reflect.set(object, key, value);\n};\nassert.deepEqual(policy.processFaultCounts(), { guardedCallbackFaults: 0, unhandledRejections: 0, uncaughtExceptions: 0 });\nconst run = await runCpuBounded(process.execPath, [\"-e\", c.command], {\n  cwd: c.cwd, env: c.env, bounds: c.bounds,\n  onObservation: (event) => {\n    if (c.mode === \"immutable\") {\n      seen = true;\n      const d = event.diagnostics;\n      if (d.lastObservation?.nativeExit !== null && d.lastObservation?.nativeExit !== undefined) nativeEvent ??= event;\n      if (event.phase === \"termination\") terminationEvent = event;\n      trySet(\"bounds\", d.admittedBounds, \"stallMs\", 1);\n      trySet(\"observation\", d.lastObservation, \"idleMs\", -1);\n      trySet(\"nativeExit\", d.lastObservation?.nativeExit ?? null, \"signal\", \"SIGXCPU\");\n      trySet(\"stop\", d.stopRequest, \"ending\", \"hung\");\n      trySet(\"stopObservation\", d.stopRequest?.observation ?? null, \"idleMs\", -1);\n      trySet(\"termination\", d.termination, \"ending\", \"unconfirmed\");\n      return { ending: \"cpu-rlimit\", status: 99, signal: \"SIGXCPU\", diagnostics: { admittedBounds: { stallMs: 1 } } };\n    }\n    if (c.mode === \"throw\") {\n      if (!seen && event.phase === \"termination\") {\n        seen = true;\n        throw new TypeError(\"BOUNDED_OBSERVER_SYNC\");\n      }\n      return;\n    }\n    if (!seen && event.phase === \"watch\" && existsSync(c.ready)) {\n      seen = true;\n      writeFileSync(c.release, \"release\");\n      return held;\n    }\n  },\n});\nassert.equal(seen, true, boundedRunDiagnostic(run));\nif (c.mode === \"reject\") {\n  assert.equal(run.ending, \"exited\", boundedRunDiagnostic(run));\n  assert.equal(run.status, 0);\n  assert.equal(rejected, false, \"actual run resolves while observer Promise is still pending\");\n  rejected = true;\n  rejectObserver(new RangeError(\"BOUNDED_OBSERVER_ASYNC\"));\n  await new Promise((resolve) => setImmediate(resolve));\n} else {\n  assert.equal(run.ending, \"stalled\", boundedRunDiagnostic(run));\n}\nif (c.mode === \"immutable\") {\n  assert.equal(run.status, 0);\n  assert.equal(run.signal, null);\n  assert.ok(nativeEvent);\n  assert.ok(terminationEvent);\n  assert.deepEqual(run.diagnostics.admittedBounds, c.bounds);\n  for (const name of [\"bounds\", \"observation\", \"nativeExit\", \"stop\", \"stopObservation\", \"termination\"]) assert.equal(mutations[name], false, name);\n  for (const event of [nativeEvent, terminationEvent]) {\n    assert.equal(Object.isFrozen(event), true);\n    assert.equal(Object.isFrozen(event.diagnostics), true);\n    for (const value of [event.diagnostics.admittedBounds, event.diagnostics.lastObservation, event.diagnostics.lastObservation?.nativeExit, event.diagnostics.stopRequest, event.diagnostics.stopRequest?.observation, event.diagnostics.termination]) {\n      if (value !== null && value !== undefined) assert.equal(Object.isFrozen(value), true);\n    }\n  }\n  assert.equal(isProcessAlive(Number(readFileSync(c.grandchild, \"utf8\"))), false);\n  assert.deepEqual(policy.processFaultCounts(), { guardedCallbackFaults: 0, unhandledRejections: 0, uncaughtExceptions: 0 });\n} else {\n  assert.deepEqual(policy.processFaultCounts(), { guardedCallbackFaults: 1, unhandledRejections: 0, uncaughtExceptions: 0 });\n  assert.match(policy.lastProcessFault(), /^callback fault in process\\.cpu-bounded\\.observation: /u);\n}\nwriteSync(1, \"BOUNDED_OBSERVER_LIFECYCLE \" + JSON.stringify({\n  mode: c.mode, seen, counts: policy.processFaultCounts(), last: policy.lastProcessFault(),\n  ending: run.ending, status: run.status, signal: run.signal,\n  pendingAtRunCompletion: c.mode === \"reject\", mutations,\n}) + \"\\n\");\nprocess.exitCode = 0;\nprocess.exit(0);\n";
+const OBSERVER_LIFECYCLE_DRIVER = "// Native-supervised fixture child for observer lifecycle checks.\nimport assert from \"node:assert/strict\";\nimport { existsSync, readFileSync, writeFileSync, writeSync } from \"node:fs\";\nconst c = JSON.parse(process.argv[2]);\n(await import(c.bootstrapUrl)).bootstrapProcess({ role: \"cli\" });\nconst policy = await import(c.policyUrl);\nconst { runCpuBounded, boundedRunDiagnostic } = await import(c.runnerUrl);\nconst { isProcessAlive } = await import(c.factsUrl);\nlet seen = false;\nlet rejectObserver;\nlet rejected = false;\nconst held = new Promise((_resolve, reject) => { rejectObserver = reject; });\nlet nativeEvent = null;\nlet terminationEvent = null;\nconst mutations = Object.create(null);\nconst trySet = (name, object, key, value) => {\n  if (object !== null && !(name in mutations)) mutations[name] = Reflect.set(object, key, value);\n};\nassert.deepEqual(policy.processFaultCounts(), { guardedCallbackFaults: 0, unhandledRejections: 0, uncaughtExceptions: 0 });\nconst run = await runCpuBounded(process.execPath, [\"-e\", c.command], {\n  cwd: c.cwd, env: c.env, bounds: c.bounds,\n  onObservation: (event) => {\n    if (c.mode === \"immutable\") {\n      seen = true;\n      const d = event.diagnostics;\n      if (d.lastObservation?.nativeExit !== null && d.lastObservation?.nativeExit !== undefined) nativeEvent ??= event;\n      if (event.phase === \"termination\") terminationEvent = event;\n      trySet(\"bounds\", d.admittedBounds, \"stallMs\", 1);\n      trySet(\"observation\", d.lastObservation, \"idleMs\", -1);\n      trySet(\"nativeExit\", d.lastObservation?.nativeExit ?? null, \"signal\", \"SIGXCPU\");\n      trySet(\"stop\", d.stopRequest, \"ending\", \"hung\");\n      trySet(\"stopObservation\", d.stopRequest?.observation ?? null, \"idleMs\", -1);\n      trySet(\"termination\", d.termination, \"ending\", \"unconfirmed\");\n      return { ending: \"cpu-rlimit\", status: 99, signal: \"SIGXCPU\", diagnostics: { admittedBounds: { stallMs: 1 } } };\n    }\n    if (c.mode === \"throw\") {\n      if (!seen && event.phase === \"termination\") {\n        seen = true;\n        throw new TypeError(\"BOUNDED_OBSERVER_SYNC\");\n      }\n      return;\n    }\n    if (!seen && event.phase === \"watch\" && existsSync(c.ready)) {\n      seen = true;\n      writeFileSync(c.release, \"release\");\n      return held;\n    }\n  },\n});\nassert.equal(seen, true, boundedRunDiagnostic(run));\nif (c.mode === \"reject\") {\n  assert.equal(run.ending, \"exited\", boundedRunDiagnostic(run));\n  assert.equal(run.status, 0);\n  assert.equal(rejected, false, \"actual run resolves while observer Promise is still pending\");\n  rejected = true;\n  rejectObserver(new RangeError(\"BOUNDED_OBSERVER_ASYNC\"));\n  await new Promise((resolve) => setImmediate(resolve));\n} else {\n  assert.equal(run.ending, \"stalled\", boundedRunDiagnostic(run));\n}\nif (c.mode === \"immutable\") {\n  assert.equal(run.status, 0);\n  assert.equal(run.signal, null);\n  assert.ok(nativeEvent);\n  assert.ok(terminationEvent);\n  assert.deepEqual(run.diagnostics.admittedBounds, c.bounds);\n  for (const name of [\"bounds\", \"observation\", \"nativeExit\", \"stop\", \"stopObservation\", \"termination\"]) assert.equal(mutations[name], false, name);\n  for (const event of [nativeEvent, terminationEvent]) {\n    assert.equal(Object.isFrozen(event), true);\n    assert.equal(Object.isFrozen(event.diagnostics), true);\n    for (const value of [event.diagnostics.admittedBounds, event.diagnostics.lastObservation, event.diagnostics.lastObservation?.nativeExit, event.diagnostics.stopRequest, event.diagnostics.stopRequest?.observation, event.diagnostics.termination]) {\n      if (value !== null && value !== undefined) assert.equal(Object.isFrozen(value), true);\n    }\n  }\n  assert.equal(isProcessAlive(Number(readFileSync(c.grandchild, \"utf8\"))), false);\n  assert.deepEqual(policy.processFaultCounts(), { guardedCallbackFaults: 0, unhandledRejections: 0, uncaughtExceptions: 0 });\n} else {\n  assert.deepEqual(policy.processFaultCounts(), { guardedCallbackFaults: 1, unhandledRejections: 0, uncaughtExceptions: 0 });\n  assert.match(policy.lastProcessFault(), /^callback fault in process\\.cpu-bounded\\.observation: /u);\n}\nwriteSync(1, \"BOUNDED_OBSERVER_LIFECYCLE \" + JSON.stringify({\n  mode: c.mode, seen, counts: policy.processFaultCounts(), last: policy.lastProcessFault(),\n  ending: run.ending, status: run.status, signal: run.signal,\n  pendingAtRunCompletion: c.mode === \"reject\", mutations,\n}) + \"\\n\");\nprocess.exitCode = 0;\nprocess.exit(0);\n";
 
 function runBoundedObserverLifecycle(mode: "throw" | "reject" | "immutable") {
   const dir = createTempDir("bounded-observer-lifecycle-");

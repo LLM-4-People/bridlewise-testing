@@ -2020,19 +2020,30 @@ function compileConfigContractArtifact(runtimeSchema: z.ZodType, policy: ConfigC
     cycles: "ref",
     reused: "inline",
   }));
-  const schemaHash = canonicalHash(generatedSchema);
+  return assembleConfigContractArtifact(generatedSchema, canonicalHash(generatedSchema), policy);
+}
+
+// The source pin identifies the compiler bytes; it does not change the schema
+// compiled from a policy. Both eager candidates and host evidence use this one
+// metadata assembler, so their artifact shape and identity stay identical.
+function assembleConfigContractArtifact(
+  generatedSchema: DeepReadonly<ReturnType<z.ZodType["toJSONSchema"]>>,
+  schemaHash: string,
+  policy: ConfigContractPolicyProjection,
+  sourceSha256: string = policy.configuration.contract.sourceSha256,
+) {
   const identity = deepFreeze({
     documentSchemaVersion: policy.configuration.documentSchemaVersion,
     validatorRevision: policy.configuration.contract.validatorRevision,
     sourcePath: policy.configuration.contract.sourcePath,
-    sourceSha256: policy.configuration.contract.sourceSha256,
+    sourceSha256,
     generatedSchemaPath: policy.configuration.contract.generatedSchemaPath,
     schemaHash,
   });
   const identityHash = canonicalHash(identity);
   const artifact = deepFreeze({
     schemaVersion: policy.configuration.contract.schemaArtifactVersion,
-    sourceSha256: policy.configuration.contract.sourceSha256,
+    sourceSha256,
     schemaHash,
     identity,
     identityHash,
@@ -2128,7 +2139,12 @@ export function getMcpServerConfigSchema() {
 }
 let hostArtifact: ReturnType<typeof compileConfigContractArtifact> | undefined;
 
-/** One immutable artifact for the frozen host policy, independent of config file state. */
-export function getConfigContractArtifact() {
-  return hostArtifact ??= compileConfigContractArtifact(getConfigDocumentSchema(), ROOT_POLICY);
+/** Share the frozen host schema while binding evidence to the requested source pin. */
+export function getConfigContractArtifact(
+  sourceSha256: string = ROOT_POLICY.configuration.contract.sourceSha256,
+) {
+  const validatedSourceSha256 = sha256HexSchema.parse(sourceSha256);
+  const artifact = hostArtifact ??= compileConfigContractArtifact(getConfigDocumentSchema(), ROOT_POLICY);
+  if (validatedSourceSha256 === artifact.sourceSha256) return artifact;
+  return assembleConfigContractArtifact(artifact.schema, artifact.schemaHash, ROOT_POLICY, validatedSourceSha256);
 }

@@ -5,11 +5,13 @@ import test from "node:test";
 
 import {
   computeConfigSchemaBinding,
+  currentConfigContractArtifact,
   generateAutoGeneratorReport,
   parseAutoGeneratorReport,
   AUTO_GENERATOR_SCHEMA_VERSION,
 } from "../../src/workflow/auto-generator.ts";
 import { canonicalJson, sha256 } from "../../src/kernel/integrity.ts";
+import { listAllBindings, repairBinding } from "../../src/workflow/hash-binding-registry.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { engineModuleSourceRelative } from "../support/module-resolver.ts";
 
@@ -45,6 +47,26 @@ test("AutoGenerator: computeConfigSchemaBinding detects source drift", () => {
     writeFileSync(join(tmpDir, contractRel), contractText + "\n// drift\n");
     const binding = computeConfigSchemaBinding(tmpDir);
     assert.equal(binding.matches, false);
+    const sourceBinding = listAllBindings().find((entry) => entry.id === "root-policy-config-contracts-source-sha256");
+    assert.ok(sourceBinding);
+    const initialArtifact = currentConfigContractArtifact(tmpDir);
+    const identities = new Set<string>();
+    // Each request follows a real source edit and the normal pin repair. A
+    // root-keyed artifact cache would silently return an earlier source pin.
+    for (let index = 0; index < 8; index++) {
+      const changedSource = `${contractText}\n// fresh source pin ${String(index)}\n`;
+      writeFileSync(join(tmpDir, contractRel), changedSource);
+      const repair = repairBinding(tmpDir, sourceBinding);
+      assert.equal(repair.error, undefined);
+      const artifact = currentConfigContractArtifact(tmpDir);
+      assert.equal(artifact.sourceSha256, sha256(changedSource));
+      assert.equal(artifact.identity.sourceSha256, repair.newHash);
+      assert.equal(artifact.schema, initialArtifact.schema);
+      assert.equal(artifact.schemaHash, initialArtifact.schemaHash);
+      identities.add(artifact.identityHash);
+    }
+    assert.equal(identities.size, 8, "all eight requests observe their current on-disk source pin");
+    assert.equal(computeConfigSchemaBinding(tmpDir).matches, true);
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }

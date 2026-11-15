@@ -108,11 +108,18 @@ test("pure config compiler derives candidate semantics and enforces central comp
       await post('Profiler.startPreciseCoverage', {callCount: true, detailed: true});
       const contractUrl = ${JSON.stringify(new URL("../../src/kernel/config-contracts.ts", import.meta.url).href)};
       const contract = await import(contractUrl);
+      const {canonicalJson} = await import(${JSON.stringify(new URL("../../src/kernel/integrity.ts", import.meta.url).href)});
       const observed = new Set();
       async function work(runtime, artifact, reason) {
         const {result} = await post('Profiler.takePreciseCoverage');
         const owner = result.find(script => script.url === contractUrl);
         assert(owner, 'actual compiler script is observed');
+        console.info(canonicalJson({
+          schema: 'config-contract-compiler-work/v1',
+          phase: reason,
+          runtimeCompilerCalls: owner.functions.find(fn => fn.functionName === 'buildRuntimeConfigContract')?.ranges[0].count ?? 0,
+          artifactCompilerCalls: owner.functions.find(fn => fn.functionName === 'compileConfigContractArtifact')?.ranges[0].count ?? 0,
+        }));
         for (const [name, expected] of [['buildRuntimeConfigContract', runtime], ['compileConfigContractArtifact', artifact]]) {
           const fn = owner.functions.find(fn => fn.functionName === name);
           if (fn) observed.add(name);
@@ -131,6 +138,24 @@ test("pure config compiler derives candidate semantics and enforces central comp
       assert.equal(contract.getConfigContractArtifact() === artifact, true, 'artifact getter reuses its immutable result');
       assert(Object.isFrozen(artifact)); assert(Object.isFrozen(artifact.schema));
       await work(0, 1, 'repeated evidence requests share the successful immutable artifact');
+      const pins = Array.from({length: 8}, (_, index) => index.toString(16).repeat(64));
+      const rebound = pins.map(pin => contract.getConfigContractArtifact(pin));
+      await work(0, 0, 'eight source-pin observations reuse the schema without compiling it again');
+      for (const [index, evidence] of rebound.entries()) {
+        assert.equal(evidence.schema, artifact.schema, 'source-only pins share the exact immutable schema');
+        assert.equal(evidence.schemaHash, artifact.schemaHash);
+        assert.equal(evidence.sourceSha256, pins[index]);
+        assert.equal(evidence.identity.sourceSha256, pins[index]);
+        assert.notEqual(evidence.identityHash, artifact.identityHash);
+        assert.equal(Object.isFrozen(evidence), true);
+        assert.equal(Object.isFrozen(evidence.identity), true);
+      }
+      assert.equal(new Set(rebound.map(evidence => evidence.identityHash)).size, pins.length);
+      assert.deepEqual(contract.getConfigContractArtifact(pins[0]), rebound[0], 'a repeated pin has the same artifact identity');
+      for (const invalidPin of ['', '0'.repeat(63), 'g'.repeat(64)]) {
+        assert.throws(() => contract.getConfigContractArtifact(invalidPin), 'source metadata retains SHA validation');
+      }
+      await work(0, 0, 'repeated pins and invalid metadata trigger no schema compilation');
       const {ROOT_POLICY} = await import(${JSON.stringify(new URL("../../src/kernel/root-policy.ts", import.meta.url).href)});
       const complete = contract.buildConfigContract(ROOT_POLICY);
       assert.deepEqual(complete.artifact, artifact);
@@ -138,6 +163,29 @@ test("pure config compiler derives candidate semantics and enforces central comp
       await post('Profiler.stopPreciseCoverage');
     } finally { session.disconnect(); }
   `], { encoding: "utf8", timeout: 30_000 });
+  const workPhases = new Set([
+    "imports and defaults compile no document or evidence",
+    "runtime validation shares one compiler and emits no tooling evidence",
+    "repeated evidence requests share the successful immutable artifact",
+    "eight source-pin observations reuse the schema without compiling it again",
+    "repeated pins and invalid metadata trigger no schema compilation",
+    "explicit candidate compilation still emits the complete contract",
+  ]);
+  for (const line of cold.stdout.split("\n").filter(Boolean)) {
+    const observation: unknown = JSON.parse(line);
+    if (typeof observation !== "object" || observation === null || Array.isArray(observation)) {
+      throw new Error("invalid config compiler work evidence");
+    }
+    const fields = observation as Record<string, unknown>;
+    if (fields.schema !== "config-contract-compiler-work/v1" ||
+      typeof fields.phase !== "string" || !workPhases.has(fields.phase) ||
+      typeof fields.runtimeCompilerCalls !== "number" || !Number.isSafeInteger(fields.runtimeCompilerCalls) || fields.runtimeCompilerCalls < 0 ||
+      typeof fields.artifactCompilerCalls !== "number" || !Number.isSafeInteger(fields.artifactCompilerCalls) || fields.artifactCompilerCalls < 0) {
+      throw new Error("invalid config compiler work evidence");
+    }
+    console.info(canonicalJson({ schema: fields.schema, phase: fields.phase,
+      runtimeCompilerCalls: fields.runtimeCompilerCalls, artifactCompilerCalls: fields.artifactCompilerCalls }));
+  }
   assert.equal(cold.error, undefined);
   assert.equal(cold.status, 0, cold.stderr || cold.stdout);
 
