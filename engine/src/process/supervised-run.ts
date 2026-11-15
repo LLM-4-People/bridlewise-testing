@@ -379,6 +379,22 @@ export function boundedRunDiagnostic(run: CpuBoundedRun): string {
 }
 
 /**
+ * The final requested-stop arbitration, after the runner has awaited owned cleanup.
+ * This pure boundary does not observe a signal, infer its origin, or stop a process.
+ * Policy tests may supply explicit hypothetical signal facts; those are not native observations.
+ */
+export function resolveCpuBoundedStop(
+  requested: BoundedEnding | undefined,
+  observedSignal: NodeJS.Signals | null | undefined,
+  observation: Pick<CpuBoundedObservation, "members" | "nativeExit"> | null | undefined,
+  termination: CpuBoundedDiagnostics["termination"],
+): BoundedEnding | undefined {
+  const preserveNativeEnding = requested === "stalled" && (observedSignal === "SIGXCPU" ||
+    (observation?.members === 0 && observation.nativeExit !== null && termination?.ending === "gone"));
+  return preserveNativeEnding ? undefined : requested;
+}
+
+/**
  * The group's accumulated work, sampled: its CPU time (clock ticks, members and reaped children: the budget),
  * the time its threads ran and waited for a core (the scheduler's exact ns: the stall judgement), each live
  * member's own plus the last sample of every member that vanished (a vanished member's CPU is kept unless its
@@ -589,9 +605,7 @@ export async function runCpuBounded(
     // A native SIGXCPU is an observed ending, not proof that the CPU limit generated it.
     // Only an inferred stall yields to it, or to a native exit after an empty-group no-op stop.
     // Stronger bounds retain their decisions; the existing cleanup and both diagnostic facts stay intact.
-    const preserveNativeEnding = stopping === "stalled" && (exitStatus?.signal === "SIGXCPU" ||
-      (stopObservation?.members === 0 && stopObservation.nativeExit !== null && finalDiagnostics.termination?.ending === "gone"));
-    const effectiveStopping = preserveNativeEnding ? undefined : stopping;
+    const effectiveStopping = resolveCpuBoundedStop(stopping, exitStatus?.signal, stopObservation, finalDiagnostics.termination);
     // The shell found no such command (on the run's PATH, or as a path): it never started.
     const missing = effectiveStopping === undefined && exitStatus?.status === COMMAND_NOT_FOUND.status && Buffer.concat(stderr).toString("utf8").trim() === COMMAND_NOT_FOUND.marker;
     if (missing) return Object.freeze({ ending: "unstarted", status: null, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cpuMs, startError: "ENOENT", diagnostics: finalDiagnostics });

@@ -15,7 +15,7 @@ import test from "node:test";
 
 import { isProcessAlive, isProcessIdentityLive, ownedChild, procfsDocument, terminate } from "../../src/process/process-facts.ts";
 import { boundedEnding, kernelCpuLimit, snapshotSubprocessBounds, type SubprocessBounds } from "../../src/process/subprocess-bounds.ts";
-import { boundedRunDiagnostic, runBoundedTestProcess, runCpuBounded } from "../../src/process/supervised-run.ts";
+import { boundedRunDiagnostic, resolveCpuBoundedStop, runBoundedTestProcess, runCpuBounded } from "../../src/process/supervised-run.ts";
 import { ensureTestProcessSupervisor } from "../../guardian/build.ts";
 import { createTempDir } from "../support/temp-dir.ts";
 import { guarded, PROCESS_FAULT_EXIT_CODE } from "../../src/process/fault-policy.ts";
@@ -177,151 +177,106 @@ test("the bounded ending: SIGXCPU is `cpu-rlimit`", async () => {
   assert.equal(boundedEnding(xcpu, TIGHT), "it was ended by observed SIGXCPU under an admitted CPU-time limit of at most 2 s of CPU work (RLIMIT_CPU); the signal's origin is unknown", boundedRunDiagnostic(xcpu));
 });
 
-/**
- * Drive the real watch and owned terminator, then let the command select its native ending.
- * The start marker follows an actual watch observation retaining both owned identities.
- * These controls prove the diagnostic policy, not the chronology of the hosted failure.
- */
-async function observeRequestedStop(
-  reason: "stalled" | "cpu-exhausted" | "output-exceeded" | "hung",
-  signal: "SIGXCPU" | null,
-  liveHolder = false,
-) {
-  const dir = createTempDir("bounded-native-ending-policy-");
+/** Real native TERM-exit control. It makes no fatal-signal completion promise. */
+async function observeNormalTermExit() {
+  const dir = createTempDir("bounded-normal-term-exit-");
   const leaderPid = join(dir, "leader.pid");
-  const holderPid = join(dir, "holder.pid");
   const ready = join(dir, "ready");
   const start = join(dir, "start");
-  const neverAdmitExit = join(dir, "never-admit-natural-leader-exit");
   const handled = join(dir, "term-handled");
-  const holderClosed = join(dir, "holder-closed");
   const fallback = join(dir, "fixture-backstop");
-  const nativeEnd = signal === null ? "process.exit(0);" : 'process.kill(process.pid, "SIGXCPU");';
-  const prefix = [
-    `process.on("SIGTERM", () => { require("node:fs").writeFileSync(${JSON.stringify(handled)}, "term"); ${nativeEnd} });`,
+  const command = [
+    `process.on("SIGTERM", () => { require("node:fs").writeFileSync(${JSON.stringify(handled)}, "term"); process.exit(0); });`,
     `setTimeout(() => { require("node:fs").writeFileSync(${JSON.stringify(fallback)}, "fixture safety only"); process.exit(73); }, ${String(QUIET_LIFE_MS)});`,
     `require("node:fs").writeFileSync(${JSON.stringify(leaderPid)}, String(process.pid));`,
+    'const fs = require("node:fs"); let started = false;',
+    `const begin = () => { if (started || !fs.existsSync(${JSON.stringify(start)})) return; started = true; admission.close(); };`,
+    `const admission = fs.watch(${JSON.stringify(dir)}, begin);`,
+    `fs.writeFileSync(${JSON.stringify(ready)}, "ready"); begin();`,
   ].join(" ");
-  const activity = reason === "cpu-exhausted"
-    ? `setInterval(() => { ${burn(20)} }, 0);`
-    : reason === "output-exceeded"
-      ? `process.stdout.write("x".repeat(${String(TIGHT.outputBytes + 1)}));`
-      : reason === "hung" ? 'setInterval(() => process.stdout.write("."), 100);' : "";
-  const holder = [
-    `process.on("SIGTERM", () => { require("node:fs").writeFileSync(${JSON.stringify(holderClosed)}, "term"); process.exit(0); });`,
-    'process.send("ready");', QUIET,
-  ].join(" ");
-  const command = liveHolder
-    ? prefix + " " + leaderWithGrandchild(holderPid, holder, 0, { detached: false, admitFile: neverAdmitExit, readyFile: ready })
-    : [prefix,
-      'const fs = require("node:fs"); let started = false;',
-      `const begin = () => { if (started || !fs.existsSync(${JSON.stringify(start)})) return; started = true; admission.close(); ${activity} };`,
-      `const admission = fs.watch(${JSON.stringify(dir)}, begin);`,
-      `fs.writeFileSync(${JSON.stringify(ready)}, "ready"); begin();`,
-    ].join(" ");
-  const bounds = reason === "hung" ? { ...TIGHT, hangBackstopMs: 1_000 } : TIGHT;
   let leader: ReturnType<typeof ownedChild> | undefined;
-  let held: ReturnType<typeof ownedChild> | undefined;
   let leaderGoneWhenAnswered = false;
-  let holderGoneWhenAnswered = !liveHolder;
-  let leaderCleanup: Awaited<ReturnType<typeof terminate>> | null = null;
-  let holderCleanup: Awaited<ReturnType<typeof terminate>> | null = null;
+  let cleanup: Awaited<ReturnType<typeof terminate>> | null = null;
   let run: Awaited<ReturnType<typeof runCpuBounded>> | undefined;
   try {
     run = await runCpuBounded(NODE, ["-e", command], {
-      cwd: dir, env: ENV, bounds,
+      cwd: dir, env: ENV, bounds: TIGHT,
       onObservation: (event) => {
         if (event.phase !== "watch" || event.diagnostics.stopRequest !== null || !existsSync(ready) || leader !== undefined) return;
         leader = ownedChild({ pid: Number(readFileSync(leaderPid, "utf8")) });
-        if (liveHolder) held = ownedChild({ pid: Number(readFileSync(holderPid, "utf8")) });
         writeFileSync(start, "start after identity ownership");
       },
     });
     leaderGoneWhenAnswered = leader !== undefined && !isProcessIdentityLive(leader);
-    holderGoneWhenAnswered = !liveHolder || (held !== undefined && !isProcessIdentityLive(held));
   } finally {
-    try {
-      if (leader !== undefined) leaderCleanup = await terminate({ group: leader }, { graceMs: bounds.killGraceMs });
-    } finally {
-      if (held !== undefined) holderCleanup = await terminate(held, { graceMs: bounds.killGraceMs });
-    }
+    if (leader !== undefined) cleanup = await terminate({ group: leader }, { graceMs: TIGHT.killGraceMs });
   }
-  assert.ok(run, "the actual bounded control returned its native outcome");
-  const control = { run, bounds, leaderOwned: leader !== undefined, holderOwned: held !== undefined, leaderGoneWhenAnswered,
-    holderGoneWhenAnswered, leaderCleanup, holderCleanup, handlerRan: existsSync(handled), holderClosed: existsSync(holderClosed),
-    fixtureBackstopUsed: existsSync(fallback) };
-  // Passing controls retain the same safe native projection and actual owned-cleanup facts as failed controls.
-  process.stdout.write("BOUNDED_POLICY_CONTROL " + canonicalJson({
-    case: { reason, signal, liveHolder },
-    native: JSON.parse(boundedRunDiagnostic(run)),
-    owned: {
-      leaderOwned: control.leaderOwned, holderOwned: control.holderOwned,
-      leaderGoneWhenAnswered: control.leaderGoneWhenAnswered, holderGoneWhenAnswered: control.holderGoneWhenAnswered,
-      handlerRan: control.handlerRan, holderClosed: control.holderClosed, fixtureBackstopUsed: control.fixtureBackstopUsed,
-      leaderCleanup: control.leaderCleanup === null ? null : { ending: control.leaderCleanup.ending, waitedMs: control.leaderCleanup.waitedMs },
-      holderCleanup: control.holderCleanup === null ? null : { ending: control.holderCleanup.ending, waitedMs: control.holderCleanup.waitedMs },
-    },
+  assert.ok(run, "the real TERM-exit control returned its native outcome");
+  const control = { run, leaderOwned: leader !== undefined, leaderGoneWhenAnswered, cleanup,
+    handlerRan: existsSync(handled), fixtureBackstopUsed: existsSync(fallback) };
+  process.stdout.write("BOUNDED_NATIVE_TERM_EXIT " + canonicalJson({
+    kind: "observed-native-integration", native: JSON.parse(boundedRunDiagnostic(run)),
+    owned: { leaderOwned: control.leaderOwned, leaderGoneWhenAnswered: control.leaderGoneWhenAnswered,
+      handlerRan: control.handlerRan, fixtureBackstopUsed: control.fixtureBackstopUsed,
+      cleanup: cleanup === null ? null : { ending: cleanup.ending, waitedMs: cleanup.waitedMs } },
   }) + "\n");
   return control;
 }
 
-function assertRequestedStopFacts(control: Awaited<ReturnType<typeof observeRequestedStop>>, reason: string, signal: "SIGXCPU" | null) {
+/**
+ * Explicit policy facts only: these tests do not observe or fabricate a native run.
+ * Real native signal delivery, budgets and cleanup remain covered by the integration cases below.
+ * The retired TERM-to-fatal-SIGXCPU witnesses failed on674; their historical negatives remain retained.
+ */
+test("explicit stop policy: SIGXCPU outranks only inferred stall", () => {
+  assert.equal(resolveCpuBoundedStop("stalled", "SIGXCPU", { members: 1, nativeExit: null }, { ending: "terminated", waitedMs: 0 }), undefined);
+});
+
+test("controlled normal exit on TERM retains its genuine requested stall", async () => {
+  const control = await observeNormalTermExit();
   const { run } = control;
   const diagnostic = boundedRunDiagnostic(run);
   assert.equal(control.leaderOwned, true, diagnostic);
   assert.equal(control.leaderGoneWhenAnswered, true, diagnostic);
-  assert.equal(control.holderGoneWhenAnswered, true, diagnostic);
   assert.equal(control.handlerRan, true, diagnostic);
   assert.equal(control.fixtureBackstopUsed, false, diagnostic);
-  assert.notEqual(control.leaderCleanup?.ending, "unconfirmed", diagnostic);
-  assert.notEqual(control.holderCleanup?.ending, "unconfirmed", diagnostic);
+  assert.notEqual(control.cleanup?.ending, "unconfirmed", diagnostic);
   assert.equal(run.startError, null, diagnostic);
-  assert.equal(run.signal, signal, diagnostic);
-  assert.equal(run.status, signal === null ? 0 : null, diagnostic);
-  assert.equal(run.diagnostics.stopRequest?.ending, reason, diagnostic);
+  assert.equal(run.signal, null, diagnostic);
+  assert.equal(run.status, 0, diagnostic);
+  assert.equal(run.diagnostics.stopRequest?.ending, "stalled", diagnostic);
   assert.notEqual(run.diagnostics.termination, null, diagnostic);
   assert.notEqual(run.diagnostics.termination?.ending, "unconfirmed", diagnostic);
-  assert.deepEqual(run.diagnostics.admittedBounds, control.bounds, diagnostic);
-}
-
-test("controlled native SIGXCPU outranks only its requested stall after actual owned cleanup", async () => {
-  const control = await observeRequestedStop("stalled", "SIGXCPU");
-  assertRequestedStopFacts(control, "stalled", "SIGXCPU");
-  assert.equal(control.run.ending, "cpu-rlimit", boundedRunDiagnostic(control.run));
+  assert.deepEqual(run.diagnostics.admittedBounds, TIGHT, diagnostic);
+  assert.equal(run.ending, "stalled", diagnostic);
 });
 
-test("controlled normal exit on TERM retains its genuine requested stall", async () => {
-  const control = await observeRequestedStop("stalled", null);
-  assertRequestedStopFacts(control, "stalled", null);
-  assert.equal(control.run.ending, "stalled", boundedRunDiagnostic(control.run));
+test("explicit stop policy: CPU budget remains authoritative over SIGXCPU", () => {
+  assert.equal(resolveCpuBoundedStop("cpu-exhausted", "SIGXCPU", { members: 1, nativeExit: null }, { ending: "terminated", waitedMs: 0 }), "cpu-exhausted");
 });
 
-test("controlled CPU budget remains authoritative over native SIGXCPU", async () => {
-  const control = await observeRequestedStop("cpu-exhausted", "SIGXCPU");
-  assertRequestedStopFacts(control, "cpu-exhausted", "SIGXCPU");
-  assert.ok((control.run.cpuMs ?? 0) > control.bounds.cpuBudgetMs, boundedRunDiagnostic(control.run));
-  assert.equal(control.run.ending, "cpu-exhausted", boundedRunDiagnostic(control.run));
+test("explicit stop policy: output budget remains authoritative over SIGXCPU", () => {
+  assert.equal(resolveCpuBoundedStop("output-exceeded", "SIGXCPU", { members: 1, nativeExit: null }, { ending: "terminated", waitedMs: 0 }), "output-exceeded");
 });
 
-test("controlled output budget remains authoritative over native SIGXCPU", async () => {
-  const control = await observeRequestedStop("output-exceeded", "SIGXCPU");
-  assertRequestedStopFacts(control, "output-exceeded", "SIGXCPU");
-  assert.ok(control.run.stdout.length > control.bounds.outputBytes, boundedRunDiagnostic(control.run));
-  assert.equal(control.run.ending, "output-exceeded", boundedRunDiagnostic(control.run));
+test("explicit stop policy: hang backstop remains authoritative over SIGXCPU", () => {
+  assert.equal(resolveCpuBoundedStop("hung", "SIGXCPU", { members: 1, nativeExit: null }, { ending: "terminated", waitedMs: 0 }), "hung");
 });
 
-test("controlled hang backstop remains authoritative over native SIGXCPU", async () => {
-  const control = await observeRequestedStop("hung", "SIGXCPU");
-  assertRequestedStopFacts(control, "hung", "SIGXCPU");
-  assert.equal(control.run.ending, "hung", boundedRunDiagnostic(control.run));
+test("explicit stop policy: live-member facts do not change SIGXCPU precedence", () => {
+  assert.equal(resolveCpuBoundedStop("stalled", "SIGXCPU", { members: 2, nativeExit: null }, { ending: "terminated", waitedMs: 0 }), undefined);
 });
 
-test("controlled native SIGXCPU still awaits and confirms its live same-group holder cleanup", async () => {
-  const control = await observeRequestedStop("stalled", "SIGXCPU", true);
-  assertRequestedStopFacts(control, "stalled", "SIGXCPU");
-  assert.equal(control.holderOwned, true, boundedRunDiagnostic(control.run));
-  assert.equal(control.holderClosed, true, boundedRunDiagnostic(control.run));
-  assert.equal(control.run.ending, "cpu-rlimit", boundedRunDiagnostic(control.run));
+test("explicit stop policy: non-SIGXCPU, uncertainty and empty GONE remain distinct", () => {
+  const live = { members: 1, nativeExit: null };
+  assert.equal(resolveCpuBoundedStop("stalled", "SIGKILL", live, { ending: "killed", waitedMs: 0 }), "stalled");
+  assert.equal(resolveCpuBoundedStop("stalled", "SIGTERM", live, { ending: "terminated", waitedMs: 0 }), "stalled");
+  assert.equal(resolveCpuBoundedStop("unmeasurable", "SIGXCPU", live, { ending: "killed", waitedMs: 0 }), "unmeasurable");
+  assert.equal(resolveCpuBoundedStop(undefined, "SIGXCPU", live, null), undefined);
+  assert.equal(resolveCpuBoundedStop("stalled", null, { members: 0, nativeExit: { status: 0, signal: null } }, { ending: "gone", waitedMs: 0 }), undefined);
+  assert.equal(resolveCpuBoundedStop("stalled", null, { members: 0, nativeExit: null }, { ending: "gone", waitedMs: 0 }), "stalled");
+  assert.equal(resolveCpuBoundedStop("stalled", null, { members: 1, nativeExit: { status: 0, signal: null } }, { ending: "terminated", waitedMs: 0 }), "stalled");
+  assert.equal(resolveCpuBoundedStop("stalled", null, { members: 0, nativeExit: { status: 0, signal: null } }, { ending: "killed", waitedMs: 0 }), "stalled");
 });
 
 test("the bounded ending: a poller doing any CPU work is progressing, never stalled", async () => {
@@ -474,7 +429,7 @@ test("the work-bounded run's bounds, each pinned by a test a mutation turns red 
   assert.equal(isProcessAlive(Number(readFileSync(later, "utf8"))), false, "the grandchild was stopped with the group");
 });
 
-/** Future recorded controls only: the ended-empty-group expectation is intentionally red on unchanged V3. */
+/** Recorded regression pair: an ended empty group and a live same-group holder remain distinct. */
 async function observeOwnedPipeHolder(detached: boolean): Promise<Readonly<{
   run: Awaited<ReturnType<typeof runCpuBounded>>;
   authoritativeGone: boolean;
@@ -576,7 +531,7 @@ test("controlled ended empty group keeps its native ending after owned outsider 
   assert.notEqual(observed.cleanup?.ending, "unconfirmed");
   assert.equal(observed.cleanupBackstopUsed, false);
   assert.deepEqual([observed.run.status, observed.run.signal], [0, null], boundedRunDiagnostic(observed.run));
-  // INTENTIONAL pre-fix red, reserved for recorded reproduction and exact later repair review.
+  // A requested no-op stall must preserve the already observed native exit after owned cleanup.
   assert.equal(observed.run.ending, "exited", boundedRunDiagnostic(observed.run));
 });
 

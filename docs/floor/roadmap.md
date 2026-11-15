@@ -19,9 +19,9 @@ This is the engineering roadmap for the Bridlewise development floor: what shipp
 <!-- BEGIN GENERATED: roadmap summary, from the tracker items and the decision records (harness sync; scripts/floor/roadmap-status.ts) -->
 ### Where the floor stands
 
-**0 of 61 tracked items shipped (0%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. 7 not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.
+**0 of 63 tracked items shipped (0%).** The tracked total covers the roadmap's workstreams and exit criteria and every open tracker item. 7 not-planned statements sit outside it. A close counts as shipped only when linked evidence proves it; a close without proof reads claimed.
 
-0 shipped · 24 claimed, unverified · 4 in progress · 32 planned · 1 blocked · 7 not planned.
+0 shipped · 24 claimed, unverified · 6 in progress · 32 planned · 1 blocked · 7 not planned.
 
 ### Milestones
 
@@ -314,6 +314,7 @@ Every open tracker item outside the milestone plan appears here, by lane. An ite
 
 | Task | State | Owner | Evidence |
 |---|---|---|---|
+| **[BOUNDED\-SIGNAL\-WITNESS\-BURN\-DOWN](../trackers/items/BOUNDED-SIGNAL-WITNESS-BURN-DOWN.md)** | in progress \(decision FLAKE\-REPRO partly built, decision UR\-24 built\) | engine process maintainer | [GitHub]({{ site.repository_url }}/actions/runs/43665134038/job/132662706578) |
 | **[BOUNDED\-SIGXCPU\-STALL\-BURN\-DOWN](../trackers/items/BOUNDED-SIGXCPU-STALL-BURN-DOWN.md)** | in progress \(decision FLAKE\-REPRO partly built, decision UR\-24 built\) | engine process maintainer | [GitHub]({{ site.repository_url }}/actions/runs/43597843498/job/132456055220) |
 | **[FLAKY\-CONFIG\-PARENT\-CHURN](../trackers/items/FLAKY-CONFIG-PARENT-CHURN.md)** | planned | — | — |
 | **[FLAKY\-PUBLIC\-ENGINE\-GUARD\-REDS\-ON\-ROUND\-TREES](../trackers/items/FLAKY-PUBLIC-ENGINE-GUARD-REDS-ON-ROUND-TREES.md)** | planned | — | — |
@@ -322,6 +323,7 @@ Every open tracker item outside the milestone plan appears here, by lane. An ite
 | **[FLAKY\-PUBLIC\-S1\-B12\-CONTROL](../trackers/items/FLAKY-PUBLIC-S1-B12-CONTROL.md)** | planned | — | — |
 | **[FLAKY\-PUBLIC\-WEB\-GUARD\-REDS\-ON\-ROUND\-TREES](../trackers/items/FLAKY-PUBLIC-WEB-GUARD-REDS-ON-ROUND-TREES.md)** | planned | — | — |
 | **[FLAKY\-PUBLIC\-WEB\-WATCHDOG\-C3](../trackers/items/FLAKY-PUBLIC-WEB-WATCHDOG-C3.md)** | planned | — | — |
+| **[FOUNDATION\-SNAPSHOT\-COPY\-BURN\-DOWN](../trackers/items/FOUNDATION-SNAPSHOT-COPY-BURN-DOWN.md)** | in progress \(decision FLAKE\-REPRO partly built, decision UR\-24 built\) | engine test\-evidence maintainer | [GitHub]({{ site.repository_url }}/actions/runs/43665134038/job/132662706578) |
 | **[PROJECTOR\-NATIVE\-TERMINATION\-BURN\-DOWN](../trackers/items/PROJECTOR-NATIVE-TERMINATION-BURN-DOWN.md)** | in progress \(decision FLAKE\-REPRO partly built, decision UR\-24 built\) | engine process maintainer | [GitHub]({{ site.repository_url }}/actions/runs/43576533070/job/132391868972) |
 
 #### Private web lanes (retained as ordinary work)
