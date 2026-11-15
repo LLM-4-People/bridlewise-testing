@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { HarnessError, InputError } from "../kernel/errors.ts";
@@ -26,7 +26,8 @@ import { auditEvent } from "../shared/debug/debug-system.ts";
 import { currentQualificationOutcome, qualificationTerminal, runForInvocation, diffRunFailures, failureIdentityFile, importJudgedRuns, latestRunOfTree, readRunHistory, runsOfTree, suiteLedgerPaths, type SuiteLedgerName } from "../shared/run-history.ts";
 import { openBoardRows, ownersOf } from "./failure-owners.ts";
 import { finiteNumber, type JudgedRunRecord, type RunQualificationTerminal } from "../shared/budget-verdict.ts";
-import { acquireLock } from "./resource-lock.ts";
+import { acquireLock, lockPathFor } from "./resource-lock.ts";
+import { tryAcquireFileLock } from "../filesystem/file-lock.ts";
 import { generatedOutputPaths, isGenerationOnlyChange } from "./hash-binding-registry.ts";
 import { frozenAcceptancesBetween } from "./record-links.ts";
 import { applyCheckoutFiles, assertSameFilesystem, removeGateLogs, runCheckoutPhase, runDeclaredCommands, settleCheckout, type CheckoutCommand, type CheckoutPhase, type CheckoutStep } from "./checkout-setup.ts";
@@ -40,6 +41,7 @@ import { DEFAULT_MAXIMUM_PERSISTED_GATE_STRING_CHARACTERS, WORKSPACE_NONCE_CHARA
 import {
   assertLeasableWriteSet,
   assertWorkspaceAgentName,
+  assertWorkspaceId,
   assertWorkspaceTransition,
   canonicalizeWriteSetPath,
   computeMergedSinceConflicts,
@@ -263,6 +265,8 @@ export type WorkspaceManager = Readonly<{
   publish(workspaceId: string): Promise<WorkspacePublication>;
   /** Marks the pull request ready for review: the published head is the validated tree. */
   ready(workspaceId: string): Promise<WorkspaceRecord>;
+  /** Withdraws review readiness and resumes editing without discarding validation evidence. */
+  draft(workspaceId: string): Promise<WorkspaceRecord>;
   merge(workspaceId: string): Promise<MergeReceipt>;
   /** Lands the published, ready, validated head through the forge's merge queue and waits for it (see `land` below). */
   land(workspaceId: string): Promise<LandReceipt>;
@@ -374,6 +378,12 @@ function unstagedStatusPaths(entries: readonly StatusEntry[]): readonly string[]
   return statusPaths(entries.filter((entry) => entry.unstaged || entry.untracked));
 }
 
+/** The existing per-workspace publication resource, shared by every coordinated workspace operation. */
+export function workspaceOperationResource(workspaceId: string): string {
+  assertWorkspaceId(workspaceId);
+  return `workspace-publish.${workspaceId.toLowerCase()}`;
+}
+
 export function createWorkspaceManager(options: WorkspaceManagerOptions): WorkspaceManager {
   const { config, git, commands, timeouts } = options;
   const timeline = options.timeline ?? null;
@@ -400,6 +410,31 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     } finally {
       handle.release();
     }
+  }
+
+  /** One existing resource per workspace; public bodies never recursively take this asynchronous gate. */
+  async function withWorkspaceOperations<T>(workspaceIds: readonly string[], work: () => Promise<T>, timeoutMs = config.mergeLock.timeoutMs): Promise<T> {
+    ensurePrivateStateDirectory(lockDirectory);
+    const handles: Awaited<ReturnType<typeof acquireLock>>[] = [];
+    try {
+      // Canonical keys can alias case-distinct IDs; acquire each actual resource once in one order.
+      for (const resource of [...new Set(workspaceIds.map(workspaceOperationResource))].toSorted()) {
+        handles.push(await acquireLock(registry.root, resource, {
+          lockDirectory, timeoutMs, unreadableAfterMs: config.mergeLock.staleMs, owner: `workspace-operation:${resource}`,
+        }));
+      }
+      return await work();
+    } finally {
+      for (const handle of handles.toReversed()) handle.release();
+    }
+  }
+
+  function coordinatedSnapshot(workspaceId: string, label: string): WorkingTreeSnapshot {
+    const attempt = tryAcquireFileLock(lockPathFor(registry.root, workspaceOperationResource(workspaceId), lockDirectory), {
+      holder: `workspace-snapshot:${workspaceId}`, unreadableAfterMs: config.mergeLock.staleMs,
+    });
+    if (attempt.state !== "taken") throw new InputError(`workspace ${workspaceId} has an operation in flight`, "workspace_operation_busy");
+    try { return snapshotWorkspace(workspaceId, label); } finally { attempt.handle.release(); }
   }
 
   /**
@@ -536,16 +571,18 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     return updated;
   }
 
-  async function assertLeaseLive(record: WorkspaceRecord): Promise<void> {
+  type PrerequisiteMode = "lifecycle" | "read-only";
+
+  async function assertLeaseLive(record: WorkspaceRecord, mode: PrerequisiteMode = "lifecycle"): Promise<void> {
     if (leaseExpired(record, now().getTime())) {
-      await abortInternal(record, config.preserveOnFailure, "lease-expired");
+      if (mode === "lifecycle") await abortInternal(record, config.preserveOnFailure, "lease-expired");
       throw new WorkspaceLeaseExpiredError(record.workspaceId);
     }
   }
 
-  function assertWorktreeIntact(record: WorkspaceRecord): void {
+  function assertWorktreeIntact(record: WorkspaceRecord, mode: PrerequisiteMode = "lifecycle"): void {
     if (!git.verifyWorktreeIntact(record.lease.worktreePath, timeouts.inspectMs)) {
-      quarantineRecord(record, "worktree .git entry missing or gitdir unreadable");
+      if (mode === "lifecycle") quarantineRecord(record, "worktree .git entry missing or gitdir unreadable");
       throw new WorkspaceIntegrityError(record.workspaceId, "worktree .git entry missing or gitdir unreadable");
     }
   }
@@ -1994,15 +2031,12 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * names it now: an upstream changed since create (another remote or trunk)
    * is refused, never followed (`workspace_target_upstream_changed`).
    */
-  function forgeOf(record: WorkspaceRecord, which: "upstream" | "recorded" = "upstream"): Readonly<{ forge: WorkspaceForge; target: ForgeTarget; state: WorkspaceForgeState }> {
+  function forgeContext(record: WorkspaceRecord, which: "upstream" | "recorded" = "upstream"): Readonly<{ target: ForgeTarget; state: WorkspaceForgeState }> {
     const state = record.forge;
     if (state === null) throw new InputError(`workspace ${record.workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
     if (isLegacyForgeState(state)) {
       // Only an older store's workspace carries the legacy marker, and every verb that reaches here refused it already.
       throw new InputError(`workspace ${record.workspaceId} was made before the forge: it never reaches the forge`, "workspace_owned_by_v2_checkout");
-    }
-    if (options.forge === undefined) {
-      throw new HarnessError("this workspace manager was made without a forge (the workspace CLI's is githubWorkspaceForgeFactory): it cannot reach the forge", "workspace_forge_unavailable", false, { workspaceId: record.workspaceId });
     }
     const repository = options.repository(checkoutRoot);
     // `recorded`: the remote this workspace was made for (an abort, a land in flight); `upstream`: its target's upstream now, which must still be that one.
@@ -2012,20 +2046,28 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     if (target.remote !== state.remote || target.trunk !== state.trunk) {
       throw new InputError(`${record.lease.targetBranch!}'s upstream is ${target.remote}/${target.trunk} now, but the workspace was created for ${state.remote}/${state.trunk}: abort it and create a new one`, "workspace_target_upstream_changed");
     }
+    return Object.freeze({ target, state });
+  }
+
+  function forgeOf(record: WorkspaceRecord, which: "upstream" | "recorded" = "upstream"): Readonly<{ forge: WorkspaceForge; target: ForgeTarget; state: WorkspaceForgeState }> {
+    if (options.forge === undefined) {
+      throw new HarnessError("this workspace manager was made without a forge (the workspace CLI's is githubWorkspaceForgeFactory): it cannot reach the forge", "workspace_forge_unavailable", false, { workspaceId: record.workspaceId });
+    }
+    const context = forgeContext(record, which);
     // Frozen shallowly: the client is the composition root's object, never the manager's to freeze.
-    return Object.freeze({ forge: options.forge(target), target, state });
+    return Object.freeze({ ...context, forge: options.forge(context.target) });
   }
 
   /** A feature workspace a forge verb may act on: not read-only, not terminal, not merging; its lease live and its worktree intact. */
-  async function requireForgeable(workspaceId: string, verb: string): Promise<WorkspaceRecord> {
+  async function requireForgeable(workspaceId: string, verb: string, mode: PrerequisiteMode = "lifecycle"): Promise<WorkspaceRecord> {
     const record = requireOwnedRecord(workspaceId);
     if (record.lease.kind === "read-only") throw new InputError(`workspace ${workspaceId} is read-only: it never reaches the forge`, "workspace_read_only");
     if (isTerminalWorkspaceState(record.state)) throw new InputError(`workspace ${workspaceId} is terminal (${record.state})`, "workspace_terminal");
     if (record.state !== "active" && record.state !== "validating") {
       throw new InputError(`workspace ${workspaceId} cannot ${verb} from ${record.state}`, "workspace_precondition_failed");
     }
-    await assertLeaseLive(record);
-    assertWorktreeIntact(record);
+    await assertLeaseLive(record, mode);
+    assertWorktreeIntact(record, mode);
     return record;
   }
 
@@ -2044,7 +2086,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   async function publish(workspaceId: string): Promise<WorkspacePublication> {
     // One round at a time per workspace: two concurrent publishes would both make twins.
     ensurePrivateStateDirectory(lockDirectory);
-    const lock = await acquireLock(registry.root, `workspace-publish.${workspaceId.toLowerCase()}`, { lockDirectory, timeoutMs: config.mergeLock.timeoutMs, unreadableAfterMs: config.mergeLock.staleMs, owner: `workspace-publish:${workspaceId}` });
+    const lock = await acquireLock(registry.root, workspaceOperationResource(workspaceId), { lockDirectory, timeoutMs: config.mergeLock.timeoutMs, unreadableAfterMs: config.mergeLock.staleMs, owner: `workspace-publish:${workspaceId}` });
     try {
       return await publishRound(workspaceId);
     } finally {
@@ -2154,8 +2196,8 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
    * refused (`workspace_pull_request_closed`), and so are one whose head
    * another writer moved (`workspace_published_head_moved`) and one whose
    * base was changed away from the trunk (`workspace_pull_request_base_mismatch`:
-   * a merge into any other branch is no land). `ready` and `land` both ask it
-   * before they act on the forge.
+   * a merge into any other branch is no land). Forge lifecycle actions ask it
+   * before acting on the current pull request.
    */
   function assertOpenAtPublishedHead(record: WorkspaceRecord, current: ForgePullRequest, head: string): void {
     if (current.state !== "open") throw new InputError(`pull request #${String(current.number)} is ${current.state}`, "workspace_pull_request_closed");
@@ -2168,27 +2210,120 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     }
   }
 
+  function observeWorkspaceCustody(record: WorkspaceRecord) {
+    const worktree = record.lease.worktreePath;
+    // The ordinary integrity assertion quarantines. This path only observes and refuses.
+    if (!existsSync(worktree) || !git.verifyWorktreeIntact(worktree, timeouts.inspectMs) ||
+      git.toplevel(worktree, timeouts.inspectMs) !== resolve(worktree) ||
+      git.commonDir(worktree, timeouts.inspectMs) !== git.commonDir(checkoutRoot, timeouts.inspectMs)) {
+      throw new WorkspaceIntegrityError(record.workspaceId, "workspace custody is unavailable; no worktree was changed or quarantined");
+    }
+    const branch = git.symbolicBranch(worktree, timeouts.inspectMs);
+    if (branch === null || branch !== record.lease.branch) throw new WorkspaceIntegrityError(record.workspaceId, "workspace branch identity differs");
+    const index = indexFilePath(worktree, "directory");
+    const facts = lstatSync(index);
+    if (!facts.isFile() || facts.nlink !== 1) throw new InputError("workspace index custody is unsupported", "workspace_custody_unsupported");
+    return deepFreeze({ workspaceId: record.workspaceId, revision: record.revision, leaseGeneration: record.lease.generation,
+      headSha: git.revParse(worktree, "HEAD", timeouts.inspectMs), branch,
+      index: { sha256: sha256(readFileSync(index)), mode: facts.mode & 0o7777 },
+    });
+  }
+
+  function assertWorkspaceCustody(expected: ReturnType<typeof observeWorkspaceCustody>, observed: ReturnType<typeof observeWorkspaceCustody>): void {
+    if (observed.workspaceId !== expected.workspaceId || observed.headSha !== expected.headSha || observed.branch !== expected.branch ||
+      observed.index.sha256 !== expected.index.sha256 || observed.index.mode !== expected.index.mode) {
+      throw new InputError("native workspace HEAD, branch or raw index moved from the reviewed request", "workspace_custody_changed");
+    }
+  }
+
+  /** The current published qualification: one owner for ready and resumed ready. */
+  function publishedHeadWithValidation(record: WorkspaceRecord, state: WorkspaceForgeState): Readonly<{ head: string; tree: string; validated: ValidationReport }> {
+    if (state.pullRequest === null || state.publishedHead === null) {
+      throw new InputError(`workspace ${record.workspaceId} has no pull request yet: publish a round first`, "workspace_not_published");
+    }
+    const path = record.lease.worktreePath;
+    const head = git.revParse(path, "HEAD", timeouts.inspectMs);
+    if (head !== state.publishedHead || git.status(path, timeouts.inspectMs).length > 0) {
+      throw new InputError(`workspace ${record.workspaceId} holds work its last round did not publish (published ${state.publishedHead}, HEAD ${head}): publish it first`, "workspace_unpublished_commits");
+    }
+    const tree = git.revParse(path, `${head}^{tree}`, timeouts.inspectMs);
+    const validated = record.validationReport;
+    if (validated === null || validated.status !== "pass" || validated.tree !== tree ||
+      validated.workspaceId !== record.workspaceId || validated.baseSha !== record.lease.baseSha) {
+      throw new InputError(`workspace ${record.workspaceId}'s published head ${head} and tree ${tree} have no passing validation: validate them first`, "workspace_not_validated");
+    }
+    return { head, tree, validated };
+  }
+
   async function ready(workspaceId: string): Promise<WorkspaceRecord> {
     const record = await requireForgeable(workspaceId, "be marked ready");
-    const worktreePath = record.lease.worktreePath;
     const { forge, state } = forgeOf(record);
-    if (state.pullRequest === null || state.publishedHead === null) {
-      throw new InputError(`workspace ${workspaceId} has no pull request yet: publish a round first`, "workspace_not_published");
-    }
-    const head = git.revParse(worktreePath, "HEAD", timeouts.inspectMs);
-    if (head !== state.publishedHead || git.status(worktreePath, timeouts.inspectMs).length > 0) {
-      throw new InputError(`workspace ${workspaceId} holds work its last round did not publish (published ${state.publishedHead}, HEAD ${head}): publish it first`, "workspace_unpublished_commits");
-    }
-    const validated = record.validationReport;
-    const tree = git.revParse(worktreePath, `${head}^{tree}`, timeouts.inspectMs);
-    if (validated === null || validated.status !== "pass" || validated.tree !== tree) {
-      throw new InputError(`workspace ${workspaceId}'s published tree ${tree} has no passing validation: validate it first`, "workspace_not_validated");
-    }
-    const current = await forge.pullRequest(state.pullRequest.number);
+    const { head } = publishedHeadWithValidation(record, state);
+    const current = await forge.pullRequest(state.pullRequest!.number);
     assertOpenAtPublishedHead(record, current, head);
     if (current.draft) await forge.markReadyForReview(current.number);
-    const saved = store.save(deepFreeze({ ...record, forge: deepFreeze({ ...state, ready: true }) }));
+    const marked: WorkspaceRecord = deepFreeze({ ...record, forge: deepFreeze({ ...state, ready: true }) });
+    // A no-edit draft/ready round trip reuses only the current exact passing report above.
+    const qualified = marked.state === "active" ? transition(marked, "validating", "current published qualification marked ready") : marked;
+    const saved = store.save(qualified);
     auditEvent("workspace-ready", { workspaceId, pullRequest: current.number, head });
+    return saved;
+  }
+
+  /** Return the recorded PR to draft; remote evidence precedes the local optimistic save. */
+  async function draft(workspaceId: string): Promise<WorkspaceRecord> {
+    const record = await requireForgeable(workspaceId, "return to draft", "read-only");
+    const { forge, target, state } = forgeOf(record);
+    if (state.pullRequest === null || state.publishedHead === null) {
+      throw new InputError(`workspace ${workspaceId} has no published pull request`, "workspace_not_published");
+    }
+    if (state.land !== null) throw new InputError("a land owns this workspace until it finishes", "workspace_draft_denied");
+    const number = state.pullRequest.number;
+    const head = state.publishedHead;
+    // Unlike ready, withdrawal permits dirty, unpublished and failed local work.
+    // This is the existing read-only native custody owner: it never refreshes the index.
+    const custody = observeWorkspaceCustody(record);
+    const assertCurrent = async (): Promise<void> => {
+      const latest = requireOwnedRecord(workspaceId);
+      if (latest.revision !== record.revision || latest.lease.generation !== record.lease.generation) {
+        throw new InputError("the draft subject changed during withdrawal", "workspace_draft_subject_changed");
+      }
+      await assertLeaseLive(latest, "read-only");
+      const context = forgeContext(latest);
+      if (context.target.remote !== target.remote || context.target.trunk !== target.trunk || context.target.remoteUrl !== target.remoteUrl) {
+        throw new InputError("the draft target changed during withdrawal", "workspace_draft_subject_changed");
+      }
+      try { assertWorkspaceCustody(custody, observeWorkspaceCustody(latest)); }
+      catch (error) {
+        if (error instanceof HarnessError && error.code === "workspace_custody_changed") {
+          throw new InputError("native HEAD, branch or index changed during withdrawal", "workspace_draft_subject_changed");
+        }
+        throw error;
+      }
+    };
+    const assertRemote = (current: ForgePullRequest): void => {
+      if (current.number !== number) throw new InputError("the forge answered for another pull request", "workspace_draft_subject_changed");
+      assertOpenAtPublishedHead(record, current, head);
+      if (current.merged || current.queued) throw new InputError("a queued or merged pull request cannot resume editing", "workspace_draft_denied");
+    };
+    const current = await forge.pullRequest(number);
+    await assertCurrent();
+    assertRemote(current);
+    if (!current.draft) {
+      await forge.convertToDraft(number);
+      await assertCurrent();
+    }
+    // convertToDraft has no expected-head CAS: a fresh read detects a changed remote subject.
+    const observed = await forge.pullRequest(number);
+    await assertCurrent();
+    assertRemote(observed);
+    if (!observed.draft) throw new InputError("the forge did not retain draft state", "workspace_draft_not_observed");
+    if (!state.ready && record.state === "active") return record;
+    const withdrawn: WorkspaceRecord = deepFreeze({ ...record, forge: deepFreeze({ ...state, ready: false }) });
+    // The prior report, including a current FAIL, remains evidence verbatim; no qualification is awarded.
+    const resumed = withdrawn.state === "validating" ? transition(withdrawn, "active", "readiness withdrawn; editing resumed") : withdrawn;
+    const saved = store.save(resumed);
+    auditEvent("workspace-ready-withdrawn", { workspaceId, pullRequest: number, head, localHead: custody.headSha });
     return saved;
   }
 
@@ -2206,9 +2341,11 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
     const swept: string[] = [];
     const orphaned: string[] = [];
     const nowMs = now().getTime();
-    for (const record of store.list()) {
+    for (const listed of store.list()) {
       // A workspace known only to the legacy store is older code's: this code never sweeps it (until the P7 cutover).
-      if (store.olderRecord(record.workspaceId) !== null) continue;
+      if (store.olderRecord(listed.workspaceId) !== null) continue;
+      await withWorkspaceOperations([listed.workspaceId], async () => {
+      const record = requireOwnedRecord(listed.workspaceId);
       if (record.state === "merging") {
         // A merging record whose integrator is gone (the merge lock is free)
         // is recovered; a running integrator's is left to it.
@@ -2217,7 +2354,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
         } catch (error) {
           if ((error as { code?: unknown }).code !== "workspace_recover_denied") throw error;
         }
-        continue;
+        return;
       }
       if (!isTerminalWorkspaceState(record.state)) {
         if (leaseExpired(record, nowMs)) {
@@ -2229,12 +2366,12 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
           orphaned.push(record.workspaceId);
           auditEvent("workspace-orphaned", { workspaceId: record.workspaceId, worktreePath: record.lease.worktreePath, state: record.state });
         }
-        continue;
+        return;
       }
-      if (record.state !== "quarantined") continue;
+      if (record.state !== "quarantined") return;
       const lastTransition = record.history.at(-1);
       const worktreePath = record.lease.worktreePath;
-      if (lastTransition === undefined || !existsSync(worktreePath) || nowMs <= new Date(lastTransition.at).getTime() + config.quarantineTtlMs) continue;
+      if (lastTransition === undefined || !existsSync(worktreePath) || nowMs <= new Date(lastTransition.at).getTime() + config.quarantineTtlMs) return;
       // A quarantined worktree is LOCKED (`worktree lock`): `remove --force`
       // refuses a locked one, so it is unlocked first.
       try {
@@ -2249,6 +2386,7 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
       removeWorktreeAndBranch(record);
       auditEvent("workspace-swept", { workspaceId: record.workspaceId, worktreePath });
       swept.push(record.workspaceId);
+      });
     }
     return deepFreeze({ swept: deepFreeze(swept), orphaned: deepFreeze(orphaned) });
   }
@@ -2256,15 +2394,16 @@ export function createWorkspaceManager(options: WorkspaceManagerOptions): Worksp
   return deepFreeze({
     registry,
     create,
-    extend,
-    validate,
+    extend: (workspaceId: string, paths: readonly string[]) => withWorkspaceOperations([workspaceId], () => extend(workspaceId, paths)),
+    validate: (workspaceId: string, validateOptions?: Parameters<WorkspaceManager["validate"]>[1]) => withWorkspaceOperations([workspaceId], () => validate(workspaceId, validateOptions)),
     publish,
-    ready,
-    merge,
-    land,
-    recover,
-    abort,
-    snapshot: snapshotWorkspace,
+    draft: (workspaceId: string) => withWorkspaceOperations([workspaceId], () => draft(workspaceId)),
+    ready: (workspaceId: string) => withWorkspaceOperations([workspaceId], () => ready(workspaceId)),
+    merge: (workspaceId: string) => withWorkspaceOperations([workspaceId], () => merge(workspaceId)),
+    land: (workspaceId: string) => withWorkspaceOperations([workspaceId], () => land(workspaceId)),
+    recover: (workspaceId: string) => withWorkspaceOperations([workspaceId], () => recover(workspaceId)),
+    abort: (workspaceId: string, abortOptions?: Parameters<WorkspaceManager["abort"]>[1]) => withWorkspaceOperations([workspaceId], () => abort(workspaceId, abortOptions)),
+    snapshot: coordinatedSnapshot,
     list: (): readonly WorkspaceRecord[] => store.list(),
     status: requireRecord,
     sweep,

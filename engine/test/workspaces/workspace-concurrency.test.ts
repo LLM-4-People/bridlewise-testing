@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import test from "node:test";
 
+import { indexFilePath } from "../../src/git/repository-ownership.ts";
+import type { WorkspaceForgeFactory } from "../../src/workflow/workspace-forge.ts";
 import { sha256 } from "../../src/kernel/integrity.ts";
 import { acquireLock, LockAcquisitionTimeout } from "../../src/workflow/resource-lock.ts";
 import { FILE_LOCK_SCHEMA_VERSION, type FileLockContent } from "../../src/filesystem/file-lock.ts";
@@ -10,9 +12,12 @@ import {
   WorkspaceConflictError,
   WorkspaceIntegrityError,
   WorkspaceLeaseExpiredError,
+  workspaceOperationResource,
 } from "../../src/workflow/workspace-manager.ts";
 import {
   commitFile,
+  forgeAt,
+  forgeStateOf,
   initTempRepo,
   makeManager,
   makeTestConfig,
@@ -196,4 +201,55 @@ test("an expired lease aborts through validation and through the sweep; the swee
   clock += 10_000;
   assert.deepEqual([...(await manager.sweep()).swept].toSorted(), [first.workspaceId, second.workspaceId].toSorted());
   assert.ok(!existsSync(first.lease.worktreePath) && !existsSync(second.lease.worktreePath), "past its retention a quarantined (locked) worktree is removed");
+});
+
+
+/** A fixture-controlled asynchronous boundary, without polling or a wall-clock sleep. */
+function deferred(): Readonly<{ promise: Promise<void>; resolve(): void }> {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+test("draft: an in-flight conversion excludes every saving and destructive workspace door", async () => {
+  const entered = deferred();
+  const release = deferred();
+  const factory: WorkspaceForgeFactory = (target) => {
+    const base = forgeAt(target.remoteUrl);
+    return { ...base, async convertToDraft(number) { await base.convertToDraft(number); entered.resolve(); await release.promise; } };
+  };
+  const { root, bare } = initTempRepo("ws-draft-operation-gate");
+  const config = makeTestConfig(mkWorkspaceTempDir("ws-draft-operation-gate-wt"), {
+    mergeLock: { name: "workspace-merge", timeoutMs: 0, staleMs: 30_000 },
+  });
+  const manager = makeManager(root, { config, forge: factory }).manager;
+  const record = await manager.create({ agentName: "writer", mode: "feature", writeSet: ["src"] });
+  commitFile(record.lease.worktreePath, "src/a.ts", "export const ready = true;\n");
+  await manager.publish(record.workspaceId);
+  await manager.validate(record.workspaceId);
+  await manager.ready(record.workspaceId);
+  assert.equal(workspaceOperationResource(record.workspaceId), `workspace-publish.${record.workspaceId.toLowerCase()}`);
+  const running = manager.draft(record.workspaceId).then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
+  try {
+    await Promise.race([entered.promise, running.then(() => { assert.fail("draft ended before its actual conversion boundary"); })]);
+    assert.equal(forgeAt(bare).pulls.get(1)!.draft, true);
+    const before = manager.status(record.workspaceId);
+    const index = readFileSync(indexFilePath(record.lease.worktreePath, "directory"));
+    const head = rawGit(record.lease.worktreePath, ["rev-parse", "HEAD"]);
+    for (const operation of [
+      () => manager.ready(record.workspaceId), () => manager.draft(record.workspaceId),
+      () => manager.publish(record.workspaceId), () => manager.land(record.workspaceId),
+      () => manager.extend(record.workspaceId, ["more"]), () => manager.validate(record.workspaceId),
+      () => manager.merge(record.workspaceId), () => manager.recover(record.workspaceId),
+      () => manager.abort(record.workspaceId), () => manager.sweep(),
+    ]) await assert.rejects(operation, throwsCode("lock_acquisition_timeout"));
+    assert.throws(() => manager.snapshot(record.workspaceId, "blocked"), throwsCode("workspace_operation_busy"));
+    assert.deepEqual(manager.status(record.workspaceId), before);
+    assert.deepEqual(readFileSync(indexFilePath(record.lease.worktreePath, "directory")), index);
+    assert.equal(rawGit(record.lease.worktreePath, ["rev-parse", "HEAD"]), head);
+  } finally { release.resolve(); }
+  const outcome = await running;
+  if (!outcome.ok) throw outcome.error;
+  assert.equal(outcome.value.state, "active");
+  assert.equal(forgeStateOf(outcome.value).ready, false);
 });

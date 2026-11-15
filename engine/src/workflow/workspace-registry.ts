@@ -107,7 +107,9 @@ export function createWorkspaceRecordStore(stores: WorkspaceRecordStores): Works
     }
     const found = parsed !== null && typeof parsed === "object" ? (parsed as Readonly<Record<string, unknown>>)["schemaVersion"] : undefined;
     if (found !== version) throw new HarnessError(`workspace record ${workspaceId} in the ${version} store is of version ${String(found)}`, "workspace_record_invalid", false, { workspaceId });
-    return migrateWorkspaceRecord(parsed).record;
+    const record = migrateWorkspaceRecord(parsed).record;
+    if (record.workspaceId !== workspaceId) throw new HarnessError(`workspace record ${workspaceId} names ${record.workspaceId}`, "workspace_record_invalid", false, { workspaceId });
+    return record;
   };
   const currentPath = (workspaceId: string): string => join(stores.current, `${workspaceId}.json`);
   const olderRecord = (workspaceId: string): OlderRecord | null => {

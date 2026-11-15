@@ -284,30 +284,35 @@ test("a land not merged within its wait budget stays merging (workspace_land_pen
   assert.equal(forge.calls.filter((call) => call.op === "enqueue").length, 1, "one request for the whole land");
 });
 
-test("GUARD finishing is idempotent: a recover that finished the land between the land's read and its finish leaves the land its receipt, torn down once", async () => {
+test("GUARD finishing is idempotent: recovery is excluded while a land finishes and a completed land keeps its one receipt", async () => {
   const fixture = await readyFixture("ws-land-idempotent");
   const { root, config, forge, workspaceId } = fixture;
-  const other = makeManager(root, { config }).manager;
-  let raced = false;
-  // The land's read sees the merge; before it finishes, a recover elsewhere finishes it.
-  const racing: WorkspaceForgeFactory = (target) => {
+  const other = makeManager(root, { config: { ...config, mergeLock: { ...config.mergeLock, timeoutMs: 0 } } }).manager;
+  let excluded = false;
+  // The public lifecycle gate excludes a second finisher while this land owns the workspace.
+  const observing: WorkspaceForgeFactory = (target) => {
     const real = forgeAt(target.remoteUrl);
     return { ...real, pullRequest: async (number) => {
       const read = await real.pullRequest(number);
-      if (read.merged && !raced && other.status(workspaceId).state === "merging") {
-        raced = true;
-        await other.recover(workspaceId);
+      if (read.merged && !excluded && other.status(workspaceId).state === "merging") {
+        await assert.rejects(() => other.recover(workspaceId), throwsCode("lock_acquisition_timeout"));
+        assert.equal(other.status(workspaceId).state, "merging", "the refused recovery cannot finish or tear down the active land");
+        excluded = true;
       }
       return read;
     } };
   };
   assert.equal((await forge.enqueue(1, { expectedHeadSha: fixture.head })).kind, "enqueued");
   forge.runQueue(1);
-  const { manager } = makeManager(root, { config, forge: racing });
+  const { manager } = makeManager(root, { config, forge: observing });
   const receipt = await manager.land(workspaceId);
-  assert.ok(raced, "the recover ran between the read and the finish");
-  assert.equal(manager.status(workspaceId).state, "merged");
-  assert.deepEqual(manager.status(workspaceId).mergeReceipt, receipt, "the one receipt the recover wrote");
+  assert.ok(excluded, "recovery was excluded at the actual remote-read boundary");
+  const finished = manager.status(workspaceId);
+  assert.equal(finished.state, "merged");
+  assert.deepEqual(finished.mergeReceipt, receipt, "the successful land records its one receipt");
+  assert.deepEqual((await other.recover(workspaceId)).mergeReceipt, receipt, "a later recovery returns the completed receipt");
+  assert.deepEqual(await manager.land(workspaceId), receipt, "a repeated land returns the same completed receipt");
+  assert.equal(manager.status(workspaceId).revision, finished.revision, "idempotent terminal reads do not save another completion");
 });
 
 test("a local target that holds commits the trunk does not is not moved: the land is receipted with the follow refused, named", async () => {

@@ -233,3 +233,45 @@ test("create, list and sweep work beside a registry of v2 records, which they ne
   writeFileSync(join(legacyStore, "README.txt"), "not a record\n");
   assert.equal(manager.list().length, fixtureNames.length + 2, "only records are read");
 });
+
+
+/** A valid record is accepted only through the filename naming that same workspace. */
+function assertForeignRecordFilename(version: typeof WORKSPACE_SCHEMA_VERSION | OlderWorkspaceSchemaVersion): void {
+  const root = mkWorkspaceTempDir(`ws-record-identity-${version.slice(-2)}`);
+  const stores: WorkspaceRecordStores = { current: join(root, "workspaces-v5"), older: [
+    { version: WORKSPACE_SCHEMA_V4, directory: join(root, "workspaces-v4") },
+    { version: WORKSPACE_SCHEMA_V3, directory: join(root, "workspaces-v3") },
+    { version: WORKSPACE_SCHEMA_V2, directory: join(root, "workspaces") },
+  ] };
+  const store = createWorkspaceRecordStore(stores);
+  const current = migrateWorkspaceRecord(fixture("active-feature.json")).record;
+  const raw = version === WORKSPACE_SCHEMA_VERSION ? current : version === WORKSPACE_SCHEMA_V4 ? asV4(current) : version === WORKSPACE_SCHEMA_V3 ? asV3(current) : asV2(current);
+  const directory = version === WORKSPACE_SCHEMA_VERSION ? stores.current : olderStore(stores, version);
+  mkdirSync(directory, { recursive: true });
+  const alias = "foreign-workspace-abcdef123456";
+  const path = join(directory, `${alias}.json`);
+  writeFileSync(path, `${JSON.stringify(raw)}\n`);
+  const before = fileDigests(directory);
+  assert.throws(() => store.load(alias), throwsCode("workspace_record_invalid"));
+  assert.throws(() => store.list(), throwsCode("workspace_record_invalid"));
+  assert.deepEqual(fileDigests(directory), before, "refusal does not migrate or rewrite either subject");
+  copyFileSync(path, join(directory, `${current.workspaceId}.json`));
+  assert.equal(store.load(current.workspaceId)!.workspaceId, current.workspaceId, "the exact same valid record loads only under its own identity");
+  assert.equal(readFileSync(path, "utf8"), `${JSON.stringify(raw)}\n`);
+}
+
+test("record identity: the current store refuses another workspace under a foreign filename", () => {
+  assertForeignRecordFilename(WORKSPACE_SCHEMA_VERSION);
+});
+
+test("record identity: a v4 store refuses another workspace under a foreign filename", () => {
+  assertForeignRecordFilename(WORKSPACE_SCHEMA_V4);
+});
+
+test("record identity: a v3 store refuses another workspace under a foreign filename", () => {
+  assertForeignRecordFilename(WORKSPACE_SCHEMA_V3);
+});
+
+test("record identity: a v2 store refuses another workspace under a foreign filename", () => {
+  assertForeignRecordFilename(WORKSPACE_SCHEMA_V2);
+});
