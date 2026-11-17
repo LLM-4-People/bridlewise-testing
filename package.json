@@ -26,6 +26,7 @@
     "test": "node --experimental-strip-types scripts/run-tests.ts",
     "lessons": "node --experimental-strip-types engine/scripts/tooling/lessons.ts",
     "ws": "node --experimental-strip-types engine/src/cli.ts harness workspace",
+    "stage": "node --experimental-strip-types engine/src/cli.ts harness stage",
     "promote": "node --experimental-strip-types engine/src/cli.ts harness promote",
     "run-diff": "node --experimental-strip-types engine/scripts/tooling/run-diff.ts",
     "budget:measure": "node --experimental-strip-types scripts/testing/measure-web-budget.ts",

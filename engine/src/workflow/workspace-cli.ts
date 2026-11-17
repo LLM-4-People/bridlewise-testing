@@ -62,8 +62,25 @@ import type { PublishedRound } from "./workspace-forge.ts";
 const ENGINE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SUBCOMMANDS = ["create", "extend", "validate", "publish", "ready", "land", "merge", "recover", "abort", "snapshot", "list", "status", "sweep"] as const;
 
+/**
+ * How to work in a new workspace, printed by `create`: above all THE WAY TO
+ * STAGE (`harness stage`, src/git/index-baseline.ts), so no lane reaches for
+ * `git add -A`.
+ */
+export function workspaceInstructions(record: WorkspaceRecord): readonly string[] {
+  // A read-only workspace (a verifier's) never stages, commits or merges.
+  if (record.lease.branch === null) return deepFreeze([`read in ${record.lease.worktreePath} (read-only: it never merges)`]);
+  return deepFreeze([
+    `work in ${record.lease.worktreePath}`,
+    "stage with `harness stage <new path>…` (at the floor's root: `npm run stage -- <new path>…`): every tracked file you changed plus each new file you name, nothing unnamed; never `git add -A`, `git add .` or `git commit -a`",
+    "commit with `git commit -s` (through the hooks, never --no-verify)",
+    `qualify with \`npm run ws -- validate ${record.workspaceId} --full\`, then land with \`npm run ws -- merge ${record.workspaceId}\``,
+  ]);
+}
+
 export type WorkspaceCliOutput =
-  | Readonly<{ action: "create" | "extend" | "ready" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
+  | Readonly<{ action: "create"; record: WorkspaceRecord; instructions: readonly string[] }>
+  | Readonly<{ action: "extend" | "ready" | "recover" | "abort" | "status"; record: WorkspaceRecord }>
   | Readonly<{ action: "publish"; record: WorkspaceRecord; round: PublishedRound }>
   | Readonly<{ action: "validate"; report: ValidationReport }>
   | Readonly<{ action: "merge"; receipt: MergeReceipt }>
@@ -135,7 +152,10 @@ async function dispatch(
   };
   if (action === "create") {
     const request = parseCreateArgs(args);
-    return conflictAware("workspace create", async () => deepFreeze({ action: "create", record: await manager.create(request) }));
+    return conflictAware("workspace create", async () => {
+      const record = await manager.create(request);
+      return deepFreeze({ action: "create", record, instructions: workspaceInstructions(record) });
+    });
   }
   if (action === "extend") {
     const [workspaceId, flags] = splitId(args, "extend");
