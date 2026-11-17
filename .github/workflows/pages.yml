@@ -3,7 +3,11 @@ name: Docs site
 on:
   push:
     branches: [main]
+  # A label change re-judges the visual check: the `visual-change` label is a
+  # reviewer's declaration, read live (the visual job's declared step), and a
+  # label event re-runs only that job.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   merge_group:
   # A push builds at once, while its checks still run; the last status
   # workflow to finish at main's tip rebuilds the site with the final results
@@ -68,6 +72,7 @@ jobs:
     if: >-
       always() && github.event.repository.visibility == 'public'
       && (github.event_name != 'workflow_run' || needs.rebuild-gate.outputs.build == 'true')
+      && github.event.action != 'labeled' && github.event.action != 'unlabeled'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # A pull request's build replaces its previous one; every other build is
@@ -170,7 +175,10 @@ jobs:
     # trees and shot by one browser in one run, compared byte for byte
     # (scripts/visual/screens.ts). A changed picture needs the
     # `visual-change` label; a broken invariant never passes.
-    if: github.event.repository.visibility == 'public' && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    if: >-
+      github.event.repository.visibility == 'public'
+      && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+      && ((github.event.action != 'labeled' && github.event.action != 'unlabeled') || github.event.label.name == 'visual-change')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     concurrency:
@@ -241,13 +249,16 @@ jobs:
         id: declared
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        # A merge group's ref is GitHub's own queue branch (refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>).
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        # The pull request's labels as they are NOW, read live for every event
+        # (an event's payload holds them as they were, and a re-run reuses it).
+        # A merge group's pull request is named by its ref, GitHub's own queue
+        # branch (refs/heads/gh-readonly-queue/<base>/pr-<n>-<sha>).
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
-            PR="$(printf '%s' "$GITHUB_REF" | sed -n 's#.*/pr-\([0-9]*\)-.*#\1#p')"
-            PR_LABELS="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '[.[].name]')"
-          fi
+          PR="$PR_NUMBER"
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then PR="$(printf '%s' "$GITHUB_REF" | sed -n 's#.*/pr-\([0-9]*\)-.*#\1#p')"; fi
+          [ -n "$PR" ] || { echo "visual_pull_request_unknown: the event names no pull request whose labels to read"; exit 1; }
+          PR_LABELS="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '[.[].name]')"
           if printf '%s' "$PR_LABELS" | grep -q '"visual-change"'; then echo "flag=--change-declared" >> "$GITHUB_OUTPUT"; else echo "flag=" >> "$GITHUB_OUTPUT"; fi
 
       - name: Shoot and compare
